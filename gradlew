@@ -249,5 +249,4 @@ eval "set -- $(
         tr '\n' ' '
     )" '"$@"'
 
-export ANDROID_AAPT2=/usr/local/bin/aapt2-wrapper
 exec "$JAVACMD" "$@"
