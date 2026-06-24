@@ -2,19 +2,60 @@ package org.michimusic.player
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.michimusic.core.models.Track
+import org.michimusic.data.repository.LocalMediaRepository
 import java.io.File
 
-class PlayerController(context: Context) {
+class PlayerController(
+    context: Context,
+    audioProcessors: List<AudioProcessor> = emptyList(),
+) {
 
-    private val player: ExoPlayer = ExoPlayer.Builder(context).build()
+    private val repository = LocalMediaRepository(context)
+
+    private val audioSink = if (audioProcessors.isNotEmpty()) {
+        DefaultAudioSink.Builder(context)
+            .setAudioProcessors(audioProcessors.toTypedArray())
+            .build()
+    } else {
+        DefaultAudioSink.Builder(context).build()
+    }
+
+    private val renderersFactory = RenderersFactory { handler, _, audioListener, _, _ ->
+        arrayOf(
+            MediaCodecAudioRenderer(
+                context,
+                MediaCodecSelector.DEFAULT,
+                handler,
+                audioListener,
+                audioSink,
+            ),
+        )
+    }
+
+    private val player: ExoPlayer = ExoPlayer.Builder(context, renderersFactory)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build(),
+            /* handleAudioFocus = */ true,
+        )
+        .build()
 
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
@@ -53,6 +94,10 @@ class PlayerController(context: Context) {
             }
         })
     }
+
+    fun getRepository(): LocalMediaRepository = repository
+
+    fun getExoPlayer(): ExoPlayer = player
 
     private fun resolveUri(track: Track): Uri {
         val path = track.filepath
@@ -150,8 +195,6 @@ class PlayerController(context: Context) {
     fun toggleShuffle() {
         player.shuffleModeEnabled = !player.shuffleModeEnabled
     }
-
-    fun getExoPlayer(): ExoPlayer = player
 
     fun release() {
         player.release()

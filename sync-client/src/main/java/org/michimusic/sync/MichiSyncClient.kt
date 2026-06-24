@@ -18,6 +18,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.michimusic.core.models.FavoritesResponse
+import org.michimusic.core.models.HistoryEntry
+import org.michimusic.core.models.HistoryResponse
 import org.michimusic.core.models.LibraryResponse
 import org.michimusic.core.models.RegisterRequest
 import org.michimusic.core.models.RegisterResponse
@@ -173,25 +176,25 @@ class MichiSyncClient(
         }
     }
 
-    suspend fun fetchFavorites(): Result<List<TrackDto>> = withContext(Dispatchers.IO) {
+    suspend fun fetchFavorites(): Result<List<String>> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/favorites") {
                 header("Authorization", "Bearer $sessionToken")
             }
-            val result = json.decodeFromString<List<TrackDto>>(response.body())
-            Result.success(result)
+            val result = json.decodeFromString<FavoritesResponse>(response.body())
+            Result.success(result.tracks)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun fetchHistory(): Result<List<TrackDto>> = withContext(Dispatchers.IO) {
+    suspend fun fetchHistory(): Result<List<HistoryEntry>> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/history") {
                 header("Authorization", "Bearer $sessionToken")
             }
-            val result = json.decodeFromString<List<TrackDto>>(response.body())
-            Result.success(result)
+            val result = json.decodeFromString<HistoryResponse>(response.body())
+            Result.success(result.entries)
         } catch (e: Exception) {
             Result.failure(e)
         }

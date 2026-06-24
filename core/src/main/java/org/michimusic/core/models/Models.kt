@@ -19,6 +19,8 @@ data class Track(
     val year: Int = 0,
     val filepath: String = "",
     val source: TrackSource = TrackSource.LOCAL,
+    val replayGainTrack: Float = Float.NaN,
+    val replayGainAlbum: Float = Float.NaN,
 )
 
 enum class TrackSource {

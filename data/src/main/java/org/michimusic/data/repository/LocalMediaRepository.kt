@@ -6,27 +6,52 @@ import org.michimusic.core.models.Album
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import org.michimusic.data.local.MediaQueryDispatcher
+import org.michimusic.data.local.ReplayGainReader
 
 class LocalMediaRepository(private val context: Context) {
 
+    private var cachedTracks: List<Track>? = null
+    private var cacheTime = 0L
+
+    private val cacheTtlMs = 30_000L
+
+    fun invalidateCache() {
+        cachedTracks = null
+        cacheTime = 0L
+    }
+
     fun loadTracks(): List<Track> {
-        val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.Audio.Media._ID,
-            MediaStore.Audio.Media.TITLE,
-            MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.ALBUM,
-            MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA,
-            MediaStore.Audio.Media.TRACK,
-            MediaStore.Audio.Media.YEAR,
-            MediaStore.Audio.Media.SIZE,
-            MediaStore.Audio.Media.MIME_TYPE,
-        )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} = 1"
-        val cursor = context.contentResolver.query(uri, projection, selection, null, "${MediaStore.Audio.Media.ALBUM} ASC, ${MediaStore.Audio.Media.TRACK} ASC")
-            ?: return emptyList()
+        val now = System.currentTimeMillis()
+        if (cachedTracks != null && now - cacheTime < cacheTtlMs) {
+            return cachedTracks!!
+        }
+        val tracks = queryTracks()
+        cachedTracks = tracks
+        cacheTime = now
+        return tracks
+    }
+
+    private fun queryTracks(): List<Track> {
+        val cursor = MediaQueryDispatcher(context.contentResolver)
+            .withColumns(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.TRACK,
+                MediaStore.Audio.Media.YEAR,
+                MediaStore.Audio.Media.SIZE,
+                MediaStore.Audio.Media.MIME_TYPE,
+            )
+            .setSelection("${MediaStore.Audio.Media.IS_MUSIC} = 1")
+            .setSortOrder("${MediaStore.Audio.Media.ALBUM} ASC, ${MediaStore.Audio.Media.TRACK} ASC")
+            .dispatch()
+
+        if (cursor == null) return emptyList()
 
         val tracks = mutableListOf<Track>()
         cursor.use { c ->
@@ -45,6 +70,7 @@ class LocalMediaRepository(private val context: Context) {
             while (c.moveToNext()) {
                 val id = c.getString(idCol) ?: continue
                 val data = c.getString(dataCol) ?: continue
+                val replayGain = ReplayGainReader.read(data)
                 tracks.add(
                     Track(
                         id = "local_$id",
@@ -59,6 +85,8 @@ class LocalMediaRepository(private val context: Context) {
                         filepath = data,
                         source = TrackSource.LOCAL,
                         coverId = c.getLong(albumIdCol).toString(),
+                        replayGainTrack = replayGain.trackGain,
+                        replayGainAlbum = replayGain.albumGain,
                     )
                 )
             }
@@ -94,13 +122,18 @@ class LocalMediaRepository(private val context: Context) {
         val allTracks = loadTracks()
         val trackById = allTracks.associateBy { it.id }
 
-        val uri = MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI
-        val projection = arrayOf(
-            MediaStore.Audio.Playlists._ID,
-            MediaStore.Audio.Playlists.NAME,
+        val cursor = MediaQueryDispatcher(
+            context.contentResolver,
+            MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI,
         )
-        val cursor = context.contentResolver.query(uri, projection, null, null, "${MediaStore.Audio.Playlists.DATE_MODIFIED} DESC")
-            ?: return emptyList()
+            .withColumns(
+                MediaStore.Audio.Playlists._ID,
+                MediaStore.Audio.Playlists.NAME,
+            )
+            .setSortOrder("${MediaStore.Audio.Playlists.DATE_MODIFIED} DESC")
+            .dispatch()
+
+        if (cursor == null) return emptyList()
 
         val result = mutableListOf<Pair<Playlist, List<Track>>>()
         cursor.use { c ->
@@ -125,13 +158,19 @@ class LocalMediaRepository(private val context: Context) {
         return result
     }
 
-    private fun loadPlaylistTracks(playlistId: Long, trackById: Map<String, Track>): List<Track> {
-        val uri = MediaStore.Audio.Playlists.Members.getContentUri("external", playlistId)
-        val projection = arrayOf(
-            MediaStore.Audio.Playlists.Members.AUDIO_ID,
+    private fun loadPlaylistTracks(
+        playlistId: Long,
+        trackById: Map<String, Track>,
+    ): List<Track> {
+        val cursor = MediaQueryDispatcher(
+            context.contentResolver,
+            MediaStore.Audio.Playlists.Members.getContentUri("external", playlistId),
         )
-        val cursor = context.contentResolver.query(uri, projection, null, null, "${MediaStore.Audio.Playlists.Members.PLAY_ORDER} ASC")
-            ?: return emptyList()
+            .withColumns(MediaStore.Audio.Playlists.Members.AUDIO_ID)
+            .setSortOrder("${MediaStore.Audio.Playlists.Members.PLAY_ORDER} ASC")
+            .dispatch()
+
+        if (cursor == null) return emptyList()
 
         val tracks = mutableListOf<Track>()
         cursor.use { c ->

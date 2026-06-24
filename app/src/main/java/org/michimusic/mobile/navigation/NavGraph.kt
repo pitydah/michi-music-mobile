@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
@@ -30,6 +31,7 @@ import org.michimusic.mobile.ui.screens.AlbumsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
+import org.michimusic.mobile.ui.screens.RemoteScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 data class BottomNavItem(
@@ -42,6 +44,7 @@ val bottomNavItems = listOf(
     BottomNavItem("home", "Inicio", Icons.Default.Home),
     BottomNavItem("library", "Biblioteca", Icons.Default.LibraryMusic),
     BottomNavItem("nowplaying", "Reproduciendo", Icons.Default.MusicNote),
+    BottomNavItem("remote", "Remoto", Icons.Default.Cast),
     BottomNavItem("sync", "Sync", Icons.Default.Sync),
     BottomNavItem("settings", "Ajustes", Icons.Default.Settings),
 )
@@ -91,6 +94,7 @@ fun MichiNavHost() {
                 composable("playlist") { PlaylistScreen() }
                 composable("nowplaying") { NowPlayingScreen() }
                 composable("sync") { SyncScreen() }
+                composable("remote") { RemoteScreen() }
                 composable("settings") { SettingsScreen() }
             }
 

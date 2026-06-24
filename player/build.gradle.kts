@@ -37,6 +37,10 @@ dependencies {
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
+    implementation(libs.media3.common.ktx)
+
+    implementation(libs.guava)
+    implementation(libs.coroutines.guava)
 
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.lifecycle.viewmodel.compose)

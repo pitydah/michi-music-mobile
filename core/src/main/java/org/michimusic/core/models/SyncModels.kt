@@ -108,3 +108,19 @@ data class SyncManifest(
     @SerialName("total_size") val totalSize: Long = 0L,
     @SerialName("last_sync") val lastSync: Long = 0L,
 )
+
+@Serializable
+data class FavoritesResponse(
+    val tracks: List<String> = emptyList(),
+)
+
+@Serializable
+data class HistoryEntry(
+    @SerialName("track_id") val trackId: String,
+    @SerialName("played_at") val playedAt: Long = 0L,
+)
+
+@Serializable
+data class HistoryResponse(
+    val entries: List<HistoryEntry> = emptyList(),
+)
