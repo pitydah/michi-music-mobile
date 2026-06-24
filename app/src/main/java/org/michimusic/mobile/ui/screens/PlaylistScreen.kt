@@ -24,7 +24,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.activity.ComponentActivity
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
@@ -37,7 +39,9 @@ import org.michimusic.player.MichiPlaybackService
 
 @Composable
 fun PlaylistScreen() {
-    val viewModel: AlbumsViewModel = koinViewModel()
+    val viewModel: AlbumsViewModel = koinViewModel(
+        viewModelStoreOwner = LocalContext.current as ComponentActivity,
+    )
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val playlistName = "Todas las canciones"

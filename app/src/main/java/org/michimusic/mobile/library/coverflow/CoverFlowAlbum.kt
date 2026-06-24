@@ -7,4 +7,5 @@ data class CoverFlowAlbum(
     val year: Int,
     val trackCount: Int,
     val hasArt: Boolean = true,
+    val coverUri: String = "",
 )

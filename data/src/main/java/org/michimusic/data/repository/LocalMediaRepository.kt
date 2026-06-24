@@ -3,6 +3,7 @@ package org.michimusic.data.repository
 import android.content.Context
 import android.provider.MediaStore
 import org.michimusic.core.models.Album
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 
@@ -87,5 +88,59 @@ class LocalMediaRepository(private val context: Context) {
                 tracks = albumTracks,
             )
         }.sortedBy { it.album.title }
+    }
+
+    fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {
+        val allTracks = loadTracks()
+        val trackById = allTracks.associateBy { it.id }
+
+        val uri = MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Audio.Playlists._ID,
+            MediaStore.Audio.Playlists.NAME,
+        )
+        val cursor = context.contentResolver.query(uri, projection, null, null, "${MediaStore.Audio.Playlists.DATE_MODIFIED} DESC")
+            ?: return emptyList()
+
+        val result = mutableListOf<Pair<Playlist, List<Track>>>()
+        cursor.use { c ->
+            val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Playlists._ID)
+            val nameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Playlists.NAME)
+
+            while (c.moveToNext()) {
+                val playlistId = c.getLong(idCol)
+                val name = c.getString(nameCol) ?: continue
+
+                val tracks = loadPlaylistTracks(playlistId, trackById)
+                result.add(
+                    Playlist(
+                        id = "pl_$playlistId",
+                        name = name,
+                        trackIds = tracks.map { it.id },
+                        trackCount = tracks.size,
+                    ) to tracks
+                )
+            }
+        }
+        return result
+    }
+
+    private fun loadPlaylistTracks(playlistId: Long, trackById: Map<String, Track>): List<Track> {
+        val uri = MediaStore.Audio.Playlists.Members.getContentUri("external", playlistId)
+        val projection = arrayOf(
+            MediaStore.Audio.Playlists.Members.AUDIO_ID,
+        )
+        val cursor = context.contentResolver.query(uri, projection, null, null, "${MediaStore.Audio.Playlists.Members.PLAY_ORDER} ASC")
+            ?: return emptyList()
+
+        val tracks = mutableListOf<Track>()
+        cursor.use { c ->
+            val audioIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Playlists.Members.AUDIO_ID)
+            while (c.moveToNext()) {
+                val audioId = c.getLong(audioIdCol)
+                trackById["local_$audioId"]?.let { tracks.add(it) }
+            }
+        }
+        return tracks
     }
 }

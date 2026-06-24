@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,8 +32,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.activity.ComponentActivity
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
@@ -46,7 +50,9 @@ import org.michimusic.player.MichiPlaybackService
 
 @Composable
 fun HomeScreen() {
-    val viewModel: AlbumsViewModel = koinViewModel()
+    val viewModel: AlbumsViewModel = koinViewModel(
+        viewModelStoreOwner = LocalContext.current as ComponentActivity,
+    )
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
@@ -169,9 +175,20 @@ fun HomeScreen() {
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { controller?.playQueue(allTracks, index) }
-                            .padding(horizontal = 4.dp, vertical = 8.dp),
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        AsyncImage(
+                            model = if (track.coverId.isNotEmpty())
+                                "content://media/external/audio/albumart/${track.coverId}"
+                            else "",
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(6.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
                                 text = track.title,
