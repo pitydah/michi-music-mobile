@@ -1,0 +1,5 @@
+-keepattributes *Annotation*
+-keep class kotlinx.serialization.** { *; }
+-keepclassmembers class org.michimusic.core.models.** { *; }
+-keepclassmembers class org.michimusic.sync.models.** { *; }
+-keep class org.michimusic.player.MichiPlaybackService { *; }
