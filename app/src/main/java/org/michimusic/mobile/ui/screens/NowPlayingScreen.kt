@@ -1,5 +1,7 @@
+@file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
+import coil.compose.AsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,11 +19,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
@@ -43,11 +46,18 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.player.MichiPlaybackService
 
 @Composable
 fun NowPlayingScreen() {
-    val controller = remember { org.michimusic.player.MichiPlaybackService.companionController }
-    val state by controller?.state?.collectAsState() ?: remember { androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState()) }
+    val controller = remember { MichiPlaybackService.companionController }
+    val state by controller?.state?.collectAsState() ?: remember {
+        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
+    }
+    val track = state.currentTrack
+    val coverUri = track?.let {
+        if (it.coverId.isNotEmpty()) "content://media/external/audio/albumart/${it.coverId}" else null
+    }
 
     Column(
         modifier = Modifier
@@ -63,7 +73,7 @@ fun NowPlayingScreen() {
             color = TextPrimary,
         )
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
 
         Box(
             modifier = Modifier
@@ -84,21 +94,30 @@ fun NowPlayingScreen() {
                         .background(org.michimusic.mobile.ui.theme.SurfaceGlass),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("♫", style = MaterialTheme.typography.displayLarge, color = TextDim)
+                    if (coverUri != null) {
+                        AsyncImage(
+                            model = coverUri,
+                            contentDescription = track?.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Text("♫", style = MaterialTheme.typography.displayLarge, color = TextDim)
+                    }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(20.dp))
 
-                if (state.currentTrack != null) {
+                if (track != null) {
                     Text(
-                        text = state.currentTrack!!.title,
+                        text = track.title,
                         style = MaterialTheme.typography.titleLarge,
                         color = TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = state.currentTrack!!.artist,
+                        text = track.artist,
                         style = MaterialTheme.typography.bodyLarge,
                         color = TextSecondary,
                         maxLines = 1,
@@ -177,23 +196,6 @@ fun NowPlayingScreen() {
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, null, tint = TextMuted, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Slider(
-                    value = 0.7f,
-                    onValueChange = { },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
         if (state.queue.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -207,7 +209,7 @@ fun NowPlayingScreen() {
                     .fillMaxWidth()
                     .height(120.dp),
             ) {
-                itemsIndexed(state.queue) { index, track ->
+                itemsIndexed(state.queue) { index, t ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -230,7 +232,7 @@ fun NowPlayingScreen() {
                             )
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    text = track.title,
+                                    text = t.title,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (index == state.queueIndex) AccentPink else TextPrimary,
                                     maxLines = 1,
@@ -238,7 +240,7 @@ fun NowPlayingScreen() {
                                 )
                             }
                             Text(
-                                text = formatDuration(track.duration),
+                                text = formatDuration(t.duration),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextDim,
                             )

@@ -13,6 +13,11 @@ import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,11 +64,13 @@ class PlayerController(
 
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+    private var positionJob: kotlinx.coroutines.Job? = null
 
     init {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _state.value = _state.value.copy(isPlaying = isPlaying)
+                if (isPlaying) startPositionUpdates() else stopPositionUpdates()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -73,6 +80,7 @@ class PlayerController(
                     _state.value = _state.value.copy(
                         currentTrack = queue[index],
                         queueIndex = index,
+                        position = 0L,
                     )
                 }
             }
@@ -93,6 +101,21 @@ class PlayerController(
                 _state.value = _state.value.copy(shuffleMode = shuffleModeEnabled)
             }
         })
+    }
+
+    private fun startPositionUpdates() {
+        stopPositionUpdates()
+        positionJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            while (isActive) {
+                _state.value = _state.value.copy(position = player.currentPosition)
+                kotlinx.coroutines.delay(250)
+            }
+        }
+    }
+
+    private fun stopPositionUpdates() {
+        positionJob?.cancel()
+        positionJob = null
     }
 
     fun getRepository(): LocalMediaRepository = repository
@@ -197,6 +220,7 @@ class PlayerController(
     }
 
     fun release() {
+        stopPositionUpdates()
         player.release()
     }
 }
