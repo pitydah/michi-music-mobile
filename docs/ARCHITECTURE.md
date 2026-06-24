@@ -1,78 +1,90 @@
-# Michi Music Mobile — Architecture
+# Architecture — Michi Music Mobile
 
 ## Overview
 
-Michi Music Mobile is the Android companion app for [Michi Music Player](https://github.com/pitydah/michi-music-player) (Linux/KDE desktop).
+Michi Music Mobile is an Android companion app for Michi Music Player (KDE/Linux).
+It syncs music wirelessly from a KDE desktop to an Android device over the local network.
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Michi Music Mobile                     │
-├──────────────────────────────────────────────────────────┤
-│  UI Layer: Jetpack Compose + Material 3                  │
-│  ├── HomeScreen / LibraryScreen / NowPlayingScreen       │
-│  ├── SyncScreen / SettingsScreen / AudioRouteScreen      │
-│  └── RemoteScreen (control remoto de KDE)               │
-├──────────────────────────────────────────────────────────┤
-│  Player: AndroidX Media3 / ExoPlayer                     │
-│  ├── MichiPlaybackService (MediaSessionService)          │
-│  ├── PlayerController / PlayerViewModel                  │
-│  └── AudioRoute detection (BT LDAC, USB DAC, speakers)  │
-├──────────────────────────────────────────────────────────┤
-│  Data Layer: Room + MediaStore                           │
-│  ├── Room (SQLite FTS4) — cache de biblioteca KDE       │
-│  └── MediaStore — archivos locales del dispositivo       │
-├──────────────────────────────────────────────────────────┤
-│  Sync Client: Ktor HTTP + UDP Multicast Discovery        │
-│  ├── DiscoveryClient (UDP 224.0.0.167:53318)             │
-│  ├── MichiSyncClient (REST API + streaming)              │
-│  └── SyncTransferManager (descarga incremental)          │
-├──────────────────────────────────────────────────────────┤
-│  Remote Control: Ktor HTTP                               │
-│  ├── RemoteControlClient (controla KDE por red)          │
-│  └── RemoteViewModel                                     │
-├──────────────────────────────────────────────────────────┤
-│  Core: Modelos compartidos + Koin DI                     │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                  Presentation                    │
+│   SyncScreen  ·  LibraryScreen  ·  NowPlaying   │
+│   (Compose + Material 3)                        │
+├─────────────────────────────────────────────────┤
+│                  Application                    │
+│   Navigation  ·  DI (Koin)  ·  ViewModels       │
+├─────────────────────────────────────────────────┤
+│               Sync Client                       │
+│   MichiSyncApiClient (OkHttp)                   │
+│   DiscoveryClient (UDP multicast)               │
+│   SyncDtos (kotlinx.serialization)              │
+├─────────────────────────────────────────────────┤
+│                Data Layer                       │
+│   Room Database  ·  TrackDao  ·  Repositories   │
+├─────────────────────────────────────────────────┤
+│                Player (future)                  │
+│   Media3 / ExoPlayer  ·  MediaSessionService    │
+├─────────────────────────────────────────────────┤
+│                   Core                          │
+│   Domain models  ·  DTOs  ·  Utilities          │
+└─────────────────────────────────────────────────┘
 ```
 
-## Key Decisions
+## Modules
 
-| Decision | Rationale |
-|----------|-----------|
-| Kotlin + Jetpack Compose | UI declarativa moderna, Material 3, animations nativas |
-| API 31+ | BluetoothCodecStatus accesible, Material You dinámico |
-| Room + MediaStore | Room para library sync desde KDE; MediaStore para archivos locales |
-| Ktor (no Retrofit) | Multiplataforma, liviano, F-Droid safe, Apache 2.0 |
-| Koin (no Hilt) | Sin annotation processing, velocidad compilación, F-Droid safe |
-| No Google Play Services | F-Droid compliance, sin dependencias privativas |
+| Module | Responsibility | Depends on |
+|--------|---------------|------------|
+| `:app` | UI, navigation, DI wiring, sync screen | `:core`, `:data`, `:sync-client`, `:player`, `:remote` |
+| `:core` | Domain models (`Track`, `Album`, `Artist`, DTOs) | — |
+| `:data` | Room database, DAOs, repositories | `:core` |
+| `:sync-client` | OkHttp/Ktor HTTP client, UDP discovery, transfer manager | `:core`, `:data` |
+| `:player` | Media3 ExoPlayer service, playback state | `:core` |
+| `:remote` | Remote control client for KDE (future) | `:core` |
 
-## Architecture Patterns
+## Sync Architecture
 
-### Dependency Injection
-- All dependencies via Koin modules
-- ViewModels receive repositories via `koinInject()` or constructor inject
+### Registration Flow
+1. Android sends `POST /api/register` with device info
+2. KDE returns a `session_token` (64-char hex Bearer token)
+3. Android stores token in memory + SharedPreferences
+4. All subsequent requests include `Authorization: Bearer <token>`
 
-### PlayerService as Facade
-- UI never touches Media3 ExoPlayer directly
-- `PlayerController` wraps ExoPlayer + MediaSession
-- `PlayerViewModel` exposes state as Compose State
+### Library Sync Flow
+1. Android calls `GET /api/library` with Bearer token
+2. KDE returns full library as JSON (TrackDto array)
+3. Android saves to Room database (`cached_tracks` table)
+4. Optional: fetch sync manifest via `GET /api/sync/manifest?device_id=X`
+5. Download tracks via `GET /api/stream/{track_id}` with Range-Request support
 
-### Repository Pattern
-- `LibraryRepository` wraps Room (KDE tracks) + MediaStore (local files)
-- `SyncRepository` wraps Ktor client + download manager
+### Streaming Protocol
+- Android uses Range-Request headers for progressive download / resume
+- Default chunk size: 65 KB
+- Server responds with `206 Partial Content` + `Content-Range`
+- MIME types: `audio/flac`, `audio/mpeg`, `audio/ogg`, `audio/wav`, `audio/mp4`, etc.
 
-### Single Activity
-- One `MainActivity` with Compose navigation
-- Bottom navigation with 5 tabs
-- Additional screens (AudioRoute, Remote) via route navigation
+### State Sync (bidirectional)
+- Android sends `POST /api/sync/state` with play counts and favorites
+- KDE updates its database and returns `{"synced": N}`
 
-## Project Modules
+## Key Design Decisions
 
-| Module | Responsibility |
-|--------|---------------|
-| `:app` | UI, navigation, DI wiring |
-| `:core` | Shared models (Track, Album, Sync DTOs) |
-| `:data` | Room database, MediaStore reader, repositories |
-| `:player` | Media3 ExoPlayer service, playback state |
-| `:sync-client` | Ktor HTTP client, UDP discovery, transfer manager |
-| `:remote` | Remote control client for KDE |
+### OkHttp over platform HTTP
+- Explicit connection timeouts (10s connect, 30s read/write)
+- Manual Range-Request handling for streaming
+- Compatible with coroutines via `withContext(Dispatchers.IO)`
+
+### Room for cache
+- Synced library stored in `michi-sync.db`
+- Track metadata + download status
+- Album art cached separately on filesystem
+
+### UDP Discovery (future)
+- Multicast group `224.0.0.167:53318`
+- MulticastLock via WifiManager to prevent packet loss in sleep
+- 15-second peer timeout before marking as lost
+
+## Related Documentation
+
+- [MICHI_SYNC_PROTOCOL.md](MICHI_SYNC_PROTOCOL.md) — Wire protocol specification
+- [KDE_INTEGRATION.md](KDE_INTEGRATION.md) — Integration details with KDE codebase
+- [AUDIO_ROUTE_LDAC.md](AUDIO_ROUTE_LDAC.md) — Bluetooth Hi-Res output design

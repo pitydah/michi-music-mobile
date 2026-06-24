@@ -1,0 +1,36 @@
+Michi Music Mobile
+Copyright (C) 2024  Michi Music Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+Third-Party Components
+
+This application incorporates components from the following third-party
+projects:
+
+1. DiscreteScrollView
+   - Copyright 2017 Yaroslav Shevchuk
+   - Licensed under the Apache License, Version 2.0
+   - https://github.com/yarolegovich/DiscreteScrollView
+   - See docs/THIRD_PARTY.md for details
+
+2. Kotlin Serialization
+   - Copyright 2017-2024 JetBrains s.r.o.
+   - Licensed under the Apache License, Version 2.0
+
+3. OkHttp
+   - Copyright 2016 Square, Inc.
+   - Licensed under the Apache License, Version 2.0

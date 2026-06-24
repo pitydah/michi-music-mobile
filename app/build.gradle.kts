@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
 
@@ -56,6 +57,8 @@ dependencies {
     implementation(project(":remote"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.cardview)
+    implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
 
@@ -75,6 +78,11 @@ dependencies {
 
     implementation(libs.coil.compose)
 
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
+
+    implementation(libs.discrete.scrollview)
 }

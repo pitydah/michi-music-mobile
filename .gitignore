@@ -14,3 +14,4 @@ local.properties
 /player/build
 /sync-client/build
 /remote/build
+.kotlin

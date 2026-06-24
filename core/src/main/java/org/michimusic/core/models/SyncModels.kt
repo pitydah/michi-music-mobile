@@ -1,12 +1,13 @@
 package org.michimusic.core.models
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class DeviceInfo(
     val alias: String,
     val device: String = "android",
-    val deviceModel: String = "",
+    @SerialName("device_model") val deviceModel: String = "",
     val port: Int = 0,
     val version: String = "1.0",
 )
@@ -15,26 +16,26 @@ data class DeviceInfo(
 data class SessionToken(
     val token: String,
     val createdAt: Long = 0L,
-    val deviceAlias: String = "",
-    val deviceType: String = "",
-    val expiresIn: Long = 3600L,
+    @SerialName("device_alias") val deviceAlias: String = "",
+    @SerialName("device_type") val deviceType: String = "",
+    @SerialName("expires_in") val expiresIn: Long = 3600L,
 )
 
 @Serializable
 data class RegisterRequest(
     val alias: String,
     val device: String = "android",
-    val deviceModel: String = "",
+    @SerialName("device_model") val deviceModel: String = "",
     val port: Int = 0,
-    val clientDeviceId: String = "",
+    @SerialName("client_device_id") val clientDeviceId: String = "",
 )
 
 @Serializable
 data class RegisterResponse(
-    val sessionToken: String,
-    val serverDeviceId: String,
-    val clientDeviceId: String,
-    val librarySize: Int,
+    @SerialName("session_token") val sessionToken: String,
+    @SerialName("server_device_id") val serverDeviceId: String,
+    @SerialName("client_device_id") val clientDeviceId: String,
+    @SerialName("library_size") val librarySize: Int,
     val version: String = "1.0",
 )
 
@@ -53,28 +54,57 @@ data class TrackDto(
     val artist: String = "",
     val album: String = "",
     val duration: Int = 0,
-    val size: Int = 0,
+    val size: Long = 0,
     val format: String = "",
     val bitrate: Int = 0,
-    val sampleRate: Int = 0,
+    @SerialName("sample_rate") val sampleRate: Int = 0,
     val channels: Int = 0,
-    val coverId: String = "",
-    val trackNumber: Int = 0,
+    @SerialName("cover_id") val coverId: String = "",
+    @SerialName("track_number") val trackNumber: Int = 0,
     val year: Int = 0,
 )
 
 @Serializable
 data class SyncStateEntry(
-    val trackId: String,
-    val playCount: Int = 0,
-    val lastPlayed: Long = 0L,
+    @SerialName("track_id") val trackId: String,
+    @SerialName("play_count") val playCount: Int = 0,
+    @SerialName("last_played") val lastPlayed: Long = 0L,
     val favorite: Boolean = false,
 )
 
 @Serializable
+data class AnnounceMessage(
+    val type: String = "announce",
+    val alias: String = "",
+    val device: String = "desktop",
+    val port: Int = 53318,
+    val version: String = "1.0",
+    @SerialName("device_model") val deviceModel: String = "",
+    @SerialName("device_id") val deviceId: String = "",
+)
+
+@Serializable
+data class DiscoveredPeer(
+    val alias: String,
+    val ip: String,
+    val port: Int = 53318,
+    @SerialName("device_type") val deviceType: String = "desktop",
+    @SerialName("device_id") val deviceId: String = "",
+    val version: String = "1.0",
+)
+
+enum class SyncConnectionState {
+    DISCONNECTED,
+    DISCOVERING,
+    CONNECTING,
+    CONNECTED,
+    ERROR,
+}
+
+@Serializable
 data class SyncManifest(
-    val deviceId: String,
+    @SerialName("device_id") val deviceId: String,
     val tracks: List<String> = emptyList(),
-    val totalSize: Long = 0L,
-    val lastSync: Long = 0L,
+    @SerialName("total_size") val totalSize: Long = 0L,
+    @SerialName("last_sync") val lastSync: Long = 0L,
 )

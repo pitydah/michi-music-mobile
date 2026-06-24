@@ -1,5 +1,7 @@
 package org.michimusic.mobile.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -7,6 +9,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -22,12 +25,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import org.michimusic.mobile.ui.components.MiniPlayer
+import org.michimusic.mobile.ui.screens.AlbumsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
-import org.michimusic.mobile.ui.screens.LibraryScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
+import org.michimusic.mobile.ui.screens.PlaylistScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
-
 data class BottomNavItem(
     val route: String,
     val label: String,
@@ -72,16 +76,27 @@ fun MichiNavHost() {
             }
         },
     ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.padding(innerPadding),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
         ) {
-            composable("home") { HomeScreen() }
-            composable("library") { LibraryScreen() }
-            composable("nowplaying") { NowPlayingScreen() }
-            composable("sync") { SyncScreen() }
-            composable("settings") { SettingsScreen() }
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                composable("home") { HomeScreen() }
+                composable("library") { AlbumsScreen() }
+                composable("playlist") { PlaylistScreen() }
+                composable("nowplaying") { NowPlayingScreen() }
+                composable("sync") { SyncScreen() }
+                composable("settings") { SettingsScreen() }
+            }
+
+            MiniPlayer(
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
 }

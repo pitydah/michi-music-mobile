@@ -40,4 +40,7 @@ dependencies {
 
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
+
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 }

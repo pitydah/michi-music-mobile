@@ -32,4 +32,10 @@ interface TrackDao {
 
     @Query("SELECT COUNT(*) FROM cached_tracks")
     suspend fun count(): Int
+
+    @Query("SELECT * FROM cached_tracks WHERE downloaded = 0")
+    suspend fun getUndownloaded(): List<CachedTrack>
+
+    @Query("UPDATE cached_tracks SET downloaded = 1 WHERE id = :id")
+    suspend fun markDownloaded(id: String)
 }
