@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +43,7 @@ import org.michimusic.player.MichiPlaybackService
 @Composable
 fun MiniPlayer(
     modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
 ) {
     val controller = remember { MichiPlaybackService.companionController }
     val state by controller?.state?.collectAsState() ?: remember {
@@ -52,6 +54,7 @@ fun MiniPlayer(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .background(SurfaceElevated, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {

@@ -37,6 +37,7 @@ class RemoteViewModel(
     }
 
     fun connect(peerIp: String, token: String) {
+        client?.close()
         val c = RemoteApiClient(
             baseUrl = "http://$peerIp:8124",
             bearerToken = token,
@@ -71,6 +72,12 @@ class RemoteViewModel(
         }
     }
 
+    fun retry() {
+        client?.let {
+            startPolling(it)
+        } ?: connectIfNeeded()
+    }
+
     fun play() { execute { client?.play() } }
     fun pause() { execute { client?.pause() } }
     fun togglePlayPause() {
@@ -91,6 +98,7 @@ class RemoteViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        disconnect()
+        pollingJob?.cancel()
+        client?.close()
     }
 }

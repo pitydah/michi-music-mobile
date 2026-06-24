@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement

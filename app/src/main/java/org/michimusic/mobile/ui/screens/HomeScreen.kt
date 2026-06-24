@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
@@ -25,6 +26,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,7 +52,9 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.MichiPlaybackService
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(
+    onNavigateToSearch: () -> Unit = {},
+) {
     val viewModel: AlbumsViewModel = koinViewModel(
         viewModelStoreOwner = LocalContext.current as ComponentActivity,
     )
@@ -72,7 +77,31 @@ fun HomeScreen() {
             color = TextPrimary,
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
+
+        TextField(
+            value = "",
+            onValueChange = { onNavigateToSearch() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .clickable(onClick = onNavigateToSearch),
+            placeholder = { Text("Buscar canciones...", color = TextMuted) },
+            leadingIcon = {
+                Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted)
+            },
+            readOnly = true,
+            singleLine = true,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = SurfaceElevated,
+                unfocusedContainerColor = SurfaceElevated,
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+            ),
+            shape = RoundedCornerShape(14.dp),
+        )
+
+        Spacer(Modifier.height(12.dp))
 
         if (isLoading) {
             Column(

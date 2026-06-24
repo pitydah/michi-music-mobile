@@ -32,6 +32,7 @@ import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
+import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
@@ -90,18 +91,20 @@ fun MichiNavHost() {
                 startDestination = "home",
                 modifier = Modifier.fillMaxSize(),
             ) {
-                composable("home") { HomeScreen() }
+                composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
                 composable("library") { AlbumsScreen() }
                 composable("playlist") { PlaylistScreen() }
                 composable("nowplaying") { NowPlayingScreen() }
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
                 composable("synced") { SyncedTracksScreen() }
+                composable("search") { SearchScreen() }
                 composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
                 composable("settings") { SettingsScreen() }
             }
 
             MiniPlayer(
                 modifier = Modifier.align(Alignment.BottomCenter),
+                onClick = { navController.navigate("nowplaying") },
             )
         }
     }
