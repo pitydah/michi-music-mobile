@@ -3,6 +3,9 @@ package org.michimusic.sync
 import android.content.Context
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,15 +63,22 @@ class SyncTransferManager(
         onProgress: (Int, Int) -> Unit = { _, _ -> },
     ): Map<String, Result<File>> = withContext(Dispatchers.IO) {
         val total = trackIds.size
-        val results = mutableMapOf<String, Result<File>>()
+        val mutex = Any()
         var completed = 0
+        val results = mutableMapOf<String, Result<File>>()
 
-        for ((id, title) in trackIds) {
-            if (!isActive) break
-            val result = downloadTrack(client, id, title, "")
-            results[id] = result
-            completed++
-            onProgress(completed, total)
+        coroutineScope {
+            trackIds.map { (id, title) ->
+                async {
+                    val result = downloadTrack(client, id, title, "")
+                    synchronized(mutex) {
+                        results[id] = result
+                        completed++
+                        onProgress(completed, total)
+                    }
+                    result
+                }
+            }.awaitAll()
         }
 
         results
