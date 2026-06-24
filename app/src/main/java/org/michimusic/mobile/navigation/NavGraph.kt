@@ -34,6 +34,7 @@ import org.michimusic.mobile.ui.screens.PlaylistScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
+import org.michimusic.mobile.ui.screens.SyncedTracksScreen
 data class BottomNavItem(
     val route: String,
     val label: String,
@@ -93,8 +94,9 @@ fun MichiNavHost() {
                 composable("library") { AlbumsScreen() }
                 composable("playlist") { PlaylistScreen() }
                 composable("nowplaying") { NowPlayingScreen() }
-                composable("sync") { SyncScreen() }
-                composable("remote") { RemoteScreen() }
+                composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
+                composable("synced") { SyncedTracksScreen() }
+                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
                 composable("settings") { SettingsScreen() }
             }
 

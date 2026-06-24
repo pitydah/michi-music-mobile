@@ -124,8 +124,8 @@ class SyncViewModel(
         val downloaded = results.count { it.value.isSuccess }
 
         results.forEach { (id, result) ->
-            if (result.isSuccess) {
-                trackRepository.markDownloaded(id)
+            result.onSuccess { file ->
+                trackRepository.markDownloadedWithPath(id, file.absolutePath)
             }
         }
 

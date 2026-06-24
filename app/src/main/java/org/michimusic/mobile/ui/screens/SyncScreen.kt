@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import org.michimusic.mobile.sync.SyncViewModel
 
 @Composable
 fun SyncScreen(
+    onNavigateToSynced: () -> Unit = {},
     viewModel: SyncViewModel = koinViewModel(),
 ) {
     val peers by viewModel.peers.collectAsStateWithLifecycle()
@@ -89,6 +91,7 @@ fun SyncScreen(
                         syncProgress = syncProgress,
                         onSync = viewModel::syncLibrary,
                         onDisconnect = viewModel::disconnect,
+                        onNavigateToSynced = onNavigateToSynced,
                     )
                 }
 
@@ -263,6 +266,7 @@ private fun ConnectedState(
     syncProgress: SyncProgress,
     onSync: () -> Unit,
     onDisconnect: () -> Unit,
+    onNavigateToSynced: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
@@ -357,6 +361,12 @@ private fun ConnectedState(
                         )
                         Text("${syncProgress.tracks} canciones en biblioteca")
                         Text("${syncProgress.downloaded} descargadas")
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = onNavigateToSynced) {
+                            Icon(Icons.Default.List, contentDescription = null)
+                            Spacer(Modifier.size(4.dp))
+                            Text("Ver biblioteca")
+                        }
                     }
                 }
             }

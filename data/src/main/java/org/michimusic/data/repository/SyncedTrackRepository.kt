@@ -23,6 +23,10 @@ class SyncedTrackRepository(
     suspend fun markDownloaded(id: String) {
         trackDao.markDownloaded(id)
     }
+
+    suspend fun markDownloadedWithPath(id: String, filepath: String) {
+        trackDao.markDownloadedWithPath(id, filepath)
+    }
 }
 
 private fun TrackDto.toCachedTrack() = CachedTrack(

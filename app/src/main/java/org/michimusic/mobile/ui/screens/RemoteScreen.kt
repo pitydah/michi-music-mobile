@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VolumeUp
@@ -45,6 +46,7 @@ import org.michimusic.mobile.remote.RemoteViewModel
 
 @Composable
 fun RemoteScreen(
+    onNavigateToSync: () -> Unit = {},
     viewModel: RemoteViewModel = koinViewModel(),
 ) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
@@ -79,10 +81,14 @@ fun RemoteScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Conéctate a un servidor Michi desde la pantalla Sync",
+                    "Conéctate a un servidor Michi para controlar la reproducción desde tu teléfono",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = onNavigateToSync) {
+                    Text("Ir a Sync")
+                }
             } else {
                 AlbumArt(
                     coverUrl = playerState.coverUrl,

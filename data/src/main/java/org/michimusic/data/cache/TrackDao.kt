@@ -38,4 +38,7 @@ interface TrackDao {
 
     @Query("UPDATE cached_tracks SET downloaded = 1 WHERE id = :id")
     suspend fun markDownloaded(id: String)
+
+    @Query("UPDATE cached_tracks SET downloaded = 1, filepath = :filepath WHERE id = :id")
+    suspend fun markDownloadedWithPath(id: String, filepath: String)
 }
