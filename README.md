@@ -1,12 +1,22 @@
 # Michi Music Mobile
 
-Android companion app for [Michi Music Player](https://github.com/pitydah/michi-music-player) (Linux/KDE).
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org)
+[![Android](https://img.shields.io/badge/Android-12%2B-brightgreen.svg)](https://developer.android.com)
+[![API](https://img.shields.io/badge/Media3-1.5.1-orange.svg)](https://developer.android.com/guide/topics/media/media3)
 
-Sync your music library wirelessly from your desktop to your Android device.
+Android companion app for [Michi Music Player](https://github.com/pitydah/michi-music-mobile) (Linux/KDE).
 
-## License
+Sync your music library wirelessly from your desktop and control playback remotely.
 
-GPL-3.0-or-later
+## Features
+
+- **Local playback** — MediaStore reader with ReplayGain (ID3v2/FLAC), ExoPlayer via Media3
+- **Michi Sync** — UDP discovery, HTTP registration, track streaming with Range-Request
+- **Remote control** — Poll KDE player status, play/pause/next/prev/volume from phone
+- **CoverFlow** — DiscreteScrollView carousel matching KDE `coverflow.py` visual constants
+- **Android Auto ready** — `MediaLibraryService` with browsable tree (albums, songs, playlists)
+- **Glassmorphism UI** — Dark theme (`#090B11`), 14dp radius, accent pink/purple/blue
 
 ## Tech Stack
 
@@ -14,35 +24,34 @@ GPL-3.0-or-later
 |-------|---------|
 | Language | Kotlin 2.0 |
 | UI | Jetpack Compose + Material 3 |
-| HTTP | OkHttp 4 |
+| Audio | AndroidX Media3 1.5.1 / ExoPlayer |
+| HTTP | OkHttp 4 + Ktor Client |
 | Serialization | kotlinx.serialization |
 | Async | Coroutines + Flow |
-| Audio (future) | AndroidX Media3 / ExoPlayer |
 | DI | Koin |
+| Cache | Room (SQLite) |
+| Carousel | `yarolegovich/DiscreteScrollView` 1.5.1 |
 
 ## Modules
 
-- `:app` — Application entry, sync UI, theme, navigation
-- `:sync-client` — Sync protocol client (UDP discovery, Ktor HTTP)
-- `:data` — Room database for synced library cache
-- `:player` — Media3 playback service (in preparation)
-- `:remote` — Remote control client for KDE (future)
-- `:core` — Shared domain models
+- `:app` — Application entry, UI screens, navigation, DI wiring
+- `:core` — Shared domain models (Track, Album, Playlist, Sync DTOs)
+- `:data` — Room database, MediaStore reader, repositories
+- `:player` — Media3 `MediaLibraryService`, custom `RenderersFactory`, ReplayGain `AudioProcessor`
+- `:sync-client` — Sync protocol (UDP discovery, Ktor HTTP client, transfer manager)
+- `:remote` — KDE remote control HTTP client (OkHttp)
 
-## Sync Protocol
+## Screens
 
-The app communicates with Michi Music Player over HTTP on port 53318:
-
-- `POST /api/register` — Device handshake, obtains Bearer token
-- `GET /api/library` — Full library listing (tracks, artists, albums)
-- `GET /api/stream/{track_id}` — Audio file streaming with Range-Request
-- `GET /api/cover/{cover_id}` — Album art
-- `GET /api/sync/manifest?device_id=X` — Differential sync manifest
-- `POST /api/sync/state` — Sync play counts and favorites
-
-Future discovery: UDP multicast `224.0.0.167:53318`.
-
-See [docs/MICHI_SYNC_PROTOCOL.md](docs/MICHI_SYNC_PROTOCOL.md) for the full specification.
+| Screen | Description |
+|--------|-------------|
+| Home | Quick play, shuffle, all tracks list, search bar |
+| Library | CoverFlow carousel + album track list |
+| Now Playing | Album art, seek bar, queue, play/pause/next/prev |
+| Playlist | All tracks indexed list with active-track highlight |
+| Remote | KDE remote control with status polling |
+| Sync | Discovery, registration, download progress |
+| Settings | Server config, auto-sync toggle |
 
 ## Build
 
@@ -53,18 +62,27 @@ export ANDROID_HOME=/path/to/android-sdk
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
 
+For release builds:
+
+```bash
+./gradlew assembleRelease
+```
+
+APK: `app/build/outputs/apk/release/app-release.apk`
+
 Minimum SDK: 31 (Android 12)
 Target SDK: 35
 
-## Integration with Michi KDE
+## Permissions
 
-The `sync/` package in `michi-music-player` runs an HTTP server on port 53318 that serves
-the music library and handles streaming. This Android app is designed as a companion that:
+- `READ_MEDIA_AUDIO` (Android 13+) — MediaStore access
+- `INTERNET`, `ACCESS_NETWORK_STATE` — HTTP sync + remote control
+- `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE` — UDP peer discovery
+- `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` — Media playback notification
+- `POST_NOTIFICATIONS` — Android 13+ notification permission
 
-1. Discovers KDE on the local network (multicast or manual IP)
-2. Registers as a paired device
-3. Fetches library metadata and sync manifests
-4. Downloads tracks via Range-Request streaming
-5. Syncs playback state back to KDE
+## License
 
-See [docs/KDE_INTEGRATION.md](docs/KDE_INTEGRATION.md).
+GPL-3.0-or-later — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Third-party components listed in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).

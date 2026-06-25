@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +8,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+val keystorePropsFile = rootProject.file("app/keystore.properties")
+val keystoreProps = if (keystorePropsFile.exists()) {
+    Properties().apply { load(FileInputStream(keystorePropsFile)) }
+} else null
 
 android {
     namespace = "org.michimusic.mobile"
@@ -20,10 +28,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = keystoreProps?.let { rootProject.file("app/${it["storeFile"]}") }
+            storePassword = keystoreProps?.getProperty("storePassword") ?: ""
+            keyAlias = keystoreProps?.getProperty("keyAlias") ?: ""
+            keyPassword = keystoreProps?.getProperty("keyPassword") ?: ""
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // Enable minification on fast hosts: isMinifyEnabled = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -15,3 +15,5 @@ local.properties
 /sync-client/build
 /remote/build
 .kotlin
+/app/release.jks
+/app/keystore.properties

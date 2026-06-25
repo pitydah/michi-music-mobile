@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 
 import coil.compose.AsyncImage
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,11 +20,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +43,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.GlowPink
+import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SurfaceElevated
+import org.michimusic.mobile.ui.theme.SurfaceGlass
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -73,27 +79,31 @@ fun NowPlayingScreen() {
             color = TextPrimary,
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-        Box(
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(org.michimusic.mobile.ui.theme.SurfaceElevated),
-            contentAlignment = Alignment.Center,
+                .weight(1f),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
+            border = BorderStroke(0.5.dp, SurfaceBorder),
         ) {
             Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(org.michimusic.mobile.ui.theme.SurfaceGlass),
-                    contentAlignment = Alignment.Center,
+                Card(
+                    modifier = Modifier.size(240.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceGlass),
+                    border = BorderStroke(0.5.dp, SurfaceBorder),
                 ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
                     if (coverUri != null) {
                         AsyncImage(
                             model = coverUri,
@@ -104,9 +114,10 @@ fun NowPlayingScreen() {
                     } else {
                         Text("♫", style = MaterialTheme.typography.displayLarge, color = TextDim)
                     }
+                    }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(16.dp))
 
                 if (track != null) {
                     Text(
