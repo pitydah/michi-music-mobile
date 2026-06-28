@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -397,7 +398,7 @@ fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(Icons.Rounded.VolumeDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+        Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(8.dp))
 
         Box(modifier = Modifier.weight(1f)) {
@@ -405,7 +406,7 @@ fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
         }
 
         Spacer(modifier = Modifier.width(8.dp))
-        Icon(Icons.Rounded.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
 
         Spacer(modifier = Modifier.width(24.dp))
 

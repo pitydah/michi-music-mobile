@@ -121,4 +121,5 @@ dependencies {
     implementation(libs.work.manager)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+    implementation(libs.androidx.paging.compose)
 }

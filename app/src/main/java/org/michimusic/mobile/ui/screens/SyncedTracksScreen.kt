@@ -14,25 +14,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.mobile.screens.SyncedTracksViewModel
@@ -48,7 +49,8 @@ import org.michimusic.mobile.ui.getAudioController
 fun SyncedTracksScreen(
     viewModel: SyncedTracksViewModel = koinViewModel(),
 ) {
-    val tracks by viewModel.syncedTracks.collectAsStateWithLifecycle()
+    val pagedTracks = viewModel.pagedTracks.collectAsLazyPagingItems()
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -68,9 +70,9 @@ fun SyncedTracksScreen(
                 color = TextPrimary,
                 modifier = Modifier.weight(1f),
             )
-            if (tracks.isNotEmpty()) {
+            if (pagedTracks.itemCount > 0) {
                 Text(
-                    text = "${tracks.size} canciones",
+                    text = "${pagedTracks.itemCount} canciones",
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextMuted,
                 )
@@ -79,47 +81,84 @@ fun SyncedTracksScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        if (tracks.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.MusicNote,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = TextDim,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "No hay canciones sincronizadas",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = TextDim,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Conecta y sincroniza desde la pantalla Sync",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextMuted,
-                    )
+        when (val refreshState = pagedTracks.loadState.refresh) {
+            is LoadState.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = AccentPink)
                 }
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                items(tracks) { track ->
-                    SyncedTrackRow(
-                        track = track,
-                        onPlay = {
-                            val playable = viewModel.getPlayableTracks()
-                            val idx = playable.indexOfFirst { it.id == track.id }
-                            if (idx >= 0) {
-                                getAudioController()?.playQueue(playable, idx)
+            is LoadState.Error -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Error al cargar",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = TextDim,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            refreshState.error.message ?: "Error desconocido",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                        )
+                    }
+                }
+            }
+            is LoadState.NotLoading -> {
+                if (pagedTracks.itemCount == 0) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.MusicNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = TextDim,
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "No hay canciones sincronizadas",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = TextDim,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Conecta y sincroniza desde la pantalla Sync",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextMuted,
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(pagedTracks.itemCount) { index ->
+                            val track = pagedTracks[index]
+                            if (track != null) {
+                                SyncedTrackRow(
+                                    track = track,
+                                    onPlay = {
+                                        scope.launch {
+                                            val playable = viewModel.getPlayableTracks()
+                                            val idx = playable.indexOfFirst { it.id == track.id }
+                                            if (idx >= 0) {
+                                                getAudioController()?.playQueue(playable, idx)
+                                            }
+                                        }
+                                    },
+                                )
                             }
-                        },
-                    )
+                        }
+                    }
                 }
             }
         }

@@ -1,5 +1,8 @@
 package org.michimusic.data.repository
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 import kotlinx.coroutines.flow.Flow
 import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.CachedTrack
@@ -17,6 +20,11 @@ class SyncedTrackRepository(
     suspend fun count(): Int = trackDao.count()
 
     fun getAllSynced(): Flow<List<CachedTrack>> = trackDao.getAllTracks()
+
+    fun getPagedTracks(): Flow<PagingData<CachedTrack>> = Pager(
+        config = PagingConfig(pageSize = 50, enablePlaceholders = false),
+        pagingSourceFactory = { trackDao.getAllTracksPagingSource() }
+    ).flow
 
     suspend fun getById(id: String): CachedTrack? = trackDao.getTrackById(id)
 

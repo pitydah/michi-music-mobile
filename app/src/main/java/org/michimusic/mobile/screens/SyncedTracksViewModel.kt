@@ -2,11 +2,13 @@ package org.michimusic.mobile.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
@@ -17,8 +19,8 @@ class SyncedTracksViewModel(
     private val repository: SyncedTrackRepository,
 ) : ViewModel() {
 
-    val syncedTracks: StateFlow<List<CachedTrack>> = repository.getAllSynced()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val pagedTracks: Flow<PagingData<CachedTrack>> = repository.getPagedTracks()
+        .cachedIn(viewModelScope)
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -41,6 +43,8 @@ class SyncedTracksViewModel(
         source = TrackSource.SYNCED,
     )
 
-    fun getPlayableTracks(): List<Track> =
-        syncedTracks.value.filter { it.filepath.isNotEmpty() }.map { toTrack(it) }
+    suspend fun getPlayableTracks(): List<Track> =
+        repository.getAllSynced().first { true }
+            .filter { it.filepath.isNotEmpty() }
+            .map { toTrack(it) }
 }

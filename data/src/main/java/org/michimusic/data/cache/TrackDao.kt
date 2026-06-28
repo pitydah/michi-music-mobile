@@ -1,5 +1,6 @@
 package org.michimusic.data.cache
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
@@ -11,6 +12,9 @@ import kotlinx.coroutines.flow.Flow
 interface TrackDao {
     @Query("SELECT * FROM cached_tracks ORDER BY title")
     fun getAllTracks(): Flow<List<CachedTrack>>
+
+    @Query("SELECT * FROM cached_tracks ORDER BY title")
+    fun getAllTracksPagingSource(): PagingSource<Int, CachedTrack>
 
     @Query("SELECT * FROM cached_tracks WHERE id = :id")
     suspend fun getTrackById(id: String): CachedTrack?
