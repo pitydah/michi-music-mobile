@@ -112,7 +112,7 @@ class SyncViewModel(
                     trackRepository.saveLibrary(library.tracks)
                     val deviceId = registration.value?.clientDeviceId ?: ""
                     val manifest = if (deviceId.isNotEmpty()) {
-                        client.fetchManifest(deviceId).getOrNull()
+                        client.fetchSyncManifest(deviceId).getOrNull()
                     } else null
 
                     val tracksToDownload = if (manifest != null && manifest.tracks.isNotEmpty()) {

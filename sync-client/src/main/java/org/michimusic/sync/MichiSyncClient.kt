@@ -201,15 +201,12 @@ class MichiSyncClient(
         }
     }
 
-    suspend fun fetchManifest(deviceId: String): Result<SyncManifest> = withContext(Dispatchers.IO) {
+    suspend fun fetchSyncManifest(deviceId: String): Result<SyncManifest> = withContext(Dispatchers.IO) {
         try {
-            val response = client.get("$baseUrl/api/sync/manifest") {
+            val response = client.get("$baseUrl/api/sync/manifest?device_id=$deviceId") {
                 header("Authorization", "Bearer $sessionToken")
-                url {
-                    parameters.append("device_id", deviceId)
-                }
-            }
-            Result.success(response.body<SyncManifest>())
+            }.body<SyncManifest>()
+            Result.success(response)
         } catch (e: Exception) {
             Result.failure(e)
         }
