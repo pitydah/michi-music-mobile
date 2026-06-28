@@ -9,13 +9,12 @@ import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
-import org.michimusic.data.cache.AppDao
+
 import org.michimusic.data.repository.LocalMediaRepository
 
 class LibraryProvider(
     private val context: Context,
     private val repository: LocalMediaRepository,
-    private val appDao: AppDao? = null,
 ) {
 
     companion object {

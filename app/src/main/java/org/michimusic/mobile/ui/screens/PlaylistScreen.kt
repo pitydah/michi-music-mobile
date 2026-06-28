@@ -35,7 +35,7 @@ import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.MichiPlaybackService
+import org.michimusic.mobile.ui.getAudioController
 
 @Composable
 fun PlaylistScreen() {
@@ -78,7 +78,7 @@ fun PlaylistScreen() {
                 color = TextPrimary,
             )
             IconButton(onClick = {
-                MichiPlaybackService.companionController?.playQueue(allTracks, 0)
+                getAudioController()?.playQueue(allTracks, 0)
             }) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
@@ -96,9 +96,8 @@ fun PlaylistScreen() {
 
         Spacer(Modifier.height(12.dp))
 
-        val playerState by (remember {
-            MichiPlaybackService.companionController?.state
-        }?.collectAsState() ?: remember {
+        val audioController = remember { getAudioController() }
+        val playerState by (audioController?.state?.collectAsState() ?: remember {
             androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
         })
         val activeIndex = playerState.queueIndex
@@ -116,7 +115,7 @@ fun PlaylistScreen() {
                         duration = track.duration,
                         isActive = index == activeIndex,
                         onPlay = {
-                            MichiPlaybackService.companionController?.playQueue(allTracks, index)
+                            getAudioController()?.playQueue(allTracks, index)
                         },
                     )
                 }

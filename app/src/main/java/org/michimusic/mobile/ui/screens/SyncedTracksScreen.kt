@@ -42,7 +42,7 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.MichiPlaybackService
+import org.michimusic.mobile.ui.getAudioController
 
 @Composable
 fun SyncedTracksScreen(
@@ -116,7 +116,7 @@ fun SyncedTracksScreen(
                             val playable = viewModel.getPlayableTracks()
                             val idx = playable.indexOfFirst { it.id == track.id }
                             if (idx >= 0) {
-                                MichiPlaybackService.companionController?.playQueue(playable, idx)
+                                getAudioController()?.playQueue(playable, idx)
                             }
                         },
                     )

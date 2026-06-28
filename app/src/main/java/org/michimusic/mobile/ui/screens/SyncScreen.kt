@@ -41,6 +41,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
+import org.michimusic.mobile.sync.SyncUiState
 import org.michimusic.mobile.sync.SyncViewModel
 
 @Composable
@@ -48,15 +49,10 @@ fun SyncScreen(
     onNavigateToSynced: () -> Unit = {},
     viewModel: SyncViewModel = koinViewModel(),
 ) {
-    val peers by viewModel.peers.collectAsStateWithLifecycle()
-    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
-    val connectedPeer by viewModel.connectedPeer.collectAsStateWithLifecycle()
-    val registration by viewModel.registration.collectAsStateWithLifecycle()
-    val error by viewModel.error.collectAsStateWithLifecycle()
-    val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
-        if (connectionState == SyncConnectionState.DISCONNECTED) {
+        if (uiState.state == SyncConnectionState.DISCONNECTED) {
             viewModel.startDiscovery()
         }
     }
@@ -68,14 +64,14 @@ fun SyncScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            when (connectionState) {
+            when (uiState.state) {
                 SyncConnectionState.DISCONNECTED -> {
                     ConnectionPrompt(onStart = viewModel::startDiscovery)
                 }
 
                 SyncConnectionState.DISCOVERING -> {
                     DiscoveringState(
-                        peers = peers,
+                        peers = uiState.peers,
                         onConnect = viewModel::connectToPeer,
                         onStop = viewModel::stopDiscovery,
                     )
@@ -87,9 +83,9 @@ fun SyncScreen(
 
                 SyncConnectionState.CONNECTED -> {
                     ConnectedState(
-                        peer = connectedPeer,
-                        registration = registration,
-                        syncProgress = syncProgress,
+                        peer = uiState.connectedPeer,
+                        registration = uiState.registration,
+                        syncProgress = uiState.syncProgress,
                         onSync = viewModel::syncLibrary,
                         onDisconnect = viewModel::disconnect,
                         onNavigateToSynced = onNavigateToSynced,
@@ -98,7 +94,7 @@ fun SyncScreen(
 
                 SyncConnectionState.ERROR -> {
                     ErrorState(
-                        message = error ?: "Error desconocido",
+                        message = uiState.error ?: "Error desconocido",
                         onRetry = {
                             viewModel.clearError()
                             viewModel.startDiscovery()
@@ -108,7 +104,7 @@ fun SyncScreen(
             }
         }
 
-        error?.let { msg ->
+        uiState.error?.let { msg ->
             Snackbar(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

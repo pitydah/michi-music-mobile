@@ -40,7 +40,7 @@ import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.MichiPlaybackService
+import org.michimusic.mobile.ui.getAudioController
 
 @Composable
 fun AlbumsScreen() {
@@ -190,7 +190,7 @@ fun AlbumsScreen() {
                             artist = track.artist,
                             duration = track.duration,
                             onPlay = {
-                                MichiPlaybackService.companionController?.let { ctrl ->
+                                getAudioController()?.let { ctrl ->
                                     val queue = selectedAlbum.tracks
                                     val startIdx = queue.indexOf(track).coerceAtLeast(0)
                                     ctrl.playQueue(queue, startIdx)

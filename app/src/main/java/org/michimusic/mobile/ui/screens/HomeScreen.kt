@@ -49,7 +49,7 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.MichiPlaybackService
+import org.michimusic.mobile.ui.getAudioController
 
 @Composable
 fun HomeScreen(
@@ -61,7 +61,7 @@ fun HomeScreen(
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    val controller = remember { MichiPlaybackService.companionController }
+    val controller = remember { getAudioController() }
 
     Column(
         modifier = Modifier

@@ -118,4 +118,7 @@ dependencies {
     implementation(libs.coroutines.android)
 
     implementation(libs.discrete.scrollview)
+    implementation(libs.work.manager)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
 }

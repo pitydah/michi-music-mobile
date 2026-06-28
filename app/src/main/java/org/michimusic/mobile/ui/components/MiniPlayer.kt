@@ -44,14 +44,14 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.MichiPlaybackService
+import org.michimusic.mobile.ui.getAudioController
 
 @Composable
 fun MiniPlayer(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
-    val controller = remember { MichiPlaybackService.companionController }
+    val controller = remember { getAudioController() }
     val state by controller?.state?.collectAsState() ?: remember {
         androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
     }

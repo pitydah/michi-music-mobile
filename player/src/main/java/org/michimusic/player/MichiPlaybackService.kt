@@ -13,16 +13,16 @@ import androidx.media3.session.MediaSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import org.michimusic.data.cache.AppDao
-import org.michimusic.data.cache.ReplayGainDao
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.michimusic.data.cache.ReplayGainDao
 
 @OptIn(UnstableApi::class)
 class MichiPlaybackService : MediaLibraryService() {
 
     private var mediaLibrarySession: MediaLibrarySession? = null
     private var player: ExoPlayer? = null
+    private var playerController: PlayerController? = null
     private val replayGainProcessor = ReplayGainAudioProcessor()
     private val stateStore = PlaybackStateStore(this)
     private val saveScope = CoroutineScope(Dispatchers.IO + Job())
@@ -30,12 +30,12 @@ class MichiPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        val controller = PlayerController(this, listOf(replayGainProcessor), companionReplayGainDao)
-        companionController = controller
+        val replayGainDao = PlayerDependencies.replayGainDao
+        val controller = PlayerController(this, listOf(replayGainProcessor), replayGainDao)
+        playerController = controller
         player = controller.getExoPlayer()
 
-        val libraryProvider = LibraryProvider(this, controller.getRepository(), companionAppDao)
-        companionLibraryProvider = libraryProvider
+        val libraryProvider = LibraryProvider(this, controller.getRepository())
         val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore)
 
         setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
@@ -51,7 +51,7 @@ class MichiPlaybackService : MediaLibraryService() {
             )
             .build()
 
-        restorePlaybackState()
+        restorePlaybackState(libraryProvider)
 
         player!!.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -87,9 +87,8 @@ class MichiPlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         saveNow()
         saveJob?.cancel()
-        companionController?.release()
-        companionController = null
-        companionLibraryProvider = null
+        playerController?.release()
+        playerController = null
         mediaLibrarySession?.run {
             player.release()
             release()
@@ -98,10 +97,9 @@ class MichiPlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
-    private fun restorePlaybackState() {
+    private fun restorePlaybackState(provider: LibraryProvider) {
         val saved = stateStore.restore()
         if (saved.mediaIds.isEmpty()) return
-        val provider = companionLibraryProvider ?: return
         provider.refresh()
         val items = saved.mediaIds.mapNotNull { provider.getItem(it) }
         if (items.isEmpty()) return
@@ -136,14 +134,5 @@ class MichiPlaybackService : MediaLibraryService() {
             shuffleMode = p.shuffleModeEnabled,
         )
         stateStore.save(state)
-    }
-
-    companion object {
-        var companionController: PlayerController? = null
-            private set
-        var companionLibraryProvider: LibraryProvider? = null
-            private set
-        var companionReplayGainDao: ReplayGainDao? = null
-        var companionAppDao: AppDao? = null
     }
 }

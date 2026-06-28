@@ -10,7 +10,7 @@ import org.michimusic.mobile.screens.SyncedTracksViewModel
 import org.michimusic.mobile.sync.SyncViewModel
 
 val appModule = module {
-    includes(syncModule, remoteModule, dataModule)
+    includes(syncModule, remoteModule, dataModule, playerModule)
 
     viewModelOf(::SyncViewModel)
     viewModelOf(::AlbumsViewModel)

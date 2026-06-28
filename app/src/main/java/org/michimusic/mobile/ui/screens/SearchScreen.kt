@@ -46,7 +46,7 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.MichiPlaybackService
+import org.michimusic.mobile.ui.getAudioController
 
 @Composable
 fun SearchScreen(
@@ -143,7 +143,7 @@ fun SearchScreen(
                                 val allTracks = results.map { it.track }
                                 val idx = allTracks.indexOfFirst { it.id == result.track.id }
                                 if (idx >= 0) {
-                                    MichiPlaybackService.companionController?.playQueue(allTracks, idx)
+                                    getAudioController()?.playQueue(allTracks, idx)
                                 }
                             },
                         )

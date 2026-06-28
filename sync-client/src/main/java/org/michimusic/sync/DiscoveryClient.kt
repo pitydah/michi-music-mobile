@@ -2,6 +2,9 @@ package org.michimusic.sync
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +23,8 @@ import java.net.MulticastSocket
 
 class DiscoveryClient(
     private val context: Context,
-) {
+) : DefaultLifecycleObserver {
+
     companion object {
         private const val MULTICAST_GROUP = "224.0.0.167"
         private const val MULTICAST_PORT = 53318
@@ -39,8 +43,28 @@ class DiscoveryClient(
 
     private var multicastLock: WifiManager.MulticastLock? = null
     private var socket: MulticastSocket? = null
+    private var isRunning = false
+
+    init {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+    }
+
+    override fun onResume(owner: LifecycleOwner) {
+        if (isRunning) acquireMulticastLock()
+    }
+
+    override fun onPause(owner: LifecycleOwner) {
+        releaseMulticastLock()
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        releaseMulticastLock()
+        closeSocket()
+    }
 
     suspend fun start() = withContext(Dispatchers.IO) {
+        if (isRunning) return@withContext
+        isRunning = true
         acquireMulticastLock()
 
         val group = InetAddress.getByName(MULTICAST_GROUP)
@@ -53,7 +77,7 @@ class DiscoveryClient(
 
         val buffer = ByteArray(BUFFER_SIZE)
 
-        while (isActive) {
+        while (isActive && isRunning) {
             try {
                 val packet = DatagramPacket(buffer, buffer.size)
                 sock.receive(packet)
@@ -88,14 +112,20 @@ class DiscoveryClient(
     }
 
     suspend fun stop() = withContext(Dispatchers.IO) {
-        try {
-            socket?.leaveGroup(InetAddress.getByName(MULTICAST_GROUP))
-        } catch (_: Exception) {}
-        socket?.close()
-        socket = null
+        isRunning = false
+        closeSocket()
         releaseMulticastLock()
         _peers.value = emptyMap()
         peerLastSeen.clear()
+    }
+
+    private fun closeSocket() {
+        try {
+            val group = InetAddress.getByName(MULTICAST_GROUP)
+            socket?.leaveGroup(group)
+        } catch (_: Exception) {}
+        socket?.close()
+        socket = null
     }
 
     private fun cleanStalePeers() {
@@ -126,4 +156,7 @@ class DiscoveryClient(
     }
 }
 
-
+sealed class DiscoveryEvent {
+    data class PeerFound(val peer: DiscoveredPeer) : DiscoveryEvent()
+    data class PeerLost(val alias: String) : DiscoveryEvent()
+}

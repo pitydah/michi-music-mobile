@@ -30,8 +30,8 @@ import org.michimusic.core.models.TrackDto
 import java.io.OutputStream
 
 class MichiSyncClient(
-    private val baseUrl: String,
-    private var sessionToken: String = "",
+    val baseUrl: String,
+    var sessionToken: String = "",
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 

@@ -1,53 +1,70 @@
 package org.michimusic.mobile.sync
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.RegisterResponse
 import org.michimusic.core.models.SyncConnectionState
-import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.SyncedTrackRepository
-import org.michimusic.sync.CoverCache
 import org.michimusic.sync.DiscoveryClient
 import org.michimusic.sync.DiscoveryEvent
 import org.michimusic.sync.MichiSyncClient
 import org.michimusic.sync.SyncSession
-import org.michimusic.sync.SyncTransferManager
+
+data class SyncUiState(
+    val state: SyncConnectionState = SyncConnectionState.DISCONNECTED,
+    val peers: List<DiscoveredPeer> = emptyList(),
+    val connectedPeer: DiscoveredPeer? = null,
+    val registration: RegisterResponse? = null,
+    val error: String? = null,
+    val syncProgress: SyncProgress = SyncProgress.Idle,
+)
 
 class SyncViewModel(
+    private val context: Context,
     private val discoveryClient: DiscoveryClient,
     private val session: SyncSession,
     private val trackRepository: SyncedTrackRepository,
-    private val transferManager: SyncTransferManager,
-    private val coverCache: CoverCache,
 ) : ViewModel() {
 
-    val peers: StateFlow<List<DiscoveredPeer>> = discoveryClient.peers
-        .map { it.values.toList() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    val connectionState: StateFlow<SyncConnectionState> = session.connectionState
-    val connectedPeer: StateFlow<DiscoveredPeer?> = session.connectedPeer
-    val registration: StateFlow<RegisterResponse?> = session.registration
-    val downloads = transferManager.downloads
-
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
     private val _syncProgress = MutableStateFlow<SyncProgress>(SyncProgress.Idle)
-    val syncProgress: StateFlow<SyncProgress> = _syncProgress.asStateFlow()
+
+    val uiState: StateFlow<SyncUiState> = combine(
+        combine(
+            discoveryClient.peers.map { it.values.toList() },
+            session.connectionState,
+            session.connectedPeer,
+            session.registration,
+        ) { peers, connState, peer, reg ->
+            SyncUiState(
+                state = connState,
+                peers = peers,
+                connectedPeer = peer,
+                registration = reg,
+            )
+        },
+        _error,
+        _syncProgress,
+    ) { state, err, progress ->
+        state.copy(error = err, syncProgress = progress)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, SyncUiState())
 
     private var clientId: String = ""
 
     fun startDiscovery() {
-        if (connectionState.value != SyncConnectionState.DISCONNECTED) return
+        if (uiState.value.state != SyncConnectionState.DISCONNECTED) return
         clientId = "android_${System.currentTimeMillis().toString().takeLast(6)}"
         session.updateState(SyncConnectionState.DISCOVERING)
         viewModelScope.launch { discoveryClient.start() }
@@ -64,14 +81,14 @@ class SyncViewModel(
     fun stopDiscovery() {
         viewModelScope.launch {
             discoveryClient.stop()
-            if (connectionState.value == SyncConnectionState.DISCOVERING) {
+            if (uiState.value.state == SyncConnectionState.DISCOVERING) {
                 session.updateState(SyncConnectionState.DISCONNECTED)
             }
         }
     }
 
     fun connectToPeer(peer: DiscoveredPeer) {
-        if (connectionState.value != SyncConnectionState.DISCOVERING) return
+        if (uiState.value.state != SyncConnectionState.DISCOVERING) return
         session.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
         val client = MichiSyncClient(baseUrl = baseUrl)
@@ -103,66 +120,24 @@ class SyncViewModel(
 
     fun syncLibrary() {
         val client = session.syncClient ?: return
+        val reg = session.registration.value ?: return
         _syncProgress.value = SyncProgress.Downloading(0, 0)
 
-        viewModelScope.launch {
-            client
-                .fetchLibrary()
-                .onSuccess { library ->
-                    trackRepository.saveLibrary(library.tracks)
-                    val deviceId = registration.value?.clientDeviceId ?: ""
-                    val manifest = if (deviceId.isNotEmpty()) {
-                        client.fetchSyncManifest(deviceId).getOrNull()
-                    } else null
-
-                    val tracksToDownload = if (manifest != null && manifest.tracks.isNotEmpty()) {
-                        manifest.tracks.mapNotNull { manifestTrack ->
-                            val cached = trackRepository.getById(manifestTrack.trackId)
-                            if (cached == null || !cached.downloaded) {
-                                manifestTrack.trackId to manifestTrack.title
-                            } else null
-                        }
-                    } else {
-                        library.tracks.map { it.id to it.title }
-                    }
-
-                    val total = tracksToDownload.size
-                    _syncProgress.value = SyncProgress.Downloading(0, total)
-                    if (tracksToDownload.isNotEmpty()) {
-                        syncTracks(client, tracksToDownload)
-                    } else {
-                        _syncProgress.value = SyncProgress.Complete(tracks = library.tracks.size, downloaded = 0)
-                    }
-                }
-                .onFailure { e ->
-                    _error.value = "Error al sincronizar: ${e.message}"
-                    _syncProgress.value = SyncProgress.Idle
-                }
-        }
-    }
-
-    private suspend fun syncTracks(
-        client: MichiSyncClient,
-        trackIds: List<Pair<String, String>>,
-    ) {
-        val total = trackIds.size
-
-        val results = transferManager.downloadTracks(client, trackIds) { completed, _ ->
-            _syncProgress.value = SyncProgress.Downloading(completed, total)
-        }
-
-        val downloaded = results.count { it.value.isSuccess }
-
-        results.forEach { (id, result) ->
-            result.onSuccess { file ->
-                trackRepository.markDownloadedWithPath(id, file.absolutePath)
-            }
-        }
-
-        _syncProgress.value = SyncProgress.Complete(
-            tracks = total,
-            downloaded = downloaded,
+        val inputData = SyncWorker.buildInputData(
+            baseUrl = client.baseUrl,
+            sessionToken = client.sessionToken,
+            deviceId = reg.clientDeviceId,
+            alias = android.os.Build.MODEL,
         )
+
+        val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setInputData(inputData)
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork("michi_sync", ExistingWorkPolicy.REPLACE, workRequest)
+
+        _syncProgress.value = SyncProgress.Downloading(0, 1)
     }
 
     fun clearError() { _error.value = null }
