@@ -22,15 +22,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.michimusic.core.models.Track
+import org.michimusic.data.cache.ReplayGainDao
+import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.repository.LocalMediaRepository
 import java.io.File
 
 class PlayerController(
     context: Context,
     audioProcessors: List<AudioProcessor> = emptyList(),
+    replayGainDao: ReplayGainDao? = null,
 ) {
 
-    private val repository = LocalMediaRepository(context)
+    private val repository = replayGainDao?.let { LocalMediaRepository(context, it) }
+        ?: LocalMediaRepository(context, createNoopReplayGainDao())
 
     private val audioSink = if (audioProcessors.isNotEmpty()) {
         DefaultAudioSink.Builder(context)
@@ -222,5 +226,15 @@ class PlayerController(
     fun release() {
         stopPositionUpdates()
         player.release()
+    }
+
+    private companion object {
+        fun createNoopReplayGainDao(): ReplayGainDao {
+            return object : ReplayGainDao {
+                override suspend fun getReplayGain(trackId: String) = null
+                override suspend fun upsert(entity: ReplayGainEntity) {}
+                override suspend fun upsertAll(entities: List<ReplayGainEntity>) {}
+            }
+        }
     }
 }

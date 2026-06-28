@@ -36,7 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated

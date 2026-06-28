@@ -18,6 +18,7 @@ data class Track(
     val trackNumber: Int = 0,
     val year: Int = 0,
     val filepath: String = "",
+    val dateAdded: Long = 0L,
     val source: TrackSource = TrackSource.LOCAL,
     val replayGainTrack: Float = Float.NaN,
     val replayGainAlbum: Float = Float.NaN,

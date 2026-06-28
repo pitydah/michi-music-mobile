@@ -1,7 +1,7 @@
 @file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +37,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,19 +67,36 @@ fun NowPlayingScreen() {
         if (it.coverId.isNotEmpty()) "content://media/external/audio/albumart/${it.coverId}" else null
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(16.dp))
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (coverUri != null) {
+            AsyncImage(
+                model = coverUri,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(radiusX = 24.dp, radiusY = 24.dp),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f))
+            )
+        }
 
-        Text(
-            text = "Reproduciendo",
-            style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (coverUri != null) Color.Transparent else SurfaceDark)
+                .padding(horizontal = 16.dp),
+        ) {
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = "Reproduciendo",
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary,
+            )
 
         Spacer(Modifier.height(12.dp))
 
@@ -261,7 +280,8 @@ fun NowPlayingScreen() {
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(8.dp))
+        }
     }
 }
 

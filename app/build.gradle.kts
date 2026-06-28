@@ -3,7 +3,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -16,12 +15,12 @@ val keystoreProps = if (keystorePropsFile.exists()) {
 
 android {
     namespace = "org.michimusic.mobile"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.michimusic.mobile"
         minSdk = 31
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0-alpha"
 
@@ -37,9 +36,21 @@ android {
         }
     }
 
+    flavorDimensions += "build"
+    productFlavors {
+        create("normal") {
+            dimension = "build"
+        }
+        create("fdroid") {
+            dimension = "build"
+        }
+        create("playstore") {
+            dimension = "build"
+        }
+    }
+
     buildTypes {
         release {
-            // Enable minification on fast hosts: isMinifyEnabled = true
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.getByName("release")
@@ -59,8 +70,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
 
     buildFeatures {
@@ -96,6 +109,7 @@ dependencies {
     implementation(libs.koin.compose)
 
     implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)

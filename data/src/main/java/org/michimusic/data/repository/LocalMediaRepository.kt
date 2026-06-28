@@ -3,13 +3,20 @@ package org.michimusic.data.repository
 import android.content.Context
 import android.provider.MediaStore
 import org.michimusic.core.models.Album
+import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import kotlinx.coroutines.runBlocking
+import org.michimusic.data.cache.ReplayGainDao
+import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.local.MediaQueryDispatcher
 import org.michimusic.data.local.ReplayGainReader
 
-class LocalMediaRepository(private val context: Context) {
+class LocalMediaRepository(
+    private val context: Context,
+    private val replayGainDao: ReplayGainDao,
+) {
 
     private var cachedTracks: List<Track>? = null
     private var cacheTime = 0L
@@ -46,6 +53,7 @@ class LocalMediaRepository(private val context: Context) {
                 MediaStore.Audio.Media.YEAR,
                 MediaStore.Audio.Media.SIZE,
                 MediaStore.Audio.Media.MIME_TYPE,
+                MediaStore.Audio.Media.DATE_ADDED,
             )
             .setSelection("${MediaStore.Audio.Media.IS_MUSIC} = 1")
             .setSortOrder("${MediaStore.Audio.Media.ALBUM} ASC, ${MediaStore.Audio.Media.TRACK} ASC")
@@ -54,6 +62,9 @@ class LocalMediaRepository(private val context: Context) {
         if (cursor == null) return emptyList()
 
         val tracks = mutableListOf<Track>()
+        val rgCache = mutableMapOf<String, ReplayGainEntity>()
+        val rgUpdates = mutableListOf<ReplayGainEntity>()
+
         cursor.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -66,14 +77,31 @@ class LocalMediaRepository(private val context: Context) {
             val yearCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
             val sizeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val mimeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+            val dateCol = c.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
 
             while (c.moveToNext()) {
                 val id = c.getString(idCol) ?: continue
+                val trackId = "local_$id"
                 val data = c.getString(dataCol) ?: continue
-                val replayGain = ReplayGainReader.read(data)
+
+                var replayGainTrack = Float.NaN
+                var replayGainAlbum = Float.NaN
+                val cached = rgCache[trackId]
+                    ?: runBlocking { replayGainDao.getReplayGain(trackId) }
+                if (cached != null) {
+                    rgCache[trackId] = cached
+                    replayGainTrack = cached.trackGain
+                    replayGainAlbum = cached.albumGain
+                } else {
+                    val parsed = ReplayGainReader.read(data)
+                    replayGainTrack = parsed.trackGain
+                    replayGainAlbum = parsed.albumGain
+                    rgUpdates.add(ReplayGainEntity(trackId, parsed.trackGain, parsed.albumGain))
+                }
+
                 tracks.add(
                     Track(
-                        id = "local_$id",
+                        id = trackId,
                         title = c.getString(titleCol) ?: "Unknown",
                         artist = c.getString(artistCol) ?: "Unknown",
                         album = c.getString(albumCol) ?: "Unknown",
@@ -83,14 +111,20 @@ class LocalMediaRepository(private val context: Context) {
                         trackNumber = c.getInt(trackCol),
                         year = c.getInt(yearCol),
                         filepath = data,
+                        dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
                         source = TrackSource.LOCAL,
                         coverId = c.getLong(albumIdCol).toString(),
-                        replayGainTrack = replayGain.trackGain,
-                        replayGainAlbum = replayGain.albumGain,
+                        replayGainTrack = replayGainTrack,
+                        replayGainAlbum = replayGainAlbum,
                     )
                 )
             }
         }
+
+        if (rgUpdates.isNotEmpty()) {
+            runBlocking { replayGainDao.upsertAll(rgUpdates) }
+        }
+
         return tracks
     }
 
@@ -98,6 +132,21 @@ class LocalMediaRepository(private val context: Context) {
         val album: Album,
         val tracks: List<Track>,
     )
+
+    fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
+        val albums = loadAlbums()
+        return albums.groupBy { it.album.artist }
+            .map { (name, artistAlbums) ->
+                val first = artistAlbums.first().album
+                Artist(
+                    id = name.lowercase().replace(" ", "_"),
+                    name = name.ifEmpty { "Unknown" },
+                    albumCount = artistAlbums.size,
+                    trackCount = artistAlbums.sumOf { it.tracks.size },
+                ) to artistAlbums
+            }
+            .sortedBy { it.first.name }
+    }
 
     fun loadAlbums(): List<LocalAlbum> {
         val tracks = loadTracks()

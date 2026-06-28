@@ -24,6 +24,7 @@ import org.michimusic.core.models.HistoryResponse
 import org.michimusic.core.models.LibraryResponse
 import org.michimusic.core.models.RegisterRequest
 import org.michimusic.core.models.RegisterResponse
+import org.michimusic.core.models.SyncManifest
 import org.michimusic.core.models.SyncStateEntry
 import org.michimusic.core.models.TrackDto
 import java.io.OutputStream
@@ -195,6 +196,20 @@ class MichiSyncClient(
             }
             val result = json.decodeFromString<HistoryResponse>(response.body())
             Result.success(result.entries)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchManifest(deviceId: String): Result<SyncManifest> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.get("$baseUrl/api/sync/manifest") {
+                header("Authorization", "Bearer $sessionToken")
+                url {
+                    parameters.append("device_id", deviceId)
+                }
+            }
+            Result.success(response.body<SyncManifest>())
         } catch (e: Exception) {
             Result.failure(e)
         }

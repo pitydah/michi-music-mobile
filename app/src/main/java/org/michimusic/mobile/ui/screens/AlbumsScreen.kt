@@ -26,7 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier

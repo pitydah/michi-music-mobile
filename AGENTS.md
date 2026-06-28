@@ -11,7 +11,7 @@ Michi Music Mobile — Android companion app for [Michi Music Player](https://gi
 | Language | Kotlin |
 | UI | Jetpack Compose + Material 3 |
 | Min SDK | 31 (Android 12) |
-| Target SDK | 35 |
+| Target SDK | 36 |
 | Audio | AndroidX Media3 / ExoPlayer |
 | DI | Koin |
 | Sync | Ktor HTTP + UDP Multicast |

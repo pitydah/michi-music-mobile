@@ -5,8 +5,11 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.cardview.widget.CardView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
-import coil.load
+import coil3.asImage
+import coil3.load
+import coil3.request.crossfade
 import org.michimusic.mobile.R
 
 class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
@@ -21,8 +24,8 @@ class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
         artistText.text = album.artist
         if (album.coverUri.isNotEmpty()) {
             coverArt.load(album.coverUri) {
-                crossfade(true)
-                fallback(android.R.color.darker_gray)
+                crossfade(300)
+                fallback(ContextCompat.getDrawable(itemView.context, android.R.color.darker_gray)?.asImage())
             }
         } else {
             val colors = listOf(

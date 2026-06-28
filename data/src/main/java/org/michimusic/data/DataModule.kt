@@ -13,9 +13,12 @@ val dataModule = module {
             androidContext(),
             MichiDatabase::class.java,
             "michi-sync.db",
-        ).build()
+        ).fallbackToDestructiveMigration()
+            .build()
     }
     single { get<MichiDatabase>().trackDao() }
+    single { get<MichiDatabase>().replayGainDao() }
+    single { get<MichiDatabase>().appDao() }
     single { SyncedTrackRepository(get()) }
-    single { LocalMediaRepository(androidContext()) }
+    single { LocalMediaRepository(androidContext(), get()) }
 }

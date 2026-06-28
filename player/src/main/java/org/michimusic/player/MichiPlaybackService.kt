@@ -13,6 +13,8 @@ import androidx.media3.session.MediaSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import org.michimusic.data.cache.AppDao
+import org.michimusic.data.cache.ReplayGainDao
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -28,13 +30,13 @@ class MichiPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        val controller = PlayerController(this, listOf(replayGainProcessor))
+        val controller = PlayerController(this, listOf(replayGainProcessor), companionReplayGainDao)
         companionController = controller
         player = controller.getExoPlayer()
 
-        val libraryProvider = LibraryProvider(this, controller.getRepository())
+        val libraryProvider = LibraryProvider(this, controller.getRepository(), companionAppDao)
         companionLibraryProvider = libraryProvider
-        val callback = MichiMediaLibrarySessionCallback(libraryProvider)
+        val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore)
 
         setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
 
@@ -141,5 +143,7 @@ class MichiPlaybackService : MediaLibraryService() {
             private set
         var companionLibraryProvider: LibraryProvider? = null
             private set
+        var companionReplayGainDao: ReplayGainDao? = null
+        var companionAppDao: AppDao? = null
     }
 }

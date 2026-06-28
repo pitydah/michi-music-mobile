@@ -47,3 +47,40 @@ data class CachedPlaylist(
     val trackIds: String = "",
     val trackCount: Int = 0,
 )
+
+@Entity(tableName = "replaygain_cache")
+data class ReplayGainEntity(
+    @PrimaryKey val trackId: String,
+    val trackGain: Float = Float.NaN,
+    val albumGain: Float = Float.NaN,
+)
+
+@Entity(tableName = "play_history")
+data class HistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val trackId: String,
+    val playedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(tableName = "play_counts")
+data class PlayCountEntity(
+    @PrimaryKey val trackId: String,
+    val playCount: Int = 0,
+    val lastPlayed: Long = 0L,
+)
+
+@Entity(tableName = "saved_queue")
+data class QueueEntity(
+    @PrimaryKey val id: Int = 0,
+    val trackIds: String = "",
+    val startIndex: Int = 0,
+    val positionMs: Long = 0L,
+    val repeatMode: Int = 0,
+    val shuffleMode: Boolean = false,
+)
+
+@Entity(tableName = "app_settings")
+data class SettingsEntity(
+    @PrimaryKey val key: String,
+    val value: String = "",
+)

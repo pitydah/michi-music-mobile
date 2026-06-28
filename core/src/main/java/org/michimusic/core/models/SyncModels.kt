@@ -102,11 +102,29 @@ enum class SyncConnectionState {
 }
 
 @Serializable
+data class ManifestTrack(
+    @SerialName("track_id") val trackId: String,
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    val size: Long = 0,
+    val format: String = "",
+    val duration: Int = 0,
+    val year: Int = 0,
+    val genre: String = "",
+    @SerialName("cover_id") val coverId: String = "",
+    val checksum: String = "",
+    @SerialName("download_path") val downloadPath: String = "",
+)
+
+@Serializable
 data class SyncManifest(
-    @SerialName("device_id") val deviceId: String,
-    val tracks: List<String> = emptyList(),
+    @SerialName("manifest_id") val manifestId: String = "",
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("total_tracks") val totalTracks: Int = 0,
     @SerialName("total_size") val totalSize: Long = 0L,
-    @SerialName("last_sync") val lastSync: Long = 0L,
+    val tracks: List<ManifestTrack> = emptyList(),
 )
 
 @Serializable
