@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
@@ -46,7 +46,7 @@ val bottomNavItems = listOf(
     BottomNavItem("home", "Inicio", Icons.Default.Home),
     BottomNavItem("library", "Biblioteca", Icons.Default.LibraryMusic),
     BottomNavItem("nowplaying", "Reproduciendo", Icons.Default.MusicNote),
-    BottomNavItem("remote", "Remoto", Icons.Default.Cast),
+    BottomNavItem("remote", "Control", Icons.Default.CastConnected),
     BottomNavItem("sync", "Sync", Icons.Default.Sync),
     BottomNavItem("settings", "Ajustes", Icons.Default.Settings),
 )

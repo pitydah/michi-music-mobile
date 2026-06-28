@@ -1,7 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
 import android.content.Context
-import android.content.SharedPreferences
+import androidx.core.content.edit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,9 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -40,8 +41,6 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.ReplayGainMode
 
 private const val PREFS_NAME = "michi_settings"
-private const val KEY_SERVER_IP = "server_ip"
-private const val KEY_SERVER_PORT = "server_port"
 private const val KEY_AUTO_SYNC = "auto_sync"
 private const val KEY_RG_MODE = "replaygain_mode"
 private const val KEY_RG_PREAMP_WITH = "replaygain_preamp_with"
@@ -52,8 +51,6 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
-    var serverIp by remember { mutableStateOf(prefs.getString(KEY_SERVER_IP, "") ?: "") }
-    var serverPort by remember { mutableStateOf(prefs.getString(KEY_SERVER_PORT, "53318") ?: "53318") }
     var autoSync by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SYNC, false)) }
 
     Column(
@@ -71,39 +68,19 @@ fun SettingsScreen() {
             color = TextPrimary,
         )
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
 
-        Text(
-            text = "Servidor de sincronización",
-            style = MaterialTheme.typography.titleMedium,
-            color = TextPrimary,
-        )
-        Spacer(Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = serverIp,
-            onValueChange = {
-                serverIp = it
-                prefs.edit().putString(KEY_SERVER_IP, it).apply()
-            },
-            label = { Text("Dirección IP") },
-            placeholder = { Text("192.168.1.100") },
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
-        Spacer(Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = serverPort,
-            onValueChange = {
-                serverPort = it
-                prefs.edit().putString(KEY_SERVER_PORT, it).apply()
-            },
-            label = { Text("Puerto") },
-            placeholder = { Text("53318") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Text(
+                text = "Descubrimiento automático vía UDP Multicast activo. La app detectará a Michi Music Player automáticamente en la red local.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextPrimary,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
 
         Spacer(Modifier.height(24.dp))
         HorizontalDivider()
@@ -132,7 +109,7 @@ fun SettingsScreen() {
                 checked = autoSync,
                 onCheckedChange = {
                     autoSync = it
-                    prefs.edit().putBoolean(KEY_AUTO_SYNC, it).apply()
+                    prefs.edit { putBoolean(KEY_AUTO_SYNC, it) }
                 },
             )
         }
@@ -170,7 +147,7 @@ fun SettingsScreen() {
                             selected = selectedMode == mode,
                             onClick = {
                                 selectedMode = mode
-                                prefs.edit().putString(KEY_RG_MODE, mode.name).apply()
+                                prefs.edit { putString(KEY_RG_MODE, mode.name) }
                             },
                             role = Role.RadioButton,
                         )

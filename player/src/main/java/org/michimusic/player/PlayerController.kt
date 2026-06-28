@@ -2,6 +2,7 @@ package org.michimusic.player
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -122,17 +123,19 @@ class PlayerController(
         positionJob = null
     }
 
+    @Suppress("unused")
     fun getRepository(): LocalMediaRepository = repository
 
+    @Suppress("unused")
     fun getExoPlayer(): ExoPlayer = player
 
     private fun resolveUri(track: Track): Uri {
         val path = track.filepath
         return when {
             path.startsWith("content://") || path.startsWith("http://") || path.startsWith("https://") ->
-                Uri.parse(path)
+                path.toUri()
             path.startsWith("/") -> Uri.fromFile(File(path))
-            else -> Uri.parse(path)
+            else -> path.toUri()
         }
     }
 

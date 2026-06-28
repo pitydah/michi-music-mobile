@@ -12,9 +12,11 @@ import kotlinx.coroutines.launch
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.RegisterResponse
 import org.michimusic.core.models.SyncConnectionState
+import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.sync.CoverCache
 import org.michimusic.sync.DiscoveryClient
+import org.michimusic.sync.DiscoveryEvent
 import org.michimusic.sync.MichiSyncClient
 import org.michimusic.sync.SyncSession
 import org.michimusic.sync.SyncTransferManager
@@ -49,6 +51,14 @@ class SyncViewModel(
         clientId = "android_${System.currentTimeMillis().toString().takeLast(6)}"
         session.updateState(SyncConnectionState.DISCOVERING)
         viewModelScope.launch { discoveryClient.start() }
+        viewModelScope.launch {
+            discoveryClient.events.collect { event ->
+                if (event is DiscoveryEvent.PeerFound) {
+                    stopDiscovery()
+                    connectToPeer(event.peer)
+                }
+            }
+        }
     }
 
     fun stopDiscovery() {
@@ -100,9 +110,29 @@ class SyncViewModel(
                 .fetchLibrary()
                 .onSuccess { library ->
                     trackRepository.saveLibrary(library.tracks)
-                    val total = library.tracks.size
+                    val deviceId = registration.value?.clientDeviceId ?: ""
+                    val manifest = if (deviceId.isNotEmpty()) {
+                        client.fetchManifest(deviceId).getOrNull()
+                    } else null
+
+                    val tracksToDownload = if (manifest != null && manifest.tracks.isNotEmpty()) {
+                        manifest.tracks.mapNotNull { manifestTrack ->
+                            val cached = trackRepository.getById(manifestTrack.trackId)
+                            if (cached == null || !cached.downloaded) {
+                                manifestTrack.trackId to manifestTrack.title
+                            } else null
+                        }
+                    } else {
+                        library.tracks.map { it.id to it.title }
+                    }
+
+                    val total = tracksToDownload.size
                     _syncProgress.value = SyncProgress.Downloading(0, total)
-                    syncTracks(client, library.tracks.map { it.id to it.title })
+                    if (tracksToDownload.isNotEmpty()) {
+                        syncTracks(client, tracksToDownload)
+                    } else {
+                        _syncProgress.value = SyncProgress.Complete(tracks = library.tracks.size, downloaded = 0)
+                    }
                 }
                 .onFailure { e ->
                     _error.value = "Error al sincronizar: ${e.message}"

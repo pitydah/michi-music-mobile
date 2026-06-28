@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.READ_MEDIA_AUDIO
+                    this, Manifest.permission.READ_MEDIA_AUDIO,
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
                 permissionLauncher.launch(Manifest.permission.READ_MEDIA_AUDIO)

@@ -29,11 +29,9 @@ fun MichiCoverFlowHost(
                 setOffscreenItems(3)
                 setSlideOnFling(true)
                 isNestedScrollingEnabled = true
-                addOnItemChangedListener(object : DiscreteScrollView.OnItemChangedListener<RecyclerView.ViewHolder> {
-                    override fun onCurrentItemChanged(viewHolder: RecyclerView.ViewHolder?, adapterPosition: Int) {
-                        onCurrentChanged(adapterPosition)
-                    }
-                })
+                addOnItemChangedListener { _, adapterPosition ->
+                    onCurrentChanged(adapterPosition)
+                }
             }
         },
     )

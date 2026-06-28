@@ -1,7 +1,6 @@
 package org.michimusic.sync
 
 import android.content.Context
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -9,7 +8,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -37,8 +35,7 @@ class SyncTransferManager(
             return@withContext Result.success(file)
         }
 
-        _downloads.value = _downloads.value + (trackId to DownloadProgress.Downloading(0L))
-        var downloadedBytes = 0L
+        _downloads.value += (trackId to DownloadProgress.Downloading(0L))
 
         val result = client.streamTrack(
             trackId = trackId,
@@ -47,11 +44,10 @@ class SyncTransferManager(
         )
 
         result.onSuccess { bytes ->
-            downloadedBytes = bytes
-            _downloads.value = _downloads.value + (trackId to DownloadProgress.Completed(bytes))
+            _downloads.value += (trackId to DownloadProgress.Completed(bytes))
         }.onFailure { e ->
             file.delete()
-            _downloads.value = _downloads.value + (trackId to DownloadProgress.Failed(e.message ?: "Error"))
+            _downloads.value += (trackId to DownloadProgress.Failed(e.message ?: "Error"))
         }
 
         result.map { file }

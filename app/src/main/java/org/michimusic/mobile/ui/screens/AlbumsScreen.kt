@@ -48,7 +48,6 @@ fun AlbumsScreen() {
         viewModelStoreOwner = LocalContext.current as ComponentActivity,
     )
     val albums by viewModel.albums.collectAsState()
-    val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
     if (isLoading) {
