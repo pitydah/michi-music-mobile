@@ -1,5 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
+import android.content.Context
+import android.media.AudioManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,8 +10,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.rounded.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,12 +23,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import coil3.compose.AsyncImage
+import org.koin.androidx.compose.koinViewModel
+import org.michimusic.mobile.sync.SyncViewModel
+import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.player.AudioController
+import org.michimusic.player.PlayerState
 
 // --- PALETA DE COLORES (Estilo Michi Music Player) ---
 val BgDark = Color(0xFF05070C)
@@ -47,21 +57,44 @@ data class PlaybackSource(
     val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 
-val mockSources = listOf(
-    PlaybackSource("local", "Este dispositivo", "Audio local", Icons.Rounded.Smartphone),
-    PlaybackSource("micro", "Michi Micro Server", "192.168.1.100", Icons.Rounded.Dns),
-    PlaybackSource("big", "Michi Big Server", "192.168.1.200", Icons.Rounded.Dns),
-    PlaybackSource("nas", "NAS Casa", "Synology DS920+", Icons.Rounded.FolderSpecial),
-    PlaybackSource("usb", "USB Kingston", "14.6 GB libre", Icons.Rounded.Usb)
-)
-
 // --- PANTALLA PRINCIPAL ---
 @Composable
 fun NowPlayingScreen() {
-    var selectedSource by remember { mutableStateOf(mockSources.first()) }
-    var isSourceMenuExpanded by remember { mutableStateOf(true) }
-    var progress by remember { mutableFloatStateOf(0.45f) }
-    var volume by remember { mutableFloatStateOf(0.7f) }
+    val audioController = remember { getAudioController() }
+    val state by audioController?.state?.collectAsState() ?: remember { mutableStateOf(PlayerState()) }
+    val syncViewModel: SyncViewModel = koinViewModel()
+    val syncUiState by syncViewModel.uiState.collectAsState()
+
+    val context = LocalContext.current
+    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+    val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+    var volume by remember { mutableFloatStateOf(currentVolume.toFloat() / maxVolume.coerceAtLeast(1)) }
+
+    val localSource = PlaybackSource("local", "Este dispositivo", "Audio local", Icons.Rounded.Smartphone)
+    val peerSources = remember(syncUiState.peers) {
+        syncUiState.peers.map { peer ->
+            PlaybackSource(
+                id = "peer_${peer.deviceId}",
+                title = peer.alias,
+                subtitle = peer.ip,
+                icon = Icons.Rounded.Dns,
+            )
+        }
+    }
+    val allSources = listOf(localSource) + peerSources
+    var selectedSource by remember { mutableStateOf(localSource) }
+    var isSourceMenuExpanded by remember { mutableStateOf(false) }
+
+    val currentTrack = state.currentTrack
+    val progress = if (state.duration > 0L) (state.position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f
+
+    fun formatTime(ms: Long): String {
+        val totalSec = ms / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return "%d:%02d".format(min, sec)
+    }
 
     Box(
         modifier = Modifier
@@ -93,7 +126,7 @@ fun NowPlayingScreen() {
                     ) {
                         Box(modifier = Modifier.padding(top = 70.dp)) {
                             PlaybackSourceMenu(
-                                sources = mockSources,
+                                sources = allSources,
                                 selectedSource = selectedSource,
                                 onSourceSelected = {
                                     selectedSource = it
@@ -110,6 +143,7 @@ fun NowPlayingScreen() {
 
             // 3. Carátula del Álbum
             AlbumArtworkCard(
+                coverId = currentTrack?.coverId,
                 modifier = Modifier
                     .weight(1f)
                     .aspectRatio(1f)
@@ -119,29 +153,62 @@ fun NowPlayingScreen() {
             Spacer(modifier = Modifier.height(32.dp))
 
             // 4. Información de la Canción
-            TrackInfo(title = "Random Access Memories", artist = "Daft Punk")
+            TrackInfo(
+                title = currentTrack?.title ?: "Sin reproducción",
+                artist = currentTrack?.artist ?: ""
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // 5. Barra de Progreso
+            var dragProgress by remember { mutableFloatStateOf(
+                if (state.duration > 0L) (state.position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f
+            ) }
+            LaunchedEffect(state.position, state.duration) {
+                if (state.duration > 0L && state.duration > 0L) {
+                    dragProgress = (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
+                }
+            }
             MichiSlider(
-                value = progress,
-                onValueChange = { progress = it },
-                timeStart = "3:28",
-                timeEnd = "4:34"
+                value = dragProgress,
+                onValueChange = { dragProgress = it },
+                onValueChangeFinished = {
+                    audioController?.seekTo((dragProgress * state.duration).toLong())
+                },
+                timeStart = formatTime(state.position),
+                timeEnd = formatTime(state.duration)
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // 6. Controles Principales
-            PlaybackControls()
+            PlaybackControls(
+                isPlaying = state.isPlaying,
+                onPlayPause = {
+                    if (state.isPlaying) audioController?.pause()
+                    else audioController?.play()
+                },
+                onNext = { audioController?.skipNext() },
+                onPrevious = { audioController?.skipPrevious() },
+                onShuffle = { audioController?.toggleShuffle() },
+                onRepeat = { audioController?.let {
+                    val next = (it.state.value.repeatMode + 1) % 3
+                    it.setRepeatMode(next)
+                } },
+                isShuffled = state.shuffleMode,
+                repeatMode = state.repeatMode,
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // 7. Volumen y Accesos Rápidos
             VolumeAndToolsRow(
                 volume = volume,
-                onVolumeChange = { volume = it }
+                onVolumeChange = { fraction ->
+                    volume = fraction
+                    val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+                }
             )
 
             Spacer(modifier = Modifier.height(110.dp))
@@ -252,7 +319,7 @@ fun PlaybackSourceMenu(
 }
 
 @Composable
-fun AlbumArtworkCard(modifier: Modifier = Modifier) {
+fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
     val synthwaveGradient = Brush.verticalGradient(
         colors = listOf(
             Color(0xFF1E0B2D),
@@ -268,18 +335,32 @@ fun AlbumArtworkCard(modifier: Modifier = Modifier) {
             .border(1.dp, GlassBorder, RoundedCornerShape(24.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(120.dp)
-                .offset(y = 20.dp)
-                .clip(CircleShape)
-                .background(Brush.verticalGradient(listOf(Color(0xFFFFD700), AccentPink)))
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
-        )
+        if (!coverId.isNullOrEmpty()) {
+            AsyncImage(
+                model = "content://media/external/audio/albumart/$coverId",
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .offset(y = 20.dp)
+                    .clip(CircleShape)
+                    .background(Brush.verticalGradient(listOf(Color(0xFFFFD700), AccentPink)))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
+            )
+        }
     }
 }
 
@@ -307,6 +388,7 @@ fun TrackInfo(title: String, artist: String) {
 fun MichiSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
+    onValueChangeFinished: ((Float) -> Unit)? = null,
     timeStart: String? = null,
     timeEnd: String? = null,
     isVolume: Boolean = false
@@ -319,7 +401,10 @@ fun MichiSlider(
 
         Slider(
             value = value,
-            onValueChange = onValueChange,
+            onValueChange = { v ->
+                onValueChange(v)
+            },
+            onValueChangeFinished = { onValueChangeFinished?.invoke(value) },
             modifier = Modifier.weight(1f),
             thumb = {
                 Box(
@@ -356,14 +441,23 @@ fun MichiSlider(
 }
 
 @Composable
-fun PlaybackControls() {
+fun PlaybackControls(
+    isPlaying: Boolean = false,
+    onPlayPause: () -> Unit = {},
+    onNext: () -> Unit = {},
+    onPrevious: () -> Unit = {},
+    onShuffle: () -> Unit = {},
+    onRepeat: () -> Unit = {},
+    isShuffled: Boolean = false,
+    repeatMode: Int = 0,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MichiIconButton(Icons.Rounded.Shuffle, size = 24.dp, tint = AccentCoral)
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 32.dp)
+        MichiIconButton(Icons.Rounded.Shuffle, size = 24.dp, tint = if (isShuffled) AccentPink else AccentCoral, onClick = onShuffle)
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 32.dp, onClick = onPrevious)
 
         Box(
             modifier = Modifier
@@ -380,15 +474,20 @@ fun PlaybackControls() {
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = {}
+                    onClick = onPlayPause
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Pause, contentDescription = "Pause", tint = AccentCoral, modifier = Modifier.size(38.dp))
+            Icon(
+                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                tint = AccentCoral,
+                modifier = Modifier.size(38.dp)
+            )
         }
 
-        MichiIconButton(Icons.Rounded.SkipNext, size = 32.dp)
-        MichiIconButton(Icons.Rounded.Repeat, size = 24.dp, tint = AccentCoral)
+        MichiIconButton(Icons.Rounded.SkipNext, size = 32.dp, onClick = onNext)
+        MichiIconButton(Icons.Rounded.Repeat, size = 24.dp, tint = if (repeatMode != 0) AccentPink else AccentCoral, onClick = onRepeat)
     }
 }
 
@@ -457,9 +556,10 @@ fun BottomBarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, isActiv
 fun MichiIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     size: Dp,
-    tint: Color = TextSecondary
+    tint: Color = TextSecondary,
+    onClick: () -> Unit = {},
 ) {
-    IconButton(onClick = { }, modifier = Modifier.size(size + 16.dp)) {
+    IconButton(onClick = onClick, modifier = Modifier.size(size + 16.dp)) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
     }
 }
