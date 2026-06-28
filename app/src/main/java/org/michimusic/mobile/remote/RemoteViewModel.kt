@@ -72,6 +72,8 @@ class RemoteViewModel(
         }
     }
 
+    fun clearError() { _error.value = null }
+
     fun retry() {
         client?.let {
             startPolling(it)
@@ -86,7 +88,10 @@ class RemoteViewModel(
     }
     fun next() { execute { client?.next() } }
     fun previous() { execute { client?.previous() } }
-    fun setVolume(volume: Int) { execute { client?.setVolume(volume) } }
+    fun setVolume(volume: Int) {
+        _playerState.value = _playerState.value.copy(volume = volume)
+        viewModelScope.launch { client?.setVolume(volume) }
+    }
 
     private fun execute(action: suspend () -> kotlin.Result<String>?) {
         viewModelScope.launch {
