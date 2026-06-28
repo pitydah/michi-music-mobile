@@ -1,293 +1,464 @@
-@file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
-import coil3.compose.AsyncImage
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.theme.AccentPink
-import org.michimusic.mobile.ui.theme.GlowPink
-import org.michimusic.mobile.ui.theme.SurfaceBorder
-import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.SurfaceGlass
-import org.michimusic.mobile.ui.theme.TextDim
-import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextPrimary
-import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 
+// --- PALETA DE COLORES (Estilo Michi Music Player) ---
+val BgDark = Color(0xFF05070C)
+val BgDarker = Color(0xFF090B11)
+val GlassBg = Color(0xAA151820)
+val GlassBorder = Color(0x1AFFFFFF)
+private val TextPrimary = Color(0xFFFFFFFF)
+private val TextSecondary = Color(0xFFA8AAB3)
+private val AccentPink = Color(0xFFFF4F8B)
+private val AccentCoral = Color(0xFFFF6A3D)
+private val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
+
+// --- MODELOS ---
+data class PlaybackSource(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+val mockSources = listOf(
+    PlaybackSource("local", "Este dispositivo", "Audio local", Icons.Rounded.Smartphone),
+    PlaybackSource("micro", "Michi Micro Server", "192.168.1.100", Icons.Rounded.Dns),
+    PlaybackSource("big", "Michi Big Server", "192.168.1.200", Icons.Rounded.Dns),
+    PlaybackSource("nas", "NAS Casa", "Synology DS920+", Icons.Rounded.FolderSpecial),
+    PlaybackSource("usb", "USB Kingston", "14.6 GB libre", Icons.Rounded.Usb)
+)
+
+// --- PANTALLA PRINCIPAL ---
 @Composable
 fun NowPlayingScreen() {
-    val controller = remember { getAudioController() }
-    val state by controller?.state?.collectAsState() ?: remember {
-        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
-    }
-    val track = state.currentTrack
-    val coverUri = track?.let {
-        if (it.coverId.isNotEmpty()) "content://media/external/audio/albumart/${it.coverId}" else null
-    }
+    var selectedSource by remember { mutableStateOf(mockSources.first()) }
+    var isSourceMenuExpanded by remember { mutableStateOf(true) }
+    var progress by remember { mutableFloatStateOf(0.45f) }
+    var volume by remember { mutableFloatStateOf(0.7f) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (coverUri != null) {
-            AsyncImage(
-                model = coverUri,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .blur(radiusX = 24.dp, radiusY = 24.dp),
-                contentScale = ContentScale.Crop,
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.55f))
-            )
-        }
-
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(BgDarker, BgDark)))
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(if (coverUri != null) Color.Transparent else SurfaceDark)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "Reproduciendo",
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
-            )
-
-        Spacer(Modifier.height(12.dp))
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-            border = BorderStroke(0.5.dp, SurfaceBorder),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Card(
-                    modifier = Modifier.size(240.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceGlass),
-                    border = BorderStroke(0.5.dp, SurfaceBorder),
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                    if (coverUri != null) {
-                        AsyncImage(
-                            model = coverUri,
-                            contentDescription = track?.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                        )
-                    } else {
-                        Text("♫", style = MaterialTheme.typography.displayLarge, color = TextDim)
-                    }
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                if (track != null) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = track.artist,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    Text(
-                        text = "Ninguna canción seleccionada",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextDim,
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Slider(
-                    value = if (state.duration > 0) (state.position.toFloat() / state.duration) else 0f,
-                    onValueChange = { controller?.seekTo((it * state.duration).toLong()) },
-                    modifier = Modifier.fillMaxWidth(),
+            // 1 & 2. Selector Desplegable de Fuente
+            Box(contentAlignment = Alignment.TopCenter) {
+                PlaybackSourceDropdown(
+                    source = selectedSource,
+                    isExpanded = isSourceMenuExpanded,
+                    onClick = { isSourceMenuExpanded = !isSourceMenuExpanded }
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = formatDuration(state.position),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextDim,
-                    )
-                    Text(
-                        text = formatDuration(state.duration),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextDim,
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    IconButton(onClick = { controller?.skipPrevious() }) {
-                        Icon(Icons.Default.SkipPrevious, "Previous", tint = TextPrimary, modifier = Modifier.size(32.dp))
-                    }
-
-                    Spacer(Modifier.width(16.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(AccentPink, CircleShape),
-                        contentAlignment = Alignment.Center,
+                if (isSourceMenuExpanded) {
+                    Popup(
+                        alignment = Alignment.TopCenter,
+                        properties = PopupProperties(focusable = true),
+                        onDismissRequest = { isSourceMenuExpanded = false }
                     ) {
-                        IconButton(onClick = {
-                            if (state.isPlaying) controller?.pause() else controller?.play()
-                        }) {
-                            Icon(
-                                imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                tint = SurfaceDark,
-                                modifier = Modifier.size(32.dp),
+                        Box(modifier = Modifier.padding(top = 70.dp)) {
+                            PlaybackSourceMenu(
+                                sources = mockSources,
+                                selectedSource = selectedSource,
+                                onSourceSelected = {
+                                    selectedSource = it
+                                    isSourceMenuExpanded = false
+                                },
+                                onManageClick = { isSourceMenuExpanded = false }
                             )
                         }
                     }
-
-                    Spacer(Modifier.width(16.dp))
-
-                    IconButton(onClick = { controller?.skipNext() }) {
-                        Icon(Icons.Default.SkipNext, "Next", tint = TextPrimary, modifier = Modifier.size(32.dp))
-                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 3. Carátula del Álbum
+            AlbumArtworkCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .aspectRatio(1f)
+                    .widthIn(max = 330.dp)
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // 4. Información de la Canción
+            TrackInfo(title = "Random Access Memories", artist = "Daft Punk")
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 5. Barra de Progreso
+            MichiSlider(
+                value = progress,
+                onValueChange = { progress = it },
+                timeStart = "3:28",
+                timeEnd = "4:34"
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 6. Controles Principales
+            PlaybackControls()
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 7. Volumen y Accesos Rápidos
+            VolumeAndToolsRow(
+                volume = volume,
+                onVolumeChange = { volume = it }
+            )
+
+            Spacer(modifier = Modifier.height(110.dp))
         }
 
-        if (state.queue.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Cola (${state.queue.size})",
-                style = MaterialTheme.typography.titleSmall,
-                color = TextSecondary,
-            )
-            Spacer(Modifier.height(4.dp))
-            LazyColumn(
+        // 8. Barra de Navegación Inferior (Flotante)
+        SmokedGlassBottomBar(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 24.dp, vertical = 24.dp)
+        )
+    }
+}
+
+// --- COMPONENTES ---
+
+@Composable
+fun PlaybackSourceDropdown(
+    source: PlaybackSource,
+    isExpanded: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .width(280.dp)
+            .height(58.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(GlassBg)
+            .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(source.icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(source.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(source.subtitle, color = TextSecondary, fontSize = 12.sp)
+            }
+        }
+        Icon(
+            imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+            contentDescription = null,
+            tint = TextSecondary
+        )
+    }
+}
+
+@Composable
+fun PlaybackSourceMenu(
+    sources: List<PlaybackSource>,
+    selectedSource: PlaybackSource,
+    onSourceSelected: (PlaybackSource) -> Unit,
+    onManageClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(280.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(GlassBg)
+            .border(1.dp, GlassBorder, RoundedCornerShape(22.dp))
+            .padding(vertical = 16.dp)
+    ) {
+        Text(
+            text = "Seleccionar fuente",
+            color = AccentPink,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
+        )
+
+        sources.forEach { source ->
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp),
+                    .clickable { onSourceSelected(source) }
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                itemsIndexed(state.queue) { index, t ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (index == state.queueIndex) AccentPink.copy(alpha = 0.08f)
-                                else androidx.compose.ui.graphics.Color.Transparent,
-                                RoundedCornerShape(4.dp),
-                            )
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = "${index + 1}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextDim,
-                                modifier = Modifier.width(24.dp),
-                            )
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = t.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (index == state.queueIndex) AccentPink else TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            Text(
-                                text = formatDuration(t.duration),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextDim,
-                            )
-                        }
-                    }
+                Icon(source.icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(source.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(source.subtitle, color = TextSecondary, fontSize = 12.sp)
+                }
+                if (source.id == selectedSource.id) {
+                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPink, modifier = Modifier.size(18.dp))
                 }
             }
         }
 
-            Spacer(Modifier.height(8.dp))
+        HorizontalDivider(color = GlassBorder, modifier = Modifier.padding(vertical = 8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onManageClick)
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Rounded.Settings, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Gestionar fuentes", color = TextSecondary, fontSize = 14.sp)
         }
     }
 }
 
-private fun formatDuration(millis: Long): String {
-    val totalSeconds = millis / 1000
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "%d:%02d".format(minutes, seconds)
+@Composable
+fun AlbumArtworkCard(modifier: Modifier = Modifier) {
+    val synthwaveGradient = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF1E0B2D),
+            Color(0xFF8A1C59),
+            Color(0xFFFF6A3D)
+        )
+    )
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .background(synthwaveGradient)
+            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .offset(y = 20.dp)
+                .clip(CircleShape)
+                .background(Brush.verticalGradient(listOf(Color(0xFFFFD700), AccentPink)))
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
+        )
+    }
+}
+
+@Composable
+fun TrackInfo(title: String, artist: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = title,
+            color = TextPrimary,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = artist,
+            color = TextSecondary,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Normal
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MichiSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    timeStart: String? = null,
+    timeEnd: String? = null,
+    isVolume: Boolean = false
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        if (timeStart != null) {
+            Text(timeStart, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(36.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.weight(1f),
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(AccentCoral)
+                )
+            },
+            track = { sliderState ->
+                val fraction = sliderState.value
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2A2E38))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .background(GradientProgress)
+                    )
+                }
+            }
+        )
+
+        if (timeEnd != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(timeEnd, color = TextSecondary, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun PlaybackControls() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MichiIconButton(Icons.Rounded.Shuffle, size = 24.dp, tint = AccentCoral)
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 32.dp)
+
+        Box(
+            modifier = Modifier
+                .size(86.dp)
+                .drawBehind {
+                    drawCircle(
+                        color = AccentPink.copy(alpha = 0.15f),
+                        radius = size.width / 2 + 12.dp.toPx()
+                    )
+                }
+                .clip(CircleShape)
+                .background(GlassBg)
+                .border(2.dp, AccentPink.copy(alpha = 0.6f), CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Pause, contentDescription = "Pause", tint = AccentCoral, modifier = Modifier.size(38.dp))
+        }
+
+        MichiIconButton(Icons.Rounded.SkipNext, size = 32.dp)
+        MichiIconButton(Icons.Rounded.Repeat, size = 24.dp, tint = AccentCoral)
+    }
+}
+
+@Composable
+fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Rounded.VolumeDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Box(modifier = Modifier.weight(1f)) {
+            MichiSlider(value = volume, onValueChange = onVolumeChange, isVolume = true)
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(Icons.Rounded.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
+
+        Spacer(modifier = Modifier.width(24.dp))
+
+        MichiIconButton(Icons.Rounded.Tune, size = 20.dp, tint = AccentCoral)
+        Spacer(modifier = Modifier.width(16.dp))
+        MichiIconButton(Icons.Rounded.SpeakerGroup, size = 20.dp, tint = AccentCoral)
+    }
+}
+
+@Composable
+fun SmokedGlassBottomBar(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(82.dp)
+            .clip(RoundedCornerShape(34.dp))
+            .background(GlassBg)
+            .border(1.dp, GlassBorder, RoundedCornerShape(34.dp))
+            .padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BottomBarIcon(Icons.Rounded.Home, isActive = false)
+        BottomBarIcon(Icons.Rounded.LibraryMusic, isActive = false)
+        BottomBarIcon(Icons.Rounded.PlayArrow, isActive = false)
+        BottomBarIcon(Icons.Rounded.CloudSync, isActive = false)
+        BottomBarIcon(Icons.Rounded.SpeakerGroup, isActive = true)
+    }
+}
+
+@Composable
+fun BottomBarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, isActive: Boolean) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { }) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (isActive) AccentPink else TextSecondary.copy(alpha = 0.6f),
+            modifier = Modifier.size(26.dp)
+        )
+        if (isActive) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(AccentPink))
+        }
+    }
+}
+
+@Composable
+fun MichiIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    size: Dp,
+    tint: Color = TextSecondary
+) {
+    IconButton(onClick = { }, modifier = Modifier.size(size + 16.dp)) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+    }
 }
