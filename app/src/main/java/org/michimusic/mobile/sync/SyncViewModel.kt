@@ -132,7 +132,7 @@ class SyncViewModel(
     private suspend fun resolveServerDeviceId(client: LinkClient, peer: DiscoveredPeer): String {
         if (peer.deviceId.isNotEmpty()) return peer.deviceId
         return runCatching {
-            client.fetchDiscoveryInfo().getOrNull()?.serverDeviceId
+            client.getServerInfoWithFallback().getOrNull()?.serverDeviceId
         }.getOrNull() ?: ""
     }
 
@@ -209,10 +209,12 @@ class SyncViewModel(
                     }
                     val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
                         runCatching {
-                            client.fetchDiscoveryInfo().getOrNull()?.serverDeviceId
+                            client.getServerInfoWithFallback().getOrNull()?.serverDeviceId
                         }.getOrNull().orEmpty()
                     }
                     tokenStore.save(
+                        serverId = resolvedDeviceId,
+                        serverName = confirmResp.serverAlias,
                         serverDeviceId = resolvedDeviceId,
                         serverAlias = confirmResp.serverAlias,
                         clientDeviceId = clientId,

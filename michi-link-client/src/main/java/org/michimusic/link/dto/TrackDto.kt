@@ -41,3 +41,9 @@ data class SearchResponseDto(
     val results: List<TrackResponseDto> = emptyList(),
     val query: String = "",
 )
+
+@Serializable
+data class TrackListResponseDto(
+    val items: List<TrackResponseDto> = emptyList(),
+    val total: Int = 0,
+)

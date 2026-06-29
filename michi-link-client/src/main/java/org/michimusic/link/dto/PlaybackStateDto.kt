@@ -28,4 +28,6 @@ data class PlaybackStateDto(
 data class PlaybackControlRequestDto(
     val command: String,
     val value: String = "",
+    @SerialName("position_ms") val positionMs: Long? = null,
+    val volume: Int? = null,
 )

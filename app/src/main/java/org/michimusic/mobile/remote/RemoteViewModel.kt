@@ -114,12 +114,24 @@ class RemoteViewModel(
     fun next() { sendCommand("next") }
     fun previous() { sendCommand("previous") }
     fun stop() { sendCommand("stop") }
-    fun seek(positionMs: Long) { sendCommand("seek", positionMs.toString()) }
+    fun seek(positionMs: Long) {
+        viewModelScope.launch {
+            client?.sendSeek(positionMs)?.onFailure { e ->
+                _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
+            }
+        }
+    }
     fun setVolume(volume: Int) {
         _uiState.value = _uiState.value.copy(
-            playerState = _uiState.value.playerState.copy(volume = volume)
+            playerState = _uiState.value.playerState.copy(
+                volume = volume.coerceIn(0, 100)
+            )
         )
-        sendCommand("set_volume", volume.toString())
+        viewModelScope.launch {
+            client?.sendSetVolume(volume.coerceIn(0, 100))?.onFailure { e ->
+                _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
+            }
+        }
     }
     fun mute() { sendCommand("mute") }
     fun unmute() { sendCommand("unmute") }
