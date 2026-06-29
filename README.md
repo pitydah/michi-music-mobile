@@ -1,7 +1,7 @@
 # Michi Music Mobile
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="Michi Music Mobile icon" width="128" height="128">
+  <img src="app/src/main/res/mipmap-xxxhdpi/michi_logo.png" alt="Michi Music Mobile icon" width="128" height="128">
 </p>
 
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)

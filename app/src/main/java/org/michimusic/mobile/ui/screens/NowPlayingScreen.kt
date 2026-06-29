@@ -90,6 +90,7 @@ fun NowPlayingScreen() {
     val progress = if (state.duration > 0L) (state.position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f
 
     fun formatTime(ms: Long): String {
+        if (ms < 0) return "0:00"
         val totalSec = ms / 1000
         val min = totalSec / 60
         val sec = totalSec % 60
@@ -161,11 +162,9 @@ fun NowPlayingScreen() {
             Spacer(modifier = Modifier.height(24.dp))
 
             // 5. Barra de Progreso
-            var dragProgress by remember { mutableFloatStateOf(
-                if (state.duration > 0L) (state.position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f
-            ) }
+            var dragProgress by remember { mutableFloatStateOf(progress) }
             LaunchedEffect(state.position, state.duration) {
-                if (state.duration > 0L && state.duration > 0L) {
+                if (state.duration > 0L) {
                     dragProgress = (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
                 }
             }
@@ -173,7 +172,9 @@ fun NowPlayingScreen() {
                 value = dragProgress,
                 onValueChange = { dragProgress = it },
                 onValueChangeFinished = {
-                    audioController?.seekTo((dragProgress * state.duration).toLong())
+                    if (state.duration > 0L) {
+                        audioController?.seekTo((dragProgress * state.duration).toLong())
+                    }
                 },
                 timeStart = formatTime(state.position),
                 timeEnd = formatTime(state.duration)
