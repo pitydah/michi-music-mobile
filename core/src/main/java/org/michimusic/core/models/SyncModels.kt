@@ -198,6 +198,10 @@ data class PairConfirmRequest(
     val password: String = "",
     val pin: String = "",
     @SerialName("client_device_id") val clientDeviceId: String,
+    val alias: String = "",
+    @SerialName("device_model") val deviceModel: String = "",
+    val port: Int = 0,
+    @SerialName("client_version") val clientVersion: String = "",
 )
 
 @Serializable

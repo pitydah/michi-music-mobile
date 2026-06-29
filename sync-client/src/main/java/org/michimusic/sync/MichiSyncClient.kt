@@ -108,6 +108,9 @@ class MichiSyncClient(
         username: String,
         password: String,
         clientDeviceId: String,
+        alias: String = "",
+        deviceModel: String = "",
+        clientVersion: String = "",
     ): Result<PairConfirmResponse> = withContext(Dispatchers.IO) {
         try {
             val request = PairConfirmRequest(
@@ -115,6 +118,9 @@ class MichiSyncClient(
                 username = username,
                 password = password,
                 clientDeviceId = clientDeviceId,
+                alias = alias,
+                deviceModel = deviceModel,
+                clientVersion = clientVersion,
             )
             val response = client.post("$baseUrl/api/pair/confirm") {
                 contentType(ContentType.Application.Json)

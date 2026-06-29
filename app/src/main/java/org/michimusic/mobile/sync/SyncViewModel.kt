@@ -166,8 +166,6 @@ class SyncViewModel(
     }
 
     private fun connectToPeerLegacy(peer: DiscoveredPeer) {
-        if (uiState.value.state != SyncConnectionState.DISCOVERING &&
-            uiState.value.state != SyncConnectionState.PAIRING_REQUIRED) return
         session.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
         val client = MichiSyncClient(baseUrl = baseUrl, clientDeviceId = clientId)
@@ -209,6 +207,8 @@ class SyncViewModel(
                     username = username,
                     password = password,
                     clientDeviceId = clientId,
+                    alias = android.os.Build.MODEL,
+                    deviceModel = android.os.Build.MODEL,
                 ).onSuccess { confirmResp ->
                     val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
                     if (effectiveToken.isBlank()) {
@@ -286,6 +286,7 @@ class SyncViewModel(
             deviceId = deviceId,
             alias = android.os.Build.MODEL,
             deviceToken = effectiveToken,
+            clientDeviceId = client.clientDeviceId.ifEmpty { clientId },
         )
 
         val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()

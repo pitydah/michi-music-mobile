@@ -36,12 +36,14 @@ class SyncWorker(
             deviceId: String,
             alias: String,
             deviceToken: String = "",
+            clientDeviceId: String = "",
         ) = workDataOf(
             "baseUrl" to baseUrl,
             "sessionToken" to sessionToken,
             "deviceId" to deviceId,
             "alias" to alias,
             "deviceToken" to deviceToken,
+            "clientDeviceId" to clientDeviceId,
         )
     }
 
@@ -51,6 +53,7 @@ class SyncWorker(
         val deviceToken = inputData.getString("deviceToken") ?: ""
         val deviceId = inputData.getString("deviceId") ?: ""
         val alias = inputData.getString("alias") ?: ""
+        val clientDeviceId = inputData.getString("clientDeviceId") ?: ""
 
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
@@ -58,6 +61,7 @@ class SyncWorker(
             baseUrl = baseUrl,
             sessionToken = sessionToken,
             deviceToken = deviceToken,
+            clientDeviceId = clientDeviceId.ifEmpty { deviceId },
         )
         val trackDao = runCatching {
             KoinJavaComponent.get<TrackDao>(TrackDao::class.java)
@@ -77,7 +81,13 @@ class SyncWorker(
 
         return try {
             val manifestResult = client.fetchSyncManifest(deviceId)
-            if (manifestResult.isFailure) return Result.retry()
+            if (manifestResult.isFailure) {
+                val error = manifestResult.exceptionOrNull()
+                if (error is PairingException) {
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+                return Result.retry()
+            }
             val manifest = manifestResult.getOrThrow()
 
             repository.saveLibrary(
