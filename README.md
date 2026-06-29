@@ -8,6 +8,9 @@
 Android companion app for [Michi Music Player](https://github.com/pitydah/michi-music-mobile) (Linux/KDE).
 
 Sync your music library wirelessly from your desktop and control playback remotely.
+<p align="center">
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="Michi Music Mobile icon" width="128" height="128">
+</p>
 
 ## Features
 
