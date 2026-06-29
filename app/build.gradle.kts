@@ -110,6 +110,7 @@ dependencies {
     implementation(libs.koin.compose)
 
     implementation(libs.coil.compose)
+    implementation(libs.coil.core)
     implementation(libs.coil.network.okhttp)
 
     implementation(libs.kotlinx.serialization.json)
