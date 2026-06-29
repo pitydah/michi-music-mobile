@@ -9,7 +9,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import org.michimusic.data.cache.MichiDatabase
+import org.koin.java.KoinJavaComponent
+import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.sync.MichiSyncClient
 import org.michimusic.sync.SyncTransferManager
@@ -49,8 +50,16 @@ class SyncWorker(
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
         val client = MichiSyncClient(baseUrl = baseUrl, sessionToken = sessionToken)
-        val db = MichiDatabase.buildForSync(applicationContext)
-        val trackDao = db.trackDao()
+        val trackDao = runCatching {
+            KoinJavaComponent.get<TrackDao>(TrackDao::class.java)
+        }.getOrElse {
+            val db = androidx.room.Room.databaseBuilder(
+                applicationContext,
+                org.michimusic.data.cache.MichiDatabase::class.java,
+                "michi-sync.db",
+            ).build()
+            db.trackDao()
+        }
         val repository = SyncedTrackRepository(trackDao)
         val transferManager = SyncTransferManager(applicationContext)
 
@@ -107,7 +116,6 @@ class SyncWorker(
             }
 
             client.close()
-            db.close()
 
             if (errors > 0 && downloaded == 0) {
                 Result.failure(workDataOf(RESULT_ERROR to errors, RESULT_DOWNLOADED to 0))
@@ -119,7 +127,6 @@ class SyncWorker(
             }
         } catch (e: Exception) {
             client.close()
-            db.close()
             Result.retry()
         }
     }

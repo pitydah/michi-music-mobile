@@ -23,14 +23,4 @@ abstract class MichiDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun replayGainDao(): ReplayGainDao
     abstract fun appDao(): AppDao
-
-    companion object {
-        fun buildForSync(context: android.content.Context): MichiDatabase {
-            return androidx.room.Room.databaseBuilder(
-                context,
-                MichiDatabase::class.java,
-                "michi-sync.db",
-            ).build()
-        }
-    }
 }

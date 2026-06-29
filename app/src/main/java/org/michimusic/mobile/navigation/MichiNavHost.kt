@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
@@ -16,6 +17,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -24,11 +26,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import org.michimusic.mobile.screens.HomeScreen
-import org.michimusic.mobile.screens.LibraryScreen
-import org.michimusic.mobile.screens.RemotePlaceholderScreen
-import org.michimusic.mobile.screens.SettingsPlaceholderScreen
-import org.michimusic.mobile.screens.SyncPlaceholderScreen
+import org.michimusic.mobile.ui.components.MiniPlayer
+import org.michimusic.mobile.ui.screens.AlbumsScreen
+import org.michimusic.mobile.ui.screens.HomeScreen
+import org.michimusic.mobile.ui.screens.NowPlayingScreen
+import org.michimusic.mobile.ui.screens.RemoteScreen
+import org.michimusic.mobile.ui.screens.SearchScreen
+import org.michimusic.mobile.ui.screens.SettingsScreen
+import org.michimusic.mobile.ui.screens.SyncScreen
+import org.michimusic.mobile.ui.screens.SyncedTracksScreen
 
 data class BottomNavEntry(
     val route: String,
@@ -39,8 +45,9 @@ data class BottomNavEntry(
 private val navItems = listOf(
     BottomNavEntry("home", "Inicio", Icons.Default.Home),
     BottomNavEntry("library", "Biblioteca", Icons.Default.LibraryMusic),
-    BottomNavEntry("sync", "Sync", Icons.Default.Sync),
+    BottomNavEntry("nowplaying", "Reproduciendo", Icons.Default.MusicNote),
     BottomNavEntry("remote", "Remoto", Icons.Default.CastConnected),
+    BottomNavEntry("sync", "Sync", Icons.Default.Sync),
     BottomNavEntry("settings", "Ajustes", Icons.Default.Settings),
 )
 
@@ -78,12 +85,20 @@ fun MichiNavHost() {
                 startDestination = "home",
                 modifier = Modifier.fillMaxSize(),
             ) {
-                composable("home") { HomeScreen() }
-                composable("library") { LibraryScreen() }
-                composable("sync") { SyncPlaceholderScreen() }
-                composable("remote") { RemotePlaceholderScreen() }
-                composable("settings") { SettingsPlaceholderScreen() }
+                composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
+                composable("library") { AlbumsScreen() }
+                composable("nowplaying") { NowPlayingScreen() }
+                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
+                composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
+                composable("synced") { SyncedTracksScreen() }
+                composable("search") { SearchScreen() }
+                composable("settings") { SettingsScreen() }
             }
+
+            MiniPlayer(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                onClick = { navController.navigate("nowplaying") },
+            )
         }
     }
 }
