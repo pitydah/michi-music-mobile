@@ -111,23 +111,46 @@ class SyncViewModel(
     fun selectPeer(peer: DiscoveredPeer) {
         if (uiState.value.state != SyncConnectionState.DISCOVERING) return
 
-        val storedToken = tokenStore.getDeviceToken()
-        val storedServerId = tokenStore.getServerDeviceId()
+        stopDiscovery()
 
-        if (storedToken != null && storedServerId == peer.deviceId) {
-            connectWithToken(peer, storedToken)
-        } else if (peer.authRequired) {
-            session.updateState(SyncConnectionState.PAIRING_REQUIRED)
-            session.onConnected(peer, MichiSyncClient(baseUrl = "http://${peer.ip}:${peer.port}"))
-        } else {
-            connectToPeerLegacy(peer)
+        viewModelScope.launch {
+            val client = MichiSyncClient(
+                baseUrl = "http://${peer.ip}:${peer.port}",
+                clientDeviceId = clientId,
+            )
+
+            val resolvedDeviceId = resolveServerDeviceId(client, peer)
+
+            val storedToken = tokenStore.getDeviceToken()
+            val storedServerId = tokenStore.getServerDeviceId()
+            val storedClientId = tokenStore.getClientDeviceId()
+
+            if (storedToken != null && storedServerId == resolvedDeviceId) {
+                connectWithToken(peer, storedToken, storedClientId ?: clientId)
+            } else if (peer.authRequired) {
+                session.onConnected(peer, client)
+                session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+            } else {
+                connectToPeerLegacy(peer)
+            }
         }
     }
 
-    private fun connectWithToken(peer: DiscoveredPeer, token: String) {
+    private suspend fun resolveServerDeviceId(client: MichiSyncClient, peer: DiscoveredPeer): String {
+        if (peer.deviceId.isNotEmpty()) return peer.deviceId
+        return runCatching {
+            client.fetchDiscoveryInfo().getOrNull()?.serverDeviceId
+        }.getOrNull() ?: ""
+    }
+
+    private fun connectWithToken(peer: DiscoveredPeer, token: String, storedClientId: String) {
         session.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
-        val client = MichiSyncClient(baseUrl = baseUrl, deviceToken = token)
+        val client = MichiSyncClient(
+            baseUrl = baseUrl,
+            deviceToken = token,
+            clientDeviceId = storedClientId,
+        )
 
         viewModelScope.launch {
             val pingOk = client.ping()
@@ -136,7 +159,8 @@ class SyncViewModel(
                 session.updateState(SyncConnectionState.PAIRED)
             } else {
                 tokenStore.clear()
-                selectPeer(peer)
+                session.updateState(SyncConnectionState.DISCONNECTED)
+                _error.value = "No se pudo conectar con el servidor. Vuelve a emparejar."
             }
         }
     }
@@ -146,7 +170,7 @@ class SyncViewModel(
             uiState.value.state != SyncConnectionState.PAIRING_REQUIRED) return
         session.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
-        val client = MichiSyncClient(baseUrl = baseUrl)
+        val client = MichiSyncClient(baseUrl = baseUrl, clientDeviceId = clientId)
 
         viewModelScope.launch {
             client
@@ -186,15 +210,27 @@ class SyncViewModel(
                     password = password,
                     clientDeviceId = clientId,
                 ).onSuccess { confirmResp ->
+                    val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
+                    if (effectiveToken.isBlank()) {
+                        _error.value = "El servidor no otorgó un token válido"
+                        session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                        return@launch
+                    }
+                    val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
+                        runCatching {
+                            client.fetchDiscoveryInfo().getOrNull()?.serverDeviceId
+                        }.getOrNull().orEmpty()
+                    }
                     tokenStore.saveToken(
-                        serverDeviceId = confirmResp.serverDeviceId,
+                        serverDeviceId = resolvedDeviceId,
                         serverAlias = confirmResp.serverAlias,
                         clientDeviceId = clientId,
-                        deviceToken = confirmResp.deviceToken,
+                        deviceToken = effectiveToken,
                         refreshToken = confirmResp.refreshToken,
                         permissions = confirmResp.permissions,
                     )
-                    client.deviceToken = confirmResp.deviceToken
+                    client.deviceToken = effectiveToken
+                    client.clientDeviceId = clientId
                     session.onPaired(confirmResp)
                     session.updateState(SyncConnectionState.PAIRED)
                 }.onFailure { e ->

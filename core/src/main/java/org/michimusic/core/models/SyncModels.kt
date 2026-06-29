@@ -188,6 +188,7 @@ data class PairStartResponse(
     @SerialName("auth_methods") val authMethods: List<String> = emptyList(),
     @SerialName("server_alias") val serverAlias: String = "",
     @SerialName("auth_required") val authRequired: Boolean = true,
+    @SerialName("server_device_id") val serverDeviceId: String = "",
 )
 
 @Serializable
@@ -201,12 +202,29 @@ data class PairConfirmRequest(
 
 @Serializable
 data class PairConfirmResponse(
-    @SerialName("device_id") val deviceId: String,
-    @SerialName("device_token") val deviceToken: String,
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("device_token") val deviceToken: String = "",
+    @SerialName("session_token") val sessionToken: String = "",
     @SerialName("refresh_token") val refreshToken: String = "",
     val permissions: List<String> = emptyList(),
     @SerialName("server_device_id") val serverDeviceId: String = "",
     @SerialName("server_alias") val serverAlias: String = "",
+)
+
+@Serializable
+data class DiscoveryInfo(
+    val server: String = "",
+    @SerialName("server_alias") val serverAlias: String = "",
+    val version: String = "1.0",
+    @SerialName("requires_pairing") val requiresPairing: Boolean = true,
+    @SerialName("auth_methods") val authMethods: List<String> = emptyList(),
+    @SerialName("server_device_id") val serverDeviceId: String = "",
+)
+
+@Serializable
+data class SearchResponse(
+    val results: List<TrackDto> = emptyList(),
+    val query: String = "",
 )
 
 // --- Download model ---

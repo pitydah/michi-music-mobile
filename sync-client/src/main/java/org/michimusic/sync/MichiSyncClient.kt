@@ -19,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.michimusic.core.models.DiscoveryInfo
 import org.michimusic.core.models.FavoritesResponse
 import org.michimusic.core.models.HistoryEntry
 import org.michimusic.core.models.HistoryResponse
@@ -29,6 +30,7 @@ import org.michimusic.core.models.PairStartRequest
 import org.michimusic.core.models.PairStartResponse
 import org.michimusic.core.models.RegisterRequest
 import org.michimusic.core.models.RegisterResponse
+import org.michimusic.core.models.SearchResponse
 import org.michimusic.core.models.SyncManifest
 import org.michimusic.core.models.SyncStateEntry
 import org.michimusic.core.models.TrackDto
@@ -38,6 +40,7 @@ class MichiSyncClient(
     val baseUrl: String,
     var sessionToken: String = "",
     var deviceToken: String = "",
+    var clientDeviceId: String = "",
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -62,10 +65,10 @@ class MichiSyncClient(
 
     // --- Discovery & Pairing ---
 
-    suspend fun fetchDiscoveryInfo(): Result<Map<String, String>> = withContext(Dispatchers.IO) {
+    suspend fun fetchDiscoveryInfo(): Result<DiscoveryInfo> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/discovery/info")
-            val body: Map<String, String> = json.decodeFromString(response.body())
+            val body = response.body<DiscoveryInfo>()
             Result.success(body)
         } catch (e: Exception) {
             Result.failure(e)
@@ -124,7 +127,10 @@ class MichiSyncClient(
                 return@withContext Result.failure(PairingException.Forbidden)
             }
             val body = response.body<PairConfirmResponse>()
-            deviceToken = body.deviceToken
+            deviceToken = body.deviceToken.ifEmpty { body.sessionToken }
+            if (deviceToken.isBlank()) {
+                return@withContext Result.failure(PairingException.InvalidCredentials)
+            }
             Result.success(body)
         } catch (e: Exception) {
             Result.failure(e)
@@ -172,6 +178,9 @@ class MichiSyncClient(
         try {
             val response = client.get(url) {
                 header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) {
+                    header("X-Michi-Device-Id", clientDeviceId)
+                }
             }
             when {
                 isUnauthorized(response.status) -> Result.failure(PairingException.Unauthorized)
@@ -209,6 +218,9 @@ class MichiSyncClient(
         try {
             val response = client.get("$baseUrl/api/stream/$trackId") {
                 header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) {
+                    header("X-Michi-Device-Id", clientDeviceId)
+                }
                 if (startBytes > 0) {
                     header("Range", "bytes=$startBytes-")
                 }
@@ -240,6 +252,9 @@ class MichiSyncClient(
         try {
             val response = client.get("$baseUrl/api/cover/$coverId") {
                 header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) {
+                    header("X-Michi-Device-Id", clientDeviceId)
+                }
             }
             when {
                 isUnauthorized(response.status) -> return@withContext Result.failure(PairingException.Unauthorized)
@@ -277,6 +292,9 @@ class MichiSyncClient(
             val response = client.post("$baseUrl/api/sync/state") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) {
+                    header("X-Michi-Device-Id", clientDeviceId)
+                }
                 setBody(json.encodeToString(body))
             }
             when {
@@ -292,7 +310,7 @@ class MichiSyncClient(
 
     suspend fun search(query: String): Result<List<TrackDto>> =
         authenticatedGet("$baseUrl/api/search?q=$query") { body ->
-            json.decodeFromString<LibraryResponse>(body).tracks
+            json.decodeFromString<SearchResponse>(body).results
         }
 
     suspend fun fetchFavorites(): Result<List<String>> =

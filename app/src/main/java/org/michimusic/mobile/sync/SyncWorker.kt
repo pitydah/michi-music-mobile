@@ -14,6 +14,7 @@ import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.sync.MichiSyncClient
+import org.michimusic.sync.PairingException
 import org.michimusic.sync.SyncTransferManager
 
 class SyncWorker(
@@ -149,6 +150,9 @@ class SyncWorker(
                     RESULT_ERROR to errors,
                 ))
             }
+        } catch (e: PairingException) {
+            client.close()
+            Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         } catch (e: Exception) {
             client.close()
             Result.retry()
@@ -181,4 +185,6 @@ private fun org.michimusic.core.models.ManifestTrack.toTrackDto() = org.michimus
     duration = duration,
     size = size,
     format = format,
+    coverId = coverId,
+    year = year,
 )
