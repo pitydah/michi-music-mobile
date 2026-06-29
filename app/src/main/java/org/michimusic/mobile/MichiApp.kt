@@ -18,8 +18,12 @@ class MichiApp : Application() {
             androidContext(this@MichiApp)
             modules(appModule)
         }
-        PlayerDependencies.replayGainDao = get(ReplayGainDao::class.java)
-        PlayerDependencies.appDao = get(AppDao::class.java)
+        try {
+            PlayerDependencies.replayGainDao = get(ReplayGainDao::class.java)
+            PlayerDependencies.appDao = get(AppDao::class.java)
+        } catch (_: Exception) {
+            // Koin may not resolve DAOs until first DB access
+        }
         createNotificationChannels()
     }
 

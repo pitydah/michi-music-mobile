@@ -78,29 +78,6 @@ class MichiMediaLibrarySessionCallback(
         }
     }
 
-    override fun onPlaybackResumption(
-        session: MediaSession,
-        controller: MediaSession.ControllerInfo,
-        isForPlayback: Boolean,
-    ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-        val saved = stateStore.restore()
-        if (saved.mediaIds.isEmpty()) {
-            return Futures.immediateFailedFuture(IllegalStateException("no saved playback state"))
-        }
-        libraryProvider.refresh()
-        val items = saved.mediaIds.mapNotNull { libraryProvider.getItem(it) }
-        if (items.isEmpty()) {
-            return Futures.immediateFailedFuture(IllegalStateException("no items resolved from saved state"))
-        }
-        val resolved = libraryProvider.resolveForPlayback(items)
-        return Futures.immediateFuture(
-            MediaSession.MediaItemsWithStartPosition(
-                resolved,
-                saved.startIndex.coerceIn(0, resolved.lastIndex),
-                saved.positionMs,
-            )
-        )
-    }
 
     override fun onAddMediaItems(
         mediaSession: MediaSession,

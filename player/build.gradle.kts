@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -38,7 +39,7 @@ dependencies {
 
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.session)
-    implementation(libs.media3.common.ktx)
+    implementation(libs.media3.common)
 
     implementation(libs.guava)
     implementation(libs.coroutines.guava)
