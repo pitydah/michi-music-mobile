@@ -96,15 +96,30 @@ fun SyncScreen(
                 }
 
                 SyncConnectionState.PAIRING_REQUIRED -> {
-                    PairingForm(
-                        peer = uiState.connectedPeer,
-                        onPair = { username, password ->
-                            uiState.connectedPeer?.let { peer ->
-                                viewModel.startPairing(peer, username, password)
-                            }
-                        },
-                        onBack = viewModel::disconnect,
-                    )
+                    when (uiState.pairingStrategy) {
+                        org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> {
+                            CodePairingForm(
+                                peer = uiState.connectedPeer,
+                                onPair = { code ->
+                                    uiState.connectedPeer?.let { peer ->
+                                        viewModel.startPairing(peer, "", code)
+                                    }
+                                },
+                                onBack = viewModel::disconnect,
+                            )
+                        }
+                        else -> {
+                            PairingForm(
+                                peer = uiState.connectedPeer,
+                                onPair = { username, password ->
+                                    uiState.connectedPeer?.let { peer ->
+                                        viewModel.startPairing(peer, username, password)
+                                    }
+                                },
+                                onBack = viewModel::disconnect,
+                            )
+                        }
+                    }
                 }
 
                 SyncConnectionState.PAIRING -> {
@@ -379,6 +394,68 @@ private fun PairingForm(
             onClick = { onPair(username, password) },
             modifier = Modifier.fillMaxWidth(),
             enabled = username.isNotBlank() && password.isNotBlank(),
+        ) {
+            Text("Emparejar")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onBack) {
+            Text("Cancelar")
+        }
+    }
+}
+
+@Composable
+private fun CodePairingForm(
+    peer: DiscoveredPeer?,
+    onPair: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = AccentPink,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Emparejar dispositivo",
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        if (peer != null) {
+            Text(
+                text = "Conectar a ${peer.alias} (${peer.ip})",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Ingresa el código de emparejamiento del servidor",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = code,
+            onValueChange = { code = it },
+            label = { Text("Código de emparejamiento") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = { onPair(code) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = code.isNotBlank(),
         ) {
             Text("Emparejar")
         }

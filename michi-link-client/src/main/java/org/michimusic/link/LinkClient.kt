@@ -108,10 +108,16 @@ class LinkClient(
 
     suspend fun getServerInfo(): Result<ServerInfoDto> = withContext(Dispatchers.IO) {
         try {
-            Result.success(client.get("$baseUrl/api/v1/server/info").body<ServerInfoDto>())
+            val info = client.get("$baseUrl/api/v1/server/info").body<ServerInfoDto>()
+            updateRefreshSupport(info)
+            Result.success(info)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun updateRefreshSupport(info: ServerInfoDto) {
+        tokenRefreshSupported = info.effectiveTokenRefresh
     }
 
     suspend fun getServerInfoWithFallback(): Result<ServerInfoDto> = withContext(Dispatchers.IO) {
@@ -155,6 +161,7 @@ class LinkClient(
         clientDeviceId: String,
         alias: String = "",
         deviceModel: String = "",
+        pin: String = "",
     ): Result<PairConfirmResponseDto> = withContext(Dispatchers.IO) {
         try {
             val request = PairConfirmRequestDto(
@@ -164,6 +171,7 @@ class LinkClient(
                 clientDeviceId = clientDeviceId,
                 alias = alias,
                 deviceModel = deviceModel,
+                pin = pin,
             )
             val response = client.post("$baseUrl/api/v1/pair/confirm") {
                 contentType(ContentType.Application.Json)

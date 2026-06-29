@@ -2,6 +2,11 @@ package org.michimusic.link.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 
 @Serializable
 data class ServerInfoDto(
@@ -15,7 +20,7 @@ data class ServerInfoDto(
     val version: String = "1.0",
     @SerialName("api_version") val apiVersion: String = "",
     val roles: List<String> = emptyList(),
-    val features: ServerFeaturesDto? = null,
+    val features: Map<String, JsonElement>? = null,
     val auth: AuthInfoDto? = null,
 ) {
     val effectiveServerId: String get() = serverId.ifEmpty { serverDeviceId.ifEmpty { server } }
@@ -29,20 +34,26 @@ data class ServerInfoDto(
             else -> PairingStrategy.LEGACY
         }
     }
+    val effectiveTokenRefresh: Boolean get() {
+        if (auth?.tokenRefresh == true) return true
+        val f = features ?: return false
+        val tr = f["token_refresh"]
+        return tr?.let { parseBool(it) } ?: false
+    }
 }
 
 @Serializable
 data class AuthInfoDto(
     val strategy: String = "",
+    val required: Boolean = true,
+    @SerialName("token_refresh") val tokenRefresh: Boolean = false,
     @SerialName("auth_methods") val authMethods: List<String> = emptyList(),
     @SerialName("requires_pairing") val requiresPairing: Boolean = true,
 )
 
-@Serializable
-data class ServerFeaturesDto(
-    @SerialName("token_refresh") val tokenRefresh: Boolean = false,
-    val streaming: Boolean = false,
-    val sync: Boolean = false,
-    val remote: Boolean = false,
-    val events: Boolean = false,
-)
+private fun parseBool(el: JsonElement): Boolean {
+    return when (el) {
+        is JsonPrimitive -> el.booleanOrNull ?: el.contentOrNull?.isNotEmpty() ?: true
+        else -> true
+    }
+}
