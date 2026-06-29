@@ -33,7 +33,19 @@ data class ManifestTrackDto(
     @SerialName("cover_id") val coverId: String = "",
     val checksum: String = "",
     @SerialName("download_path") val downloadPath: String = "",
-)
+) {
+    fun toTrackDto() = org.michimusic.core.models.TrackDto(
+        id = trackId,
+        title = title,
+        artist = artist,
+        album = album,
+        duration = duration,
+        size = size,
+        format = format,
+        coverId = coverId,
+        year = year,
+    )
+}
 
 @Serializable
 data class SyncProfileDto(

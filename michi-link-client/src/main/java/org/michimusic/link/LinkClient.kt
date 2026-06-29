@@ -74,6 +74,15 @@ class LinkClient(
 
     // --- Server Info ---
 
+    suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            client.get("$baseUrl/api/ping")
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun getServerInfo(): Result<ServerInfoDto> = withContext(Dispatchers.IO) {
         try {
             Result.success(client.get("$baseUrl/api/v1/server/info").body<ServerInfoDto>())

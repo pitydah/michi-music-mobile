@@ -9,111 +9,124 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.michimusic.remote.RemoteApiClient
-import org.michimusic.remote.RemotePlayerState
-import org.michimusic.sync.SyncSession
+import org.michimusic.link.LinkClient
+import org.michimusic.link.LinkSession
+import org.michimusic.link.dto.PlaybackStateDto
+import org.michimusic.link.dto.QueueDto
+import org.michimusic.link.errors.LinkException
+
+enum class RemoteSourceMode {
+    LOCAL,
+    REMOTE,
+}
+
+data class RemoteUiState(
+    val mode: RemoteSourceMode = RemoteSourceMode.LOCAL,
+    val playerState: PlaybackStateDto = PlaybackStateDto(),
+    val queue: QueueDto = QueueDto(),
+    val connected: Boolean = false,
+    val sourceName: String = "Reproductor local",
+    val error: String? = null,
+)
 
 class RemoteViewModel(
-    private val session: SyncSession,
+    private val session: LinkSession,
 ) : ViewModel() {
 
-    private val _playerState = MutableStateFlow(RemotePlayerState())
-    val playerState: StateFlow<RemotePlayerState> = _playerState.asStateFlow()
+    private val _uiState = MutableStateFlow(RemoteUiState())
+    val uiState: StateFlow<RemoteUiState> = _uiState.asStateFlow()
 
-    private val _connected = MutableStateFlow(false)
-    val connected: StateFlow<Boolean> = _connected.asStateFlow()
-
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    private var client: RemoteApiClient? = null
+    private var client: LinkClient? = null
     private var pollingJob: Job? = null
 
     fun connectIfNeeded() {
-        if (_connected.value) return
+        if (_uiState.value.connected) return
         val peer = session.connectedPeer.value ?: return
-        val reg = session.registration.value ?: return
-        connect(peer.ip, reg.sessionToken)
-    }
+        val linkClient = session.linkClient ?: return
 
-    fun connect(peerIp: String, token: String) {
-        client?.close()
-        val c = RemoteApiClient(
-            baseUrl = "http://$peerIp:8124",
-            bearerToken = token,
+        client = linkClient
+        _uiState.value = _uiState.value.copy(
+            mode = RemoteSourceMode.REMOTE,
+            connected = true,
+            sourceName = peer.alias,
         )
-        client = c
-        _connected.value = true
-        _error.value = null
-        startPolling(c)
+        startPolling(linkClient)
     }
 
     fun disconnect() {
         pollingJob?.cancel()
         pollingJob = null
-        client?.close()
         client = null
-        _connected.value = false
-        _playerState.value = RemotePlayerState()
+        _uiState.value = RemoteUiState()
     }
 
-    private fun startPolling(client: RemoteApiClient) {
+    private fun startPolling(client: LinkClient) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
-            while (isActive && _connected.value) {
-                val result = client.fetchStatus()
-                result.onSuccess { state ->
-                    _playerState.value = state
-                    _error.value = null
+            while (isActive && _uiState.value.connected) {
+                client.getPlaybackState().onSuccess { state ->
+                    _uiState.value = _uiState.value.copy(
+                        playerState = state,
+                        error = null,
+                    )
                 }.onFailure { e ->
                     val msg = e.message ?: ""
-                    if (msg.contains("401") || msg.contains("Unauthorized")) {
-                        _error.value = "Sesión expirada. Reconecta desde Sync."
-                        _connected.value = false
+                    if (msg.contains("401") || msg.contains("Unauthorized") || e is LinkException.Unauthorized) {
+                        _uiState.value = _uiState.value.copy(
+                            error = "Sesión expirada. Reconecta desde Sync.",
+                            connected = false,
+                        )
                         pollingJob?.cancel()
                         return@launch
                     }
-                    _error.value = "Error al obtener estado: ${e.message}"
+                    _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
                 }
+
+                client.getQueue().onSuccess { queue ->
+                    _uiState.value = _uiState.value.copy(queue = queue)
+                }.onFailure { /* cola no siempre disponible */ }
+
                 delay(2000)
             }
         }
     }
 
-    fun clearError() { _error.value = null }
+    fun clearError() { _uiState.value = _uiState.value.copy(error = null) }
 
     fun retry() {
-        client?.let {
-            startPolling(it)
-        } ?: connectIfNeeded()
+        client?.let { startPolling(it) } ?: connectIfNeeded()
     }
 
-    fun play() { execute { client?.play() } }
-    fun pause() { execute { client?.pause() } }
+    fun sendCommand(command: String, value: String = "") {
+        viewModelScope.launch {
+            client?.sendPlaybackCommand(command, value)?.onFailure { e ->
+                _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
+            }
+        }
+    }
+
+    fun play() { sendCommand("play") }
+    fun pause() { sendCommand("pause") }
     fun togglePlayPause() {
-        val state = _playerState.value.state
+        val state = _uiState.value.playerState.state
         if (state == "playing") pause() else play()
     }
-    fun next() { execute { client?.next() } }
-    fun previous() { execute { client?.previous() } }
+    fun next() { sendCommand("next") }
+    fun previous() { sendCommand("previous") }
+    fun stop() { sendCommand("stop") }
+    fun seek(positionMs: Long) { sendCommand("seek", positionMs.toString()) }
     fun setVolume(volume: Int) {
-        _playerState.value = _playerState.value.copy(volume = volume)
-        viewModelScope.launch { client?.setVolume(volume) }
+        _uiState.value = _uiState.value.copy(
+            playerState = _uiState.value.playerState.copy(volume = volume)
+        )
+        sendCommand("set_volume", volume.toString())
     }
-
-    private fun execute(action: suspend () -> kotlin.Result<String>?) {
+    fun mute() { sendCommand("mute") }
+    fun unmute() { sendCommand("unmute") }
+    fun queueJump(index: Int) {
         viewModelScope.launch {
-            val result = action()
-            if (result == null) return@launch
-            result.onFailure { e ->
-                val msg = e.message ?: ""
-                if (msg.contains("401") || msg.contains("Unauthorized")) {
-                    _error.value = "Sesión expirada. Reconecta desde Sync."
-                    _connected.value = false
-                    pollingJob?.cancel()
-                } else {
-                    _error.value = "Error: ${e.message}"
-                }
+            client?.queueJump(index)?.onFailure { e ->
+                _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
             }
         }
     }

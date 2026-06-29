@@ -17,68 +17,57 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.DiscoveredPeer
-import org.michimusic.core.models.PairConfirmResponse
-import org.michimusic.core.models.PairStartResponse
-import org.michimusic.core.models.RegisterResponse
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
-import org.michimusic.sync.DiscoveryClient
-import org.michimusic.sync.DiscoveryEvent
-import org.michimusic.sync.MichiSyncClient
-import org.michimusic.sync.PairingException
-import org.michimusic.sync.SecureTokenStore
-import org.michimusic.sync.SyncSession
+import org.michimusic.link.LinkClient
+import org.michimusic.link.LinkDiscovery
+import org.michimusic.link.LinkSession
+import org.michimusic.link.TokenStore
+import org.michimusic.link.dto.PairConfirmResponseDto
+import org.michimusic.link.dto.PairStartResponseDto
+import org.michimusic.link.errors.LinkException
 
 data class SyncUiState(
     val state: SyncConnectionState = SyncConnectionState.DISCONNECTED,
     val peers: List<DiscoveredPeer> = emptyList(),
     val connectedPeer: DiscoveredPeer? = null,
-    val registration: RegisterResponse? = null,
-    val pairingStart: PairStartResponse? = null,
-    val pairingConfirm: PairConfirmResponse? = null,
+    val pairingStart: PairStartResponseDto? = null,
+    val pairingConfirm: PairConfirmResponseDto? = null,
     val error: String? = null,
     val syncProgress: SyncProgress = SyncProgress.Idle,
 )
 
 class SyncViewModel(
     private val context: Context,
-    private val discoveryClient: DiscoveryClient,
-    private val session: SyncSession,
+    private val linkDiscovery: LinkDiscovery,
+    private val linkSession: LinkSession,
     private val trackRepository: SyncedTrackRepository,
 ) : ViewModel() {
 
-    private val tokenStore = SecureTokenStore(context)
+    private val tokenStore = TokenStore(context)
 
     private val _error = MutableStateFlow<String?>(null)
     private val _syncProgress = MutableStateFlow<SyncProgress>(SyncProgress.Idle)
 
     val uiState: StateFlow<SyncUiState> = combine(
         combine(
-            discoveryClient.peers.map { it.values.toList() },
-            session.connectionState,
+            linkDiscovery.peers.map { it.values.toList() },
+            linkSession.connectionState,
         ) { peers, connState ->
             peers to connState
         },
         combine(
-            session.connectedPeer,
-            session.registration,
-        ) { peer, reg ->
-            peer to reg
+            linkSession.connectedPeer,
+            linkSession.pairStartResponse,
+        ) { peer, pairStart ->
+            peer to pairStart
         },
-        combine(
-            session.pairStartResponse,
-            session.pairConfirmResponse,
-        ) { pairStart, pairConfirm ->
-            pairStart to pairConfirm
-        },
-    ) { (peers, connState), (peer, reg), (pairStart, pairConfirm) ->
+    ) { (peers, connState), (peer, pairStart) ->
         SyncUiState(
             state = connState,
             peers = peers,
             connectedPeer = peer,
-            registration = reg,
             pairingStart = pairStart,
-            pairingConfirm = pairConfirm,
         )
     }.combine(
         combine(_error, _syncProgress) { err, progress -> err to progress }
@@ -88,6 +77,7 @@ class SyncViewModel(
 
     private var clientId: String = ""
     private var pendingPairingId: String = ""
+    private var currentClient: LinkClient? = null
 
     init {
         clientId = "android_${android.provider.Settings.Secure.getString(
@@ -98,15 +88,15 @@ class SyncViewModel(
 
     fun startDiscovery() {
         if (uiState.value.state != SyncConnectionState.DISCONNECTED) return
-        session.updateState(SyncConnectionState.DISCOVERING)
-        viewModelScope.launch { discoveryClient.start() }
+        linkSession.updateState(SyncConnectionState.DISCOVERING)
+        viewModelScope.launch { linkDiscovery.start() }
     }
 
     fun stopDiscovery() {
         viewModelScope.launch {
-            discoveryClient.stop()
+            linkDiscovery.stop()
             if (uiState.value.state == SyncConnectionState.DISCOVERING) {
-                session.updateState(SyncConnectionState.DISCONNECTED)
+                linkSession.updateState(SyncConnectionState.DISCONNECTED)
             }
         }
     }
@@ -115,13 +105,13 @@ class SyncViewModel(
         if (uiState.value.state != SyncConnectionState.DISCOVERING) return
 
         stopDiscovery()
+        currentClient = LinkClient(
+            baseUrl = "http://${peer.ip}:${peer.port}",
+            clientDeviceId = clientId,
+        )
 
         viewModelScope.launch {
-            val client = MichiSyncClient(
-                baseUrl = "http://${peer.ip}:${peer.port}",
-                clientDeviceId = clientId,
-            )
-
+            val client = currentClient ?: return@launch
             val resolvedDeviceId = resolveServerDeviceId(client, peer)
 
             val storedToken = tokenStore.getDeviceToken()
@@ -131,15 +121,15 @@ class SyncViewModel(
             if (storedToken != null && storedServerId == resolvedDeviceId) {
                 connectWithToken(peer, storedToken, storedClientId ?: clientId)
             } else if (peer.authRequired) {
-                session.onConnected(peer, client)
-                session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                linkSession.onConnected(peer, client)
+                linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
             } else {
                 connectToPeerLegacy(peer)
             }
         }
     }
 
-    private suspend fun resolveServerDeviceId(client: MichiSyncClient, peer: DiscoveredPeer): String {
+    private suspend fun resolveServerDeviceId(client: LinkClient, peer: DiscoveredPeer): String {
         if (peer.deviceId.isNotEmpty()) return peer.deviceId
         return runCatching {
             client.fetchDiscoveryInfo().getOrNull()?.serverDeviceId
@@ -147,54 +137,52 @@ class SyncViewModel(
     }
 
     private fun connectWithToken(peer: DiscoveredPeer, token: String, storedClientId: String) {
-        session.updateState(SyncConnectionState.CONNECTING)
+        linkSession.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
-        val client = MichiSyncClient(
+        val client = LinkClient(
             baseUrl = baseUrl,
             deviceToken = token,
             clientDeviceId = storedClientId,
         )
+        currentClient = client
 
         viewModelScope.launch {
             val pingOk = client.ping()
             if (pingOk) {
-                session.onConnected(peer, client)
-                session.updateState(SyncConnectionState.PAIRED)
+                linkSession.onConnected(peer, client)
+                linkSession.updateState(SyncConnectionState.PAIRED)
             } else {
                 tokenStore.clear()
-                session.updateState(SyncConnectionState.DISCONNECTED)
+                linkSession.updateState(SyncConnectionState.DISCONNECTED)
                 _error.value = "No se pudo conectar con el servidor. Vuelve a emparejar."
             }
         }
     }
 
     private fun connectToPeerLegacy(peer: DiscoveredPeer) {
-        session.updateState(SyncConnectionState.CONNECTING)
+        linkSession.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
-        val client = MichiSyncClient(baseUrl = baseUrl, clientDeviceId = clientId)
+        val client = LinkClient(baseUrl = baseUrl, clientDeviceId = clientId)
+        currentClient = client
 
         viewModelScope.launch {
-            client
-                .register(
-                    alias = android.os.Build.MODEL,
-                    deviceModel = android.os.Build.MODEL,
-                    clientDeviceId = clientId,
-                )
-                .onSuccess { response ->
-                    session.onConnected(peer, client)
-                    session.onRegistered(response)
-                }
-                .onFailure { e ->
-                    _error.value = "Error al conectar: ${e.message}"
-                    session.updateState(SyncConnectionState.ERROR)
-                    client.close()
-                }
+            client.register(
+                alias = android.os.Build.MODEL,
+                deviceModel = android.os.Build.MODEL,
+                clientDeviceId = clientId,
+            ).onSuccess { response ->
+                linkSession.onConnected(peer, client)
+            }.onFailure { e ->
+                _error.value = "Error al conectar: ${e.message}"
+                linkSession.updateState(SyncConnectionState.ERROR)
+                client.close()
+            }
         }
     }
 
     fun startPairing(peer: DiscoveredPeer, username: String, password: String) {
-        val client = session.syncClient ?: return
-        session.updateState(SyncConnectionState.PAIRING)
+        val client = currentClient ?: return
+        linkSession.updateState(SyncConnectionState.PAIRING)
 
         viewModelScope.launch {
             client.pairStart(
@@ -203,7 +191,7 @@ class SyncViewModel(
                 clientDeviceId = clientId,
             ).onSuccess { startResp ->
                 pendingPairingId = startResp.pairingId
-                session.onPairingStarted(startResp)
+                linkSession.onPairingStarted(startResp)
 
                 client.pairConfirm(
                     pairingId = startResp.pairingId,
@@ -216,7 +204,7 @@ class SyncViewModel(
                     val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
                     if (effectiveToken.isBlank()) {
                         _error.value = "El servidor no otorgó un token válido"
-                        session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                        linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
                         return@launch
                     }
                     val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
@@ -224,37 +212,37 @@ class SyncViewModel(
                             client.fetchDiscoveryInfo().getOrNull()?.serverDeviceId
                         }.getOrNull().orEmpty()
                     }
-                    tokenStore.saveToken(
+                    tokenStore.save(
                         serverDeviceId = resolvedDeviceId,
                         serverAlias = confirmResp.serverAlias,
                         clientDeviceId = clientId,
                         deviceToken = effectiveToken,
                         refreshToken = confirmResp.refreshToken,
                         permissions = confirmResp.permissions,
+                        serverUrl = client.baseUrl,
                     )
                     client.deviceToken = effectiveToken
                     client.clientDeviceId = clientId
-                    session.onPaired(confirmResp)
-                    session.updateState(SyncConnectionState.PAIRED)
+                    linkSession.onPaired(confirmResp)
                 }.onFailure { e ->
                     when (e) {
-                        is PairingException.InvalidCredentials -> {
+                        is LinkException.InvalidCredentials -> {
                             _error.value = "Credenciales incorrectas"
-                            session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                            linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
                         }
-                        is PairingException.Revoked -> {
+                        is LinkException.Revoked -> {
                             _error.value = "Acceso denegado por el servidor"
-                            session.updateState(SyncConnectionState.REVOKED)
+                            linkSession.updateState(SyncConnectionState.REVOKED)
                         }
                         else -> {
                             _error.value = "Error de emparejamiento: ${e.message}"
-                            session.updateState(SyncConnectionState.ERROR)
+                            linkSession.updateState(SyncConnectionState.ERROR)
                         }
                     }
                 }
             }.onFailure { e ->
                 _error.value = "Error al iniciar emparejamiento: ${e.message}"
-                session.updateState(SyncConnectionState.ERROR)
+                linkSession.updateState(SyncConnectionState.ERROR)
             }
         }
     }
@@ -265,20 +253,19 @@ class SyncViewModel(
     }
 
     fun disconnect() {
-        viewModelScope.launch { discoveryClient.stop() }
-        session.disconnect()
+        viewModelScope.launch { linkDiscovery.stop() }
+        currentClient?.close()
+        currentClient = null
+        linkSession.disconnect()
         _syncProgress.value = SyncProgress.Idle
     }
 
     fun syncLibrary() {
-        val client = session.syncClient ?: return
+        val client = currentClient ?: return
         val currentState = uiState.value
-        val reg = currentState.registration
         val pairConfirm = currentState.pairingConfirm
 
-        val deviceId = reg?.clientDeviceId
-            ?: pairConfirm?.deviceId
-            ?: clientId
+        val deviceId = pairConfirm?.deviceId ?: clientId
         val effectiveToken = client.deviceToken.ifEmpty { client.sessionToken }
 
         _syncProgress.value = SyncProgress.Downloading(0, 0)
@@ -328,13 +315,10 @@ class SyncViewModel(
     fun clearError() { _error.value = null }
 
     fun schedulePeriodicSyncIfEnabled() {
-        val prefs = context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("auto_sync", false)) return
-        val client = session.syncClient ?: return
-        val currentState = uiState.value
-        val reg = currentState.registration
-        val pairConfirm = currentState.pairingConfirm
-        val deviceId = reg?.clientDeviceId ?: pairConfirm?.deviceId ?: clientId
+        val client = currentClient ?: return
+        val deviceId = uiState.value.pairingConfirm?.deviceId ?: clientId
         val effectiveToken = client.deviceToken.ifEmpty { client.sessionToken }
 
         val inputData = SyncWorker.buildInputData(
@@ -356,7 +340,8 @@ class SyncViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        session.disconnect()
+        currentClient?.close()
+        linkSession.disconnect()
     }
 }
 

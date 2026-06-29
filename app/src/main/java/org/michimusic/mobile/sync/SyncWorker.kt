@@ -14,9 +14,9 @@ import org.michimusic.core.models.DownloadItem
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.SyncedTrackRepository
-import org.michimusic.sync.MichiSyncClient
-import org.michimusic.sync.PairingException
-import org.michimusic.sync.SyncTransferManager
+import org.michimusic.link.LinkClient
+import org.michimusic.link.LinkTransferManager
+import org.michimusic.link.errors.LinkException
 
 class SyncWorker(
     context: Context,
@@ -62,7 +62,7 @@ class SyncWorker(
 
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
-        val client = MichiSyncClient(
+        val client = LinkClient(
             baseUrl = baseUrl,
             sessionToken = sessionToken,
             deviceToken = deviceToken,
@@ -79,13 +79,13 @@ class SyncWorker(
             null
         }
         val repository = SyncedTrackRepository(trackDao, playlistDao)
-        val transferManager = SyncTransferManager(applicationContext)
+        val transferManager = LinkTransferManager(applicationContext)
 
         return try {
             val manifestResult = client.fetchSyncManifest(deviceId)
             if (manifestResult.isFailure) {
                 val error = manifestResult.exceptionOrNull()
-                if (error is PairingException) {
+                if (error is LinkException) {
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
                 return Result.retry()
@@ -97,7 +97,9 @@ class SyncWorker(
             )
 
             if (manifest.playlists.isNotEmpty()) {
-                repository.saveManifestPlaylists(manifest.playlists)
+                repository.saveManifestPlaylists(
+                    manifest.playlists.map { it.toDomainPlaylist() }
+                )
             }
 
             val downloadedIds = repository.getDownloadedIds()
@@ -162,7 +164,7 @@ class SyncWorker(
                     RESULT_ERROR to errors,
                 ))
             }
-        } catch (e: PairingException) {
+        } catch (e: LinkException) {
             client.close()
             try { wakeLock?.release() } catch (_: Exception) {}
             Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))

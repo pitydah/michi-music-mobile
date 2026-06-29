@@ -114,7 +114,6 @@ fun SyncScreen(
                 SyncConnectionState.PAIRED -> {
                     ConnectedState(
                         peer = uiState.connectedPeer,
-                        registration = uiState.registration,
                         pairingConfirm = uiState.pairingConfirm,
                         syncProgress = uiState.syncProgress,
                         onSync = viewModel::syncLibrary,
@@ -131,7 +130,6 @@ fun SyncScreen(
                 SyncConnectionState.CONNECTED -> {
                     ConnectedState(
                         peer = uiState.connectedPeer,
-                        registration = uiState.registration,
                         pairingConfirm = null,
                         syncProgress = uiState.syncProgress,
                         onSync = viewModel::syncLibrary,
@@ -411,8 +409,7 @@ private fun ConnectingState(message: String) {
 @Composable
 private fun ConnectedState(
     peer: DiscoveredPeer?,
-    registration: org.michimusic.core.models.RegisterResponse?,
-    pairingConfirm: org.michimusic.core.models.PairConfirmResponse?,
+    pairingConfirm: org.michimusic.link.dto.PairConfirmResponseDto?,
     syncProgress: SyncProgress,
     onSync: () -> Unit,
     onDisconnect: () -> Unit,
@@ -453,7 +450,7 @@ private fun ConnectedState(
             }
         }
 
-        registration?.let { reg ->
+        pairingConfirm?.let { confirm ->
             Spacer(Modifier.height(16.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -463,11 +460,11 @@ private fun ConnectedState(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Biblioteca: ${reg.librarySize} canciones",
+                        "Permisos: ${confirm.permissions.joinToString(", ").ifEmpty { "Ninguno" }}",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Text(
-                        "Servidor: ${reg.serverDeviceId.take(8)}...",
+                        "Servidor: ${confirm.serverDeviceId.take(8)}...",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                     )

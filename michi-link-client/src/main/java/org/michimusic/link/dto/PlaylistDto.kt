@@ -17,4 +17,11 @@ data class ManifestPlaylistDto(
     val name: String,
     @SerialName("track_ids") val trackIds: List<String> = emptyList(),
     @SerialName("updated_at") val updatedAt: Long = 0L,
-)
+) {
+    fun toDomainPlaylist() = org.michimusic.core.models.ManifestPlaylist(
+        playlistId = playlistId,
+        name = name,
+        trackIds = trackIds,
+        updatedAt = updatedAt,
+    )
+}
