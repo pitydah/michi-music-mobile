@@ -30,56 +30,59 @@ class MichiPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        try {
+            replayGainProcessor = ReplayGainAudioProcessor()
+            stateStore = PlaybackStateStore(applicationContext)
 
-        replayGainProcessor = ReplayGainAudioProcessor()
-        stateStore = PlaybackStateStore(this)
+            val mode = ReplayGainConfig.getMode()
+            val preAmp = ReplayGainConfig.getPreAmp()
+            replayGainProcessor.configure(mode, preAmp)
 
-        val mode = ReplayGainConfig.getMode()
-        val preAmp = ReplayGainConfig.getPreAmp()
-        replayGainProcessor.configure(mode, preAmp)
+            val replayGainDao = PlayerDependencies.replayGainDao
+            val controller = PlayerController(this, listOf(replayGainProcessor), replayGainDao)
+            playerController = controller
+            player = controller.getExoPlayer()
 
-        val replayGainDao = PlayerDependencies.replayGainDao
-        val controller = PlayerController(this, listOf(replayGainProcessor), replayGainDao)
-        playerController = controller
-        player = controller.getExoPlayer()
+            val libraryProvider = LibraryProvider(this, controller.getRepository())
+            val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore)
 
-        val libraryProvider = LibraryProvider(this, controller.getRepository())
-        val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore)
+            setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
 
-        setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
-
-        mediaLibrarySession = MediaLibrarySession.Builder(this, player!!, callback)
-            .setSessionActivity(
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    packageManager?.getLaunchIntentForPackage(packageName),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            mediaLibrarySession = MediaLibrarySession.Builder(this, player!!, callback)
+                .setSessionActivity(
+                    PendingIntent.getActivity(
+                        this,
+                        0,
+                        packageManager?.getLaunchIntentForPackage(packageName),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    )
                 )
-            )
-            .build()
+                .build()
 
-        restorePlaybackState(libraryProvider)
+            restorePlaybackState(libraryProvider)
 
-        player!!.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
-                if (songId != null) {
-                    val track = controller.getRepository().loadTracks()
-                        .firstOrNull { it.id == songId }
-                    replayGainProcessor.onSongChanged(track)
+            player!!.addListener(object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
+                    if (songId != null) {
+                        val track = controller.getRepository().loadTracks()
+                            .firstOrNull { it.id == songId }
+                        replayGainProcessor.onSongChanged(track)
+                    }
+                    deferSave()
                 }
-                deferSave()
-            }
 
-            override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) deferSave()
-            }
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_READY) deferSave()
+                }
 
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (!isPlaying) deferSave()
-            }
-        })
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (!isPlaying) deferSave()
+                }
+            })
+        } catch (e: Exception) {
+            android.util.Log.e("MichiPlaybackService", "Error al iniciar servicio", e)
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
