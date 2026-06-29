@@ -63,9 +63,15 @@ class SyncViewModel(
 
     private var clientId: String = ""
 
+    init {
+        clientId = "android_${android.provider.Settings.Secure.getString(
+            context.contentResolver,
+            android.provider.Settings.Secure.ANDROID_ID,
+        )?.takeLast(6) ?: "000000"}"
+    }
+
     fun startDiscovery() {
         if (uiState.value.state != SyncConnectionState.DISCONNECTED) return
-        clientId = "android_${System.currentTimeMillis().toString().takeLast(6)}"
         session.updateState(SyncConnectionState.DISCOVERING)
         viewModelScope.launch { discoveryClient.start() }
         viewModelScope.launch {
