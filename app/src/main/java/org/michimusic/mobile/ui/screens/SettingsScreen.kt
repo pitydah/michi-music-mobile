@@ -20,6 +20,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -40,16 +41,17 @@ import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.ReplayGainMode
 
-private const val PREFS_NAME = "michi_settings"
-private const val KEY_AUTO_SYNC = "auto_sync"
-private const val KEY_RG_MODE = "replaygain_mode"
-private const val KEY_RG_PREAMP_WITH = "replaygain_preamp_with"
-private const val KEY_RG_PREAMP_WITHOUT = "replaygain_preamp_without"
+const val SETTINGS_PREFS = "michi_settings"
+const val KEY_AUTO_SYNC = "auto_sync"
+const val KEY_RG_MODE = "replaygain_mode"
+const val KEY_RG_PREAMP_WITH = "replaygain_preamp_with"
+const val KEY_RG_PREAMP_WITHOUT = "replaygain_preamp_without"
+const val KEY_SERVER_URL = "server_url"
 
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
     var autoSync by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SYNC, false)) }
 
@@ -70,17 +72,36 @@ fun SettingsScreen() {
 
         Spacer(Modifier.height(16.dp))
 
-        Card(
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = "Servidor",
+            style = MaterialTheme.typography.titleMedium,
+            color = TextPrimary,
+        )
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            text = "Descubrimiento automático vía UDP Multicast activo. La app detectará a Michi Music Player automáticamente en la red local.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextPrimary,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        var serverUrl by remember { mutableStateOf(prefs.getString(KEY_SERVER_URL, "") ?: "") }
+        OutlinedTextField(
+            value = serverUrl,
+            onValueChange = {
+                serverUrl = it
+                prefs.edit { putString(KEY_SERVER_URL, it) }
+            },
+            label = { Text("URL manual del servidor") },
+            placeholder = { Text("http://192.168.1.100:53318") },
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        ) {
-            Text(
-                text = "Descubrimiento automático vía UDP Multicast activo. La app detectará a Michi Music Player automáticamente en la red local.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
-                modifier = Modifier.padding(16.dp),
-            )
-        }
+            singleLine = true,
+        )
 
         Spacer(Modifier.height(24.dp))
         HorizontalDivider()

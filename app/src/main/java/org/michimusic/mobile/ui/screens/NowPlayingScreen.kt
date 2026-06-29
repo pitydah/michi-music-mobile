@@ -59,7 +59,9 @@ data class PlaybackSource(
 
 // --- PANTALLA PRINCIPAL ---
 @Composable
-fun NowPlayingScreen() {
+fun NowPlayingScreen(
+    onNavigateToSettings: () -> Unit = {},
+) {
     val audioController = remember { getAudioController() }
     val state by audioController?.state?.collectAsState() ?: remember { mutableStateOf(PlayerState()) }
     val syncViewModel: SyncViewModel = koinViewModel()
@@ -129,11 +131,17 @@ fun NowPlayingScreen() {
                             PlaybackSourceMenu(
                                 sources = allSources,
                                 selectedSource = selectedSource,
-                                onSourceSelected = {
-                                    selectedSource = it
+                                onSourceSelected = { source ->
+                                    selectedSource = source
                                     isSourceMenuExpanded = false
+                                    if (source.id != "local") {
+                                        onNavigateToSettings()
+                                    }
                                 },
-                                onManageClick = { isSourceMenuExpanded = false }
+                                onManageClick = {
+                                    isSourceMenuExpanded = false
+                                    onNavigateToSettings()
+                                }
                             )
                         }
                     }
@@ -209,7 +217,8 @@ fun NowPlayingScreen() {
                     volume = fraction
                     val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
                     audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
-                }
+                },
+                onNavigateToAudioRoute = onNavigateToSettings,
             )
 
             Spacer(modifier = Modifier.height(110.dp))
@@ -387,6 +396,7 @@ fun MichiSlider(
     timeEnd: String? = null,
     isVolume: Boolean = false
 ) {
+    val lastValue = remember { mutableFloatStateOf(value) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         if (timeStart != null) {
             Text(timeStart, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(36.dp))
@@ -396,9 +406,10 @@ fun MichiSlider(
         Slider(
             value = value,
             onValueChange = { v ->
+                lastValue.floatValue = v
                 onValueChange(v)
             },
-            onValueChangeFinished = { onValueChangeFinished?.invoke(value) },
+            onValueChangeFinished = { onValueChangeFinished?.invoke(lastValue.floatValue) },
             modifier = Modifier.weight(1f),
             thumb = {
                 Box(
@@ -481,12 +492,21 @@ fun PlaybackControls(
         }
 
         MichiIconButton(Icons.Rounded.SkipNext, size = 32.dp, onClick = onNext)
-        MichiIconButton(Icons.Rounded.Repeat, size = 24.dp, tint = if (repeatMode != 0) AccentPink else AccentCoral, onClick = onRepeat)
+        MichiIconButton(
+            icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+            size = 24.dp,
+            tint = if (repeatMode != 0) AccentPink else AccentCoral,
+            onClick = onRepeat,
+        )
     }
 }
 
 @Composable
-fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
+fun VolumeAndToolsRow(
+    volume: Float,
+    onVolumeChange: (Float) -> Unit,
+    onNavigateToAudioRoute: () -> Unit = {},
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -505,7 +525,7 @@ fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
 
         MichiIconButton(Icons.Rounded.Tune, size = 20.dp, tint = AccentCoral)
         Spacer(modifier = Modifier.width(16.dp))
-        MichiIconButton(Icons.Rounded.SpeakerGroup, size = 20.dp, tint = AccentCoral)
+        MichiIconButton(Icons.Rounded.SpeakerGroup, size = 20.dp, tint = AccentCoral, onClick = onNavigateToAudioRoute)
     }
 }
 

@@ -1,6 +1,9 @@
 package org.michimusic.mobile.ui.screens
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import androidx.compose.foundation.background
@@ -16,7 +19,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -38,150 +45,114 @@ private sealed class AudioRoute {
 fun AudioRouteScreen() {
     val context = LocalContext.current
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val route = remember {
-        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        when {
-            devices.any { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_DOCK } ->
-                AudioRoute.UsbDac
-            devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP } -> {
-                val btDevice = devices.first { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
-                val productName = btDevice.productName?.toString() ?: ""
-                AudioRoute.Bluetooth(codec = productName)
+    var route by remember { mutableStateOf(detectRoute(audioManager)) }
+
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                route = detectRoute(audioManager)
             }
-            devices.any { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER || it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC } ->
-                AudioRoute.InternalSpeaker
-            else -> AudioRoute.Unknown
         }
+        val filter = IntentFilter().apply {
+            addAction(AudioManager.ACTION_HEADSET_PLUG)
+            addAction("android.media.action.HDMI_AUDIO_PLUG")
+            addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
+        }
+        context.registerReceiver(receiver, filter)
+        onDispose { context.unregisterReceiver(receiver) }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceDark)
-            .padding(horizontal = 16.dp)
+            .padding(16.dp)
             .verticalScroll(rememberScrollState()),
     ) {
-        Spacer(Modifier.height(16.dp))
-
         Text(
-            text = "Ruta de Audio",
+            text = "Ruta de audio",
             style = MaterialTheme.typography.headlineMedium,
             color = TextPrimary,
         )
+        Spacer(Modifier.height(16.dp))
 
-        Spacer(Modifier.height(24.dp))
-
-        GlassCard(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
+                Text("Salida actual", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Salida Activa",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
+                    text = when (route) {
+                        is AudioRoute.InternalSpeaker -> "Altavoz interno"
+                        is AudioRoute.UsbDac -> "USB DAC"
+                        is AudioRoute.Bluetooth -> "Bluetooth (${(route as AudioRoute.Bluetooth).codec})"
+                        is AudioRoute.Unknown -> "Desconocido"
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = AccentPink,
                 )
-
-                Spacer(Modifier.height(12.dp))
-
-                when (route) {
-                    is AudioRoute.UsbDac -> {
-                        Text(
-                            text = "USB DAC",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = AccentPink,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Ruta Bit-Perfect — El audio se envía sin resampling ni post-procesamiento. Calidad máxima de reproducción.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                        )
-                    }
-                    is AudioRoute.Bluetooth -> {
-                        Text(
-                            text = "Bluetooth A2DP",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = TextPrimary,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Recomendación: Activa LDAC a 990kbps en Opciones de Desarrollador de Android para mejor calidad inalámbrica.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                        )
-                        if (route.codec.isNotEmpty()) {
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Dispositivo: ${route.codec}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextDim,
-                            )
-                        }
-                    }
-                    is AudioRoute.InternalSpeaker -> {
-                        Text(
-                            text = "Altavoz Interno",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = TextPrimary,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Reproduciendo por los altavoces del dispositivo. Conecta un DAC USB o auriculares Bluetooth para mejor calidad.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                        )
-                    }
-                    is AudioRoute.Unknown -> {
-                        Text(
-                            text = "Desconocido",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = TextDim,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "No se pudo determinar la salida de audio actual.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                        )
-                    }
-                }
             }
         }
 
-        Spacer(Modifier.height(24.dp))
-        HorizontalDivider()
         Spacer(Modifier.height(16.dp))
 
-        Text(
-            text = "Información Técnica",
-            style = MaterialTheme.typography.titleMedium,
-            color = TextPrimary,
-        )
+        Text("Detalles técnicos", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
         Spacer(Modifier.height(8.dp))
 
-        val allDevices = remember {
-            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        }
-        allDevices.forEach { device ->
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        devices.forEach { device ->
+            val deviceName = device.productName?.toString() ?: "Desconocido"
             val typeName = when (device.type) {
-                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz Interno"
-                AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_DOCK -> "USB DAC"
+                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz interno"
+                AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Auriculares con cable"
+                AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares con cable"
                 AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth A2DP"
-                AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Auriculares Cableados"
-                AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares Cableados"
-                AudioDeviceInfo.TYPE_HDMI -> "HDMI"
-                AudioDeviceInfo.TYPE_HDMI_ARC -> "HDMI ARC"
+                AudioDeviceInfo.TYPE_USB_DEVICE -> "USB DAC"
+                AudioDeviceInfo.TYPE_USB_HEADSET -> "USB Headset"
                 AudioDeviceInfo.TYPE_DOCK -> "Dock"
                 else -> "Tipo ${device.type}"
             }
             Text(
-                text = "$typeName — ${device.productName}",
+                text = "$deviceName ($typeName)",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                modifier = Modifier.padding(vertical = 2.dp),
             )
+            Spacer(Modifier.height(4.dp))
         }
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = "Consejos",
+            style = MaterialTheme.typography.titleMedium,
+            color = TextPrimary,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = when (route) {
+                is AudioRoute.UsbDac -> "USB DAC detectado. La reproducción es bit-perfect si tu DAC lo soporta."
+                is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
+                is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
+                is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
+    }
+}
+
+private fun detectRoute(audioManager: AudioManager): AudioRoute {
+    val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    return when {
+        devices.any { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_DOCK } ->
+            AudioRoute.UsbDac
+        devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP } -> {
+            val btDevice = devices.first { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+            AudioRoute.Bluetooth(codec = btDevice.productName?.toString() ?: "A2DP")
+        }
+        devices.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES } ->
+            AudioRoute.InternalSpeaker
+        else -> AudioRoute.InternalSpeaker
     }
 }

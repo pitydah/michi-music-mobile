@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -85,11 +86,11 @@ fun MichiNavHost() {
             NavHost(
                 navController = navController,
                 startDestination = "home",
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().padding(bottom = 72.dp),
             ) {
                 composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
                 composable("library") { AlbumsScreen() }
-                composable("nowplaying") { NowPlayingScreen() }
+                composable("nowplaying") { NowPlayingScreen(onNavigateToSettings = { navController.navigate("settings") }) }
                 composable("playlist") { PlaylistScreen() }
                 composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
