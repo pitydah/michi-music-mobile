@@ -76,10 +76,14 @@ class AudioController(
         )
         val future = MediaController.Builder(context, sessionToken).buildAsync()
         future.addListener({
-            val controller = future.get()
-            mediaController = controller
-            controller.addListener(listener)
-            _isReady.value = true
+            try {
+                val controller = future.get()
+                mediaController = controller
+                controller.addListener(listener)
+                _isReady.value = true
+            } catch (_: Exception) {
+                _isReady.value = false
+            }
         }, MoreExecutors.directExecutor())
     }
 

@@ -103,6 +103,7 @@ fun MichiNavHost() {
             MiniPlayer(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onClick = { navController.navigate("nowplaying") },
+                visible = currentDest?.route != "nowplaying",
             )
         }
     }

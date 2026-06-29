@@ -8,6 +8,7 @@ data class Track(
     val title: String,
     val artist: String = "",
     val album: String = "",
+    val albumId: String = "",
     val duration: Long = 0,
     val size: Long = 0,
     val format: String = "",

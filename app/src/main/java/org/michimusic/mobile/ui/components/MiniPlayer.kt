@@ -53,9 +53,12 @@ import org.michimusic.player.PlayerState
 fun MiniPlayer(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    visible: Boolean = true,
 ) {
     val controller = remember { getAudioController() }
     var playerState by remember { mutableStateOf(PlayerState()) }
+
+    if (!visible) return
 
     LaunchedEffect(controller) {
         controller?.state?.collect { playerState = it }

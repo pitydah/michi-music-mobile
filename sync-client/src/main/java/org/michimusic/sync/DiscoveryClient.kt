@@ -67,12 +67,24 @@ class DiscoveryClient(
         isRunning = true
         acquireMulticastLock()
 
-        val group = InetAddress.getByName(MULTICAST_GROUP)
-        val sock = MulticastSocket(MULTICAST_PORT).also {
-            it.reuseAddress = true
-            it.joinGroup(group)
-            it.soTimeout = 1000
-            socket = it
+        val group = try {
+            InetAddress.getByName(MULTICAST_GROUP)
+        } catch (_: Exception) {
+            isRunning = false
+            releaseMulticastLock()
+            return@withContext
+        }
+        val sock = try {
+            MulticastSocket(MULTICAST_PORT).also {
+                it.reuseAddress = true
+                it.joinGroup(group)
+                it.soTimeout = 1000
+                socket = it
+            }
+        } catch (_: Exception) {
+            isRunning = false
+            releaseMulticastLock()
+            return@withContext
         }
 
         val buffer = ByteArray(BUFFER_SIZE)

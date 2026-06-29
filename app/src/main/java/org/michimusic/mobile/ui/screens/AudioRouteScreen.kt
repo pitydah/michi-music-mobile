@@ -44,7 +44,9 @@ private sealed class AudioRoute {
 @Composable
 fun AudioRouteScreen() {
     val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val audioManager = remember {
+        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    } ?: return
     var route by remember { mutableStateOf(detectRoute(audioManager)) }
 
     DisposableEffect(Unit) {

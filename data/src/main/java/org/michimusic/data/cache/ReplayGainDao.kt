@@ -10,6 +10,9 @@ interface ReplayGainDao {
     @Query("SELECT * FROM replaygain_cache WHERE trackId = :trackId")
     suspend fun getReplayGain(trackId: String): ReplayGainEntity?
 
+    @Query("SELECT * FROM replaygain_cache")
+    suspend fun getAllReplayGains(): List<ReplayGainEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ReplayGainEntity)
 

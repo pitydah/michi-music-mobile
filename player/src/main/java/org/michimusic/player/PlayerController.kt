@@ -37,24 +37,32 @@ class PlayerController(
     private val repository = replayGainDao?.let { LocalMediaRepository(context, it) }
         ?: LocalMediaRepository(context, createNoopReplayGainDao())
 
-    private val audioSink = if (audioProcessors.isNotEmpty()) {
-        DefaultAudioSink.Builder(context)
-            .setAudioProcessors(audioProcessors.toTypedArray())
-            .build()
-    } else {
+    private val audioSink = try {
+        if (audioProcessors.isNotEmpty()) {
+            DefaultAudioSink.Builder(context)
+                .setAudioProcessors(audioProcessors.toTypedArray())
+                .build()
+        } else {
+            DefaultAudioSink.Builder(context).build()
+        }
+    } catch (_: Exception) {
         DefaultAudioSink.Builder(context).build()
     }
 
     private val renderersFactory = RenderersFactory { handler, _, audioListener, _, _ ->
-        arrayOf(
-            MediaCodecAudioRenderer(
-                context,
-                MediaCodecSelector.DEFAULT,
-                handler,
-                audioListener,
-                audioSink,
-            ),
-        )
+        try {
+            arrayOf(
+                MediaCodecAudioRenderer(
+                    context,
+                    MediaCodecSelector.DEFAULT,
+                    handler,
+                    audioListener,
+                    audioSink,
+                ),
+            )
+        } catch (_: Exception) {
+            emptyArray()
+        }
     }
 
     private val player: ExoPlayer = ExoPlayer.Builder(context, renderersFactory)
@@ -235,6 +243,7 @@ class PlayerController(
         fun createNoopReplayGainDao(): ReplayGainDao {
             return object : ReplayGainDao {
                 override suspend fun getReplayGain(trackId: String) = null
+                override suspend fun getAllReplayGains() = emptyList<ReplayGainEntity>()
                 override suspend fun upsert(entity: ReplayGainEntity) {}
                 override suspend fun upsertAll(entities: List<ReplayGainEntity>) {}
             }

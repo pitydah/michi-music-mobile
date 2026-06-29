@@ -56,9 +56,9 @@ class SyncWorker(
         val alias = inputData.getString("alias") ?: ""
         val clientDeviceId = inputData.getString("clientDeviceId") ?: ""
 
-        val wakeLock = (applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
-        wakeLock.acquire(10_000L)
+        val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
+        wakeLock?.acquire(10_000L)
 
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
@@ -68,19 +68,16 @@ class SyncWorker(
             deviceToken = deviceToken,
             clientDeviceId = clientDeviceId.ifEmpty { deviceId },
         )
-        val trackDao = runCatching {
+        val trackDao = try {
             KoinJavaComponent.get<TrackDao>(TrackDao::class.java)
-        }.getOrElse {
-            val db = androidx.room.Room.databaseBuilder(
-                applicationContext,
-                org.michimusic.data.cache.MichiDatabase::class.java,
-                "michi-sync.db",
-            ).build()
-            db.trackDao()
+        } catch (_: Exception) {
+            return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
-        val playlistDao = runCatching {
+        val playlistDao = try {
             KoinJavaComponent.get<PlaylistDao>(PlaylistDao::class.java)
-        }.getOrNull()
+        } catch (_: Exception) {
+            null
+        }
         val repository = SyncedTrackRepository(trackDao, playlistDao)
         val transferManager = SyncTransferManager(applicationContext)
 
@@ -154,7 +151,7 @@ class SyncWorker(
             }
 
             client.close()
-            try { wakeLock.release() } catch (_: Exception) {}
+            try { wakeLock?.release() } catch (_: Exception) {}
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to downloaded))
 
             if (errors > 0 && downloaded == 0) {
@@ -167,11 +164,11 @@ class SyncWorker(
             }
         } catch (e: PairingException) {
             client.close()
-            try { wakeLock.release() } catch (_: Exception) {}
+            try { wakeLock?.release() } catch (_: Exception) {}
             Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         } catch (e: Exception) {
             client.close()
-            try { wakeLock.release() } catch (_: Exception) {}
+            try { wakeLock?.release() } catch (_: Exception) {}
             Result.retry()
         }
     }

@@ -68,7 +68,9 @@ fun NowPlayingScreen(
     val syncUiState by syncViewModel.uiState.collectAsState()
 
     val context = LocalContext.current
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val audioManager = remember {
+        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    } ?: return
     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
     val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
     var volume by remember { mutableFloatStateOf(currentVolume.toFloat() / maxVolume.coerceAtLeast(1)) }
@@ -221,7 +223,7 @@ fun NowPlayingScreen(
                 onNavigateToAudioRoute = onNavigateToSettings,
             )
 
-            Spacer(modifier = Modifier.height(110.dp))
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
