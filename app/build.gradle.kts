@@ -88,6 +88,7 @@ dependencies {
     implementation(project(":player"))
     implementation(project(":sync-client"))
     implementation(project(":remote"))
+    implementation(project(":michi-link-client"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.cardview)

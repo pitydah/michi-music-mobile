@@ -14,6 +14,7 @@ local.properties
 /player/build
 /sync-client/build
 /remote/build
+/michi-link-client/build
 .kotlin
 /app/release.jks
 /app/keystore.properties
