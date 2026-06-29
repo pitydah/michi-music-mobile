@@ -52,6 +52,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.remote.RemoteViewModel
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -154,7 +155,7 @@ fun RemoteScreen(
                         .padding(horizontal = 16.dp)
                         .aspectRatio(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .background(SurfaceElevated),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (playerState.coverUrl.isNotEmpty()) {

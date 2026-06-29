@@ -53,6 +53,14 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncUiState
 import org.michimusic.mobile.sync.SyncViewModel
+import org.michimusic.mobile.ui.theme.AccentCoral
+import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SurfaceElevated
+import org.michimusic.mobile.ui.theme.TextDim
+import org.michimusic.mobile.ui.theme.TextMuted
+import org.michimusic.mobile.ui.theme.TextPrimary
+import org.michimusic.mobile.ui.theme.TextSecondary
 
 @Composable
 fun SyncScreen(
@@ -189,19 +197,19 @@ private fun ConnectionPrompt(onStart: () -> Unit) {
             imageVector = Icons.Default.Lan,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary,
+            tint = AccentPink,
         )
         Spacer(Modifier.height(16.dp))
         Text(
             text = "Sincronización",
             style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+            color = TextPrimary,
         )
         Spacer(Modifier.height(8.dp))
         Text(
             text = "Conecta con Michi Music Player en tu red local",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = TextSecondary,
         )
         Spacer(Modifier.height(24.dp))
         Button(onClick = onStart) {
@@ -246,7 +254,7 @@ private fun DiscoveringState(
                     Text(
                         "Buscando servidores...",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = TextSecondary,
                     )
                 }
             }
@@ -276,7 +284,7 @@ private fun PeerCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = SurfaceElevated,
         ),
     ) {
         Row(
@@ -286,7 +294,7 @@ private fun PeerCard(
             Icon(
                 imageVector = if (authRequired) Icons.Default.Lock else Icons.Default.Devices,
                 contentDescription = null,
-                tint = if (authRequired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                tint = if (authRequired) AccentCoral else AccentPink,
             )
             Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -297,14 +305,14 @@ private fun PeerCard(
                 Text(
                     text = "${peer.ip}:${peer.port}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = TextSecondary,
                 )
             }
             if (authRequired) {
                 Text(
                     text = "Requiere emparejamiento",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = AccentCoral,
                 )
             }
         }
@@ -329,7 +337,7 @@ private fun PairingForm(
             imageVector = Icons.Default.Lock,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary,
+            tint = AccentPink,
         )
         Spacer(Modifier.height(16.dp))
         Text(
@@ -340,14 +348,14 @@ private fun PairingForm(
             Text(
                 text = "Conectar a ${peer.alias} (${peer.ip})",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = TextSecondary,
             )
         }
         Spacer(Modifier.height(8.dp))
         Text(
             text = "Ingresa usuario y contraseña local del servidor Michi",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = TextSecondary,
         )
 
         Spacer(Modifier.height(24.dp))
@@ -418,7 +426,7 @@ private fun ConnectedState(
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = AccentPink,
                 modifier = Modifier.size(24.dp),
             )
             Spacer(Modifier.width(8.dp))
@@ -431,7 +439,7 @@ private fun ConnectedState(
         Text(
             text = peer?.let { "${it.alias} (${it.ip})" } ?: "Servidor",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = TextSecondary,
         )
 
         pairingConfirm?.let { confirm ->
@@ -440,7 +448,7 @@ private fun ConnectedState(
                 Text(
                     text = "Permisos: ${confirm.permissions.joinToString(", ")}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = TextSecondary,
                 )
             }
         }
@@ -450,7 +458,7 @@ private fun ConnectedState(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    containerColor = SurfaceElevated,
                 ),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -461,7 +469,7 @@ private fun ConnectedState(
                     Text(
                         "Servidor: ${reg.serverDeviceId.take(8)}...",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = TextSecondary,
                     )
                 }
             }
@@ -485,7 +493,7 @@ private fun ConnectedState(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        containerColor = SurfaceElevated,
                     ),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -506,7 +514,7 @@ private fun ConnectedState(
                         Text(
                             "${syncProgress.completed} / ${syncProgress.total} canciones",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = TextSecondary,
                         )
                     }
                 }
@@ -516,7 +524,7 @@ private fun ConnectedState(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        containerColor = AccentPink.copy(alpha = 0.15f),
                     ),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -529,7 +537,7 @@ private fun ConnectedState(
                         if (syncProgress.errors > 0) {
                             Text(
                                 "${syncProgress.errors} errores",
-                                color = MaterialTheme.colorScheme.error,
+                                color = AccentCoral,
                             )
                         }
                         Spacer(Modifier.height(8.dp))
@@ -545,7 +553,7 @@ private fun ConnectedState(
             is SyncProgress.Error -> {
                 Text(
                     syncProgress.message,
-                    color = MaterialTheme.colorScheme.error,
+                    color = AccentCoral,
                 )
             }
         }
@@ -584,7 +592,7 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
             imageVector = Icons.Default.Error,
             contentDescription = null,
             modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.error,
+            tint = AccentCoral,
         )
         Spacer(Modifier.height(16.dp))
         Text(
@@ -594,7 +602,7 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = TextSecondary,
         )
         Spacer(Modifier.height(24.dp))
         Button(onClick = onRetry) {

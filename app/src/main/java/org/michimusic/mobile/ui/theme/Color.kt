@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 val MichiBlue = Color(0xFF8FB7FF)
 val MichiBlueFaint = Color(0x578FB7FF)
 val AccentPink = Color(0xFFFF6B9D)
+val AccentCoral = Color(0xFFFF6A3D)
 val AccentPurple = Color(0xFFC06BFF)
 val AccentBlue = Color(0xFF6BB8FF)
 val GlowPink = Color(0x33FF6B9D)
