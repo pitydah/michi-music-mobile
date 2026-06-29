@@ -86,8 +86,6 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":data"))
     implementation(project(":player"))
-    implementation(project(":sync-client"))
-    implementation(project(":remote"))
     implementation(project(":michi-link-client"))
 
     implementation(libs.androidx.core.ktx)
