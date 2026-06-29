@@ -43,8 +43,11 @@ class SyncedTracksViewModel(
         source = TrackSource.SYNCED,
     )
 
-    suspend fun getPlayableTracks(): List<Track> =
+    suspend fun getPlayableTracks(): List<Track> = try {
         repository.getAllSynced().first { true }
             .filter { it.filepath.isNotEmpty() }
             .map { toTrack(it) }
+    } catch (_: Exception) {
+        emptyList()
+    }
 }

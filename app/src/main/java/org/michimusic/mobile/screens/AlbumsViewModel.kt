@@ -32,10 +32,16 @@ class AlbumsViewModel(
     fun loadMedia() {
         viewModelScope.launch {
             _isLoading.value = true
-            val result = withContext(Dispatchers.IO) { repo.loadAlbums() }
-            _albums.value = result
-            _allTracks.value = result.flatMap { it.tracks }
-            _isLoading.value = false
+            try {
+                val result = withContext(Dispatchers.IO) { repo.loadAlbums() }
+                _albums.value = result
+                _allTracks.value = result.flatMap { it.tracks }
+            } catch (_: Exception) {
+                _albums.value = emptyList()
+                _allTracks.value = emptyList()
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 }

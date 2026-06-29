@@ -61,10 +61,18 @@ class RemoteViewModel(
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
             while (isActive && _connected.value) {
-                client.fetchStatus().onSuccess { state ->
+                val result = client.fetchStatus()
+                result.onSuccess { state ->
                     _playerState.value = state
                     _error.value = null
                 }.onFailure { e ->
+                    val msg = e.message ?: ""
+                    if (msg.contains("401") || msg.contains("Unauthorized")) {
+                        _error.value = "Sesión expirada. Reconecta desde Sync."
+                        _connected.value = false
+                        pollingJob?.cancel()
+                        return@launch
+                    }
                     _error.value = "Error al obtener estado: ${e.message}"
                 }
                 delay(2000)
@@ -95,8 +103,17 @@ class RemoteViewModel(
 
     private fun execute(action: suspend () -> kotlin.Result<String>?) {
         viewModelScope.launch {
-            action()?.onFailure { e ->
-                _error.value = "Error: ${e.message}"
+            val result = action()
+            if (result == null) return@launch
+            result.onFailure { e ->
+                val msg = e.message ?: ""
+                if (msg.contains("401") || msg.contains("Unauthorized")) {
+                    _error.value = "Sesión expirada. Reconecta desde Sync."
+                    _connected.value = false
+                    pollingJob?.cancel()
+                } else {
+                    _error.value = "Error: ${e.message}"
+                }
             }
         }
     }

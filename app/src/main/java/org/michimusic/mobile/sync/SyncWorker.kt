@@ -3,6 +3,7 @@ package org.michimusic.mobile.sync
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -54,6 +55,10 @@ class SyncWorker(
         val deviceId = inputData.getString("deviceId") ?: ""
         val alias = inputData.getString("alias") ?: ""
         val clientDeviceId = inputData.getString("clientDeviceId") ?: ""
+
+        val wakeLock = (applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
+        wakeLock.acquire(10_000L)
 
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
@@ -149,7 +154,7 @@ class SyncWorker(
             }
 
             client.close()
-
+            try { wakeLock.release() } catch (_: Exception) {}
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to downloaded))
 
             if (errors > 0 && downloaded == 0) {
@@ -162,9 +167,11 @@ class SyncWorker(
             }
         } catch (e: PairingException) {
             client.close()
+            try { wakeLock.release() } catch (_: Exception) {}
             Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         } catch (e: Exception) {
             client.close()
+            try { wakeLock.release() } catch (_: Exception) {}
             Result.retry()
         }
     }

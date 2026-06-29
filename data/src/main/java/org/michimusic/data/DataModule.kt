@@ -13,7 +13,7 @@ val dataModule = module {
             androidContext(),
             MichiDatabase::class.java,
             "michi-sync.db",
-        ).fallbackToDestructiveMigration()
+        ).addMigrations(MichiDatabase.MIGRATION_1_2, MichiDatabase.MIGRATION_2_3)
             .build()
     }
     single { get<MichiDatabase>().trackDao() }

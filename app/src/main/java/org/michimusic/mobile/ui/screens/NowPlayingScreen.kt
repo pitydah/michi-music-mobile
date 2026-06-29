@@ -35,19 +35,19 @@ import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.TextPrimary
+import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.AudioController
 import org.michimusic.player.PlayerState
 
 // --- PALETA DE COLORES (Estilo Michi Music Player) ---
 val BgDark = Color(0xFF05070C)
-val BgDarker = Color(0xFF090B11)
 val GlassBg = Color(0xAA151820)
 val GlassBorder = Color(0x1AFFFFFF)
-private val TextPrimary = Color(0xFFFFFFFF)
-private val TextSecondary = Color(0xFFA8AAB3)
-private val AccentPink = Color(0xFFFF4F8B)
-private val AccentCoral = Color(0xFFFF6A3D)
-private val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
+val AccentCoral = Color(0xFFFF6A3D)
+val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
 
 // --- MODELOS ---
 data class PlaybackSource(
@@ -100,7 +100,7 @@ fun NowPlayingScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(BgDarker, BgDark)))
+            .background(Brush.verticalGradient(listOf(SurfaceDark, BgDark)))
     ) {
         Column(
             modifier = Modifier
