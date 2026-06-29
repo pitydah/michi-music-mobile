@@ -27,6 +27,8 @@ enum class RemoteConnectionState {
     FORBIDDEN,
     OFFLINE,
     INCOMPATIBLE,
+    ENDPOINT_MISSING,
+    CONTRACT_PARTIAL,
 }
 
 data class RemoteUiState(
@@ -106,7 +108,10 @@ class RemoteViewModel(
                             pollingJob?.cancel(); return@launch
                         }
                         is LinkException.NotImplemented -> {
-                            // Feature not available, keep polling
+                            _uiState.value = _uiState.value.copy(
+                                connState = RemoteConnectionState.ENDPOINT_MISSING,
+                                error = "Endpoint no disponible en este servidor.",
+                            )
                         }
                         else -> {
                             val msg = e.message ?: ""
@@ -163,6 +168,12 @@ class RemoteViewModel(
                     error = "Acceso denegado.",
                 )
                 pollingJob?.cancel()
+            }
+            is LinkException.NotImplemented -> {
+                _uiState.value = _uiState.value.copy(
+                    connState = RemoteConnectionState.ENDPOINT_MISSING,
+                    error = "Comando no soportado por este servidor.",
+                )
             }
             else -> {
                 _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
