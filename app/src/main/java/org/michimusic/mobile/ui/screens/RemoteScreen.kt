@@ -243,16 +243,19 @@ fun RemoteScreen(
         Spacer(Modifier.height(8.dp))
 
         // Volumen
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Vol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-            Slider(
-                value = state.volume / 100f,
-                onValueChange = { viewModel.setVolume((it * 100).toInt()) },
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-            )
+        if (state.volume > 0 || uiState.connState == org.michimusic.mobile.remote.RemoteConnectionState.CONNECTED) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.height(8.dp))
+                Text("Vol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Slider(
+                    value = state.effectiveVolume / 100f,
+                    onValueChange = { viewModel.setVolume((it * 100).toInt()) },
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                )
+            }
         }
 
         Spacer(Modifier.height(16.dp))

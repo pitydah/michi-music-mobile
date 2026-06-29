@@ -41,4 +41,5 @@ dependencies {
     implementation(libs.lifecycle.process)
 
     implementation(libs.koin.android)
+    implementation(libs.security.crypto)
 }

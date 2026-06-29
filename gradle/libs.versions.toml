@@ -21,6 +21,7 @@ okhttp = "4.12.0"
 discrete-scrollview = "1.5.1"
 work-manager = "2.9.1"
 paging = "3.3.2"
+security-crypto = "1.1.0-alpha06"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -77,6 +78,8 @@ guava = { group = "com.google.guava", name = "guava", version = "33.3.1-jre" }
 
 androidx-paging-compose = { group = "androidx.paging", name = "paging-compose", version.ref = "paging" }
 androidx-room-paging = { group = "androidx.room", name = "room-paging", version.ref = "room" }
+
+security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

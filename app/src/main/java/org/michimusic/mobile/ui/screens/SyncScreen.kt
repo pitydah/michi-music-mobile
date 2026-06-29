@@ -37,6 +37,7 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -411,6 +412,16 @@ private fun CodePairingForm(
     onBack: () -> Unit,
 ) {
     var code by remember { mutableStateOf("") }
+    var secondsLeft by remember { mutableStateOf(60) }
+    var expired by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (secondsLeft > 0) {
+            kotlinx.coroutines.delay(1000)
+            secondsLeft--
+        }
+        expired = true
+    }
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -450,12 +461,21 @@ private fun CodePairingForm(
             label = { Text("Código de emparejamiento") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            enabled = !expired,
         )
-        Spacer(Modifier.height(24.dp))
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = if (expired) "Tiempo agotado" else "Tiempo restante: ${secondsLeft}s",
+            color = if (expired) MaterialTheme.colorScheme.error else TextSecondary,
+            style = MaterialTheme.typography.bodySmall,
+        )
+
+        Spacer(Modifier.height(12.dp))
         Button(
             onClick = { onPair(code) },
             modifier = Modifier.fillMaxWidth(),
-            enabled = code.isNotBlank(),
+            enabled = code.isNotBlank() && !expired,
         ) {
             Text("Emparejar")
         }
