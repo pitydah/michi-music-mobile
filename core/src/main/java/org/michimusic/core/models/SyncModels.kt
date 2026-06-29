@@ -81,6 +81,7 @@ data class AnnounceMessage(
     val version: String = "1.0",
     @SerialName("device_model") val deviceModel: String = "",
     @SerialName("device_id") val deviceId: String = "",
+    @SerialName("auth_required") val authRequired: Boolean = true,
 )
 
 @Serializable
@@ -91,6 +92,7 @@ data class DiscoveredPeer(
     @SerialName("device_type") val deviceType: String = "desktop",
     @SerialName("device_id") val deviceId: String = "",
     val version: String = "1.0",
+    @SerialName("auth_required") val authRequired: Boolean = true,
 )
 
 enum class SyncConnectionState {
@@ -98,6 +100,11 @@ enum class SyncConnectionState {
     DISCOVERING,
     CONNECTING,
     CONNECTED,
+    PAIRING_REQUIRED,
+    PAIRING,
+    PAIRED,
+    AUTH_ERROR,
+    REVOKED,
     ERROR,
 }
 
@@ -118,13 +125,35 @@ data class ManifestTrack(
 )
 
 @Serializable
+data class ManifestPlaylist(
+    @SerialName("playlist_id") val playlistId: String,
+    val name: String,
+    @SerialName("track_ids") val trackIds: List<String> = emptyList(),
+    @SerialName("updated_at") val updatedAt: Long = 0L,
+)
+
+@Serializable
+data class SyncProfile(
+    val audio: String = "original",
+    val artwork: String = "embedded",
+    val lyrics: Boolean = false,
+    val replaygain: Boolean = true,
+)
+
+@Serializable
 data class SyncManifest(
+    val schema: String = "michi.sync.manifest",
+    val version: Int = 1,
     @SerialName("manifest_id") val manifestId: String = "",
     @SerialName("device_id") val deviceId: String = "",
     @SerialName("created_at") val createdAt: String = "",
+    val mode: String = "",
+    val profile: SyncProfile = SyncProfile(),
+    val tracks: List<ManifestTrack> = emptyList(),
+    val playlists: List<ManifestPlaylist> = emptyList(),
+    val removed: List<String> = emptyList(),
     @SerialName("total_tracks") val totalTracks: Int = 0,
     @SerialName("total_size") val totalSize: Long = 0L,
-    val tracks: List<ManifestTrack> = emptyList(),
 )
 
 @Serializable
@@ -141,4 +170,52 @@ data class HistoryEntry(
 @Serializable
 data class HistoryResponse(
     val entries: List<HistoryEntry> = emptyList(),
+)
+
+// --- Pairing flow models ---
+
+@Serializable
+data class PairStartRequest(
+    val alias: String,
+    @SerialName("device_model") val deviceModel: String,
+    @SerialName("client_device_id") val clientDeviceId: String,
+    val capabilities: List<String> = emptyList(),
+)
+
+@Serializable
+data class PairStartResponse(
+    @SerialName("pairing_id") val pairingId: String = "",
+    @SerialName("auth_methods") val authMethods: List<String> = emptyList(),
+    @SerialName("server_alias") val serverAlias: String = "",
+    @SerialName("auth_required") val authRequired: Boolean = true,
+)
+
+@Serializable
+data class PairConfirmRequest(
+    @SerialName("pairing_id") val pairingId: String,
+    val username: String = "",
+    val password: String = "",
+    val pin: String = "",
+    @SerialName("client_device_id") val clientDeviceId: String,
+)
+
+@Serializable
+data class PairConfirmResponse(
+    @SerialName("device_id") val deviceId: String,
+    @SerialName("device_token") val deviceToken: String,
+    @SerialName("refresh_token") val refreshToken: String = "",
+    val permissions: List<String> = emptyList(),
+    @SerialName("server_device_id") val serverDeviceId: String = "",
+    @SerialName("server_alias") val serverAlias: String = "",
+)
+
+// --- Download model ---
+
+data class DownloadItem(
+    val trackId: String,
+    val title: String,
+    val format: String,
+    val checksum: String = "",
+    val size: Long = 0L,
+    val downloadPath: String = "",
 )

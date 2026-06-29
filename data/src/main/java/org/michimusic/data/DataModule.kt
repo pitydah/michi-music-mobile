@@ -17,8 +17,9 @@ val dataModule = module {
             .build()
     }
     single { get<MichiDatabase>().trackDao() }
+    single { get<MichiDatabase>().playlistDao() }
     single { get<MichiDatabase>().replayGainDao() }
     single { get<MichiDatabase>().appDao() }
-    single { SyncedTrackRepository(get()) }
+    single { SyncedTrackRepository(get(), get()) }
     single { LocalMediaRepository(androidContext(), get()) }
 }

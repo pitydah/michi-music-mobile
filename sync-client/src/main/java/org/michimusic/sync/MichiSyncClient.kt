@@ -9,6 +9,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.ByteReadChannel
@@ -22,6 +23,10 @@ import org.michimusic.core.models.FavoritesResponse
 import org.michimusic.core.models.HistoryEntry
 import org.michimusic.core.models.HistoryResponse
 import org.michimusic.core.models.LibraryResponse
+import org.michimusic.core.models.PairConfirmRequest
+import org.michimusic.core.models.PairConfirmResponse
+import org.michimusic.core.models.PairStartRequest
+import org.michimusic.core.models.PairStartResponse
 import org.michimusic.core.models.RegisterRequest
 import org.michimusic.core.models.RegisterResponse
 import org.michimusic.core.models.SyncManifest
@@ -32,6 +37,7 @@ import java.io.OutputStream
 class MichiSyncClient(
     val baseUrl: String,
     var sessionToken: String = "",
+    var deviceToken: String = "",
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -41,16 +47,91 @@ class MichiSyncClient(
         }
     }
 
-    val isAuthenticated: Boolean get() = sessionToken.isNotEmpty()
+    val isAuthenticated: Boolean get() = sessionToken.isNotEmpty() || deviceToken.isNotEmpty()
 
-    suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
+    private fun authHeader(): String {
+        val token = deviceToken.ifEmpty { sessionToken }
+        return "Bearer $token"
+    }
+
+    private fun isUnauthorized(status: HttpStatusCode): Boolean =
+        status == HttpStatusCode.Unauthorized
+
+    private fun isForbidden(status: HttpStatusCode): Boolean =
+        status == HttpStatusCode.Forbidden
+
+    // --- Discovery & Pairing ---
+
+    suspend fun fetchDiscoveryInfo(): Result<Map<String, String>> = withContext(Dispatchers.IO) {
         try {
-            client.get("$baseUrl/api/ping")
-            true
-        } catch (_: Exception) {
-            false
+            val response = client.get("$baseUrl/api/discovery/info")
+            val body: Map<String, String> = json.decodeFromString(response.body())
+            Result.success(body)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
+
+    suspend fun pairStart(
+        alias: String,
+        deviceModel: String,
+        clientDeviceId: String,
+    ): Result<PairStartResponse> = withContext(Dispatchers.IO) {
+        try {
+            val request = PairStartRequest(
+                alias = alias,
+                deviceModel = deviceModel,
+                clientDeviceId = clientDeviceId,
+            )
+            val response = client.post("$baseUrl/api/pair/start") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+            if (isUnauthorized(response.status)) {
+                return@withContext Result.failure(PairingException.Unauthorized)
+            }
+            if (isForbidden(response.status)) {
+                return@withContext Result.failure(PairingException.Forbidden)
+            }
+            val body = response.body<PairStartResponse>()
+            Result.success(body)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pairConfirm(
+        pairingId: String,
+        username: String,
+        password: String,
+        clientDeviceId: String,
+    ): Result<PairConfirmResponse> = withContext(Dispatchers.IO) {
+        try {
+            val request = PairConfirmRequest(
+                pairingId = pairingId,
+                username = username,
+                password = password,
+                clientDeviceId = clientDeviceId,
+            )
+            val response = client.post("$baseUrl/api/pair/confirm") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+            if (isUnauthorized(response.status)) {
+                return@withContext Result.failure(PairingException.InvalidCredentials)
+            }
+            if (isForbidden(response.status)) {
+                return@withContext Result.failure(PairingException.Forbidden)
+            }
+            val body = response.body<PairConfirmResponse>()
+            deviceToken = body.deviceToken
+            Result.success(body)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- Legacy register (inseguro, para servidores sin pairing) ---
 
     suspend fun register(
         alias: String,
@@ -67,24 +148,57 @@ class MichiSyncClient(
             val response = client.post("$baseUrl/api/register") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
-            }.body<RegisterResponse>()
-            sessionToken = response.sessionToken
-            Result.success(response)
+            }
+            if (isUnauthorized(response.status)) {
+                return@withContext Result.failure(PairingException.Unauthorized)
+            }
+            if (isForbidden(response.status)) {
+                return@withContext Result.failure(PairingException.Forbidden)
+            }
+            val body = response.body<RegisterResponse>()
+            sessionToken = body.sessionToken
+            Result.success(body)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun fetchLibrary(): Result<LibraryResponse> = withContext(Dispatchers.IO) {
+    // --- Protected API calls ---
+
+    private suspend fun <T> authenticatedGet(
+        url: String,
+        parser: suspend (String) -> T,
+    ): Result<T> = withContext(Dispatchers.IO) {
         try {
-            val response = client.get("$baseUrl/api/library") {
-                header("Authorization", "Bearer $sessionToken")
-            }.body<LibraryResponse>()
-            Result.success(response)
+            val response = client.get(url) {
+                header("Authorization", authHeader())
+            }
+            when {
+                isUnauthorized(response.status) -> Result.failure(PairingException.Unauthorized)
+                isForbidden(response.status) -> Result.failure(PairingException.Revoked)
+                else -> {
+                    val body = response.body<String>()
+                    Result.success(parser(body))
+                }
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
+
+    suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            client.get("$baseUrl/api/ping")
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun fetchLibrary(): Result<LibraryResponse> =
+        authenticatedGet("$baseUrl/api/library") { body ->
+            json.decodeFromString<LibraryResponse>(body)
+        }
 
     suspend fun streamTrack(
         trackId: String,
@@ -94,10 +208,14 @@ class MichiSyncClient(
     ): Result<Long> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/stream/$trackId") {
-                header("Authorization", "Bearer $sessionToken")
+                header("Authorization", authHeader())
                 if (startBytes > 0) {
                     header("Range", "bytes=$startBytes-")
                 }
+            }
+            when {
+                isUnauthorized(response.status) -> return@withContext Result.failure(PairingException.Unauthorized)
+                isForbidden(response.status) -> return@withContext Result.failure(PairingException.Revoked)
             }
             val channel = response.bodyAsChannel()
             var totalRead = 0L
@@ -121,7 +239,11 @@ class MichiSyncClient(
     ): Result<Long> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/cover/$coverId") {
-                header("Authorization", "Bearer $sessionToken")
+                header("Authorization", authHeader())
+            }
+            when {
+                isUnauthorized(response.status) -> return@withContext Result.failure(PairingException.Unauthorized)
+                isForbidden(response.status) -> return@withContext Result.failure(PairingException.Revoked)
             }
             val channel = response.bodyAsChannel()
             var totalRead = 0L
@@ -144,7 +266,6 @@ class MichiSyncClient(
     ): Result<Int> = withContext(Dispatchers.IO) {
         try {
             val body = mapOf(
-                "session_token" to sessionToken,
                 "tracks" to entries.map { e ->
                     mapOf(
                         "track_id" to e.trackId,
@@ -155,8 +276,12 @@ class MichiSyncClient(
             )
             val response = client.post("$baseUrl/api/sync/state") {
                 contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer $sessionToken")
+                header("Authorization", authHeader())
                 setBody(json.encodeToString(body))
+            }
+            when {
+                isUnauthorized(response.status) -> return@withContext Result.failure(PairingException.Unauthorized)
+                isForbidden(response.status) -> return@withContext Result.failure(PairingException.Revoked)
             }
             val result = json.decodeFromString<Map<String, Int>>(response.body())
             Result.success(result["synced"] ?: 0)
@@ -165,54 +290,34 @@ class MichiSyncClient(
         }
     }
 
-    suspend fun search(query: String): Result<List<TrackDto>> = withContext(Dispatchers.IO) {
-        try {
-            val response = client.get("$baseUrl/api/search?q=$query") {
-                header("Authorization", "Bearer $sessionToken")
-            }
-            val result = json.decodeFromString<LibraryResponse>(response.body())
-            Result.success(result.tracks)
-        } catch (e: Exception) {
-            Result.failure(e)
+    suspend fun search(query: String): Result<List<TrackDto>> =
+        authenticatedGet("$baseUrl/api/search?q=$query") { body ->
+            json.decodeFromString<LibraryResponse>(body).tracks
         }
-    }
 
-    suspend fun fetchFavorites(): Result<List<String>> = withContext(Dispatchers.IO) {
-        try {
-            val response = client.get("$baseUrl/api/favorites") {
-                header("Authorization", "Bearer $sessionToken")
-            }
-            val result = json.decodeFromString<FavoritesResponse>(response.body())
-            Result.success(result.tracks)
-        } catch (e: Exception) {
-            Result.failure(e)
+    suspend fun fetchFavorites(): Result<List<String>> =
+        authenticatedGet("$baseUrl/api/favorites") { body ->
+            json.decodeFromString<FavoritesResponse>(body).tracks
         }
-    }
 
-    suspend fun fetchHistory(): Result<List<HistoryEntry>> = withContext(Dispatchers.IO) {
-        try {
-            val response = client.get("$baseUrl/api/history") {
-                header("Authorization", "Bearer $sessionToken")
-            }
-            val result = json.decodeFromString<HistoryResponse>(response.body())
-            Result.success(result.entries)
-        } catch (e: Exception) {
-            Result.failure(e)
+    suspend fun fetchHistory(): Result<List<HistoryEntry>> =
+        authenticatedGet("$baseUrl/api/history") { body ->
+            json.decodeFromString<HistoryResponse>(body).entries
         }
-    }
 
-    suspend fun fetchSyncManifest(deviceId: String): Result<SyncManifest> = withContext(Dispatchers.IO) {
-        try {
-            val response = client.get("$baseUrl/api/sync/manifest?device_id=$deviceId") {
-                header("Authorization", "Bearer $sessionToken")
-            }.body<SyncManifest>()
-            Result.success(response)
-        } catch (e: Exception) {
-            Result.failure(e)
+    suspend fun fetchSyncManifest(deviceId: String): Result<SyncManifest> =
+        authenticatedGet("$baseUrl/api/sync/manifest?device_id=$deviceId") { body ->
+            json.decodeFromString<SyncManifest>(body)
         }
-    }
 
     fun close() {
         client.close()
     }
+}
+
+sealed class PairingException(message: String) : Exception(message) {
+    data object Unauthorized : PairingException("Se requiere autenticación")
+    data object Forbidden : PairingException("Acceso denegado")
+    data object InvalidCredentials : PairingException("Credenciales incorrectas")
+    data object Revoked : PairingException("Dispositivo revocado")
 }

@@ -9,8 +9,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.michimusic.core.models.DownloadItem
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
 class SyncTransferManager(
     private val context: Context,
@@ -23,31 +26,43 @@ class SyncTransferManager(
 
     suspend fun downloadTrack(
         client: MichiSyncClient,
-        trackId: String,
-        title: String,
-        format: String,
+        item: DownloadItem,
     ): Result<File> = withContext(Dispatchers.IO) {
-        val ext = format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val file = File(musicDir, "${trackId}.$ext")
+        val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
+        val file = File(musicDir, "${item.trackId}.$ext")
 
         if (file.exists() && file.length() > 0) {
-            _downloads.value = _downloads.value + (trackId to DownloadProgress.Completed(file.length()))
-            return@withContext Result.success(file)
+            if (item.checksum.isNotEmpty() && !verifyChecksum(file, item.checksum)) {
+                file.delete()
+            } else {
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(file.length()))
+                return@withContext Result.success(file)
+            }
         }
 
-        _downloads.value += (trackId to DownloadProgress.Downloading(0L))
+        _downloads.value += (item.trackId to DownloadProgress.Downloading(0L))
 
         val result = client.streamTrack(
-            trackId = trackId,
+            trackId = item.trackId,
             outputStream = FileOutputStream(file),
             startBytes = 0,
         )
 
         result.onSuccess { bytes ->
-            _downloads.value += (trackId to DownloadProgress.Completed(bytes))
+            if (item.checksum.isNotEmpty()) {
+                if (verifyChecksum(file, item.checksum)) {
+                    _downloads.value += (item.trackId to DownloadProgress.Completed(bytes))
+                } else {
+                    file.delete()
+                    _downloads.value += (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
+                    return@withContext Result.failure(ChecksumException(item.trackId))
+                }
+            } else {
+                _downloads.value += (item.trackId to DownloadProgress.Completed(bytes))
+            }
         }.onFailure { e ->
             file.delete()
-            _downloads.value += (trackId to DownloadProgress.Failed(e.message ?: "Error"))
+            _downloads.value += (item.trackId to DownloadProgress.Failed(e.message ?: "Error"))
         }
 
         result.map { file }
@@ -55,20 +70,20 @@ class SyncTransferManager(
 
     suspend fun downloadTracks(
         client: MichiSyncClient,
-        trackIds: List<Pair<String, String>>,
+        items: List<DownloadItem>,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
     ): Map<String, Result<File>> = withContext(Dispatchers.IO) {
-        val total = trackIds.size
+        val total = items.size
         val mutex = Any()
         var completed = 0
         val results = mutableMapOf<String, Result<File>>()
 
         coroutineScope {
-            trackIds.map { (id, title) ->
+            items.map { item ->
                 async {
-                    val result = downloadTrack(client, id, title, "")
+                    val result = downloadTrack(client, item)
                     synchronized(mutex) {
-                        results[id] = result
+                        results[item.trackId] = result
                         completed++
                         onProgress(completed, total)
                     }
@@ -90,6 +105,23 @@ class SyncTransferManager(
         musicDir.listFiles()?.forEach { it.delete() }
         _downloads.value = emptyMap()
     }
+
+    private fun verifyChecksum(file: File, expected: String): Boolean {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { fis ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (fis.read(buffer).also { read = it } != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            val hex = digest.digest().joinToString("") { "%02x".format(it) }
+            hex == expected.lowercase()
+        } catch (_: Exception) {
+            false
+        }
+    }
 }
 
 sealed class DownloadProgress {
@@ -98,3 +130,5 @@ sealed class DownloadProgress {
     data class Completed(val totalBytes: Long) : DownloadProgress()
     data class Failed(val error: String) : DownloadProgress()
 }
+
+class ChecksumException(trackId: String) : Exception("Checksum falló para $trackId")

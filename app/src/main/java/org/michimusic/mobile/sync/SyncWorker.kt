@@ -4,12 +4,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import org.koin.java.KoinJavaComponent
+import org.michimusic.core.models.DownloadItem
+import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.sync.MichiSyncClient
@@ -33,23 +34,30 @@ class SyncWorker(
             sessionToken: String,
             deviceId: String,
             alias: String,
+            deviceToken: String = "",
         ) = workDataOf(
             "baseUrl" to baseUrl,
             "sessionToken" to sessionToken,
             "deviceId" to deviceId,
             "alias" to alias,
+            "deviceToken" to deviceToken,
         )
     }
 
     override suspend fun doWork(): Result {
         val baseUrl = inputData.getString("baseUrl") ?: return Result.failure()
-        val sessionToken = inputData.getString("sessionToken") ?: return Result.failure()
+        val sessionToken = inputData.getString("sessionToken") ?: ""
+        val deviceToken = inputData.getString("deviceToken") ?: ""
         val deviceId = inputData.getString("deviceId") ?: ""
         val alias = inputData.getString("alias") ?: ""
 
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
-        val client = MichiSyncClient(baseUrl = baseUrl, sessionToken = sessionToken)
+        val client = MichiSyncClient(
+            baseUrl = baseUrl,
+            sessionToken = sessionToken,
+            deviceToken = deviceToken,
+        )
         val trackDao = runCatching {
             KoinJavaComponent.get<TrackDao>(TrackDao::class.java)
         }.getOrElse {
@@ -60,62 +68,78 @@ class SyncWorker(
             ).build()
             db.trackDao()
         }
-        val repository = SyncedTrackRepository(trackDao)
+        val playlistDao = runCatching {
+            KoinJavaComponent.get<PlaylistDao>(PlaylistDao::class.java)
+        }.getOrNull()
+        val repository = SyncedTrackRepository(trackDao, playlistDao)
         val transferManager = SyncTransferManager(applicationContext)
 
         return try {
-            val libraryResult = client.fetchLibrary()
-            if (libraryResult.isFailure) return Result.retry()
+            val manifestResult = client.fetchSyncManifest(deviceId)
+            if (manifestResult.isFailure) return Result.retry()
+            val manifest = manifestResult.getOrThrow()
 
-            val library = libraryResult.getOrThrow()
-            repository.saveLibrary(library.tracks)
+            repository.saveLibrary(
+                manifest.tracks.map { it.toTrackDto() }
+            )
 
-            val tracksToDownload = if (deviceId.isNotEmpty()) {
-                val manifestResult = client.fetchSyncManifest(deviceId)
-                if (manifestResult.isSuccess) {
-                    val manifest = manifestResult.getOrThrow()
-                    manifest.tracks.mapNotNull { manifestTrack ->
-                        val cached = repository.getById(manifestTrack.trackId)
-                        if (cached == null || !cached.downloaded) {
-                            manifestTrack.trackId to manifestTrack.title
-                        } else null
-                    }
-                } else {
-                    library.tracks.map { it.id to it.title }
-                }
-            } else {
-                library.tracks.map { it.id to it.title }
+            if (manifest.playlists.isNotEmpty()) {
+                repository.saveManifestPlaylists(manifest.playlists)
             }
 
-            val total = tracksToDownload.size
+            val downloadedIds = repository.getDownloadedIds()
+
+            val itemsToDownload = manifest.tracks
+                .filter { it.trackId !in downloadedIds }
+                .map { mt ->
+                    DownloadItem(
+                        trackId = mt.trackId,
+                        title = mt.title,
+                        format = mt.format,
+                        checksum = mt.checksum,
+                        size = mt.size,
+                        downloadPath = mt.downloadPath,
+                    )
+                }
+
+            val total = itemsToDownload.size
             if (total == 0) {
-                setForeground(createForegroundInfo(total, total, "Todo sincronizado"))
+                setForeground(createForegroundInfo(0, 0, "Todo sincronizado"))
+                setProgress(workDataOf(PROGRESS_TOTAL to 0, PROGRESS_CURRENT to 0))
                 return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
             }
 
+            setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to 0))
+
             val results = transferManager.downloadTracks(
                 client = client,
-                trackIds = tracksToDownload,
-                onProgress = { completed, _ ->
+                items = itemsToDownload,
+            ) { completed, _ ->
+                kotlinx.coroutines.runBlocking {
+                    setProgress(workDataOf(
+                        PROGRESS_TOTAL to total,
+                        PROGRESS_CURRENT to completed,
+                    ))
                     val msg = "Sincronizando $completed de $total"
-                    kotlinx.coroutines.runBlocking {
-                        setForeground(createForegroundInfo(completed, total, msg))
-                    }
-                },
-            )
+                    setForeground(createForegroundInfo(completed, total, msg))
+                }
+            }
 
             var downloaded = 0
             var errors = 0
             results.forEach { (id, result) ->
-                result.onSuccess { file ->
-                    trackDao.markDownloadedWithPath(id, file.absolutePath)
-                    downloaded++
-                }.onFailure {
-                    errors++
-                }
+                result.fold(
+                    onSuccess = { file ->
+                        trackDao.markDownloadedWithPath(id, file.absolutePath)
+                        downloaded++
+                    },
+                    onFailure = { errors++ },
+                )
             }
 
             client.close()
+
+            setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to downloaded))
 
             if (errors > 0 && downloaded == 0) {
                 Result.failure(workDataOf(RESULT_ERROR to errors, RESULT_DOWNLOADED to 0))
@@ -148,3 +172,13 @@ class SyncWorker(
         return ForegroundInfo(NOTIFICATION_ID, notification)
     }
 }
+
+private fun org.michimusic.core.models.ManifestTrack.toTrackDto() = org.michimusic.core.models.TrackDto(
+    id = trackId,
+    title = title,
+    artist = artist,
+    album = album,
+    duration = duration,
+    size = size,
+    format = format,
+)

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -19,22 +20,31 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
@@ -72,23 +82,68 @@ fun SyncScreen(
                 SyncConnectionState.DISCOVERING -> {
                     DiscoveringState(
                         peers = uiState.peers,
-                        onConnect = viewModel::connectToPeer,
+                        onSelect = viewModel::selectPeer,
                         onStop = viewModel::stopDiscovery,
                     )
                 }
 
+                SyncConnectionState.PAIRING_REQUIRED -> {
+                    PairingForm(
+                        peer = uiState.connectedPeer,
+                        onPair = { username, password ->
+                            uiState.connectedPeer?.let { peer ->
+                                viewModel.startPairing(peer, username, password)
+                            }
+                        },
+                        onBack = viewModel::disconnect,
+                    )
+                }
+
+                SyncConnectionState.PAIRING -> {
+                    ConnectingState("Emparejando...")
+                }
+
+                SyncConnectionState.PAIRED -> {
+                    ConnectedState(
+                        peer = uiState.connectedPeer,
+                        registration = uiState.registration,
+                        pairingConfirm = uiState.pairingConfirm,
+                        syncProgress = uiState.syncProgress,
+                        onSync = viewModel::syncLibrary,
+                        onDisconnect = viewModel::disconnect,
+                        onForget = viewModel::forgetServer,
+                        onNavigateToSynced = onNavigateToSynced,
+                    )
+                }
+
                 SyncConnectionState.CONNECTING -> {
-                    ConnectingState()
+                    ConnectingState("Conectando...")
                 }
 
                 SyncConnectionState.CONNECTED -> {
                     ConnectedState(
                         peer = uiState.connectedPeer,
                         registration = uiState.registration,
+                        pairingConfirm = null,
                         syncProgress = uiState.syncProgress,
                         onSync = viewModel::syncLibrary,
                         onDisconnect = viewModel::disconnect,
+                        onForget = viewModel::forgetServer,
                         onNavigateToSynced = onNavigateToSynced,
+                    )
+                }
+
+                SyncConnectionState.AUTH_ERROR -> {
+                    ErrorState(
+                        message = "Error de autenticación. Intenta emparejar de nuevo.",
+                        onRetry = viewModel::disconnect,
+                    )
+                }
+
+                SyncConnectionState.REVOKED -> {
+                    ErrorState(
+                        message = "Dispositivo revocado desde Michi Music Player. Olvida el servidor y empareja de nuevo.",
+                        onRetry = viewModel::forgetServer,
                     )
                 }
 
@@ -105,17 +160,19 @@ fun SyncScreen(
         }
 
         uiState.error?.let { msg ->
-            Snackbar(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp),
-                action = {
-                    TextButton(onClick = viewModel::clearError) {
-                        Text("OK")
-                    }
-                },
-            ) {
-                Text(msg)
+            if (uiState.state != SyncConnectionState.PAIRING_REQUIRED) {
+                Snackbar(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                    action = {
+                        TextButton(onClick = viewModel::clearError) {
+                            Text("OK")
+                        }
+                    },
+                ) {
+                    Text(msg)
+                }
             }
         }
     }
@@ -158,7 +215,7 @@ private fun ConnectionPrompt(onStart: () -> Unit) {
 @Composable
 private fun DiscoveringState(
     peers: List<DiscoveredPeer>,
-    onConnect: (DiscoveredPeer) -> Unit,
+    onSelect: (DiscoveredPeer) -> Unit,
     onStop: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -198,7 +255,11 @@ private fun DiscoveringState(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(peers) { peer ->
-                    PeerCard(peer = peer, onClick = { onConnect(peer) })
+                    PeerCard(
+                        peer = peer,
+                        authRequired = peer.authRequired,
+                        onClick = { onSelect(peer) },
+                    )
                 }
             }
         }
@@ -206,7 +267,11 @@ private fun DiscoveringState(
 }
 
 @Composable
-private fun PeerCard(peer: DiscoveredPeer, onClick: () -> Unit) {
+private fun PeerCard(
+    peer: DiscoveredPeer,
+    authRequired: Boolean,
+    onClick: () -> Unit,
+) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -219,12 +284,12 @@ private fun PeerCard(peer: DiscoveredPeer, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Default.Devices,
+                imageVector = if (authRequired) Icons.Default.Lock else Icons.Default.Devices,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = if (authRequired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.size(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = peer.alias,
                     style = MaterialTheme.typography.titleMedium,
@@ -235,12 +300,91 @@ private fun PeerCard(peer: DiscoveredPeer, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (authRequired) {
+                Text(
+                    text = "Requiere emparejamiento",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ConnectingState() {
+private fun PairingForm(
+    peer: DiscoveredPeer?,
+    onPair: (String, String) -> Unit,
+    onBack: () -> Unit,
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Lock,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Emparejar dispositivo",
+            style = MaterialTheme.typography.headlineMedium,
+        )
+        if (peer != null) {
+            Text(
+                text = "Conectar a ${peer.alias} (${peer.ip})",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Ingresa usuario y contraseña local del servidor Michi",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Usuario") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Contraseña") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = { onPair(username, password) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = username.isNotBlank() && password.isNotBlank(),
+        ) {
+            Text("Emparejar")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onBack) {
+            Text("Cancelar")
+        }
+    }
+}
+
+@Composable
+private fun ConnectingState(message: String) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -249,7 +393,7 @@ private fun ConnectingState() {
             CircularProgressIndicator()
             Spacer(Modifier.height(16.dp))
             Text(
-                "Conectando...",
+                message,
                 style = MaterialTheme.typography.bodyLarge,
             )
         }
@@ -260,22 +404,46 @@ private fun ConnectingState() {
 private fun ConnectedState(
     peer: DiscoveredPeer?,
     registration: org.michimusic.core.models.RegisterResponse?,
+    pairingConfirm: org.michimusic.core.models.PairConfirmResponse?,
     syncProgress: SyncProgress,
     onSync: () -> Unit,
     onDisconnect: () -> Unit,
+    onForget: () -> Unit,
     onNavigateToSynced: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = "Conectado",
-            style = MaterialTheme.typography.headlineMedium,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (pairingConfirm != null) "Emparejado y autorizado" else "Conectado",
+                style = MaterialTheme.typography.headlineMedium,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             text = peer?.let { "${it.alias} (${it.ip})" } ?: "Servidor",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        pairingConfirm?.let { confirm ->
+            if (confirm.permissions.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Permisos: ${confirm.permissions.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         registration?.let { reg ->
             Spacer(Modifier.height(16.dp))
@@ -358,6 +526,12 @@ private fun ConnectedState(
                         )
                         Text("${syncProgress.tracks} canciones en biblioteca")
                         Text("${syncProgress.downloaded} descargadas")
+                        if (syncProgress.errors > 0) {
+                            Text(
+                                "${syncProgress.errors} errores",
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(onClick = onNavigateToSynced) {
                             Icon(Icons.Default.List, contentDescription = null)
@@ -377,11 +551,24 @@ private fun ConnectedState(
         }
 
         Spacer(Modifier.height(16.dp))
-        OutlinedButton(
-            onClick = onDisconnect,
+        Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Desconectar")
+            OutlinedButton(
+                onClick = onDisconnect,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Desconectar")
+            }
+            OutlinedButton(
+                onClick = onForget,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Olvidar")
+            }
         }
     }
 }
@@ -401,7 +588,7 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            text = "Error de conexión",
+            text = "Error",
             style = MaterialTheme.typography.headlineSmall,
         )
         Text(
