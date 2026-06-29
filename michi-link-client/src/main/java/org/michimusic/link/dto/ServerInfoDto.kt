@@ -11,19 +11,31 @@ data class ServerInfoDto(
     val server: String = "",
     @SerialName("server_alias") val serverAlias: String = "",
     @SerialName("server_device_id") val serverDeviceId: String = "",
+    @SerialName("michi_link_version") val michiLinkVersion: String = "",
+    val version: String = "1.0",
+    @SerialName("api_version") val apiVersion: String = "",
+    val roles: List<String> = emptyList(),
+    val features: ServerFeaturesDto? = null,
+    val auth: AuthInfoDto? = null,
 ) {
     val effectiveServerId: String get() = serverId.ifEmpty { serverDeviceId.ifEmpty { server } }
     val effectiveName: String get() = name.ifEmpty { serverAlias.ifEmpty { server } }
+    val effectiveAuthStrategy: PairingStrategy get() {
+        val s = auth?.strategy ?: return PairingStrategy.LEGACY
+        return when (s.uppercase()) {
+            "PLAYER_PASSWORD", "PASSWORD" -> PairingStrategy.PLAYER_PASSWORD
+            "SERVER_CODE", "CODE", "PIN" -> PairingStrategy.SERVER_CODE
+            "RECEIVER_BUTTON" -> PairingStrategy.RECEIVER_BUTTON
+            else -> PairingStrategy.LEGACY
+        }
+    }
 }
 
 @Serializable
-data class ServerVersionDto(
-    val version: String = "1.0",
-    @SerialName("api_version") val apiVersion: String = "",
-    @SerialName("requires_pairing") val requiresPairing: Boolean = true,
+data class AuthInfoDto(
+    val strategy: String = "",
     @SerialName("auth_methods") val authMethods: List<String> = emptyList(),
-    val roles: List<String> = emptyList(),
-    val features: ServerFeaturesDto? = null,
+    @SerialName("requires_pairing") val requiresPairing: Boolean = true,
 )
 
 @Serializable

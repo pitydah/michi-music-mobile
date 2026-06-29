@@ -183,7 +183,10 @@ class LinkClient(
 
     // --- Token Refresh ---
 
-    suspend fun refreshToken(refreshToken: String): Result<TokenRefreshResponseDto> = withContext(Dispatchers.IO) {
+    suspend fun refreshToken(refreshToken: String, force: Boolean = false): Result<TokenRefreshResponseDto> = withContext(Dispatchers.IO) {
+        if (!force && tokenRefreshSupported == false) {
+            return@withContext Result.failure(LinkException.NotImplemented)
+        }
         try {
             val request = TokenRefreshRequestDto(
                 refreshToken = refreshToken,
@@ -194,6 +197,7 @@ class LinkClient(
                 setBody(request)
             }
             if (response.status == HttpStatusCode.NotImplemented) {
+                tokenRefreshSupported = false
                 return@withContext Result.failure(LinkException.NotImplemented)
             }
             if (response.status == HttpStatusCode.Unauthorized) return@withContext Result.failure(LinkException.TokenExpired)

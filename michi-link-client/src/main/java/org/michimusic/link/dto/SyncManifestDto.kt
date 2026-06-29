@@ -17,7 +17,17 @@ data class SyncManifestDto(
     val removed: List<String> = emptyList(),
     @SerialName("total_tracks") val totalTracks: Int = 0,
     @SerialName("total_size") val totalSize: Long = 0L,
-)
+    val cursor: String = "",
+    val added: List<ManifestTrackDto> = emptyList(),
+    val updated: List<ManifestTrackDto> = emptyList(),
+    val deleted: List<String> = emptyList(),
+    @SerialName("playlists_updated") val playlistsUpdated: List<ManifestPlaylistDto> = emptyList(),
+) {
+    val effectiveTracks: List<ManifestTrackDto>
+        get() = if (tracks.isNotEmpty()) tracks else added
+    val effectiveRemoved: List<String>
+        get() = if (removed.isNotEmpty()) removed else deleted
+}
 
 @Serializable
 data class ManifestTrackDto(

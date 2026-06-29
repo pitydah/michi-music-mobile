@@ -50,4 +50,6 @@ data class TrackListResponseDto(
 ) {
     val effectiveTracks: List<TrackResponseDto>
         get() = if (tracks.isNotEmpty()) tracks else items
+    val effectiveTotal: Int
+        get() = if (total > 0) total else effectiveTracks.size
 }

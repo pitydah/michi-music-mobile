@@ -38,6 +38,8 @@ data class PlaybackStateDto(
     val effectiveArtist: String get() = artist.ifEmpty { currentTrack?.artist ?: "" }
     val effectivePosition: Long get() = if (positionMs >= 0) positionMs else position
     val effectiveDuration: Long get() = if (durationMs >= 0) durationMs else duration
+    val effectiveVolume: Int get() = volume.coerceIn(0, 100)
+    val effectiveCoverId: String get() = coverId.ifEmpty { currentTrack?.coverId ?: "" }
 }
 
 @Serializable
