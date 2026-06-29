@@ -96,7 +96,8 @@ fun MichiNavHost() {
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
                 composable("synced") { SyncedTracksScreen() }
                 composable("search") { SearchScreen() }
-                composable("settings") { SettingsScreen() }
+                composable("settings") { SettingsScreen(onNavigateToDiagnostics = { navController.navigate("diagnostics") }) }
+                composable("diagnostics") { org.michimusic.mobile.ui.screens.DiagnosticsScreen() }
                 composable("audio-route") { AudioRouteScreen() }
             }
 

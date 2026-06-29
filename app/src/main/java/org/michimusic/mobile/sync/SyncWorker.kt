@@ -3,7 +3,9 @@ package org.michimusic.mobile.sync
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Environment
 import android.os.PowerManager
+import android.os.StatFs
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -58,7 +60,16 @@ class SyncWorker(
 
         val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
-        wakeLock?.acquire(10_000L)
+        wakeLock?.acquire(10_000L) // 10s timeout base, se renueva durante descarga
+
+        // Check available storage
+        val storage = StatFs(applicationContext.filesDir.absolutePath)
+        val freeBytes = storage.availableBytes
+        val minFree = 50L * 1024 * 1024 // 50MB minimum
+        if (freeBytes < minFree) {
+            val msg = "Almacenamiento insuficiente: ${freeBytes / 1024 / 1024}MB libres"
+            return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+        }
 
         setForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 

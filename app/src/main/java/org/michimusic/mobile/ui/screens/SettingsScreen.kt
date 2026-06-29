@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -49,7 +51,9 @@ const val KEY_RG_PREAMP_WITHOUT = "replaygain_preamp_without"
 const val KEY_SERVER_URL = "server_url"
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onNavigateToDiagnostics: () -> Unit = {},
+) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
@@ -269,6 +273,15 @@ fun SettingsScreen() {
         Text("Michi Music Mobile", color = TextSecondary)
         Text("Versión 0.1.0-alpha", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         Text("GPL-3.0", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = onNavigateToDiagnostics,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Diagnóstico Michi Link")
+        }
 
         Spacer(Modifier.height(32.dp))
     }
