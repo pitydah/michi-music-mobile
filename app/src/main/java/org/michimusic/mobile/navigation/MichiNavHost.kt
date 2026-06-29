@@ -1,0 +1,89 @@
+package org.michimusic.mobile.navigation
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import org.michimusic.mobile.screens.HomeScreen
+import org.michimusic.mobile.screens.LibraryScreen
+import org.michimusic.mobile.screens.RemotePlaceholderScreen
+import org.michimusic.mobile.screens.SettingsPlaceholderScreen
+import org.michimusic.mobile.screens.SyncPlaceholderScreen
+
+data class BottomNavEntry(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+)
+
+private val navItems = listOf(
+    BottomNavEntry("home", "Inicio", Icons.Default.Home),
+    BottomNavEntry("library", "Biblioteca", Icons.Default.LibraryMusic),
+    BottomNavEntry("sync", "Sync", Icons.Default.Sync),
+    BottomNavEntry("remote", "Remoto", Icons.Default.CastConnected),
+    BottomNavEntry("settings", "Ajustes", Icons.Default.Settings),
+)
+
+@Composable
+fun MichiNavHost() {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentDest = backStackEntry?.destination
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                navItems.forEach { entry ->
+                    NavigationBarItem(
+                        icon = { Icon(entry.icon, contentDescription = entry.label) },
+                        label = { Text(entry.label) },
+                        selected = currentDest?.hierarchy?.any { it.route == entry.route } == true,
+                        onClick = {
+                            navController.navigate(entry.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                    )
+                }
+            }
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                composable("home") { HomeScreen() }
+                composable("library") { LibraryScreen() }
+                composable("sync") { SyncPlaceholderScreen() }
+                composable("remote") { RemotePlaceholderScreen() }
+                composable("settings") { SettingsPlaceholderScreen() }
+            }
+        }
+    }
+}
