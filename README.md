@@ -1,5 +1,9 @@
 # Michi Music Mobile
 
+<p align="center">
+  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" alt="Michi Music Mobile icon" width="128" height="128">
+</p>
+
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org)
 [![Android](https://img.shields.io/badge/Android-12%2B-brightgreen.svg)](https://developer.android.com)
