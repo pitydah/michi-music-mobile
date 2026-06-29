@@ -44,6 +44,10 @@ data class SearchResponseDto(
 
 @Serializable
 data class TrackListResponseDto(
+    val tracks: List<TrackResponseDto> = emptyList(),
     val items: List<TrackResponseDto> = emptyList(),
     val total: Int = 0,
-)
+) {
+    val effectiveTracks: List<TrackResponseDto>
+        get() = if (tracks.isNotEmpty()) tracks else items
+}

@@ -108,7 +108,8 @@ class RemoteViewModel(
     fun play() { sendCommand("play") }
     fun pause() { sendCommand("pause") }
     fun togglePlayPause() {
-        val state = _uiState.value.playerState.state
+        val ps = _uiState.value.playerState
+        val state = ps.effectiveState
         if (state == "playing") pause() else play()
     }
     fun next() { sendCommand("next") }

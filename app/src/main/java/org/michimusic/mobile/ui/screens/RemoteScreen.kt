@@ -124,6 +124,11 @@ fun RemoteScreen(
         }
 
         val state = uiState.playerState
+        val effState = state.effectiveState
+        val effTitle = state.effectiveTitle
+        val effArtist = state.effectiveArtist
+        val effPosition = state.effectivePosition
+        val effDuration = state.effectiveDuration
 
         // Carátula
         Box(
@@ -151,14 +156,14 @@ fun RemoteScreen(
 
         // Info del tema
         Text(
-            text = state.title.ifEmpty { "Sin reproducción" },
+            text = effTitle.ifEmpty { "Sin reproducción" },
             style = MaterialTheme.typography.titleLarge,
             color = TextPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = state.artist.ifEmpty { "" },
+            text = effArtist.ifEmpty { "" },
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             maxLines = 1,
@@ -179,15 +184,15 @@ fun RemoteScreen(
         Spacer(Modifier.height(12.dp))
 
         // Progreso
-        val duration = if (state.duration > 0) state.duration else 1L
-        val progress = (state.position.toFloat() / duration).coerceIn(0f, 1f)
+        val duration = if (effDuration > 0) effDuration else 1L
+        val progress = (effPosition.toFloat() / duration).coerceIn(0f, 1f)
         var dragProgress by remember { mutableFloatStateOf(progress) }
 
         Slider(
             value = dragProgress,
             onValueChange = { dragProgress = it },
             onValueChangeFinished = {
-                val seekPos = (dragProgress * state.duration).toLong()
+                val seekPos = (dragProgress * effDuration).toLong()
                 viewModel.seek(seekPos)
             },
             modifier = Modifier.fillMaxWidth(),
@@ -197,8 +202,8 @@ fun RemoteScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(formatTime(state.position), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-            Text(formatTime(state.duration), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(formatTime(effPosition), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(formatTime(effDuration), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
 
         Spacer(Modifier.height(16.dp))
@@ -222,8 +227,8 @@ fun RemoteScreen(
             ) {
                 IconButton(onClick = viewModel::togglePlayPause) {
                     Icon(
-                        if (state.state == "playing") Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (state.state == "playing") "Pausar" else "Reproducir",
+                        if (effState == "playing") Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (effState == "playing") "Pausar" else "Reproducir",
                         tint = Color.White,
                         modifier = Modifier.size(36.dp),
                     )

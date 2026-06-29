@@ -46,6 +46,7 @@ class LinkClient(
     var deviceToken: String = "",
     var clientDeviceId: String = "",
 ) {
+    var tokenRefreshSupported: Boolean? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     private val client = HttpClient {
@@ -221,7 +222,7 @@ class LinkClient(
             val response = httpGet("$baseUrl/api/v1/tracks")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             val body = response.body<TrackListResponseDto>()
-            Result.success(LibraryResponseDto(tracks = body.items, total = body.total))
+            Result.success(LibraryResponseDto(tracks = body.effectiveTracks, total = body.total))
         } catch (e: Exception) {
             try {
                 val response = httpGet("$baseUrl/api/library")

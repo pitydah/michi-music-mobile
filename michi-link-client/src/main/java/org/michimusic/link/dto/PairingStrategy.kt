@@ -1,0 +1,7 @@
+package org.michimusic.link.dto
+
+enum class PairingStrategy {
+    PLAYER_PASSWORD,
+    SERVER_CODE,
+    LEGACY,
+}
