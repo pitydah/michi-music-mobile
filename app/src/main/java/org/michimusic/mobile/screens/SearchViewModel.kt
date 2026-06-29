@@ -36,6 +36,7 @@ class SearchViewModel(
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
     private var localTracks: List<Track> = emptyList()
+    private var syncedTracks: List<org.michimusic.data.cache.CachedTrack> = emptyList()
     private var searchJob: Job? = null
 
     fun loadLocalTracks() {
@@ -43,6 +44,9 @@ class SearchViewModel(
             _isSearching.value = true
             val albums = withContext(Dispatchers.IO) { localRepo.loadAlbums() }
             localTracks = albums.flatMap { it.tracks }
+            syncedTracks = withContext(Dispatchers.IO) {
+                syncedRepo.getAllSynced().first()
+            }
             _isSearching.value = false
         }
     }
@@ -65,10 +69,7 @@ class SearchViewModel(
                 it.album.lowercase().contains(lower)
             }.map { SearchResult(it, "Local") }
 
-            val synced = withContext(Dispatchers.IO) {
-                syncedRepo.getAllSynced().first()
-            }
-            val syncedHits = synced.filter {
+            val syncedHits = syncedTracks.filter {
                 it.title.lowercase().contains(lower) ||
                 it.artist.lowercase().contains(lower) ||
                 it.album.lowercase().contains(lower)

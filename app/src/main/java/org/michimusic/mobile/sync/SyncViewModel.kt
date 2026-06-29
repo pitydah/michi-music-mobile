@@ -3,9 +3,12 @@ package org.michimusic.mobile.sync
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -323,6 +326,33 @@ class SyncViewModel(
     }
 
     fun clearError() { _error.value = null }
+
+    fun schedulePeriodicSyncIfEnabled() {
+        val prefs = context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("auto_sync", false)) return
+        val client = session.syncClient ?: return
+        val currentState = uiState.value
+        val reg = currentState.registration
+        val pairConfirm = currentState.pairingConfirm
+        val deviceId = reg?.clientDeviceId ?: pairConfirm?.deviceId ?: clientId
+        val effectiveToken = client.deviceToken.ifEmpty { client.sessionToken }
+
+        val inputData = SyncWorker.buildInputData(
+            baseUrl = client.baseUrl,
+            sessionToken = client.sessionToken,
+            deviceId = deviceId,
+            alias = android.os.Build.MODEL,
+            deviceToken = effectiveToken,
+            clientDeviceId = client.clientDeviceId.ifEmpty { clientId },
+        )
+
+        val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(12, TimeUnit.HOURS)
+            .setInputData(inputData)
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniquePeriodicWork("michi_sync_periodic", ExistingPeriodicWorkPolicy.KEEP, workRequest)
+    }
 
     override fun onCleared() {
         super.onCleared()

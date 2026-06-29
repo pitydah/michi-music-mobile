@@ -22,12 +22,8 @@ class AlbumsViewModel(
     private val _allTracks = MutableStateFlow<List<Track>>(emptyList())
     val allTracks: StateFlow<List<Track>> = _allTracks.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(true)
+    private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
-
-    init {
-        loadMedia()
-    }
 
     fun loadMedia() {
         viewModelScope.launch {

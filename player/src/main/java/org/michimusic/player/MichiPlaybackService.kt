@@ -23,13 +23,21 @@ class MichiPlaybackService : MediaLibraryService() {
     private var mediaLibrarySession: MediaLibrarySession? = null
     private var player: ExoPlayer? = null
     private var playerController: PlayerController? = null
-    private val replayGainProcessor = ReplayGainAudioProcessor()
-    private val stateStore = PlaybackStateStore(this)
+    private lateinit var replayGainProcessor: ReplayGainAudioProcessor
+    private lateinit var stateStore: PlaybackStateStore
     private val saveScope = CoroutineScope(Dispatchers.IO + Job())
     private var saveJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
+
+        replayGainProcessor = ReplayGainAudioProcessor()
+        stateStore = PlaybackStateStore(this)
+
+        val mode = ReplayGainConfig.getMode()
+        val preAmp = ReplayGainConfig.getPreAmp()
+        replayGainProcessor.configure(mode, preAmp)
+
         val replayGainDao = PlayerDependencies.replayGainDao
         val controller = PlayerController(this, listOf(replayGainProcessor), replayGainDao)
         playerController = controller
@@ -103,14 +111,13 @@ class MichiPlaybackService : MediaLibraryService() {
         provider.refresh()
         val items = saved.mediaIds.mapNotNull { provider.getItem(it) }
         if (items.isEmpty()) return
-        player?.apply {
-            val resolved = provider.resolveForPlayback(items) ?: return
-            val startIndex = saved.startIndex.coerceIn(0, resolved.lastIndex)
-            setMediaItems(resolved, startIndex, saved.positionMs)
-            repeatMode = saved.repeatMode
-            shuffleModeEnabled = saved.shuffleMode
-            prepare()
-        }
+        val p = player ?: return
+        val resolved = provider.resolveForPlayback(items) ?: return
+        val startIndex = saved.startIndex.coerceIn(0, resolved.lastIndex)
+        p.setMediaItems(resolved, startIndex, saved.positionMs)
+        p.repeatMode = saved.repeatMode
+        p.shuffleModeEnabled = saved.shuffleMode
+        p.prepare()
     }
 
     private fun deferSave() {
