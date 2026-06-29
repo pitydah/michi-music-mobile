@@ -3,7 +3,6 @@ package org.michimusic.mobile.sync
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Environment
 import android.os.PowerManager
 import android.os.StatFs
 import androidx.core.app.NotificationCompat
