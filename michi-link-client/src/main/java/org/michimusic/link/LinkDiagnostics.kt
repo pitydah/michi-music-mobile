@@ -170,6 +170,7 @@ class LinkDiagnostics(private val context: Context) {
             server = info?.effectiveName ?: "",
             baseUrl = linkClient.baseUrl,
             authStrategy = auth,
+            tokenRefreshSupported = info?.effectiveTokenRefresh ?: false,
             tests = tests,
             errors = errors,
             recommendations = recs,

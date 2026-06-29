@@ -1,5 +1,6 @@
 package org.michimusic.link.dto
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -8,6 +9,7 @@ data class DiagnosticReport(
     val server: String = "",
     val baseUrl: String = "",
     val authStrategy: String = "",
+    @SerialName("token_refresh_supported") val tokenRefreshSupported: Boolean = false,
     val tests: List<DiagnosticTest> = emptyList(),
     val errors: List<String> = emptyList(),
     val recommendations: List<String> = emptyList(),
