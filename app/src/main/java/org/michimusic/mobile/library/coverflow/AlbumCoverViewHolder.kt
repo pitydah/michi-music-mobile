@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import coil3.asImage
 import coil3.load
 import coil3.request.crossfade
+import java.lang.Math.floorMod
 import org.michimusic.mobile.R
 
 class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
@@ -35,7 +36,7 @@ class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
                 0xFF7ED321.toInt(),
                 0xFFF5A623.toInt(),
             )
-            coverArt.setBackgroundColor(colors[album.id.toIntOrNull()?.let { (it - 1) % colors.size } ?: 0])
+            coverArt.setBackgroundColor(colors[floorMod(album.id.toIntOrNull()?.minus(1) ?: 0, colors.size)])
             coverArt.setImageDrawable(null)
         }
     }

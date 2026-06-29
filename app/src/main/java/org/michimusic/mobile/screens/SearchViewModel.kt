@@ -3,6 +3,8 @@ package org.michimusic.mobile.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +36,7 @@ class SearchViewModel(
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
     private var localTracks: List<Track> = emptyList()
+    private var searchJob: Job? = null
 
     fun loadLocalTracks() {
         viewModelScope.launch {
@@ -48,9 +51,12 @@ class SearchViewModel(
         _query.value = q
         if (q.length < 2) {
             _results.value = emptyList()
+            searchJob?.cancel()
             return
         }
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(300)
             _isSearching.value = true
             val lower = q.lowercase()
             val localHits = localTracks.filter {
@@ -97,5 +103,6 @@ class SearchViewModel(
     fun clearSearch() {
         _query.value = ""
         _results.value = emptyList()
+        searchJob?.cancel()
     }
 }

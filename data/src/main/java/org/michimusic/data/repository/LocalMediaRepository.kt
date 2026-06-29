@@ -150,17 +150,19 @@ class LocalMediaRepository(
 
     fun loadAlbums(): List<LocalAlbum> {
         val tracks = loadTracks()
-        val grouped = tracks.groupBy { it.coverId }
-        return grouped.map { (albumId, albumTracks) ->
+        val grouped = tracks.groupBy { it.album to it.artist }
+        return grouped.map { (albumArtist, albumTracks) ->
+            val (albumName, artistName) = albumArtist
             val first = albumTracks.first()
+            val albumId = "${albumName.lowercase().replace(" ", "_")}_${artistName.lowercase().replace(" ", "_")}"
             LocalAlbum(
                 album = Album(
                     id = "album_$albumId",
-                    title = first.album,
-                    artist = first.artist,
+                    title = albumName.ifEmpty { "Unknown Album" },
+                    artist = artistName.ifEmpty { "Unknown Artist" },
                     year = first.year,
                     trackCount = albumTracks.size,
-                    coverId = albumId,
+                    coverId = first.coverId,
                 ),
                 tracks = albumTracks,
             )

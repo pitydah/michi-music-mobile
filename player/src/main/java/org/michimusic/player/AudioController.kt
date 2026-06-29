@@ -28,6 +28,8 @@ class AudioController(
     private var mediaController: MediaController? = null
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
+    private val _isReady = MutableStateFlow(false)
+    val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
     private var positionJob: Job? = null
 
     private val listener = object : Player.Listener {
@@ -77,6 +79,7 @@ class AudioController(
             val controller = future.get()
             mediaController = controller
             controller.addListener(listener)
+            _isReady.value = true
         }, MoreExecutors.directExecutor())
     }
 
