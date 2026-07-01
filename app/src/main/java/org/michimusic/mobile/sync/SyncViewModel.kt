@@ -36,6 +36,7 @@ class SyncViewModel(
     private val discoveryClient: DiscoveryClient,
     private val session: SyncSession,
     private val trackRepository: SyncedTrackRepository,
+    private val creds: SyncCredentialsStore,
 ) : ViewModel() {
 
     private val _error = MutableStateFlow<String?>(null)
@@ -61,11 +62,51 @@ class SyncViewModel(
         state.copy(error = err, syncProgress = progress)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SyncUiState())
 
-    private var clientId: String = ""
+    private var clientId: String = creds.clientDeviceId
+    private var isReconnecting = false
+
+    init {
+        if (creds.hasSavedSession) {
+            reconnectSaved()
+        }
+    }
+
+    private fun reconnectSaved() {
+        isReconnecting = true
+        session.updateState(SyncConnectionState.CONNECTING)
+        val baseUrl = creds.lastBaseUrl
+        val client = MichiSyncClient(baseUrl = baseUrl)
+        client.sessionToken = creds.sessionToken
+        client.deviceId = clientId
+
+        viewModelScope.launch {
+            client.ping().let { alive ->
+                if (alive) {
+                    val peer = DiscoveredPeer(
+                        alias = creds.serverAlias,
+                        ip = baseUrl.removePrefix("http://").substringBeforeLast(":"),
+                        port = baseUrl.substringAfterLast(":").toIntOrNull() ?: 53318,
+                    )
+                    session.onConnected(peer, client)
+                    session.onRegistered(
+                        RegisterResponse(
+                            sessionToken = creds.sessionToken,
+                            serverDeviceId = creds.serverDeviceId,
+                            clientDeviceId = clientId,
+                            librarySize = 0,
+                        )
+                    )
+                } else {
+                    creds.clear()
+                    session.updateState(SyncConnectionState.DISCONNECTED)
+                }
+            }
+            isReconnecting = false
+        }
+    }
 
     fun startDiscovery() {
         if (uiState.value.state != SyncConnectionState.DISCONNECTED) return
-        clientId = "android_${System.currentTimeMillis().toString().takeLast(6)}"
         session.updateState(SyncConnectionState.DISCOVERING)
         viewModelScope.launch { discoveryClient.start() }
         viewModelScope.launch {
@@ -96,9 +137,9 @@ class SyncViewModel(
 
         viewModelScope.launch {
             if (peer.authRequired) {
+                session.onConnected(peer, client)
                 session.updateState(SyncConnectionState.PAIRING_REQUIRED)
-                _error.value = "Este servidor requiere emparejamiento. Función en preparación."
-                client.close()
+                _error.value = "Este servidor requiere emparejamiento."
                 return@launch
             }
 
@@ -109,6 +150,7 @@ class SyncViewModel(
                     clientDeviceId = clientId,
                 )
                 .onSuccess { response ->
+                    creds.saveFromSession(baseUrl, response.sessionToken, response.serverDeviceId, peer.alias)
                     session.onConnected(peer, client)
                     session.onRegistered(response)
                 }
@@ -120,8 +162,62 @@ class SyncViewModel(
         }
     }
 
+    fun pairWithServer(peer: DiscoveredPeer, username: String, password: String) {
+        if (uiState.value.state != SyncConnectionState.PAIRING_REQUIRED) return
+        session.updateState(SyncConnectionState.PAIRING)
+        val baseUrl = "http://${peer.ip}:${peer.port}"
+        val client = MichiSyncClient(baseUrl = baseUrl)
+        client.deviceId = clientId
+
+        viewModelScope.launch {
+            val startRequest = org.michimusic.core.models.PairStartRequest(
+                username = username,
+                password = password,
+                deviceAlias = android.os.Build.MODEL,
+                deviceType = "android",
+                clientDeviceId = clientId,
+            )
+            client.pairStart(startRequest)
+                .onSuccess { pairResp ->
+                    val confirmRequest = org.michimusic.core.models.PairConfirmRequest(
+                        pairingCode = pairResp.pairingCode,
+                        clientDeviceId = clientId,
+                    )
+                    client.pairConfirm(confirmRequest)
+                        .onSuccess { confirmResp ->
+                            creds.saveFromSession(
+                                baseUrl,
+                                confirmResp.sessionToken,
+                                confirmResp.serverDeviceId,
+                                peer.alias,
+                            )
+                            val reg = RegisterResponse(
+                                sessionToken = confirmResp.sessionToken,
+                                serverDeviceId = confirmResp.serverDeviceId,
+                                clientDeviceId = confirmResp.clientDeviceId,
+                                librarySize = confirmResp.librarySize,
+                                version = confirmResp.version,
+                            )
+                            session.onConnected(peer, client)
+                            session.onRegistered(reg)
+                        }
+                        .onFailure { e ->
+                            _error.value = "Error al confirmar emparejamiento: ${e.message}"
+                            session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                            client.close()
+                        }
+                }
+                .onFailure { e ->
+                    _error.value = "Error al iniciar emparejamiento: ${e.message}"
+                    session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                    client.close()
+                }
+        }
+    }
+
     fun disconnect() {
         viewModelScope.launch { discoveryClient.stop() }
+        creds.clear()
         session.disconnect()
         _syncProgress.value = SyncProgress.Idle
     }

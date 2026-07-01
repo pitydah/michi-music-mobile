@@ -2,6 +2,9 @@ package org.michimusic.mobile.navigation
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CastConnected
@@ -97,26 +100,34 @@ fun MichiNavHost() {
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            NavHost(
-                navController = navController,
-                startDestination = "home",
-                modifier = Modifier.fillMaxSize(),
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = if (hasCurrentTrack) 72.dp else 0.dp),
             ) {
-                composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
-                composable("library") { AlbumsScreen() }
-                composable("playlist") { PlaylistScreen() }
-                composable("nowplaying") { NowPlayingScreen() }
-                composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
-                composable("synced") { SyncedTracksScreen() }
-                composable("search") { SearchScreen() }
-                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
-                composable("audio-route") { AudioRouteScreen() }
-                composable("settings") { SettingsScreen() }
+                NavHost(
+                    navController = navController,
+                    startDestination = "home",
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
+                    composable("library") { AlbumsScreen() }
+                    composable("playlist") { PlaylistScreen() }
+                    composable("nowplaying") { NowPlayingScreen() }
+                    composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
+                    composable("synced") { SyncedTracksScreen() }
+                    composable("search") { SearchScreen() }
+                    composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
+                    composable("audio-route") { AudioRouteScreen() }
+                    composable("settings") { SettingsScreen() }
+                }
             }
 
             if (hasCurrentTrack) {
                 MiniPlayer(
-                    modifier = Modifier.align(Alignment.BottomCenter),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding(),
                     onClick = { navController.navigate("nowplaying") },
                 )
             }

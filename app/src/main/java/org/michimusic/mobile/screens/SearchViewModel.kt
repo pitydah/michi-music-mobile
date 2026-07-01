@@ -9,10 +9,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
+import org.michimusic.sync.SyncSession
 
 data class SearchResult(
     val track: Track,
@@ -22,6 +24,7 @@ data class SearchResult(
 class SearchViewModel(
     private val localRepo: LocalMediaRepository,
     private val syncedRepo: SyncedTrackRepository,
+    private val session: SyncSession,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -89,7 +92,32 @@ class SearchViewModel(
                 )
             }
 
-            _results.value = (localHits + syncedHits).take(50)
+            val remoteHits = if (session.connectionState.value == SyncConnectionState.CONNECTED) {
+                val syncClient = session.syncClient
+                if (syncClient != null) {
+                    withContext(Dispatchers.IO) {
+                        syncClient.search(q)
+                            .getOrNull()
+                            ?.results
+                            ?.map { dto ->
+                                SearchResult(
+                                    Track(
+                                        id = dto.id,
+                                        title = dto.title,
+                                        artist = dto.artist,
+                                        album = dto.album,
+                                        duration = dto.duration.toLong(),
+                                        source = TrackSource.STREAMING,
+                                    ),
+                                    "Remoto",
+                                )
+                            }
+                            ?: emptyList()
+                    }
+                } else emptyList()
+            } else emptyList()
+
+            _results.value = (localHits + syncedHits + remoteHits).take(50)
             _isSearching.value = false
         }
     }

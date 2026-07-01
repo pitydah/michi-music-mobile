@@ -2,6 +2,7 @@ package org.michimusic.mobile
 
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
+import org.michimusic.mobile.sync.SyncCredentialsStore
 import org.michimusic.sync.CoverCache
 import org.michimusic.sync.DiscoveryClient
 import org.michimusic.sync.SyncSession
@@ -12,4 +13,5 @@ val syncModule = module {
     single { SyncSession() }
     single { SyncTransferManager(androidContext()) }
     single { CoverCache(androidContext()) }
+    single { SyncCredentialsStore(androidContext()) }
 }

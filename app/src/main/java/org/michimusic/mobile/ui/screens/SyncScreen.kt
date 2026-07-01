@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Error
@@ -27,14 +28,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
@@ -43,6 +50,9 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncUiState
 import org.michimusic.mobile.sync.SyncViewModel
+import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.TextMuted
+import org.michimusic.mobile.ui.theme.TextPrimary
 
 @Composable
 fun SyncScreen(
@@ -78,7 +88,21 @@ fun SyncScreen(
                 }
 
                 SyncConnectionState.PAIRING_REQUIRED -> {
-                    PairingRequiredState()
+                    val peer = uiState.connectedPeer
+                    if (peer != null) {
+                        PairingState(
+                            peer = peer,
+                            onPair = { username, password ->
+                                viewModel.pairWithServer(peer, username, password)
+                            },
+                            onCancel = viewModel::disconnect,
+                        )
+                    } else {
+                        ErrorState(
+                            message = "Emparejamiento requerido pero no hay peer",
+                            onRetry = { viewModel.clearError(); viewModel.startDiscovery() },
+                        )
+                    }
                 }
 
                 SyncConnectionState.PAIRING -> {
@@ -406,30 +430,82 @@ private fun ConnectedState(
 }
 
 @Composable
-private fun PairingRequiredState() {
-    Box(
+private fun PairingState(
+    peer: DiscoveredPeer,
+    onPair: (String, String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    Column(
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.Error,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Emparejamiento requerido",
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Este servidor requiere emparejamiento.\nFunción en preparación para la próxima versión.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
+        Icon(
+            imageVector = Icons.Default.Devices,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Emparejar con ${peer.alias}",
+            style = MaterialTheme.typography.headlineSmall,
+            color = TextPrimary,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Ingresa las credenciales del servidor Michi",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Usuario", color = TextMuted) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+        Spacer(Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Contraseña", color = TextMuted) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                cursorColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = { onPair(username, password) },
+            enabled = username.isNotBlank() && password.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Emparejar")
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Cancelar")
         }
     }
 }
