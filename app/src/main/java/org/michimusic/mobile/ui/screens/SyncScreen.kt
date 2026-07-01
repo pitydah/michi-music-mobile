@@ -28,7 +28,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Snackbar
@@ -221,9 +220,11 @@ private fun DiscoveringState(
                 text = "Servidores encontrados",
                 style = MaterialTheme.typography.titleLarge,
             )
-            OutlinedButton(onClick = onStop) {
-                Text("Detener")
-            }
+            MichiActionButton(
+                text = "Detener",
+                onClick = onStop,
+                style = MichiButtonStyle.SECONDARY_GLASS,
+            )
         }
 
         Spacer(Modifier.height(16.dp))
@@ -353,14 +354,12 @@ private fun ConnectedState(
 
         when (syncProgress) {
             is SyncProgress.Idle -> {
-                Button(
+                MichiActionButton(
+                    text = "Sincronizar biblioteca",
+                    icon = Icons.Default.Sync,
                     onClick = onSync,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Default.Sync, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("Sincronizar biblioteca")
-                }
+                    style = MichiButtonStyle.PRIMARY_GLOW,
+                )
             }
 
             is SyncProgress.Downloading -> {
@@ -409,11 +408,12 @@ private fun ConnectedState(
                         Text("${syncProgress.tracks} canciones en biblioteca")
                         Text("${syncProgress.downloaded} descargadas")
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = onNavigateToSynced) {
-                            Icon(Icons.Default.List, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("Ver biblioteca")
-                        }
+                        MichiActionButton(
+                            text = "Ver biblioteca",
+                            icon = Icons.Default.List,
+                            onClick = onNavigateToSynced,
+                            style = MichiButtonStyle.SECONDARY_GLASS,
+                        )
                     }
                 }
             }
@@ -427,12 +427,11 @@ private fun ConnectedState(
         }
 
         Spacer(Modifier.height(16.dp))
-        OutlinedButton(
+        MichiActionButton(
+            text = "Desconectar",
             onClick = onDisconnect,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Desconectar")
-        }
+            style = MichiButtonStyle.SECONDARY_GLASS,
+        )
     }
 }
 
@@ -500,20 +499,17 @@ private fun PairingState(
         )
         Spacer(Modifier.height(24.dp))
 
-        Button(
+        MichiActionButton(
+            text = "Emparejar",
             onClick = { onPair(username, password) },
-            enabled = username.isNotBlank() && password.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Emparejar")
-        }
+            style = if (username.isNotBlank() && password.isNotBlank()) MichiButtonStyle.PRIMARY_GLOW else MichiButtonStyle.SECONDARY_GLASS,
+        )
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(
+        MichiActionButton(
+            text = "Cancelar",
             onClick = onCancel,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Cancelar")
-        }
+            style = MichiButtonStyle.SECONDARY_GLASS,
+        )
     }
 }
 
@@ -541,8 +537,10 @@ private fun ErrorState(message: String, onRetry: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onRetry) {
-            Text("Reintentar")
-        }
+        MichiActionButton(
+            text = "Reintentar",
+            onClick = onRetry,
+            style = MichiButtonStyle.PRIMARY_GLOW,
+        )
     }
 }
