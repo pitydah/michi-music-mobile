@@ -77,6 +77,14 @@ fun SyncScreen(
                     )
                 }
 
+                SyncConnectionState.PAIRING_REQUIRED -> {
+                    PairingRequiredState()
+                }
+
+                SyncConnectionState.PAIRING -> {
+                    ConnectingState()
+                }
+
                 SyncConnectionState.CONNECTING -> {
                     ConnectingState()
                 }
@@ -87,6 +95,17 @@ fun SyncScreen(
                         registration = uiState.registration,
                         syncProgress = uiState.syncProgress,
                         onSync = viewModel::syncLibrary,
+                        onDisconnect = viewModel::disconnect,
+                        onNavigateToSynced = onNavigateToSynced,
+                    )
+                }
+
+                SyncConnectionState.SYNCING -> {
+                    ConnectedState(
+                        peer = uiState.connectedPeer,
+                        registration = uiState.registration,
+                        syncProgress = uiState.syncProgress,
+                        onSync = {},
                         onDisconnect = viewModel::disconnect,
                         onNavigateToSynced = onNavigateToSynced,
                     )
@@ -382,6 +401,35 @@ private fun ConnectedState(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Desconectar")
+        }
+    }
+}
+
+@Composable
+private fun PairingRequiredState() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Error,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                "Emparejamiento requerido",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Este servidor requiere emparejamiento.\nFunción en preparación para la próxima versión.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
     }
 }

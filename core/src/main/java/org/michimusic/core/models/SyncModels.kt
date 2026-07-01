@@ -40,6 +40,53 @@ data class RegisterResponse(
 )
 
 @Serializable
+data class DiscoveryInfoResponse(
+    @SerialName("server_device_id") val serverDeviceId: String = "",
+    val alias: String = "",
+    val version: String = "1.0",
+    @SerialName("requires_pairing") val requiresPairing: Boolean = false,
+    val auth: DiscoveryAuthInfo = DiscoveryAuthInfo(),
+)
+
+@Serializable
+data class DiscoveryAuthInfo(
+    val methods: List<String> = emptyList(),
+    @SerialName("pairing_required") val pairingRequired: Boolean = false,
+)
+
+@Serializable
+data class PairStartRequest(
+    val username: String = "",
+    val password: String = "",
+    @SerialName("device_alias") val deviceAlias: String = "",
+    @SerialName("device_type") val deviceType: String = "android",
+    @SerialName("client_device_id") val clientDeviceId: String = "",
+)
+
+@Serializable
+data class PairStartResponse(
+    @SerialName("pairing_code") val pairingCode: String = "",
+    @SerialName("expires_in") val expiresIn: Int = 300,
+    val status: String = "",
+    val message: String = "",
+)
+
+@Serializable
+data class PairConfirmRequest(
+    @SerialName("pairing_code") val pairingCode: String = "",
+    @SerialName("client_device_id") val clientDeviceId: String = "",
+)
+
+@Serializable
+data class PairConfirmResponse(
+    @SerialName("session_token") val sessionToken: String = "",
+    @SerialName("server_device_id") val serverDeviceId: String = "",
+    @SerialName("client_device_id") val clientDeviceId: String = "",
+    @SerialName("library_size") val librarySize: Int = 0,
+    val version: String = "1.0",
+)
+
+@Serializable
 data class LibraryResponse(
     val tracks: List<TrackDto>,
     val total: Int,
@@ -65,6 +112,21 @@ data class TrackDto(
 )
 
 @Serializable
+data class SearchResponse(
+    val results: List<SearchResultDto> = emptyList(),
+    val query: String = "",
+)
+
+@Serializable
+data class SearchResultDto(
+    val id: String,
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    val duration: Int = 0,
+)
+
+@Serializable
 data class SyncStateEntry(
     @SerialName("track_id") val trackId: String,
     @SerialName("play_count") val playCount: Int = 0,
@@ -81,6 +143,7 @@ data class AnnounceMessage(
     val version: String = "1.0",
     @SerialName("device_model") val deviceModel: String = "",
     @SerialName("device_id") val deviceId: String = "",
+    @SerialName("auth_required") val authRequired: Boolean = false,
 )
 
 @Serializable
@@ -91,13 +154,17 @@ data class DiscoveredPeer(
     @SerialName("device_type") val deviceType: String = "desktop",
     @SerialName("device_id") val deviceId: String = "",
     val version: String = "1.0",
+    @SerialName("auth_required") val authRequired: Boolean = false,
 )
 
 enum class SyncConnectionState {
     DISCONNECTED,
     DISCOVERING,
+    PAIRING_REQUIRED,
+    PAIRING,
     CONNECTING,
     CONNECTED,
+    SYNCING,
     ERROR,
 }
 

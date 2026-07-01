@@ -110,6 +110,29 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.Center,
             ) {
                 CircularProgressIndicator(color = AccentPink)
+                Spacer(Modifier.height(12.dp))
+                Text("Cargando música local...", color = TextSecondary)
+            }
+            return@Column
+        }
+
+        if (allTracks.isEmpty() && !isLoading) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "No se encontraron canciones",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = TextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Asegúrate de tener música en el dispositivo y haber concedido permisos",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                )
             }
             return@Column
         }

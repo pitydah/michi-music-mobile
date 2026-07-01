@@ -20,6 +20,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -35,7 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SurfaceElevated
+import org.michimusic.mobile.ui.theme.TextDim
+import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.ReplayGainMode
@@ -234,6 +240,61 @@ fun SettingsScreen() {
                 modifier = Modifier.width(40.dp),
             )
         }
+
+        Spacer(Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = "Control Remoto",
+            style = MaterialTheme.typography.titleMedium,
+            color = TextPrimary,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        var remoteUrl by remember { mutableStateOf(prefs.getString("remote_url", "") ?: "") }
+        OutlinedTextField(
+            value = remoteUrl,
+            onValueChange = { remoteUrl = it; prefs.edit { putString("remote_url", it) } },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("URL del servidor remoto", color = TextMuted) },
+            placeholder = { Text("http://192.168.1.100:8124", color = TextMuted) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                focusedBorderColor = AccentPink,
+                unfocusedBorderColor = SurfaceElevated,
+                cursorColor = AccentPink,
+            ),
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        var remoteToken by remember { mutableStateOf(prefs.getString("remote_token", "") ?: "") }
+        OutlinedTextField(
+            value = remoteToken,
+            onValueChange = { remoteToken = it; prefs.edit { putString("remote_token", it) } },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Token remoto", color = TextMuted) },
+            placeholder = { Text("Bearer token (opcional)", color = TextMuted) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                focusedBorderColor = AccentPink,
+                unfocusedBorderColor = SurfaceElevated,
+                cursorColor = AccentPink,
+            ),
+        )
+
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Remote API usa puerto 8124. Sync usa puerto 53318. No mezclar tokens.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextDim,
+        )
 
         Spacer(Modifier.height(24.dp))
         HorizontalDivider()

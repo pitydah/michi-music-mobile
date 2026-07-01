@@ -11,13 +11,16 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -37,6 +40,7 @@ import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
+import org.michimusic.mobile.ui.getAudioController
 data class BottomNavItem(
     val route: String,
     val label: String,
@@ -57,6 +61,12 @@ fun MichiNavHost() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+
+    val controller = remember { getAudioController() }
+    val playerState by controller?.state?.collectAsState() ?: remember {
+        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
+    }
+    val hasCurrentTrack = playerState.currentTrack != null
 
     Scaffold(
         bottomBar = {
@@ -104,10 +114,12 @@ fun MichiNavHost() {
                 composable("settings") { SettingsScreen() }
             }
 
-            MiniPlayer(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                onClick = { navController.navigate("nowplaying") },
-            )
+            if (hasCurrentTrack) {
+                MiniPlayer(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onClick = { navController.navigate("nowplaying") },
+                )
+            }
         }
     }
 }

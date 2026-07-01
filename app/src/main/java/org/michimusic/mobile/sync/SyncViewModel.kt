@@ -92,10 +92,18 @@ class SyncViewModel(
         session.updateState(SyncConnectionState.CONNECTING)
         val baseUrl = "http://${peer.ip}:${peer.port}"
         val client = MichiSyncClient(baseUrl = baseUrl)
+        client.deviceId = clientId
 
         viewModelScope.launch {
+            if (peer.authRequired) {
+                session.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                _error.value = "Este servidor requiere emparejamiento. Función en preparación."
+                client.close()
+                return@launch
+            }
+
             client
-                .register(
+                .registerLegacy(
                     alias = android.os.Build.MODEL,
                     deviceModel = android.os.Build.MODEL,
                     clientDeviceId = clientId,

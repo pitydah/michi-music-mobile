@@ -5,9 +5,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.cardview.widget.CardView
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
-import coil3.asImage
 import coil3.load
 import coil3.request.crossfade
 import org.michimusic.mobile.R
@@ -25,7 +23,6 @@ class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
         if (album.coverUri.isNotEmpty()) {
             coverArt.load(album.coverUri) {
                 crossfade(300)
-                fallback(ContextCompat.getDrawable(itemView.context, android.R.color.darker_gray)?.asImage())
             }
         } else {
             val colors = listOf(
@@ -35,7 +32,8 @@ class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
                 0xFF7ED321.toInt(),
                 0xFFF5A623.toInt(),
             )
-            coverArt.setBackgroundColor(colors[album.id.toIntOrNull()?.let { (it - 1) % colors.size } ?: 0])
+            val colorIndex = kotlin.math.abs(album.id.hashCode()) % colors.size
+            coverArt.setBackgroundColor(colors[colorIndex])
             coverArt.setImageDrawable(null)
         }
     }

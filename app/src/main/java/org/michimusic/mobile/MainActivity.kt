@@ -18,13 +18,13 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) recreate() }
+    ) { granted ->
+        if (granted) recreate()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        startService(Intent(this, MichiPlaybackService::class.java))
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -39,6 +39,16 @@ class MainActivity : ComponentActivity() {
             MichiTheme {
                 MichiNavHost()
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val intent = Intent(this, MichiPlaybackService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
         }
     }
 }

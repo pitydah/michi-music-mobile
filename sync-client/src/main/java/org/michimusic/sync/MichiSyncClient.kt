@@ -18,12 +18,18 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.michimusic.core.models.DiscoveryInfoResponse
 import org.michimusic.core.models.FavoritesResponse
 import org.michimusic.core.models.HistoryEntry
 import org.michimusic.core.models.HistoryResponse
 import org.michimusic.core.models.LibraryResponse
+import org.michimusic.core.models.PairConfirmRequest
+import org.michimusic.core.models.PairConfirmResponse
+import org.michimusic.core.models.PairStartRequest
+import org.michimusic.core.models.PairStartResponse
 import org.michimusic.core.models.RegisterRequest
 import org.michimusic.core.models.RegisterResponse
+import org.michimusic.core.models.SearchResponse
 import org.michimusic.core.models.SyncManifest
 import org.michimusic.core.models.SyncStateEntry
 import org.michimusic.core.models.TrackDto
@@ -41,18 +47,45 @@ class MichiSyncClient(
         }
     }
 
+    var deviceId: String = ""
+
     val isAuthenticated: Boolean get() = sessionToken.isNotEmpty()
 
-    suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun discoveryInfo(): Result<DiscoveryInfoResponse> = withContext(Dispatchers.IO) {
         try {
-            client.get("$baseUrl/api/ping")
-            true
-        } catch (_: Exception) {
-            false
+            val response = client.get("$baseUrl/api/discovery/info").body<DiscoveryInfoResponse>()
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
-    suspend fun register(
+    suspend fun pairStart(request: PairStartRequest): Result<PairStartResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.post("$baseUrl/api/pair/start") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.body<PairStartResponse>()
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pairConfirm(request: PairConfirmRequest): Result<PairConfirmResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.post("$baseUrl/api/pair/confirm") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }.body<PairConfirmResponse>()
+            sessionToken = response.sessionToken
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun registerLegacy(
         alias: String,
         deviceModel: String = "",
         clientDeviceId: String = "",
@@ -72,6 +105,15 @@ class MichiSyncClient(
             Result.success(response)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            client.get("$baseUrl/api/ping")
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -165,13 +207,13 @@ class MichiSyncClient(
         }
     }
 
-    suspend fun search(query: String): Result<List<TrackDto>> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String): Result<SearchResponse> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/search?q=$query") {
                 header("Authorization", "Bearer $sessionToken")
             }
-            val result = json.decodeFromString<LibraryResponse>(response.body())
-            Result.success(result.tracks)
+            val result = json.decodeFromString<SearchResponse>(response.body())
+            Result.success(result)
         } catch (e: Exception) {
             Result.failure(e)
         }

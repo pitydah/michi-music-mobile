@@ -97,6 +97,7 @@ class DiscoveryClient(
                         deviceType = msg.device,
                         deviceId = msg.deviceId,
                         version = msg.version,
+                        authRequired = msg.authRequired,
                     )
                     val wasNew = msg.alias !in _peers.value
                     _peers.value = _peers.value + (msg.alias to peer)
