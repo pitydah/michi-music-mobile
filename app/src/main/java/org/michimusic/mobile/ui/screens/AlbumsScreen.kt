@@ -41,13 +41,15 @@ import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.koin.compose.koinInject
+import org.michimusic.player.AudioController
 
 @Composable
 fun AlbumsScreen() {
     val viewModel: AlbumsViewModel = koinViewModel()
     val albums by viewModel.albums.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val audioController: AudioController = koinInject()
 
     LaunchedEffect(Unit) { viewModel.loadMedia() }
 
@@ -191,11 +193,9 @@ fun AlbumsScreen() {
                             artist = track.artist,
                             duration = track.duration,
                             onPlay = {
-                                getAudioController()?.let { ctrl ->
-                                    val queue = selectedAlbum.tracks
-                                    val startIdx = queue.indexOf(track).coerceAtLeast(0)
-                                    ctrl.playQueue(queue, startIdx)
-                                }
+                                val queue = selectedAlbum.tracks
+                                val startIdx = queue.indexOf(track).coerceAtLeast(0)
+                                audioController.playQueue(queue, startIdx)
                             },
                         )
                     }

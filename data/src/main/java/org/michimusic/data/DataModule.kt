@@ -5,6 +5,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.repository.LocalMediaRepository
+import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.data.repository.SyncedTrackRepository
 
 val dataModule = module {
@@ -22,4 +23,5 @@ val dataModule = module {
     single { get<MichiDatabase>().appDao() }
     single { SyncedTrackRepository(get(), get()) }
     single { LocalMediaRepository(androidContext(), get()) }
+    single { PlaylistRepository(get()) }
 }

@@ -34,7 +34,7 @@ import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.sync.SyncViewModel
-import org.michimusic.mobile.ui.getAudioController
+import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -62,7 +62,7 @@ data class PlaybackSource(
 fun NowPlayingScreen(
     onNavigateToSettings: () -> Unit = {},
 ) {
-    val audioController = remember { getAudioController() }
+    val audioController: AudioController = koinInject()
     val state by audioController?.state?.collectAsState() ?: remember { mutableStateOf(PlayerState()) }
     val syncViewModel: SyncViewModel = koinViewModel()
     val syncUiState by syncViewModel.uiState.collectAsState()

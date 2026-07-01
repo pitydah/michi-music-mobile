@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -47,7 +48,8 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.koin.compose.koinInject
+import org.michimusic.player.AudioController
 
 @Composable
 fun HomeScreen(
@@ -57,7 +59,9 @@ fun HomeScreen(
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    val controller = remember { getAudioController() }
+    val controller: AudioController = koinInject()
+
+    LaunchedEffect(Unit) { viewModel.loadMedia() }
 
     Column(
         modifier = Modifier
@@ -126,7 +130,7 @@ fun HomeScreen(
                     GlassCard(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { controller?.playQueue(allTracks, 0) },
+                            .clickable { if (allTracks.isNotEmpty()) controller.playQueue(allTracks, 0) },
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -150,11 +154,13 @@ fun HomeScreen(
                     GlassCard(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { controller?.let { ctrl ->
-                                ctrl.clearQueue()
-                                val shuffled = allTracks.shuffled()
-                                ctrl.playQueue(shuffled, 0)
-                            } },
+                            .clickable {
+                                if (allTracks.isNotEmpty()) {
+                                    controller.clearQueue()
+                                    val shuffled = allTracks.shuffled()
+                                    controller.playQueue(shuffled, 0)
+                                }
+                            },
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -199,7 +205,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { controller?.playQueue(allTracks, index) }
+                            .clickable { controller.playQueue(allTracks, index) }
                             .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

@@ -43,7 +43,8 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.koin.compose.koinInject
+import org.michimusic.player.AudioController
 
 @Composable
 fun SyncedTracksScreen(
@@ -51,6 +52,7 @@ fun SyncedTracksScreen(
 ) {
     val pagedTracks = viewModel.pagedTracks.collectAsLazyPagingItems()
     val scope = rememberCoroutineScope()
+    val audioController: AudioController = koinInject()
 
     Column(
         modifier = Modifier
@@ -151,7 +153,7 @@ fun SyncedTracksScreen(
                                             val playable = viewModel.getPlayableTracks()
                                             val idx = playable.indexOfFirst { it.id == track.id }
                                             if (idx >= 0) {
-                                                getAudioController()?.playQueue(playable, idx)
+                                                audioController.playQueue(playable, idx)
                                             }
                                         }
                                     },

@@ -46,7 +46,8 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.koin.compose.koinInject
+import org.michimusic.player.AudioController
 
 @Composable
 fun SearchScreen(
@@ -55,6 +56,7 @@ fun SearchScreen(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+    val audioController: AudioController = koinInject()
 
     LaunchedEffect(Unit) {
         viewModel.loadLocalTracks()
@@ -143,7 +145,7 @@ fun SearchScreen(
                                 val allTracks = results.map { it.track }
                                 val idx = allTracks.indexOfFirst { it.id == result.track.id }
                                 if (idx >= 0) {
-                                    getAudioController()?.playQueue(allTracks, idx)
+                                    audioController.playQueue(allTracks, idx)
                                 }
                             },
                         )

@@ -46,7 +46,8 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.koin.compose.koinInject
+import org.michimusic.player.AudioController
 import org.michimusic.player.PlayerState
 
 @Composable
@@ -55,13 +56,13 @@ fun MiniPlayer(
     onClick: () -> Unit = {},
     visible: Boolean = true,
 ) {
-    val controller = remember { getAudioController() }
+    val controller: AudioController = koinInject()
     var playerState by remember { mutableStateOf(PlayerState()) }
 
     if (!visible) return
 
     LaunchedEffect(controller) {
-        controller?.state?.collect { playerState = it }
+        controller.state.collect { playerState = it }
     }
 
     val track = playerState.currentTrack
@@ -140,7 +141,7 @@ fun MiniPlayer(
 
             Spacer(Modifier.width(8.dp))
 
-            IconButton(onClick = { controller?.skipPrevious() }) {
+            IconButton(onClick = { controller.skipPrevious() }) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous",
@@ -156,7 +157,7 @@ fun MiniPlayer(
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = {
-                    if (playerState.isPlaying) controller?.pause() else controller?.play()
+                    if (playerState.isPlaying) controller.pause() else controller.play()
                 }) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -166,7 +167,7 @@ fun MiniPlayer(
                     )
                 }
             }
-            IconButton(onClick = { controller?.skipNext() }) {
+            IconButton(onClick = { controller.skipNext() }) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next",
