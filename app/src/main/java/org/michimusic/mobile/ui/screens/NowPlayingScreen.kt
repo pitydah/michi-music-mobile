@@ -80,6 +80,8 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import org.koin.compose.koinInject
+import org.michimusic.mobile.ui.components.MichiIconButton
+import org.michimusic.mobile.ui.components.MichiSlider
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.GlassBg
@@ -90,8 +92,6 @@ import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.AudioController
-
-private val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
 
 data class PlaybackSource(
     val id: String,
@@ -378,57 +378,6 @@ fun TrackInfo(title: String, artist: String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MichiSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    timeStart: String? = null,
-    timeEnd: String? = null,
-    isVolume: Boolean = false,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        if (timeStart != null) {
-            Text(timeStart, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.width(36.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
-            thumb = {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(AccentCoral),
-                )
-            },
-            track = { sliderState ->
-                val fraction = sliderState.value
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF2A2E38)),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .fillMaxHeight()
-                            .background(GradientProgress),
-                    )
-                }
-            },
-        )
-        if (timeEnd != null) {
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(timeEnd, color = TextSecondary, fontSize = 12.sp)
-        }
-    }
-}
-
 @Composable
 fun PlaybackControls(
     isPlaying: Boolean,
@@ -441,8 +390,8 @@ fun PlaybackControls(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MichiIconButton(Icons.Default.Shuffle, size = 24.dp, tint = AccentCoral, onClick = {})
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 32.dp, onClick = onPrevious)
+        MichiIconButton(Icons.Default.Shuffle, iconSize = 24.dp, tint = AccentCoral, onClick = {})
+        MichiIconButton(Icons.Rounded.SkipPrevious, iconSize = 32.dp, onClick = onPrevious)
 
         Box(
             modifier = Modifier
@@ -471,8 +420,8 @@ fun PlaybackControls(
             )
         }
 
-        MichiIconButton(Icons.Rounded.SkipNext, size = 32.dp, onClick = onNext)
-        MichiIconButton(Icons.Rounded.Repeat, size = 24.dp, tint = AccentCoral, onClick = {})
+        MichiIconButton(Icons.Rounded.SkipNext, iconSize = 32.dp, onClick = onNext)
+        MichiIconButton(Icons.Rounded.Repeat, iconSize = 24.dp, tint = AccentCoral, onClick = {})
     }
 }
 
@@ -490,20 +439,9 @@ fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
         Spacer(modifier = Modifier.width(8.dp))
         Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(24.dp))
-        MichiIconButton(Icons.Rounded.Tune, size = 20.dp, tint = AccentCoral, onClick = {})
+        MichiIconButton(Icons.Rounded.Tune, iconSize = 20.dp, tint = AccentCoral, onClick = {})
         Spacer(modifier = Modifier.width(16.dp))
-        MichiIconButton(Icons.Rounded.SpeakerGroup, size = 20.dp, tint = AccentCoral, onClick = {})
+        MichiIconButton(Icons.Rounded.SpeakerGroup, iconSize = 20.dp, tint = AccentCoral, onClick = {})
     }
 }
 
-@Composable
-fun MichiIconButton(
-    icon: ImageVector,
-    size: Dp,
-    tint: Color = TextSecondary,
-    onClick: () -> Unit = {},
-) {
-    IconButton(onClick = onClick, modifier = Modifier.size(size + 16.dp)) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
-    }
-}

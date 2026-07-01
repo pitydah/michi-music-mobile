@@ -49,7 +49,7 @@ fun MiniPlayer(
 ) {
     val controller = rememberAudioController()
     val state by controller.state.collectAsState()
-    val track = state.currentTrack
+    val track = state.currentTrack ?: return
 
     Box(
         modifier = modifier
@@ -60,12 +60,10 @@ fun MiniPlayer(
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        if (state.duration > 0 && track != null) {
+        if (state.duration > 0) {
             LinearProgressIndicator(
                 progress = { state.position.toFloat() / state.duration.toFloat() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 0.dp),
+                modifier = Modifier.fillMaxWidth(),
                 trackColor = SurfaceDark,
                 color = AccentPink,
             )
@@ -74,23 +72,19 @@ fun MiniPlayer(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (track != null) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(MichiRadius.small))
-                        .background(AccentPink.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.MusicNote, null, tint = AccentPink, modifier = Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(track.title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(track.artist, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            } else {
-                Text("Sin reproducción", style = MaterialTheme.typography.bodyMedium, color = TextDim, modifier = Modifier.weight(1f))
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(MichiRadius.small))
+                    .background(AccentPink.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.MusicNote, null, tint = AccentPink, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(track.title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(track.artist, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
 
             Spacer(Modifier.width(8.dp))
