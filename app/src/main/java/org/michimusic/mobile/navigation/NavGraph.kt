@@ -34,16 +34,19 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import org.michimusic.mobile.ui.components.MiniPlayer
 import org.michimusic.mobile.ui.screens.AlbumsScreen
+import org.michimusic.mobile.ui.screens.AudioRouteScreen
+import org.michimusic.mobile.ui.screens.DiagnosticsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
+import org.michimusic.mobile.ui.screens.QueueScreen
 import org.michimusic.mobile.ui.screens.AudioRouteScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
 import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.rememberAudioController
 data class BottomNavItem(
     val route: String,
     val label: String,
@@ -65,32 +68,35 @@ fun MichiNavHost() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val controller = remember { getAudioController() }
-    val playerState by controller?.state?.collectAsState() ?: remember {
-        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
-    }
+    val controller = rememberAudioController()
+    val playerState by controller.state.collectAsState()
     val hasCurrentTrack = playerState.currentTrack != null
+    val isNowPlaying = currentDestination?.route == "nowplaying"
+
+    val showBottomBar = !isNowPlaying
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                bottomNavItems.forEach { item ->
-                    NavigationBarItem(
-                        icon = { Icon(item.icon, contentDescription = item.label) },
-                        label = { Text(item.label) },
-                        selected = currentDestination?.hierarchy?.any {
-                            it.route == item.route
-                        } == true,
-                        onClick = {
-                            navController.navigate(item.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+            if (showBottomBar) {
+                NavigationBar {
+                    bottomNavItems.forEach { item ->
+                        NavigationBarItem(
+                            icon = { Icon(item.icon, contentDescription = item.label) },
+                            label = { Text(item.label) },
+                            selected = currentDestination?.hierarchy?.any {
+                                it.route == item.route
+                            } == true,
+                            onClick = {
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
         },
@@ -113,17 +119,19 @@ fun MichiNavHost() {
                     composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
                     composable("library") { AlbumsScreen() }
                     composable("playlist") { PlaylistScreen() }
+                    composable("queue") { QueueScreen() }
                     composable("nowplaying") { NowPlayingScreen() }
                     composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
                     composable("synced") { SyncedTracksScreen() }
                     composable("search") { SearchScreen() }
                     composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
                     composable("audio-route") { AudioRouteScreen() }
+                    composable("diagnostics") { DiagnosticsScreen() }
                     composable("settings") { SettingsScreen() }
                 }
             }
 
-            if (hasCurrentTrack) {
+            if (hasCurrentTrack && !isNowPlaying) {
                 MiniPlayer(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)

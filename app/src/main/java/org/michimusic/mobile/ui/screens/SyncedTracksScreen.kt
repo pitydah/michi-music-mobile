@@ -42,13 +42,14 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.rememberAudioController
 
 @Composable
 fun SyncedTracksScreen(
     viewModel: SyncedTracksViewModel = koinViewModel(),
 ) {
     val tracks by viewModel.syncedTracks.collectAsStateWithLifecycle()
+    val controller = rememberAudioController()
 
     Column(
         modifier = Modifier
@@ -116,7 +117,7 @@ fun SyncedTracksScreen(
                             val playable = viewModel.getPlayableTracks()
                             val idx = playable.indexOfFirst { it.id == track.id }
                             if (idx >= 0) {
-                                getAudioController()?.playQueue(playable, idx)
+                                controller.playQueue(playable, idx)
                             }
                         },
                     )

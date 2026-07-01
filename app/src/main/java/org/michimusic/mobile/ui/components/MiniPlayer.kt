@@ -44,17 +44,15 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.rememberAudioController
 
 @Composable
 fun MiniPlayer(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
-    val controller = remember { getAudioController() }
-    val state by controller?.state?.collectAsState() ?: remember {
-        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
-    }
+    val controller = rememberAudioController()
+    val state by controller.state.collectAsState()
     val track = state.currentTrack
 
     Box(
@@ -131,7 +129,7 @@ fun MiniPlayer(
 
             Spacer(Modifier.width(8.dp))
 
-            IconButton(onClick = { controller?.skipPrevious() }) {
+            IconButton(onClick = { controller.skipPrevious() }) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous",
@@ -147,7 +145,7 @@ fun MiniPlayer(
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = {
-                    if (state.isPlaying) controller?.pause() else controller?.play()
+                    if (state.isPlaying) controller.pause() else controller.play()
                 }) {
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -157,7 +155,7 @@ fun MiniPlayer(
                     )
                 }
             }
-            IconButton(onClick = { controller?.skipNext() }) {
+            IconButton(onClick = { controller.skipNext() }) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next",

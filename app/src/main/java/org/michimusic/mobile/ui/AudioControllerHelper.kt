@@ -1,8 +1,8 @@
 package org.michimusic.mobile.ui
 
-import org.koin.java.KoinJavaComponent
+import androidx.compose.runtime.Composable
+import org.koin.compose.koinInject
 import org.michimusic.player.AudioController
 
-fun getAudioController(): AudioController? = runCatching {
-    KoinJavaComponent.get<AudioController>(AudioController::class.java)
-}.getOrNull()
+@Composable
+fun rememberAudioController(): AudioController = koinInject()

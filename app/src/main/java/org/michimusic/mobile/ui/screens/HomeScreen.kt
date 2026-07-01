@@ -49,7 +49,7 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.rememberAudioController
 
 @Composable
 fun HomeScreen(
@@ -61,7 +61,7 @@ fun HomeScreen(
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
-    val controller = remember { getAudioController() }
+    val controller = rememberAudioController()
 
     Column(
         modifier = Modifier
@@ -153,7 +153,7 @@ fun HomeScreen(
                     GlassCard(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { controller?.playQueue(allTracks, 0) },
+                            .clickable { controller.playQueue(allTracks, 0) },
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -177,11 +177,11 @@ fun HomeScreen(
                     GlassCard(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { controller?.let { ctrl ->
-                                ctrl.clearQueue()
+                            .clickable {
+                                controller.clearQueue()
                                 val shuffled = allTracks.shuffled()
-                                ctrl.playQueue(shuffled, 0)
-                            } },
+                                controller.playQueue(shuffled, 0)
+                            },
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -226,7 +226,7 @@ fun HomeScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable { controller?.playQueue(allTracks, index) }
+                            .clickable { controller.playQueue(allTracks, index) }
                             .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

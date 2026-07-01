@@ -35,7 +35,7 @@ import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.rememberAudioController
 
 @Composable
 fun PlaylistScreen() {
@@ -45,6 +45,7 @@ fun PlaylistScreen() {
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val playlistName = "Todas las canciones"
+    val controller = rememberAudioController()
 
     if (isLoading) {
         Column(
@@ -78,7 +79,7 @@ fun PlaylistScreen() {
                 color = TextPrimary,
             )
             IconButton(onClick = {
-                getAudioController()?.playQueue(allTracks, 0)
+                controller.playQueue(allTracks, 0)
             }) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
@@ -96,10 +97,7 @@ fun PlaylistScreen() {
 
         Spacer(Modifier.height(12.dp))
 
-        val audioController = remember { getAudioController() }
-        val playerState by (audioController?.state?.collectAsState() ?: remember {
-            androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
-        })
+        val playerState by controller.state.collectAsState()
         val activeIndex = playerState.queueIndex
 
         GlassCard(
@@ -115,7 +113,7 @@ fun PlaylistScreen() {
                         duration = track.duration,
                         isActive = index == activeIndex,
                         onPlay = {
-                            getAudioController()?.playQueue(allTracks, index)
+                            controller.playQueue(allTracks, index)
                         },
                     )
                 }

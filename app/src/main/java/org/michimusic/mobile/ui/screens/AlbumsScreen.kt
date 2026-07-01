@@ -40,7 +40,7 @@ import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.mobile.ui.rememberAudioController
 
 @Composable
 fun AlbumsScreen() {
@@ -49,6 +49,7 @@ fun AlbumsScreen() {
     )
     val albums by viewModel.albums.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val controller = rememberAudioController()
 
     if (isLoading) {
         Column(
@@ -90,6 +91,7 @@ fun AlbumsScreen() {
     }
 
     var selectedIndex by remember { mutableIntStateOf(0) }
+    if (selectedIndex >= albums.size) selectedIndex = 0
     val selectedAlbum = albums.getOrNull(selectedIndex)
 
     Column(
@@ -190,11 +192,9 @@ fun AlbumsScreen() {
                             artist = track.artist,
                             duration = track.duration,
                             onPlay = {
-                                getAudioController()?.let { ctrl ->
-                                    val queue = selectedAlbum.tracks
-                                    val startIdx = queue.indexOf(track).coerceAtLeast(0)
-                                    ctrl.playQueue(queue, startIdx)
-                                }
+                                val queue = selectedAlbum.tracks
+                                val startIdx = queue.indexOf(track).coerceAtLeast(0)
+                                controller.playQueue(queue, startIdx)
                             },
                         )
                     }

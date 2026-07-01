@@ -254,6 +254,17 @@ class MichiSyncClient(
         }
     }
 
+    suspend fun fetchDeltaManifest(deviceId: String, since: String): Result<SyncManifest> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.get("$baseUrl/api/sync/manifest?device_id=$deviceId&since=$since") {
+                header("Authorization", "Bearer $sessionToken")
+            }.body<SyncManifest>()
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     fun close() {
         client.close()
     }
