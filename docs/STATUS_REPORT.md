@@ -3,7 +3,7 @@
 **Date:** 2026-07-01
 **Version:** 0.1.0-alpha
 **Branch:** main
-**Commits HEAD:** `fee826c` (4 commits ahead of origin/master)
+**Commits HEAD:** `27d8abb` (+ cambios locales no commiteados)
 
 ## Build Status
 
@@ -129,7 +129,7 @@
 
 ### UI/UX (rediseño grande)
 
-- [x] Design System: MichiTokens (radius, spacing, size, alpha, animation), MichiBackground, MichiScreen, MichiSectionHeader, MichiEmptyState, MichiLoadingState, MichiActionButton
+- [x] Design System: MichiTokens (radius, spacing, size, alpha, animation), MichiSectionHeader, MichiEmptyState, MichiLoadingState, MichiActionButton, MichiBottomNavigation
 - [x] GlassCard con variantes: COMPACT, NORMAL, STRONG
 - [x] MichiBottomNavigation: smoked glass nav bar premium con iconos y labels
 - [x] HomeScreen rediseñado: header "Michi Music", search card, quick actions (reproducir todo/aleatorio), solo 8 canciones en lugar de 20
@@ -174,8 +174,8 @@ Después: al abrir la app → solo Compose + Koin. `MediaController.Builder` se 
 | `app/.../ui/theme/MichiTokens.kt` | Nuevo: radius, spacing, size, alpha, animation tokens |
 | `app/.../ui/theme/Color.kt` | Sin cambios (ya tenía colores completos) |
 | `app/.../ui/components/GlassCard.kt` | Variantes COMPACT/NORMAL/STRONG, padding configurable |
-| `app/.../ui/components/MichiBackground.kt` | Nuevo: fondo con gradiente vertical oscuro |
-| `app/.../ui/components/MichiScreen.kt` | Nuevo: wrapper con padding horizontal y scroll opcional |
+| `app/.../ui/components/MichiBackground.kt` | Creado pero no usado (disponible para futuras pantallas) |
+| `app/.../ui/components/MichiScreen.kt` | Creado pero no usado (disponible para futuras pantallas) |
 | `app/.../ui/components/MichiSectionHeader.kt` | Nuevo: titulo + subtitulo + accion opcional |
 | `app/.../ui/components/MichiEmptyState.kt` | Nuevo: icono + titulo + descripcion + accion |
 | `app/.../ui/components/MichiLoadingState.kt` | Nuevo: spinner + texto |
@@ -196,3 +196,24 @@ Después: al abrir la app → solo Compose + Koin. `MediaController.Builder` se 
 Probar la app en dispositivo real siguiendo docs/TESTING.md.
 Corregir bugs que aparezcan en la prueba manual.
 ```
+
+## Files Modified (this session — pendientes)
+
+| File | Change |
+|------|--------|
+| `app/.../ui/screens/NowPlayingScreen.kt` | Eliminado SmokedGlassBottomBar redundante |
+| `app/.../ui/screens/AlbumsScreen.kt` | Eliminado wrapper IconButton redundante |
+| `app/.../sync/SyncViewModel.kt` | Eliminada auto-conexión al primer peer |
+| `app/.../ui/screens/PlaylistsScreen.kt` | **Nuevo** — playlists reales desde MediaStore |
+| `app/.../screens/PlaylistsViewModel.kt` | **Nuevo** |
+| `app/.../navigation/NavGraph.kt` | Ruta `playlists` agregada |
+| `app/.../AppModule.kt` | PlaylistsViewModel registrado |
+| `core/build.gradle.kts` | Dependencias de test: kotlin-test, kotlin-test-junit |
+| `core/src/test/.../SyncModelsSerializationTest.kt` | Fix test assertion |
+| `docs/STATUS_REPORT.md` | Actualizado |
+
+## Known Issues / Pendings
+
+1. **NowPlayingScreen: volumen no conectado** — Slider de volumen usa estado local. Media3 no expone control de volumen por sesión.
+2. **Pruebas en dispositivo real** — No se ha instalado ni probado en un teléfono real.
+3. **`MichiBackground.kt` y `MichiScreen.kt`** — Componentes disponibles pero no usados actualmente.

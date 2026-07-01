@@ -18,7 +18,6 @@ import org.michimusic.core.models.RegisterResponse
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.sync.DiscoveryClient
-import org.michimusic.sync.DiscoveryEvent
 import org.michimusic.sync.MichiSyncClient
 import org.michimusic.sync.SyncSession
 
@@ -109,14 +108,6 @@ class SyncViewModel(
         if (uiState.value.state != SyncConnectionState.DISCONNECTED) return
         session.updateState(SyncConnectionState.DISCOVERING)
         viewModelScope.launch { discoveryClient.start() }
-        viewModelScope.launch {
-            discoveryClient.events.collect { event ->
-                if (event is DiscoveryEvent.PeerFound) {
-                    stopDiscovery()
-                    connectToPeer(event.peer)
-                }
-            }
-        }
     }
 
     fun stopDiscovery() {

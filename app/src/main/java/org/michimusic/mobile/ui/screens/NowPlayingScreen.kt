@@ -205,12 +205,6 @@ fun NowPlayingScreen() {
 
             Spacer(modifier = Modifier.height(110.dp))
         }
-
-        SmokedGlassBottomBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 24.dp, vertical = 24.dp),
-        )
     }
 }
 
@@ -499,43 +493,6 @@ fun VolumeAndToolsRow(volume: Float, onVolumeChange: (Float) -> Unit) {
         MichiIconButton(Icons.Rounded.Tune, size = 20.dp, tint = AccentCoral, onClick = {})
         Spacer(modifier = Modifier.width(16.dp))
         MichiIconButton(Icons.Rounded.SpeakerGroup, size = 20.dp, tint = AccentCoral, onClick = {})
-    }
-}
-
-@Composable
-fun SmokedGlassBottomBar(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(82.dp)
-            .clip(RoundedCornerShape(34.dp))
-            .background(GlassBg)
-            .border(1.dp, GlassBorder, RoundedCornerShape(34.dp))
-            .padding(horizontal = 24.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        BottomBarIcon(Icons.Default.Home, isActive = false)
-        BottomBarIcon(Icons.Default.LibraryMusic, isActive = false)
-        BottomBarIcon(Icons.Default.PlayArrow, isActive = false)
-        BottomBarIcon(Icons.Rounded.Sync, isActive = false)
-        BottomBarIcon(Icons.Rounded.SpeakerGroup, isActive = true)
-    }
-}
-
-@Composable
-fun BottomBarIcon(icon: ImageVector, isActive: Boolean) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { }) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (isActive) AccentPink else TextSecondary.copy(alpha = 0.6f),
-            modifier = Modifier.size(26.dp),
-        )
-        if (isActive) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(AccentPink))
-        }
     }
 }
 

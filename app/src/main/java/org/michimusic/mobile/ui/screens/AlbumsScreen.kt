@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -136,7 +137,7 @@ fun AlbumsScreen() {
                         Text("${selectedAlbum.album.year} · ${selectedAlbum.tracks.size} canciones", style = MaterialTheme.typography.bodySmall, color = TextMuted)
                     }
                     Spacer(Modifier.width(MichiSpacing.sm))
-                    androidx.compose.material3.IconButton(
+                    IconButton(
                         onClick = { controller.playQueue(selectedAlbum.tracks, 0) }
                     ) {
                         Icon(Icons.Default.PlayArrow, null, tint = AccentPink, modifier = Modifier.size(32.dp))
@@ -167,9 +168,4 @@ fun AlbumsScreen() {
             }
         }
     }
-}
-
-@Composable
-private fun IconButton(onClick: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
-    androidx.compose.material3.IconButton(onClick = onClick, modifier = modifier) { content() }
 }

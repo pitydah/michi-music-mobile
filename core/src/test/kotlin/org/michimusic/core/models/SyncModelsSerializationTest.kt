@@ -47,8 +47,8 @@ class SyncModelsSerializationTest {
         )
         val encoded = json.encodeToString(PairStartRequest.serializer(), request)
         assertTrue(encoded.contains("\"device_alias\""))
-        assertTrue(encoded.contains("\"device_type\""))
         assertTrue(encoded.contains("\"client_device_id\""))
+        assertTrue(encoded.contains("\"username\""))
     }
 
     @Test

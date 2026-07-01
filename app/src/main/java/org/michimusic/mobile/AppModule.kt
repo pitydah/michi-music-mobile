@@ -5,6 +5,7 @@ import org.koin.dsl.module
 import org.michimusic.data.dataModule
 import org.michimusic.mobile.remote.RemoteViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.screens.SearchViewModel
 import org.michimusic.mobile.screens.SyncedTracksViewModel
 import org.michimusic.mobile.sync.SyncViewModel
@@ -17,4 +18,5 @@ val appModule = module {
     viewModelOf(::RemoteViewModel)
     viewModelOf(::SyncedTracksViewModel)
     viewModelOf(::SearchViewModel)
+    viewModelOf(::PlaylistsViewModel)
 }

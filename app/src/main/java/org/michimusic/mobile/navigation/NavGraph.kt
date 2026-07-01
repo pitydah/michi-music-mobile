@@ -29,6 +29,7 @@ import org.michimusic.mobile.ui.screens.DiagnosticsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
+import org.michimusic.mobile.ui.screens.PlaylistsScreen
 import org.michimusic.mobile.ui.screens.QueueScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
 import org.michimusic.mobile.ui.screens.SearchScreen
@@ -67,6 +68,7 @@ fun MichiNavHost() {
             composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
             composable("library") { AlbumsScreen() }
             composable("playlist") { PlaylistScreen() }
+            composable("playlists") { PlaylistsScreen() }
             composable("queue") { QueueScreen() }
             composable("nowplaying") { NowPlayingScreen() }
             composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }

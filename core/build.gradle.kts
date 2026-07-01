@@ -9,6 +9,7 @@ android {
 
     defaultConfig {
         minSdk = 31
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -26,4 +27,7 @@ android {
 dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coroutines.core)
+
+    testImplementation("org.jetbrains.kotlin:kotlin-test")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit")
 }
