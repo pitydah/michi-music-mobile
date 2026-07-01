@@ -3,7 +3,7 @@
 **Date:** 2026-07-01
 **Version:** 0.1.0-alpha
 **Branch:** main
-**Commits HEAD:** `f3b8742` + optimización AudioController lazy
+**Commits HEAD:** `fee826c` (4 commits ahead of origin/master)
 
 ## Build Status
 
@@ -127,6 +127,17 @@
 - [x] `MichiPlaybackService` no se inicia desde `Application.onCreate()` ni `MainActivity`
 - [x] El servicio solo se crea cuando `MediaController.Builder` se ejecuta en la primera acción de reproducción
 
+### UI/UX (rediseño grande)
+
+- [x] Design System: MichiTokens (radius, spacing, size, alpha, animation), MichiBackground, MichiScreen, MichiSectionHeader, MichiEmptyState, MichiLoadingState, MichiActionButton
+- [x] GlassCard con variantes: COMPACT, NORMAL, STRONG
+- [x] MichiBottomNavigation: smoked glass nav bar premium con iconos y labels
+- [x] HomeScreen rediseñado: header "Michi Music", search card, quick actions (reproducir todo/aleatorio), solo 8 canciones en lugar de 20
+- [x] AlbumsScreen: play button por album, loading/empty states premium
+- [x] MiniPlayer: smoked glass, mas compacto, fondo GlassBg
+- [x] NowPlayingScreen: VolumeDown/VolumeUp actualizados a AutoMirrored (sin warnings)
+- [x] NavGraph simplificado: Box directo sin Scaffold, BottomNav posicionado abajo
+
 ### Comportamiento logcat esperado (post-optimización)
 
 Antes: al abrir la app → inmediatamente `MediaController Init`, `ExoPlayerImpl Init`, `MediaSessionImpl Init`, frames saltados.
@@ -158,7 +169,22 @@ Después: al abrir la app → solo Compose + Koin. `MediaController.Builder` se 
 | File | Change |
 |------|--------|
 | `player/.../AudioController.kt` | `init` block eliminado → conexión lazy via `ensureConnected()`. Ya no inicia MediaController al construirse. |
-| `docs/STATUS_REPORT.md` | Actualizado con sección de rendimiento de arranque |
+| `docs/STATUS_REPORT.md` | Actualizado con sección de rendimiento de arranque y UI/UX |
+| `app/.../navigation/NavGraph.kt` | Simplificado: Box directo sin Scaffold, MichiBottomNavigation, MiniPlayer con padding |
+| `app/.../ui/theme/MichiTokens.kt` | Nuevo: radius, spacing, size, alpha, animation tokens |
+| `app/.../ui/theme/Color.kt` | Sin cambios (ya tenía colores completos) |
+| `app/.../ui/components/GlassCard.kt` | Variantes COMPACT/NORMAL/STRONG, padding configurable |
+| `app/.../ui/components/MichiBackground.kt` | Nuevo: fondo con gradiente vertical oscuro |
+| `app/.../ui/components/MichiScreen.kt` | Nuevo: wrapper con padding horizontal y scroll opcional |
+| `app/.../ui/components/MichiSectionHeader.kt` | Nuevo: titulo + subtitulo + accion opcional |
+| `app/.../ui/components/MichiEmptyState.kt` | Nuevo: icono + titulo + descripcion + accion |
+| `app/.../ui/components/MichiLoadingState.kt` | Nuevo: spinner + texto |
+| `app/.../ui/components/MichiActionButton.kt` | Nuevo: PRIMARY_GLOW / SECONDARY_GLASS |
+| `app/.../ui/components/MichiBottomNavigation.kt` | Nuevo: smoked glass nav bar premium |
+| `app/.../ui/components/MiniPlayer.kt` | Rediseñado: smoked glass, GlassBg, mas compacto |
+| `app/.../ui/screens/HomeScreen.kt` | Rediseñado: header Michi Music, 8 canciones max, estados premium |
+| `app/.../ui/screens/AlbumsScreen.kt` | Rediseñado: play button por album, estados premium |
+| `app/.../ui/screens/NowPlayingScreen.kt` | VolumeDown/VolumeUp AutoMirrored (sin warnings) |
 
 ## Files Modified (previous session)
 
