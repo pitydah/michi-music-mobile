@@ -3,7 +3,7 @@
 **Date:** 2026-07-01
 **Version:** 0.1.0-alpha
 **Branch:** main
-**Commits HEAD:** `30bfa31` (+ working tree changes)
+**Commits HEAD:** `f3b8742` + optimización AudioController lazy
 
 ## Build Status
 
@@ -118,14 +118,28 @@
   - Track defaults deserialization
 - [x] `docs/TESTING.md` — checklist de pruebas manuales
 
+### Rendimiento de arranque (optimizado)
+
+- [x] `AudioController.init` ya no conecta MediaController al construirse
+- [x] `ensureConnected()` se llama lazy solo en `playQueue()`, `play()`, `pause()`, etc.
+- [x] `MiniPlayer` observa `controller.state` (StateFlow local) sin forzar conexión
+- [x] `HomeScreen` y demás pantallas inyectan controller pero no llaman `ensureConnected()`
+- [x] `MichiPlaybackService` no se inicia desde `Application.onCreate()` ni `MainActivity`
+- [x] El servicio solo se crea cuando `MediaController.Builder` se ejecuta en la primera acción de reproducción
+
+### Comportamiento logcat esperado (post-optimización)
+
+Antes: al abrir la app → inmediatamente `MediaController Init`, `ExoPlayerImpl Init`, `MediaSessionImpl Init`, frames saltados.
+Después: al abrir la app → solo Compose + Koin. `MediaController.Builder` se ejecuta recién al tocar "Reproducir todo" o cualquier acción de play.
+
 ## Known Issues / Pendings
 
 1. **NowPlayingScreen: volumen no conectado** — El slider de volumen usa estado local. Media3/ExoPlayer no expone control de volumen por sesión.
 2. **NowPlayingScreen: SmokedGlassBottomBar redundante** — La barra inferior flotante dentro de NowPlayingScreen duplica la navegación que ya está en el Scaffold.
 3. **Sync: auto-conexión al primer peer** — `startDiscovery()` se conecta automáticamente al encontrar el primer peer sin dar opción a elegir.
 4. **Tests sin runner** — Los tests en `core/src/test/` no tienen dependencia `kotlin.test` o `junit` en `core/build.gradle.kts`. No se ejecutan automáticamente.
-5. **STATUS_REPORT desactualizado** — (ya no, se actualizó ahora).
-6. **Pruebas en dispositivo real** — No se ha instalado ni probado en un teléfono.
+5. **Pruebas en dispositivo real** — No se ha instalado ni probado en un teléfono. La optimización de arranque no se ha medido con logcat real.
+6. **`PlaybackManager.kt`** — Archivo creado y luego eliminado por errores de compilación (no necesario, AudioController lazy es suficiente).
 
 ## Commands Used
 
@@ -143,21 +157,12 @@
 
 | File | Change |
 |------|--------|
-| `app/.../ui/AudioControllerHelper.kt` | Reescrita: `rememberAudioController()` vía `koinInject()` |
-| `app/.../navigation/NavGraph.kt` | `rememberAudioController()` no nullable, bottomBar oculta en NowPlaying, MiniPlayer oculto en NowPlaying, ruta diagnostics + queue |
-| `app/.../ui/components/MiniPlayer.kt` | `rememberAudioController()` no nullable, `controller.` directo |
-| `app/.../ui/screens/HomeScreen.kt` | `rememberAudioController()`, `controller.` directo |
-| `app/.../ui/screens/AlbumsScreen.kt` | `rememberAudioController()`, selectedIndex safe |
-| `app/.../ui/screens/SearchScreen.kt` | `rememberAudioController()`, `controller.` directo |
-| `app/.../ui/screens/PlaylistScreen.kt` | `rememberAudioController()`, `controller.` directo |
-| `app/.../ui/screens/SyncedTracksScreen.kt` | `rememberAudioController()`, `controller.` directo |
-| `app/.../ui/screens/DiagnosticsScreen.kt` | Nuevo — pantalla de diagnóstico |
-| `app/.../ui/screens/QueueScreen.kt` | Nuevo — cola de reproducción real |
-| `app/.../ui/coverflow/MichiCoverFlowHost.kt` | adapter con `submitList()`, `update` block, selectedIndex safe |
-| `app/.../library/coverflow/AlbumCoverAdapter.kt` | `submitList()`, adapter reutilizable |
-| `sync-client/.../MichiSyncClient.kt` | `fetchDeltaManifest(deviceId, since)` |
-| `app/.../MainActivity.kt` | Sin `startService`, sin `onResume` con service start |
-| `docs/STATUS_REPORT.md` | Actualizado |
+| `player/.../AudioController.kt` | `init` block eliminado → conexión lazy via `ensureConnected()`. Ya no inicia MediaController al construirse. |
+| `docs/STATUS_REPORT.md` | Actualizado con sección de rendimiento de arranque |
+
+## Files Modified (previous session)
+
+| File | Change |
 
 ## Next Phase Recommended
 

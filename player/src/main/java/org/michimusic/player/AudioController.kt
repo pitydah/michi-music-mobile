@@ -22,13 +22,15 @@ import org.michimusic.core.models.Track
 
 @OptIn(UnstableApi::class)
 class AudioController(
-    context: Context,
+    private val context: Context,
     private val scope: CoroutineScope,
 ) {
     private var mediaController: MediaController? = null
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private var positionJob: Job? = null
+    private var connectJob: Job? = null
+    private var connectStarted = false
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -67,7 +69,9 @@ class AudioController(
         }
     }
 
-    init {
+    fun ensureConnected() {
+        if (connectStarted) return
+        connectStarted = true
         val sessionToken = SessionToken(
             context,
             ComponentName(context, MichiPlaybackService::class.java),
@@ -97,20 +101,44 @@ class AudioController(
         positionJob = null
     }
 
-    fun play() { mediaController?.play() }
-    fun pause() { mediaController?.pause() }
+    fun play() {
+        ensureConnected()
+        mediaController?.play()
+    }
+
+    fun pause() {
+        ensureConnected()
+        mediaController?.pause()
+    }
+
     fun seekTo(position: Long) {
+        ensureConnected()
         mediaController?.seekTo(position)
         _state.value = _state.value.copy(position = position)
     }
-    fun skipNext() { mediaController?.seekToNextMediaItem() }
-    fun skipPrevious() { mediaController?.seekToPreviousMediaItem() }
-    fun setRepeatMode(mode: Int) { mediaController?.repeatMode = mode }
+
+    fun skipNext() {
+        ensureConnected()
+        mediaController?.seekToNextMediaItem()
+    }
+
+    fun skipPrevious() {
+        ensureConnected()
+        mediaController?.seekToPreviousMediaItem()
+    }
+
+    fun setRepeatMode(mode: Int) {
+        ensureConnected()
+        mediaController?.repeatMode = mode
+    }
+
     fun toggleShuffle() {
+        ensureConnected()
         mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
     }
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+        ensureConnected()
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -135,6 +163,7 @@ class AudioController(
     }
 
     fun addToQueue(track: Track) {
+        ensureConnected()
         val newQueue = _state.value.queue + track
         mediaController?.addMediaItem(
             MediaItem.Builder()
@@ -152,6 +181,7 @@ class AudioController(
     }
 
     fun removeFromQueue(index: Int) {
+        ensureConnected()
         val newQueue = _state.value.queue.toMutableList()
         if (index in newQueue.indices) {
             newQueue.removeAt(index)
@@ -161,6 +191,7 @@ class AudioController(
     }
 
     fun clearQueue() {
+        ensureConnected()
         mediaController?.stop()
         mediaController?.clearMediaItems()
         _state.value = PlayerState()
