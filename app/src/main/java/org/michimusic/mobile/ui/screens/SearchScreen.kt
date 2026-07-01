@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,13 +38,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.screens.SearchResult
 import org.michimusic.mobile.screens.SearchViewModel
+import org.michimusic.mobile.ui.components.MichiBackground
+import org.michimusic.mobile.ui.components.MichiEmptyState
+import org.michimusic.mobile.ui.components.MichiLoadingState
+import org.michimusic.mobile.ui.components.MichiScreen
 import org.michimusic.mobile.ui.theme.AccentPink
-import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.MichiRadius
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
-import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.rememberAudioController
 
 @Composable
@@ -61,115 +64,73 @@ fun SearchScreen(
         viewModel.loadLocalTracks()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(16.dp))
+    MichiBackground {
+        MichiScreen {
+            Spacer(Modifier.height(MichiSpacing.lg))
 
-        Text(
-            text = "Buscar",
-            style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
-        )
+            Text("Buscar", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
 
-        Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(MichiSpacing.md))
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = viewModel::setQuery,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Canciones, artistas, álbumes...", color = TextMuted) },
-            leadingIcon = {
-                Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted)
-            },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = viewModel::clearSearch) {
-                        Icon(Icons.Default.Clear, contentDescription = "Limpiar", tint = TextMuted)
+            OutlinedTextField(
+                value = query,
+                onValueChange = viewModel::setQuery,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Canciones, artistas, álbumes...", color = TextMuted) },
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = TextMuted) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = viewModel::clearSearch) {
+                            Icon(Icons.Default.Clear, "Limpiar", tint = TextMuted)
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(MichiRadius.card),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentPink,
+                    unfocusedBorderColor = SurfaceElevated,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = AccentPink,
+                ),
+            )
+
+            Spacer(Modifier.height(MichiSpacing.md))
+
+            when {
+                isSearching -> {
+                    MichiLoadingState(text = "Buscando...")
+                }
+                query.length >= 2 && results.isEmpty() -> {
+                    MichiEmptyState(
+                        icon = Icons.Default.Search,
+                        title = "Sin resultados",
+                        description = "No se encontraron canciones para \"$query\"",
+                    )
+                }
+                results.isNotEmpty() -> {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        items(results) { result ->
+                            SearchResultRow(
+                                result = result,
+                                onPlay = {
+                                    val allTracks = results.map { it.track }
+                                    val idx = allTracks.indexOfFirst { it.id == result.track.id }
+                                    if (idx >= 0) {
+                                        controller.playQueue(allTracks, idx)
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AccentPink,
-                unfocusedBorderColor = SurfaceElevated,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = AccentPink,
-            ),
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        when {
-            isSearching -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = AccentPink)
-                }
-            }
-            query.length >= 2 && results.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = TextDim,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "Sin resultados",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = TextDim,
-                        )
-                    }
-                }
-            }
-            results.isNotEmpty() -> {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    items(results) { result ->
-                        SearchResultRow(
-                            result = result,
-                            onPlay = {
-                                val allTracks = results.map { it.track }
-                                val idx = allTracks.indexOfFirst { it.id == result.track.id }
-                                if (idx >= 0) {
-                                    controller.playQueue(allTracks, idx)
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-            else -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = TextDim,
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Busca en tu biblioteca local y sincronizada",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextMuted,
-                        )
-                    }
+                else -> {
+                    MichiEmptyState(
+                        icon = Icons.Default.Search,
+                        title = "Busca en tu biblioteca",
+                        description = "Canciones locales, sincronizadas y remotas",
+                    )
                 }
             }
         }
@@ -184,45 +145,28 @@ private fun SearchResultRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(MichiRadius.small))
             .clickable(onClick = onPlay)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+            .padding(horizontal = 4.dp, vertical = MichiSpacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(MichiRadius.small))
                 .background(AccentPink.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Default.MusicNote,
-                contentDescription = null,
-                tint = AccentPink,
-                modifier = Modifier.size(20.dp),
-            )
+            Icon(Icons.Default.MusicNote, null, tint = AccentPink, modifier = Modifier.size(20.dp))
         }
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(MichiSpacing.md))
         Column(Modifier.weight(1f)) {
-            Text(
-                text = result.track.title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${result.track.artist} · ${result.track.album}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(result.track.title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${result.track.artist} · ${result.track.album}", style = MaterialTheme.typography.bodySmall, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(4.dp))
         Text(
-            text = result.source,
+            result.source,
             style = MaterialTheme.typography.labelSmall,
             color = if (result.source == "Sincronizada") AccentPink else TextDim,
         )

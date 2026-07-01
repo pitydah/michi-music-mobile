@@ -1,6 +1,7 @@
 @file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +54,11 @@ import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.GlassCardVariant
+import org.michimusic.mobile.ui.components.MichiActionButton
+import org.michimusic.mobile.ui.components.MichiButtonStyle
+import org.michimusic.mobile.ui.theme.MichiSpacing
 
 @Composable
 fun SyncScreen(
@@ -67,11 +73,11 @@ fun SyncScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(MichiSpacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when (uiState.state) {
@@ -190,11 +196,12 @@ private fun ConnectionPrompt(onStart: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onStart) {
-            Icon(Icons.Default.Sync, contentDescription = null)
-            Spacer(Modifier.size(8.dp))
-            Text("Buscar servidores")
-        }
+        MichiActionButton(
+            text = "Buscar servidores",
+            icon = Icons.Default.Sync,
+            onClick = onStart,
+            style = MichiButtonStyle.PRIMARY_GLOW,
+        )
     }
 }
 

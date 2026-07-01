@@ -33,7 +33,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.MichiBackground
+import org.michimusic.mobile.ui.components.MichiEmptyState
+import org.michimusic.mobile.ui.components.MichiScreen
+import org.michimusic.mobile.ui.components.MichiSectionHeader
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.MichiRadius
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
@@ -49,168 +55,95 @@ fun QueueScreen() {
     val currentIndex = state.queueIndex
     val currentTrack = state.currentTrack
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(16.dp))
+    MichiBackground {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = MichiSpacing.lg)) {
+            Spacer(Modifier.height(MichiSpacing.lg))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Cola de reproducción",
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
-            )
-            if (queue.isNotEmpty()) {
-                IconButton(onClick = { controller.clearQueue() }) {
-                    Icon(
-                        imageVector = Icons.Default.ClearAll,
-                        contentDescription = "Limpiar cola",
-                        tint = AccentPink,
-                    )
-                }
-            }
-        }
-
-        if (currentTrack != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Reproduciendo ahora",
-                style = MaterialTheme.typography.titleSmall,
-                color = AccentPink,
-            )
-            Spacer(Modifier.height(4.dp))
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(AccentPink.copy(alpha = 0.08f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
+                Text("Cola de reproducción", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
+                if (queue.isNotEmpty()) {
+                    IconButton(onClick = { controller.clearQueue() }) {
+                        Icon(Icons.Default.ClearAll, "Limpiar cola", tint = AccentPink)
+                    }
+                }
+            }
+
+            if (currentTrack != null) {
+                Spacer(Modifier.height(MichiSpacing.sm))
+                MichiSectionHeader(title = "Reproduciendo ahora")
+                Spacer(Modifier.height(MichiSpacing.xs))
+                Row(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(AccentPink),
-                    contentAlignment = Alignment.Center,
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(MichiRadius.small))
+                        .background(AccentPink.copy(alpha = 0.08f))
+                        .padding(horizontal = MichiSpacing.md, vertical = MichiSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = SurfaceDark,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = currentTrack.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = AccentPink,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = currentTrack.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Box(
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(4.dp)).background(AccentPink),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, tint = SurfaceDark, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(MichiSpacing.md))
+                    Column(Modifier.weight(1f)) {
+                        Text(currentTrack.title, style = MaterialTheme.typography.bodyMedium, color = AccentPink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(currentTrack.artist, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
-        }
 
-        Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(MichiSpacing.md))
+            Text("${queue.size} canciones en cola", style = MaterialTheme.typography.bodyMedium, color = TextMuted)
+            Spacer(Modifier.height(MichiSpacing.sm))
 
-        Text(
-            text = "${queue.size} canciones en cola",
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextMuted,
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        if (queue.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = TextDim,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "Cola vacía",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = TextDim,
-                    )
-                }
-            }
-        } else {
-            GlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(queue) { index, track ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .then(
-                                    if (index == currentIndex) Modifier.background(AccentPink.copy(alpha = 0.08f))
-                                    else Modifier
-                                )
-                                .clickable { controller.playQueue(queue, index) }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
+            if (queue.isEmpty()) {
+                MichiEmptyState(
+                    icon = Icons.Default.MusicNote,
+                    title = "Cola vacía",
+                    description = "Reproduce una canción para empezar",
+                )
+            } else {
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                ) {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        itemsIndexed(queue) { index, track ->
+                            Row(
                                 modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (index == currentIndex) AccentPink else TextDim),
-                                contentAlignment = Alignment.Center,
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(MichiRadius.small))
+                                    .then(
+                                        if (index == currentIndex) Modifier.background(AccentPink.copy(alpha = 0.08f))
+                                        else Modifier
+                                    )
+                                    .clickable { controller.playQueue(queue, index) }
+                                    .padding(horizontal = MichiSpacing.md, vertical = MichiSpacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    text = "${index + 1}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = SurfaceDark,
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (index == currentIndex) AccentPink else TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (index == currentIndex) AccentPink else TextDim),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("${index + 1}", style = MaterialTheme.typography.labelSmall, color = SurfaceDark)
+                                }
+                                Spacer(Modifier.width(MichiSpacing.md))
+                                Column(Modifier.weight(1f)) {
+                                    Text(track.title, style = MaterialTheme.typography.bodyMedium, color = if (index == currentIndex) AccentPink else TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(track.artist, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                         }
+                        item { Spacer(Modifier.height(MichiSpacing.sm)) }
                     }
-                    item { Spacer(Modifier.height(8.dp)) }
                 }
             }
         }

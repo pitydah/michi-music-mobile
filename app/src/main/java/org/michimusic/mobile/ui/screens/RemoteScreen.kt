@@ -55,6 +55,9 @@ import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.components.MichiActionButton
+import org.michimusic.mobile.ui.components.MichiButtonStyle
+import org.michimusic.mobile.ui.theme.MichiSpacing
 
 @Composable
 fun RemoteScreen(
@@ -99,9 +102,12 @@ fun RemoteScreen(
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(24.dp))
-                Button(onClick = onNavigateToSync) {
-                    Text("Ir a Sync")
-                }
+                MichiActionButton(
+                    text = "Ir a Sync",
+                    icon = Icons.Default.PlayArrow,
+                    onClick = onNavigateToSync,
+                    style = MichiButtonStyle.PRIMARY_GLOW,
+                )
             }
         } else {
             var expanded by remember { mutableStateOf(false) }
