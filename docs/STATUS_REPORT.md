@@ -3,7 +3,7 @@
 **Date:** 2026-07-01
 **Version:** 0.1.0-alpha
 **Branch:** main
-**Commit HEAD:** `539a2d3`
+**Commit HEAD:** `59bdd13`
 
 ## Build Status
 
@@ -24,51 +24,30 @@
 
 ## AudioController — lazy init
 
-- `init` block: **eliminado** (no existe)
-- `ensureConnected()`: **12 llamadas** desde playQueue, play, pause, seek, skipNext/Previous, etc.
-- Inyectar AudioController **no inicia Media3/ExoPlayer/MichipebackService**
-- `StateFlow<PlayerState>` disponible desde la construcción sin conexión
-- MiniPlayer puede observar `state` sin forzar conexión
+- `init` block que cree MediaController: **NO EXISTE**
+- `MediaController.Builder` solo en `ensureConnected()`: **SÍ**
+- Llamadas a `ensureConnected()` desde: playQueue, play, pause, seekTo, skipNext/Previous, setRepeatMode, toggleShuffle, addToQueue, removeFromQueue, clearQueue
+- `connectStarted` es `@Volatile`: **SÍ**
+- NavGraph ya no inyecta `AudioController` al arrancar: **SÍ**
 
-## Navegación — MichiNavHost
+## Design System verificable
 
-13 rutas, todas con screens existentes:
+- `MichiTokens.kt`: **EXISTE** (`app/.../ui/theme/MichiTokens.kt`)
+- Componentes en `ui/components/` (14 archivos):
+  - GlassCard, GlowPlayButton, MichiActionButton, MichiArtworkCard, MichiBackground, MichiBottomNavigation, MichiEmptyState, MichiIconButton, MichiLoadingState, MichiScreen, MichiSectionHeader, MichiSlider, MiniPlayer, TrackRow
+- `MichiBottomNavigation` se usa en NavGraph, reemplazando `NavigationBar` de Material3: **SÍ**
+- `NavigationBar` de Material3 en NavGraph: **0 referencias**
 
-| Ruta | Screen | Bottom nav |
-|------|--------|------------|
-| home | HomeScreen | ✅ Inicio |
-| library | AlbumsScreen | ✅ Biblioteca |
-| playlist | PlaylistScreen | ❌ interna |
-| playlists | PlaylistsScreen | ❌ interna |
-| queue | QueueScreen | ❌ interna |
-| nowplaying | NowPlayingScreen | ✅ Reproduciendo |
-| sync | SyncScreen | ✅ Sync |
-| synced | SyncedTracksScreen | ❌ interna |
-| search | SearchScreen | ❌ interna |
-| remote | RemoteScreen | ✅ Control |
-| audio-route | AudioRouteScreen | ❌ interna |
-| diagnostics | DiagnosticsScreen | ❌ interna |
-| settings | SettingsScreen | ✅ Ajustes |
+## Navegación verificable
 
-Bottom nav: 6 items con `MichiBottomNavigation` (smoked glass), no `NavigationBar` de Material3.
-MiniPlayer: oculto en NowPlaying, visible solo con `currentTrack != null`.
+- `QueueScreen.kt`: **EXISTE**
+- `composable("queue")` en NavGraph: **SÍ**
+- 13 rutas totales: home, library, playlist, playlists, queue, nowplaying, sync, synced, search, remote, audio-route, diagnostics, settings
+- Bottom nav: 6 items (home, library, nowplaying, remote, sync, settings)
 
-## Design System
+## Documentación
 
-**Tokens**: `ui/theme/MichiTokens.kt` (49 líneas) — MichiRadius, MichiSpacing, MichiAlpha, MichiSize, MichiAnimation
-
-**Componentes** (9 en `ui/components/`):
-- `MichiBackground` — fondo gradiente (no usado actualmente)
-- `MichiScreen` — wrapper con padding (no usado actualmente)
-- `MichiBottomNavigation` — smoked glass nav bar
-- `MichiEmptyState` — icono + título + descripción + acción
-- `MichiLoadingState` — spinner + texto
-- `MichiSectionHeader` — título + subtítulo + acción
-- `MichiActionButton` — PRIMARY_GLOW / SECONDARY_GLASS
-- `MichiSlider` — progreso/volumen con colores Michi
-- `MichiIconButton` — botón icono compacto
-
-Extras: `GlassCard` (con variantes COMPACT/NORMAL/STRONG), `TrackRow`, `MiniPlayer`, `GlowPlayButton`
+- `docs/UI_UX_GUIDE.md`: **EXISTE**
 
 ## Screens (13/13)
 
