@@ -16,12 +16,12 @@ val keystoreProps = if (keystorePropsFile.exists()) {
 
 android {
     namespace = "org.michimusic.mobile"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "org.michimusic.mobile"
         minSdk = 31
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-alpha"
 

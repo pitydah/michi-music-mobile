@@ -61,6 +61,7 @@ data class PlaybackSource(
 @Composable
 fun NowPlayingScreen(
     onNavigateToSettings: () -> Unit = {},
+    onNavigateToAudioRoute: () -> Unit = {},
 ) {
     val audioController: AudioController = koinInject()
     val state by audioController?.state?.collectAsState() ?: remember { mutableStateOf(PlayerState()) }
@@ -220,7 +221,7 @@ fun NowPlayingScreen(
                     val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
                     audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
                 },
-                onNavigateToAudioRoute = onNavigateToSettings,
+                onNavigateToAudioRoute = onNavigateToAudioRoute,
             )
 
             Spacer(modifier = Modifier.height(24.dp))

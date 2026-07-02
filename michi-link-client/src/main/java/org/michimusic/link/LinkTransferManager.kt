@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.michimusic.core.models.DownloadItem
 import java.io.File
 import java.io.FileInputStream
@@ -71,17 +73,21 @@ class LinkTransferManager(
     suspend fun downloadTracks(
         client: LinkClient,
         items: List<DownloadItem>,
+        maxConcurrent: Int = 4,
         onProgress: (Int, Int) -> Unit = { _, _ -> },
     ): Map<String, Result<File>> = withContext(Dispatchers.IO) {
         val total = items.size
         val mutex = Any()
+        val semaphore = Semaphore(maxConcurrent.coerceAtLeast(1))
         var completed = 0
         val results = mutableMapOf<String, Result<File>>()
 
         coroutineScope {
             items.map { item ->
                 async {
-                    val result = downloadTrack(client, item)
+                    val result = semaphore.withPermit {
+                        downloadTrack(client, item)
+                    }
                     synchronized(mutex) {
                         results[item.trackId] = result
                         completed++

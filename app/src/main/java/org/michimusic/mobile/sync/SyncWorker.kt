@@ -66,7 +66,7 @@ class SyncWorker(
         val freeBytes = storage.availableBytes
         val minFree = 50L * 1024 * 1024 // 50MB minimum
         if (freeBytes < minFree) {
-            val msg = "Almacenamiento insuficiente: ${freeBytes / 1024 / 1024}MB libres"
+            try { wakeLock?.release() } catch (_: Exception) {}
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
 
@@ -81,6 +81,8 @@ class SyncWorker(
         val trackDao = try {
             KoinJavaComponent.get<TrackDao>(TrackDao::class.java)
         } catch (_: Exception) {
+            client.close()
+            try { wakeLock?.release() } catch (_: Exception) {}
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
         val playlistDao = try {
@@ -95,6 +97,8 @@ class SyncWorker(
             val manifestResult = client.fetchSyncManifest(deviceId)
             if (manifestResult.isFailure) {
                 val error = manifestResult.exceptionOrNull()
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
                 if (error is LinkException) {
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
@@ -131,6 +135,8 @@ class SyncWorker(
             if (total == 0) {
                 setForeground(createForegroundInfo(0, 0, "Todo sincronizado"))
                 setProgress(workDataOf(PROGRESS_TOTAL to 0, PROGRESS_CURRENT to 0))
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
             }
 

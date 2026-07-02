@@ -33,6 +33,7 @@ import org.michimusic.mobile.ui.screens.AudioRouteScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
+import org.michimusic.mobile.ui.screens.QueueScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
 import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
@@ -90,8 +91,14 @@ fun MichiNavHost() {
             ) {
                 composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
                 composable("library") { AlbumsScreen() }
-                composable("nowplaying") { NowPlayingScreen(onNavigateToSettings = { navController.navigate("settings") }) }
+                composable("nowplaying") {
+                    NowPlayingScreen(
+                        onNavigateToSettings = { navController.navigate("settings") },
+                        onNavigateToAudioRoute = { navController.navigate("audio-route") },
+                    )
+                }
                 composable("playlist") { PlaylistScreen() }
+                composable("queue") { QueueScreen() }
                 composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
                 composable("synced") { SyncedTracksScreen() }
