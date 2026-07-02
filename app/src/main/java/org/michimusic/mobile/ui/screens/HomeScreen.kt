@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,11 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -32,13 +32,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.theme.AccentPink
@@ -48,7 +50,6 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.koin.compose.koinInject
 import org.michimusic.player.AudioController
 
 @Composable
@@ -58,7 +59,6 @@ fun HomeScreen(
     val viewModel: AlbumsViewModel = koinViewModel()
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-
     val controller: AudioController = koinInject()
 
     LaunchedEffect(Unit) { viewModel.loadMedia() }
@@ -76,6 +76,11 @@ fun HomeScreen(
             style = MaterialTheme.typography.headlineMedium,
             color = TextPrimary,
         )
+        Text(
+            text = if (allTracks.isEmpty()) "Tu biblioteca local aparecerá aquí" else "${allTracks.size} canciones listas",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
 
         Spacer(Modifier.height(12.dp))
 
@@ -84,7 +89,7 @@ fun HomeScreen(
             onValueChange = { onNavigateToSearch() },
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .clickable(onClick = onNavigateToSearch),
             placeholder = { Text("Buscar canciones...", color = TextMuted) },
             leadingIcon = {
@@ -98,7 +103,7 @@ fun HomeScreen(
                 focusedTextColor = TextPrimary,
                 unfocusedTextColor = TextPrimary,
             ),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(8.dp),
         )
 
         Spacer(Modifier.height(12.dp))
@@ -114,72 +119,78 @@ fun HomeScreen(
             return@Column
         }
 
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(SurfaceElevated)
+                    .padding(16.dp),
+            ) {
                 Text(
                     text = "Reproducción rápida",
                     style = MaterialTheme.typography.titleMedium,
                     color = TextPrimary,
                 )
-                Spacer(Modifier.height(8.dp))
-
+                Text(
+                    text = "Arranca sin entrar a un álbum",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMuted,
+                )
+                Spacer(Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    GlassCard(
+                    QuickActionButton(
+                        text = "Todo",
+                        icon = Icons.Default.PlayArrow,
+                        enabled = allTracks.isNotEmpty(),
+                        onClick = { controller.playQueue(allTracks, 0) },
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { if (allTracks.isNotEmpty()) controller.playQueue(allTracks, 0) },
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = AccentPink,
-                                modifier = Modifier.size(28.dp),
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Reproducir todo",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextPrimary,
-                            )
-                        }
-                    }
+                            .height(48.dp),
+                    )
+                    QuickActionButton(
+                        text = "Aleatorio",
+                        icon = Icons.Default.Shuffle,
+                        enabled = allTracks.isNotEmpty(),
+                        onClick = {
+                            controller.clearQueue()
+                            controller.playQueue(allTracks.shuffled(), 0)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                    )
+                }
+            }
+        }
 
-                    GlassCard(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable {
-                                if (allTracks.isNotEmpty()) {
-                                    controller.clearQueue()
-                                    val shuffled = allTracks.shuffled()
-                                    controller.playQueue(shuffled, 0)
-                                }
-                            },
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Icon(
-                                Icons.Default.Shuffle,
-                                contentDescription = null,
-                                tint = AccentPink,
-                                modifier = Modifier.size(28.dp),
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Aleatorio",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextPrimary,
-                            )
-                        }
-                    }
+        if (allTracks.isEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = TextDim,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "No hay canciones locales",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary,
+                    )
+                    Text(
+                        text = "Revisa permisos o sincroniza desde Michi KDE",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted,
+                    )
                 }
             }
         }
@@ -187,11 +198,22 @@ fun HomeScreen(
         if (allTracks.isNotEmpty()) {
             Spacer(Modifier.height(16.dp))
 
-            Text(
-                text = "Todas las canciones (${allTracks.size})",
-                style = MaterialTheme.typography.titleMedium,
-                color = TextSecondary,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Canciones recientes",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextSecondary,
+                )
+                Text(
+                    text = "20 de ${allTracks.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextDim,
+                )
+            }
 
             Spacer(Modifier.height(8.dp))
 
@@ -199,6 +221,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 itemsIndexed(allTracks.take(20)) { index, track ->
                     Row(
@@ -206,7 +229,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { controller.playQueue(allTracks, index) }
-                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                            .padding(horizontal = 4.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         AsyncImage(
@@ -215,7 +238,7 @@ fun HomeScreen(
                             else "",
                             contentDescription = null,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(42.dp)
                                 .clip(RoundedCornerShape(6.dp)),
                             contentScale = ContentScale.Crop,
                         )
@@ -247,5 +270,35 @@ fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun QuickActionButton(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = AccentPink,
+            contentColor = SurfaceDark,
+            disabledContainerColor = SurfaceElevated,
+            disabledContentColor = TextDim,
+        ),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

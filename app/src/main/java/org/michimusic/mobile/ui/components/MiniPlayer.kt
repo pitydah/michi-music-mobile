@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
@@ -72,15 +74,17 @@ fun MiniPlayer(
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .background(SurfaceElevated, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+            .border(0.5.dp, SurfaceBorder, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         if (playerState.duration > 0 && track != null) {
-            LinearProgressIndicator(
-                progress = { playerState.position.toFloat() / playerState.duration.toFloat() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(top = 0.dp),
+	            LinearProgressIndicator(
+	                progress = { (playerState.position.toFloat() / playerState.duration.toFloat()).coerceIn(0f, 1f) },
+	                modifier = Modifier
+	                    .fillMaxWidth()
+	                    .height(2.dp)
+	                    .align(Alignment.TopCenter)
+	                    .padding(top = 0.dp),
                 trackColor = SurfaceDark,
                 color = AccentPink,
             )
@@ -114,17 +118,17 @@ fun MiniPlayer(
                     }
                     Spacer(Modifier.width(10.dp))
                 }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyMedium,
+	                Column(Modifier.weight(1f)) {
+	                    Text(
+	                        text = track.title,
+	                        style = MaterialTheme.typography.labelLarge,
                         color = TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                        text = track.artist,
-                        style = MaterialTheme.typography.bodySmall,
+	                    Text(
+	                        text = track.artist,
+	                        style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -141,7 +145,7 @@ fun MiniPlayer(
 
             Spacer(Modifier.width(8.dp))
 
-            IconButton(onClick = { controller.skipPrevious() }) {
+	            IconButton(onClick = { controller.skipPrevious() }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous",
@@ -156,9 +160,9 @@ fun MiniPlayer(
                     .background(AccentPink, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                IconButton(onClick = {
-                    if (playerState.isPlaying) controller.pause() else controller.play()
-                }) {
+	                IconButton(onClick = {
+	                    if (playerState.isPlaying) controller.pause() else controller.play()
+	                }, modifier = Modifier.size(36.dp)) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (playerState.isPlaying) "Pause" else "Play",
@@ -167,7 +171,7 @@ fun MiniPlayer(
                     )
                 }
             }
-            IconButton(onClick = { controller.skipNext() }) {
+	            IconButton(onClick = { controller.skipNext() }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next",

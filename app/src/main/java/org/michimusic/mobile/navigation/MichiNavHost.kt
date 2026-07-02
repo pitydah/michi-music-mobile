@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -39,6 +40,7 @@ import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
+import org.michimusic.mobile.ui.theme.SurfaceElevated
 
 data class BottomNavEntry(
     val route: String,
@@ -49,7 +51,7 @@ data class BottomNavEntry(
 private val navItems = listOf(
     BottomNavEntry("home", "Inicio", Icons.Default.Home),
     BottomNavEntry("library", "Biblioteca", Icons.Default.LibraryMusic),
-    BottomNavEntry("nowplaying", "Reproduciendo", Icons.Default.MusicNote),
+    BottomNavEntry("nowplaying", "Ahora", Icons.Default.MusicNote),
     BottomNavEntry("remote", "Remoto", Icons.Default.CastConnected),
     BottomNavEntry("sync", "Sync", Icons.Default.Sync),
     BottomNavEntry("settings", "Ajustes", Icons.Default.Settings),
@@ -63,7 +65,10 @@ fun MichiNavHost() {
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = SurfaceElevated,
+                tonalElevation = NavigationBarDefaults.Elevation,
+            ) {
                 navItems.forEach { entry ->
                     NavigationBarItem(
                         icon = { Icon(entry.icon, contentDescription = entry.label) },
