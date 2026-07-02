@@ -5,10 +5,11 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 private val DarkColorScheme = darkColorScheme(
-    primary = MichiBlue,
+    primary = AccentCoral,
     onPrimary = SurfaceDark,
-    primaryContainer = MichiBlueFaint,
-    secondary = TextSecondary,
+    primaryContainer = BrandCoralFaint,
+    secondary = AccentPink,
+    onSecondary = SurfaceDark,
     background = SurfaceDark,
     surface = SurfaceDark,
     surfaceVariant = SurfaceGlass,

@@ -2,8 +2,7 @@ package org.michimusic.mobile.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val MichiBlue = Color(0xFF8FB7FF)
-val MichiBlueFaint = Color(0x578FB7FF)
+val BrandCoralFaint = Color(0x57FF6A3D)
 val AccentPink = Color(0xFFFF6B9D)
 val AccentCoral = Color(0xFFFF6A3D)
 val AccentPurple = Color(0xFFC06BFF)
@@ -14,7 +13,7 @@ val SurfaceElevated = Color(0xFF12141E)
 val SurfaceGlass = Color(0x0BFFFFFF)
 val SurfaceGlassHover = Color(0x15FFFFFF)
 val SurfaceBorder = Color(0x14FFFFFF)
-val SurfaceBorderHover = Color(0x478FB7FF)
+val SurfaceBorderHover = Color(0x47FF8A3D)
 val TextPrimary = Color(0xD9FFFFFF)
 val TextSecondary = Color(0x9EFFFFFF)
 val TextMuted = Color(0x85FFFFFF)

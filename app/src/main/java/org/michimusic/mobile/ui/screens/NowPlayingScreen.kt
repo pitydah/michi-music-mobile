@@ -34,6 +34,7 @@ import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.sync.SyncViewModel
 import org.koin.compose.koinInject
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -43,7 +44,6 @@ import org.michimusic.player.PlayerState
 // --- PALETA DE COLORES (Estilo Michi Music Player) ---
 val BgDark = Color(0xFF05070C)
 val GlassBorder = Color(0x24FFFFFF)
-val AccentCoral = Color(0xFFFF6A3D)
 val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
 private val PremiumGlass = Color(0x8F181B22)
 private val PremiumGlassSoft = Color(0x52181B22)
