@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,14 +37,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import org.michimusic.mobile.R
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
@@ -71,16 +78,37 @@ fun HomeScreen(
     ) {
         Spacer(Modifier.height(16.dp))
 
-        Text(
-            text = "Inicio",
-            style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
-        )
-        Text(
-            text = if (allTracks.isEmpty()) "Tu biblioteca local aparecerá aquí" else "${allTracks.size} canciones listas",
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Image(
+                painter = painterResource(R.mipmap.michi_logo),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Inicio",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = TextPrimary,
+                )
+                Text(
+                    text = if (allTracks.isEmpty()) {
+                        "Tu biblioteca local aparecerá aquí"
+                    } else {
+                        "${allTracks.size} canciones listas para sonar"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
 
         Spacer(Modifier.height(12.dp))
 
@@ -89,21 +117,23 @@ fun HomeScreen(
             onValueChange = { onNavigateToSearch() },
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .clickable(onClick = onNavigateToSearch),
             placeholder = { Text("Buscar canciones...", color = TextMuted) },
             leadingIcon = {
-                Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted)
+                Icon(Icons.Default.Search, contentDescription = null, tint = AccentCoral)
             },
             readOnly = true,
             singleLine = true,
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = SurfaceElevated,
-                unfocusedContainerColor = SurfaceElevated,
+                focusedContainerColor = SurfaceElevated.copy(alpha = 0.72f),
+                unfocusedContainerColor = SurfaceElevated.copy(alpha = 0.72f),
                 focusedTextColor = TextPrimary,
                 unfocusedTextColor = TextPrimary,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
             ),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(14.dp),
         )
 
         Spacer(Modifier.height(12.dp))
@@ -119,25 +149,36 @@ fun HomeScreen(
             return@Column
         }
 
-        Box(modifier = Modifier.fillMaxWidth()) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(SurfaceElevated)
-                    .padding(16.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(
-                    text = "Reproducción rápida",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                )
-                Text(
-                    text = "Arranca sin entrar a un álbum",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextMuted,
-                )
-                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Reproducción rápida",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                        )
+                        Text(
+                            text = "Arranca sin entrar a un álbum",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                        )
+                    }
+                    if (allTracks.isNotEmpty()) {
+                        Text(
+                            text = "${allTracks.size}",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = AccentCoral,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -149,7 +190,7 @@ fun HomeScreen(
                         onClick = { controller.playQueue(allTracks, 0) },
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
+                            .height(50.dp),
                     )
                     QuickActionButton(
                         text = "Aleatorio",
@@ -161,7 +202,7 @@ fun HomeScreen(
                         },
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
+                            .height(50.dp),
                     )
                 }
             }
@@ -221,27 +262,19 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 itemsIndexed(allTracks.take(20)) { index, track ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceElevated.copy(alpha = 0.42f))
                             .clickable { controller.playQueue(allTracks, index) }
-                            .padding(horizontal = 4.dp, vertical = 7.dp),
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        AsyncImage(
-                            model = if (track.coverId.isNotEmpty())
-                                "content://media/external/audio/albumart/${track.coverId}"
-                            else "",
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(6.dp)),
-                            contentScale = ContentScale.Crop,
-                        )
+                        TrackArtwork(coverId = track.coverId)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
@@ -263,8 +296,8 @@ fun HomeScreen(
                         Icon(
                             Icons.Default.PlayArrow,
                             contentDescription = null,
-                            tint = TextDim,
-                            modifier = Modifier.size(16.dp),
+                            tint = AccentCoral,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
@@ -287,7 +320,7 @@ private fun QuickActionButton(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = AccentPink,
+            containerColor = AccentCoral,
             contentColor = SurfaceDark,
             disabledContainerColor = SurfaceElevated,
             disabledContentColor = TextDim,
@@ -300,5 +333,40 @@ private fun QuickActionButton(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun TrackArtwork(coverId: String) {
+    val modifier = Modifier
+        .size(44.dp)
+        .clip(RoundedCornerShape(8.dp))
+
+    if (coverId.isNotEmpty()) {
+        AsyncImage(
+            model = "content://media/external/audio/albumart/$coverId",
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop,
+        )
+    } else {
+        Box(
+            modifier = modifier.background(
+                Brush.verticalGradient(
+                    listOf(
+                        AccentCoral.copy(alpha = 0.28f),
+                        AccentPink.copy(alpha = 0.18f),
+                    )
+                )
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = AccentCoral,
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
 }

@@ -22,7 +22,7 @@ fun GlassCard(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = SurfaceElevated,
+            containerColor = SurfaceElevated.copy(alpha = 0.72f),
         ),
         border = BorderStroke(0.5.dp, SurfaceBorder),
     ) {

@@ -34,9 +34,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
@@ -75,7 +78,7 @@ fun QueueScreen() {
                     Icon(
                         Icons.Default.Clear,
                         contentDescription = "Limpiar cola",
-                        tint = AccentPink,
+                        tint = AccentCoral,
                     )
                 }
             }
@@ -103,9 +106,9 @@ fun QueueScreen() {
                         shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isCurrent) {
-                                AccentPink.copy(alpha = 0.15f)
+                                AccentCoral.copy(alpha = 0.16f)
                             } else {
-                                SurfaceElevated.copy(alpha = 0.6f)
+                                SurfaceElevated.copy(alpha = 0.48f)
                             },
                         ),
                     ) {
@@ -117,26 +120,17 @@ fun QueueScreen() {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             if (isCurrent) {
-                                Icon(
-                                    Icons.Default.PlayArrow,
-                                    contentDescription = "Reproduciendo",
-                                    tint = AccentPink,
-                                    modifier = Modifier.size(20.dp),
-                                )
+                                QueueLeadingIcon(isCurrent = true, number = index + 1)
                                 Spacer(Modifier.width(8.dp))
                             } else {
-                                Text(
-                                    text = "${index + 1}",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = TextDim,
-                                    modifier = Modifier.width(28.dp),
-                                )
+                                QueueLeadingIcon(isCurrent = false, number = index + 1)
+                                Spacer(Modifier.width(8.dp))
                             }
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     text = track.title,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = if (isCurrent) AccentPink else TextPrimary,
+                                    color = if (isCurrent) AccentCoral else TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -163,15 +157,10 @@ private fun QueueStatusCard(
     isPlaying: Boolean,
     onClear: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-    ) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
+                .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -179,13 +168,20 @@ private fun QueueStatusCard(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(AccentPink.copy(alpha = 0.14f)),
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                AccentCoral.copy(alpha = 0.28f),
+                                AccentPink.copy(alpha = 0.18f),
+                            )
+                        )
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.PlayArrow else Icons.AutoMirrored.Filled.QueueMusic,
                     contentDescription = null,
-                    tint = AccentPink,
+                    tint = AccentCoral,
                     modifier = Modifier.size(22.dp),
                 )
             }
@@ -208,13 +204,39 @@ private fun QueueStatusCard(
                     onClick = onClear,
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentPink.copy(alpha = 0.16f),
-                        contentColor = AccentPink,
+                        containerColor = AccentCoral.copy(alpha = 0.18f),
+                        contentColor = AccentCoral,
                     ),
                 ) {
                     Text("Limpiar")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun QueueLeadingIcon(isCurrent: Boolean, number: Int) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isCurrent) AccentCoral.copy(alpha = 0.18f) else SurfaceElevated.copy(alpha = 0.7f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (isCurrent) {
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = "Reproduciendo",
+                tint = AccentCoral,
+                modifier = Modifier.size(18.dp),
+            )
+        } else {
+            Text(
+                text = "$number",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextDim,
+            )
         }
     }
 }
