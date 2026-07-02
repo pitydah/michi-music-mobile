@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,12 +55,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.remote.RemoteSourceMode
-import org.michimusic.mobile.remote.RemoteUiState
 import org.michimusic.mobile.remote.RemoteViewModel
-import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -96,12 +96,30 @@ fun RemoteScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Sync, null, tint = TextDim, modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Conecta con un servidor desde Sync", color = TextSecondary)
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = onNavigateToSync) { Text("Ir a Sync") }
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Default.Sync, null, tint = AccentCoral, modifier = Modifier.size(56.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Conecta con un servidor desde Sync",
+                            color = TextPrimary,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = onNavigateToSync,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AccentCoral,
+                                contentColor = SurfaceDark,
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                        ) {
+                            Text("Ir a Sync")
+                        }
+                    }
                 }
             }
             return
@@ -112,12 +130,21 @@ fun RemoteScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.PhoneAndroid, null, tint = AccentPink, modifier = Modifier.size(64.dp))
-                    Spacer(Modifier.height(16.dp))
-                    Text("Reproduciendo en este teléfono", color = TextPrimary, style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Abre NowPlaying para controlar", color = TextSecondary)
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(Icons.Default.PhoneAndroid, null, tint = AccentCoral, modifier = Modifier.size(56.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Reproduciendo en este teléfono",
+                            color = TextPrimary,
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text("Abre NowPlaying para controlar", color = TextSecondary)
+                    }
                 }
             }
             return
@@ -136,8 +163,8 @@ fun RemoteScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(SurfaceElevated),
+                .clip(RoundedCornerShape(26.dp))
+                .background(SurfaceElevated.copy(alpha = 0.58f)),
             contentAlignment = Alignment.Center,
         ) {
             if (state.coverUrl.isNotEmpty()) {
@@ -148,7 +175,7 @@ fun RemoteScreen(
                     contentScale = ContentScale.Crop,
                 )
             } else {
-                Icon(Icons.Default.CastConnected, null, tint = AccentPink, modifier = Modifier.size(80.dp))
+                Icon(Icons.Default.CastConnected, null, tint = AccentCoral, modifier = Modifier.size(80.dp))
             }
         }
 
@@ -222,14 +249,14 @@ fun RemoteScreen(
                 modifier = Modifier
                     .size(72.dp)
                     .clip(CircleShape)
-                    .background(AccentPink),
+                    .background(Color(0xE6F4EFE7)),
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = viewModel::togglePlayPause) {
                     Icon(
                         if (effState == "playing") Icons.Default.Pause else Icons.Default.PlayArrow,
                         if (effState == "playing") "Pausar" else "Reproducir",
-                        tint = Color.White,
+                        tint = SurfaceDark,
                         modifier = Modifier.size(36.dp),
                     )
                 }
@@ -273,8 +300,9 @@ fun RemoteScreen(
                     val isCurrent = index == uiState.queue.currentIndex
                     Card(
                         modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isCurrent) AccentPink.copy(alpha = 0.15f) else SurfaceElevated,
+                            containerColor = if (isCurrent) AccentCoral.copy(alpha = 0.16f) else SurfaceElevated.copy(alpha = 0.48f),
                         ),
                         onClick = { viewModel.queueJump(index) },
                     ) {
@@ -285,7 +313,7 @@ fun RemoteScreen(
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     text = track.title,
-                                    color = if (isCurrent) AccentPink else TextPrimary,
+                                    color = if (isCurrent) AccentCoral else TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -299,7 +327,7 @@ fun RemoteScreen(
                                 )
                             }
                             if (isCurrent) {
-                                Icon(Icons.Default.PlayArrow, null, tint = AccentPink, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.PlayArrow, null, tint = AccentCoral, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -323,18 +351,15 @@ private fun ModeSelector(
     sourceName: String,
     onConnectToSync: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-    ) {
+    GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 if (mode == RemoteSourceMode.LOCAL) Icons.Default.PhoneAndroid else Icons.Default.CastConnected,
                 null,
-                tint = AccentPink,
+                tint = AccentCoral,
                 modifier = Modifier.size(24.dp),
             )
             Spacer(Modifier.width(12.dp))
@@ -352,7 +377,15 @@ private fun ModeSelector(
                 )
             }
             if (mode == RemoteSourceMode.LOCAL) {
-                Button(onClick = onConnectToSync, modifier = Modifier.height(32.dp)) {
+                Button(
+                    onClick = onConnectToSync,
+                    modifier = Modifier.height(32.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentCoral,
+                        contentColor = SurfaceDark,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
                     Text("Sync", style = MaterialTheme.typography.labelSmall)
                 }
             }

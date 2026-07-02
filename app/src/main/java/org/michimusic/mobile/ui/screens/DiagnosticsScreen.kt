@@ -20,10 +20,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,9 +41,9 @@ import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkDiagnostics
 import org.michimusic.link.TokenStore
 import org.michimusic.link.dto.DiagnosticReport
-import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -75,11 +73,8 @@ fun DiagnosticsScreen() {
             serverUrl = savedUrl
         }
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-        ) {
-            Column(Modifier.padding(16.dp)) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth()) {
                 Text("Servidor", color = TextSecondary)
                 if (savedUrl != null) {
                     Text(savedUrl, color = TextPrimary)
@@ -108,6 +103,10 @@ fun DiagnosticsScreen() {
             },
             enabled = !running && (serverUrl.isNotEmpty() || !savedUrl.isNullOrEmpty()),
             modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AccentCoral,
+                contentColor = SurfaceDark,
+            ),
         ) {
             if (running) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
@@ -122,13 +121,10 @@ fun DiagnosticsScreen() {
             // Summary
             val passed = rep.tests.count { it.passed }
             val total = rep.tests.size
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-            ) {
-                Column(Modifier.padding(16.dp)) {
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, null, tint = AccentPink, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.Info, null, tint = AccentCoral, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("$passed/$total pruebas pasaron", color = TextPrimary)
                     }
@@ -143,14 +139,9 @@ fun DiagnosticsScreen() {
 
             // Tests
             rep.tests.forEach { test ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (test.passed) Color(0xFF1B5E20) else Color(0xFF4A0000)
-                    ),
-                ) {
+                GlassCard(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
@@ -183,7 +174,7 @@ fun DiagnosticsScreen() {
             // Recommendations
             if (rep.recommendations.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                Text("Recomendaciones", color = AccentPink, style = MaterialTheme.typography.titleMedium)
+                Text("Recomendaciones", color = AccentCoral, style = MaterialTheme.typography.titleMedium)
                 rep.recommendations.forEach { rec ->
                     Text("• $rec", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
@@ -198,6 +189,10 @@ fun DiagnosticsScreen() {
                     clip.setPrimaryClip(android.content.ClipData.newPlainText("diagnostics", json))
                 },
                 modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentCoral,
+                    contentColor = SurfaceDark,
+                ),
             ) {
                 Icon(Icons.Default.Folder, null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))

@@ -7,15 +7,26 @@ import android.content.IntentFilter
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BluetoothAudio
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,12 +36,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 
@@ -79,19 +91,29 @@ fun AudioRouteScreen() {
         Spacer(Modifier.height(16.dp))
 
         GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Salida actual", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = when (route) {
-                        is AudioRoute.InternalSpeaker -> "Altavoz interno"
-                        is AudioRoute.UsbDac -> "USB DAC"
-                        is AudioRoute.Bluetooth -> "Bluetooth (${(route as AudioRoute.Bluetooth).codec})"
-                        is AudioRoute.Unknown -> "Desconocido"
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = AccentPink,
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(AccentCoral.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(routeIcon(route), contentDescription = null, tint = AccentCoral, modifier = Modifier.size(28.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Salida actual", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = routeName(route),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = AccentCoral,
+                    )
+                }
             }
         }
 
@@ -113,12 +135,13 @@ fun AudioRouteScreen() {
                 AudioDeviceInfo.TYPE_DOCK -> "Dock"
                 else -> "Tipo ${device.type}"
             }
-            Text(
-                text = "$deviceName ($typeName)",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-            )
-            Spacer(Modifier.height(4.dp))
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                    Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
         }
 
         Spacer(Modifier.height(16.dp))
@@ -142,6 +165,20 @@ fun AudioRouteScreen() {
             color = TextSecondary,
         )
     }
+}
+
+private fun routeName(route: AudioRoute): String = when (route) {
+    is AudioRoute.InternalSpeaker -> "Altavoz interno"
+    is AudioRoute.UsbDac -> "USB DAC"
+    is AudioRoute.Bluetooth -> "Bluetooth (${route.codec})"
+    is AudioRoute.Unknown -> "Desconocido"
+}
+
+private fun routeIcon(route: AudioRoute) = when (route) {
+    is AudioRoute.InternalSpeaker -> Icons.Default.Speaker
+    is AudioRoute.UsbDac -> Icons.Default.Usb
+    is AudioRoute.Bluetooth -> Icons.Default.BluetoothAudio
+    is AudioRoute.Unknown -> Icons.Default.Headphones
 }
 
 private fun detectRoute(audioManager: AudioManager): AudioRoute {
