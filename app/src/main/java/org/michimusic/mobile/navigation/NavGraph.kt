@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -36,7 +35,6 @@ import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
-import org.michimusic.mobile.ui.rememberAudioController
 
 val bottomNavItems = listOf(
     MichiNavItem("home", "Inicio", Icons.Default.Home),
@@ -51,12 +49,7 @@ val bottomNavItems = listOf(
 fun MichiNavHost() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentDestination = navBackStackEntry?.destination
-    val currentRoute = currentDestination?.route
-
-    val controller = rememberAudioController()
-    val playerState by controller.state.collectAsState()
-    val hasCurrentTrack = playerState.currentTrack != null
+    val currentRoute = navBackStackEntry?.destination?.route
     val isNowPlaying = currentRoute == "nowplaying"
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -82,9 +75,7 @@ fun MichiNavHost() {
 
         if (!isNowPlaying) {
             MiniPlayer(
-                modifier = Modifier
-                    .padding(bottom = 64.dp)
-                    .then(Modifier),
+                modifier = Modifier.padding(bottom = 64.dp),
                 onClick = { navController.navigate("nowplaying") },
             )
 

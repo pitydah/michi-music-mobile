@@ -29,8 +29,9 @@ class AudioController(
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private var positionJob: Job? = null
-    private var connectJob: Job? = null
+    @Volatile
     private var connectStarted = false
+    private var connectJob: Job? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
