@@ -39,6 +39,7 @@ import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.MichiBackground
 import org.michimusic.mobile.ui.components.MichiEmptyState
 import org.michimusic.mobile.ui.components.MichiLoadingState
 import org.michimusic.mobile.ui.components.MichiSectionHeader
@@ -46,6 +47,7 @@ import org.michimusic.mobile.ui.components.TrackRow
 import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextMuted
@@ -62,10 +64,11 @@ fun AlbumsScreen() {
     val isLoading by viewModel.isLoading.collectAsState()
     val controller = rememberAudioController()
 
-    Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
-        if (isLoading) {
+    MichiBackground {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = MichiSpacing.lg)) {
+            if (isLoading) {
             MichiLoadingState(text = "Escaneando música local...")
-            return
+            return@Column
         }
 
         if (albums.isEmpty()) {
@@ -74,7 +77,7 @@ fun AlbumsScreen() {
                 title = "No se encontraron canciones",
                 description = "Asegúrate de tener música en el dispositivo y haber concedido permisos",
             )
-            return
+            return@Column
         }
 
         var selectedIndex by remember { mutableIntStateOf(0) }
@@ -163,9 +166,10 @@ fun AlbumsScreen() {
                             )
                         }
                         item { Spacer(Modifier.height(8.dp)) }
-                    }
-                }
             }
+        }
+    }
+}
         }
     }
 }

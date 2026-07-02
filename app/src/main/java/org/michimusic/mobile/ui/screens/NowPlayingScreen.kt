@@ -59,7 +59,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -71,12 +70,11 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import org.michimusic.mobile.ui.rememberAudioController
+import org.michimusic.mobile.ui.components.MichiArtworkCard
 import org.michimusic.mobile.ui.components.MichiIconButton
 import org.michimusic.mobile.ui.components.MichiSlider
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
-import org.michimusic.mobile.ui.theme.ArtworkGold
-import org.michimusic.mobile.ui.theme.ArtworkOverlay
 import org.michimusic.mobile.ui.theme.GlassBg
 import org.michimusic.mobile.ui.theme.GlassBorder
 import org.michimusic.mobile.ui.theme.SurfaceDark
@@ -156,7 +154,7 @@ fun NowPlayingScreen() {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            AlbumArtworkCard(
+            MichiArtworkCard(
                 coverUri = if (track?.coverId?.isNotEmpty() == true)
                     "content://media/external/audio/albumart/${track.coverId}"
                 else null,
@@ -296,50 +294,6 @@ fun PlaybackSourceMenu(
             Icon(Icons.Rounded.Settings, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Text("Gestionar fuentes", color = TextSecondary, fontSize = 14.sp)
-        }
-    }
-}
-
-@Composable
-fun AlbumArtworkCard(
-    coverUri: String?,
-    modifier: Modifier = Modifier,
-) {
-    val synthwaveGradient = Brush.verticalGradient(
-        colors = listOf(
-            SynthwaveStart,
-            SynthwaveMid,
-            SynthwaveEnd,
-        ),
-    )
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(24.dp))
-            .background(synthwaveGradient)
-            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (coverUri != null) {
-            AsyncImage(
-                model = coverUri,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .offset(y = 20.dp)
-                    .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(ArtworkGold, AccentPink))),
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, ArtworkOverlay))),
-            )
         }
     }
 }

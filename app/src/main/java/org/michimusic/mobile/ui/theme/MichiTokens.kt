@@ -8,6 +8,7 @@ object MichiRadius {
     val card = 14.dp
     val large = 20.dp
     val pill = 28.dp
+    val artwork = 24.dp
     val full = 999.dp
 }
 
