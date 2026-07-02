@@ -73,7 +73,7 @@ fun MiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(Color(0xD912141B), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+            .background(Color(0xE612141B), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
             .border(0.5.dp, SurfaceBorder, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {

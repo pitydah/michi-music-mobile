@@ -13,8 +13,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,7 +40,11 @@ import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
+import org.michimusic.mobile.ui.theme.AccentCoral
+import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
+import org.michimusic.mobile.ui.theme.TextDim
+import org.michimusic.mobile.ui.theme.TextPrimary
 
 data class BottomNavEntry(
     val route: String,
@@ -66,14 +70,22 @@ fun MichiNavHost() {
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = SurfaceElevated,
-                tonalElevation = NavigationBarDefaults.Elevation,
+                containerColor = SurfaceElevated.copy(alpha = 0.92f),
+                tonalElevation = 0.dp,
             ) {
                 navItems.forEach { entry ->
+                    val selected = currentDest?.hierarchy?.any { it.route == entry.route } == true
                     NavigationBarItem(
                         icon = { Icon(entry.icon, contentDescription = entry.label) },
                         label = { Text(entry.label) },
-                        selected = currentDest?.hierarchy?.any { it.route == entry.route } == true,
+                        selected = selected,
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = SurfaceDark,
+                            selectedTextColor = TextPrimary,
+                            indicatorColor = AccentCoral,
+                            unselectedIconColor = TextDim,
+                            unselectedTextColor = TextDim,
+                        ),
                         onClick = {
                             navController.navigate(entry.route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
@@ -92,7 +104,7 @@ fun MichiNavHost() {
             NavHost(
                 navController = navController,
                 startDestination = "home",
-                modifier = Modifier.fillMaxSize().padding(bottom = 72.dp),
+                modifier = Modifier.fillMaxSize().padding(bottom = 76.dp),
             ) {
                 composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
                 composable("library") { AlbumsScreen() }
