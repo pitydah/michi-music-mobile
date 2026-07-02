@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.michimusic.mobile.screens.SearchResult
 import org.michimusic.mobile.screens.SearchViewModel
 import org.michimusic.mobile.ui.theme.AccentPink
@@ -46,7 +48,6 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.koin.compose.koinInject
 import org.michimusic.player.AudioController
 
 @Composable
@@ -75,6 +76,11 @@ fun SearchScreen(
             style = MaterialTheme.typography.headlineMedium,
             color = TextPrimary,
         )
+        Text(
+            text = "Encuentra música local y sincronizada",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary,
+        )
 
         Spacer(Modifier.height(12.dp))
 
@@ -94,7 +100,7 @@ fun SearchScreen(
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = AccentPink,
                 unfocusedBorderColor = SurfaceElevated,
@@ -107,37 +113,16 @@ fun SearchScreen(
         Spacer(Modifier.height(12.dp))
 
         when {
-            isSearching -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = AccentPink)
-                }
-            }
-            query.length >= 2 && results.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = TextDim,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            "Sin resultados",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = TextDim,
-                        )
-                    }
-                }
-            }
+            isSearching -> LoadingState()
+            query.length >= 2 && results.isEmpty() -> EmptySearchState("Sin resultados")
             results.isNotEmpty() -> {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SearchSummary(
+                    total = results.size,
+                    local = results.count { it.source == "Local" },
+                    synced = results.count { it.source == "Sincronizada" },
+                )
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(results) { result ->
                         SearchResultRow(
                             result = result,
@@ -152,28 +137,78 @@ fun SearchScreen(
                     }
                 }
             }
-            else -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = TextDim,
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Busca en tu biblioteca local y sincronizada",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextMuted,
-                        )
-                    }
-                }
-            }
+            else -> EmptySearchState("Busca en tu biblioteca local y sincronizada", large = true)
         }
+    }
+}
+
+@Composable
+private fun LoadingState() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(color = AccentPink)
+    }
+}
+
+@Composable
+private fun EmptySearchState(
+    text: String,
+    large: Boolean = false,
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(if (large) 64.dp else 48.dp),
+                tint = TextDim,
+            )
+            Spacer(Modifier.height(if (large) 16.dp else 12.dp))
+            Text(
+                text,
+                style = if (large) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                color = if (large) TextMuted else TextDim,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchSummary(
+    total: Int,
+    local: Int,
+    synced: Int,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SearchChip(text = "$total resultados", highlighted = true)
+        SearchChip(text = "$local local")
+        SearchChip(text = "$synced sync")
+    }
+}
+
+@Composable
+private fun SearchChip(
+    text: String,
+    highlighted: Boolean = false,
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (highlighted) AccentPink.copy(alpha = 0.18f) else SurfaceElevated,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (highlighted) AccentPink else TextMuted,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }
 
@@ -186,8 +221,9 @@ private fun SearchResultRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .background(SurfaceElevated.copy(alpha = 0.55f))
             .clickable(onClick = onPlay)
-            .padding(horizontal = 4.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
