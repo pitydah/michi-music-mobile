@@ -3,217 +3,111 @@
 **Date:** 2026-07-01
 **Version:** 0.1.0-alpha
 **Branch:** main
-**Commits HEAD:** `27d8abb` (+ cambios locales no commiteados)
+**Commit HEAD:** `539a2d3`
 
 ## Build Status
 
-- `./gradlew assembleNormalDebug`: **SUCCESS**
-- APK: `app/build/outputs/apk/normal/debug/app-normal-debug.apk` (79 MB debug)
+- `./gradlew clean assembleNormalDebug`: **SUCCESS**
+- APK: `app/build/outputs/apk/normal/debug/app-normal-debug.apk`
 - Platform: ARM64 (aarch64) with QEMU x86_64 binfmt for AAPT2
 
-## Compilation
+## Modules
 
-| Module | Status |
-|--------|--------|
-| `:core` | OK |
-| `:data` | OK (KSP Room) |
-| `:sync-client` | OK |
-| `:player` | OK |
-| `:remote` | OK |
-| `:app` | OK (normalDebug variant) |
+| Module | Status | Responsibility |
+|--------|--------|---------------|
+| `:core` | OK | Shared models (Track, Album, Sync DTOs, pairing models) |
+| `:data` | OK (KSP Room) | Room database (9 entities), MediaStore reader, repositories |
+| `:player` | OK | Media3 ExoPlayer, AudioController lazy, ReplayGain processor |
+| `:sync-client` | OK | Ktor HTTP client, UDP discovery, transfer manager |
+| `:remote` | OK | OkHttp remote control client |
+| `:app` | OK | UI, navigation, DI (normalDebug variant) |
 
-## What Exists
+## AudioController — lazy init
 
-### Screens (12/12)
+- `init` block: **eliminado** (no existe)
+- `ensureConnected()`: **12 llamadas** desde playQueue, play, pause, seek, skipNext/Previous, etc.
+- Inyectar AudioController **no inicia Media3/ExoPlayer/MichipebackService**
+- `StateFlow<PlayerState>` disponible desde la construcción sin conexión
+- MiniPlayer puede observar `state` sin forzar conexión
 
-- [x] HomeScreen — search bar, quick play/shuffle cards, track list, empty state
-- [x] AlbumsScreen — CoverFlow carousel + album tracks, selectedIndex safe
-- [x] NowPlayingScreen — datos reales del AudioController, seek conectado, carátula real, theme colors
-- [x] PlaylistScreen — all tracks with active-track highlight (playlist general)
-- [x] QueueScreen — cola de reproducción real con índice activo
-- [x] SearchScreen — search local + synced + remote tracks (via SyncSession)
-- [x] SyncScreen — discovery, pairing (username/password), registration, download
-- [x] SyncedTracksScreen — downloaded tracks list
-- [x] RemoteScreen — KDE remote control
-- [x] SettingsScreen — ReplayGain, auto-sync, remote URL/token
-- [x] AudioRouteScreen — USB/Bluetooth/Local detection
-- [x] DiagnosticsScreen — información de estado de la app
+## Navegación — MichiNavHost
 
-### Navigation
+13 rutas, todas con screens existentes:
 
-- [x] MichiNavHost con NavigationBar de 6 tabs
-- [x] Bottom nav oculta en NowPlaying
-- [x] MiniPlayer oculto en NowPlaying
-- [x] MiniPlayer no tapa NavigationBar (padding inferior)
-- [x] 12 rutas: home, library, playlist, queue, nowplaying, sync, synced, search, remote, audio-route, diagnostics, settings
+| Ruta | Screen | Bottom nav |
+|------|--------|------------|
+| home | HomeScreen | ✅ Inicio |
+| library | AlbumsScreen | ✅ Biblioteca |
+| playlist | PlaylistScreen | ❌ interna |
+| playlists | PlaylistsScreen | ❌ interna |
+| queue | QueueScreen | ❌ interna |
+| nowplaying | NowPlayingScreen | ✅ Reproduciendo |
+| sync | SyncScreen | ✅ Sync |
+| synced | SyncedTracksScreen | ❌ interna |
+| search | SearchScreen | ❌ interna |
+| remote | RemoteScreen | ✅ Control |
+| audio-route | AudioRouteScreen | ❌ interna |
+| diagnostics | DiagnosticsScreen | ❌ interna |
+| settings | SettingsScreen | ✅ Ajustes |
 
-### AudioController — refactorizado
+Bottom nav: 6 items con `MichiBottomNavigation` (smoked glass), no `NavigationBar` de Material3.
+MiniPlayer: oculto en NowPlaying, visible solo con `currentTrack != null`.
 
-- [x] `getAudioController()` reemplazado por `rememberAudioController()` en todos los archivos
-- [x] `AudioController` inyectado vía `koinInject()`
-- [x] Ya no es nullable: `controller.state.collectAsState()` directo
-- [x] Todos los componentes usan `controller.playQueue()`, `controller.play()`, etc. sin `?.`
-- [x] MainActivity ya no inicia servicio directamente (AudioController lo hace on-demand)
+## Design System
 
-### Local Playback
+**Tokens**: `ui/theme/MichiTokens.kt` (49 líneas) — MichiRadius, MichiSpacing, MichiAlpha, MichiSize, MichiAnimation
 
-- [x] MediaStore reader with MediaQueryDispatcher (cursor null safe)
-- [x] LocalMediaRepository with 30s TTL caching
-- [x] ExoPlayer via Media3 MediaLibraryService
-- [x] AudioController (IPC via MediaController)
-- [x] PlayerController (direct ExoPlayer access)
-- [x] ReplayGainAudioProcessor (PCM-level gain)
-- [x] PlaybackStateStore (SharedPreferences)
-- [x] MiniPlayer con progreso y controles reales
-- [x] NowPlayingScreen con seek, carátula, play/pause/next/prev reales
+**Componentes** (9 en `ui/components/`):
+- `MichiBackground` — fondo gradiente (no usado actualmente)
+- `MichiScreen` — wrapper con padding (no usado actualmente)
+- `MichiBottomNavigation` — smoked glass nav bar
+- `MichiEmptyState` — icono + título + descripción + acción
+- `MichiLoadingState` — spinner + texto
+- `MichiSectionHeader` — título + subtítulo + acción
+- `MichiActionButton` — PRIMARY_GLOW / SECONDARY_GLASS
+- `MichiSlider` — progreso/volumen con colores Michi
+- `MichiIconButton` — botón icono compacto
 
-### CoverFlow
+Extras: `GlassCard` (con variantes COMPACT/NORMAL/STRONG), `TrackRow`, `MiniPlayer`, `GlowPlayButton`
 
-- [x] DiscreteScrollView via AndroidView
-- [x] AlbumCoverAdapter con `submitList()` para actualización reactiva
-- [x] MichiCoverTransformer (60° rotation, 1.05 center scale, 0.45 min scale)
-- [x] selectedIndex corregido si albums.size cambia
-- [x] Placeholder drawable + fallback colors por hash de album.id
-- [x] Coil 3 sin API `toImage()` ni `fallback(Int)` — usa `setBackgroundColor` previo
+## Screens (13/13)
 
-### Sync (Michi Protocol)
+| Screen | Estado | Notas |
+|--------|--------|-------|
+| HomeScreen | ✅ | Header, search bar, quick actions, 8 canciones |
+| AlbumsScreen | ✅ | CoverFlow, play button por album, estados premium |
+| NowPlayingScreen | ✅ | AudioController real, seek, play/pause/next/prev, source selector |
+| PlaylistScreen | ✅ | All tracks view (playlist general) |
+| PlaylistsScreen | ✅ | Playlists reales desde MediaStore, expand/colapsar |
+| QueueScreen | ✅ | Cola real con índice activo, limpiar |
+| SearchScreen | ✅ | Local + synced + remote, MichiEmptyState |
+| SyncScreen | ✅ | Discovery, pairing, registerLegacy, descarga |
+| SyncedTracksScreen | ✅ | Descargadas con play |
+| RemoteScreen | ✅ | KDE remote control, auto-config desde Sync |
+| SettingsScreen | ✅ | ReplayGain, auto-sync, remote URL/token |
+| AudioRouteScreen | ✅ | USB/Bluetooth/Local detection |
+| DiagnosticsScreen | ✅ | Info de estado |
 
-- [x] UDP multicast discovery (224.0.0.167:53318)
-- [x] Legacy `/api/register` flow via `registerLegacy()`
-- [x] Nuevo pairing: `discoveryInfo()`, `pairStart()`, `pairConfirm()`
-- [x] `authRequired` en AnnounceMessage/DiscoveredPeer
-- [x] `SearchResponse` model (KDE: `{"results": [...], "query": "..."}`)
-- [x] `X-Michi-Device-Id` header en requests
-- [x] `fetchDeltaManifest(deviceId, since)` endpoint
-- [x] SyncCredentialsStore persistente (UUID, token, server base URL)
-- [x] Reconexión automática al abrir app si hay sesión guardada
-- [x] SyncTransferManager with parallel downloads
-- [x] CoverCache
-- [x] SyncWorker (WorkManager foreground con notificación)
-- [x] SyncScreen: PAIRING_REQUIRED, PAIRING, PAIRING_REQUIRED con formulario
+## Tests
 
-### Remote Control
-
-- [x] RemoteApiClient (OkHttp) with `/api/player/*` endpoints
-- [x] RemoteViewModel with 2-second polling
-- [x] Auto-config desde SyncSession (peer.ip + puerto 8124)
-- [x] Remote URL/token manual en Settings como override
-
-### Theme
-
-- [x] Dark-only Material 3 theme
-- [x] Color tokens: AccentCoral, GlassBg, GlassBorder, SurfaceDark, AccentPink, TextPrimary, etc.
-- [x] GlassCard component (14dp radius, translucent)
-- [x] GlowPlayButton component
-- [x] TrackRow component with active highlight
-- [x] MichiCoverTransformer (60° rotation, 1.05 center scale)
-
-### Testing
-
-- [x] `core/src/test/` — 5 tests de serialización de modelos Sync
-  - RegisterRequest snake_case
-  - AnnounceMessage auth_required
-  - PairStartRequest snake_case
-  - SearchResponse parsing
-  - Track defaults deserialization
-- [x] `docs/TESTING.md` — checklist de pruebas manuales
-
-### Rendimiento de arranque (optimizado)
-
-- [x] `AudioController.init` ya no conecta MediaController al construirse
-- [x] `ensureConnected()` se llama lazy solo en `playQueue()`, `play()`, `pause()`, etc.
-- [x] `MiniPlayer` observa `controller.state` (StateFlow local) sin forzar conexión
-- [x] `HomeScreen` y demás pantallas inyectan controller pero no llaman `ensureConnected()`
-- [x] `MichiPlaybackService` no se inicia desde `Application.onCreate()` ni `MainActivity`
-- [x] El servicio solo se crea cuando `MediaController.Builder` se ejecuta en la primera acción de reproducción
-
-### UI/UX (rediseño grande)
-
-- [x] Design System: MichiTokens (radius, spacing, size, alpha, animation), MichiSectionHeader, MichiEmptyState, MichiLoadingState, MichiActionButton, MichiBottomNavigation
-- [x] GlassCard con variantes: COMPACT, NORMAL, STRONG
-- [x] MichiBottomNavigation: smoked glass nav bar premium con iconos y labels
-- [x] HomeScreen rediseñado: header "Michi Music", search card, quick actions (reproducir todo/aleatorio), solo 8 canciones en lugar de 20
-- [x] AlbumsScreen: play button por album, loading/empty states premium
-- [x] MiniPlayer: smoked glass, mas compacto, fondo GlassBg
-- [x] NowPlayingScreen: VolumeDown/VolumeUp actualizados a AutoMirrored (sin warnings)
-- [x] NavGraph simplificado: Box directo sin Scaffold, BottomNav posicionado abajo
-
-### Comportamiento logcat esperado (post-optimización)
-
-Antes: al abrir la app → inmediatamente `MediaController Init`, `ExoPlayerImpl Init`, `MediaSessionImpl Init`, frames saltados.
-Después: al abrir la app → solo Compose + Koin. `MediaController.Builder` se ejecuta recién al tocar "Reproducir todo" o cualquier acción de play.
+- 5 tests de serialización de modelos Sync en `core/src/test/`
+- `./gradlew :core:test`: **5/5 pass**
+- Dependencias: `kotlin-test` + `kotlin-test-junit`
 
 ## Known Issues / Pendings
 
-1. **NowPlayingScreen: volumen no conectado** — El slider de volumen usa estado local. Media3/ExoPlayer no expone control de volumen por sesión.
-2. **NowPlayingScreen: SmokedGlassBottomBar redundante** — La barra inferior flotante dentro de NowPlayingScreen duplica la navegación que ya está en el Scaffold.
-3. **Sync: auto-conexión al primer peer** — `startDiscovery()` se conecta automáticamente al encontrar el primer peer sin dar opción a elegir.
-4. **Tests sin runner** — Los tests en `core/src/test/` no tienen dependencia `kotlin.test` o `junit` en `core/build.gradle.kts`. No se ejecutan automáticamente.
-5. **Pruebas en dispositivo real** — No se ha instalado ni probado en un teléfono. La optimización de arranque no se ha medido con logcat real.
-6. **`PlaybackManager.kt`** — Archivo creado y luego eliminado por errores de compilación (no necesario, AudioController lazy es suficiente).
-
-## Commands Used
-
-```bash
-./gradlew :core:compileDebugKotlin
-./gradlew :data:compileDebugKotlin
-./gradlew :sync-client:compileDebugKotlin
-./gradlew :player:compileDebugKotlin
-./gradlew :remote:compileDebugKotlin
-./gradlew :app:compileNormalDebugKotlin
-./gradlew assembleNormalDebug
-```
-
-## Files Modified (this session)
-
-| File | Change |
-|------|--------|
-| `player/.../AudioController.kt` | `init` block eliminado → conexión lazy via `ensureConnected()`. Ya no inicia MediaController al construirse. |
-| `docs/STATUS_REPORT.md` | Actualizado con sección de rendimiento de arranque y UI/UX |
-| `app/.../navigation/NavGraph.kt` | Simplificado: Box directo sin Scaffold, MichiBottomNavigation, MiniPlayer con padding |
-| `app/.../ui/theme/MichiTokens.kt` | Nuevo: radius, spacing, size, alpha, animation tokens |
-| `app/.../ui/theme/Color.kt` | Sin cambios (ya tenía colores completos) |
-| `app/.../ui/components/GlassCard.kt` | Variantes COMPACT/NORMAL/STRONG, padding configurable |
-| `app/.../ui/components/MichiBackground.kt` | Creado pero no usado (disponible para futuras pantallas) |
-| `app/.../ui/components/MichiScreen.kt` | Creado pero no usado (disponible para futuras pantallas) |
-| `app/.../ui/components/MichiSectionHeader.kt` | Nuevo: titulo + subtitulo + accion opcional |
-| `app/.../ui/components/MichiEmptyState.kt` | Nuevo: icono + titulo + descripcion + accion |
-| `app/.../ui/components/MichiLoadingState.kt` | Nuevo: spinner + texto |
-| `app/.../ui/components/MichiActionButton.kt` | Nuevo: PRIMARY_GLOW / SECONDARY_GLASS |
-| `app/.../ui/components/MichiBottomNavigation.kt` | Nuevo: smoked glass nav bar premium |
-| `app/.../ui/components/MiniPlayer.kt` | Rediseñado: smoked glass, GlassBg, mas compacto |
-| `app/.../ui/screens/HomeScreen.kt` | Rediseñado: header Michi Music, 8 canciones max, estados premium |
-| `app/.../ui/screens/AlbumsScreen.kt` | Rediseñado: play button por album, estados premium |
-| `app/.../ui/screens/NowPlayingScreen.kt` | VolumeDown/VolumeUp AutoMirrored (sin warnings) |
-
-## Files Modified (previous session)
-
-| File | Change |
-
-## Next Phase Recommended
-
-```
-Probar la app en dispositivo real siguiendo docs/TESTING.md.
-Corregir bugs que aparezcan en la prueba manual.
-```
-
-## Files Modified (this session — pendientes)
-
-| File | Change |
-|------|--------|
-| `app/.../ui/screens/NowPlayingScreen.kt` | Eliminado SmokedGlassBottomBar redundante |
-| `app/.../ui/screens/AlbumsScreen.kt` | Eliminado wrapper IconButton redundante |
-| `app/.../sync/SyncViewModel.kt` | Eliminada auto-conexión al primer peer |
-| `app/.../ui/screens/PlaylistsScreen.kt` | **Nuevo** — playlists reales desde MediaStore |
-| `app/.../screens/PlaylistsViewModel.kt` | **Nuevo** |
-| `app/.../navigation/NavGraph.kt` | Ruta `playlists` agregada |
-| `app/.../AppModule.kt` | PlaylistsViewModel registrado |
-| `core/build.gradle.kts` | Dependencias de test: kotlin-test, kotlin-test-junit |
-| `core/src/test/.../SyncModelsSerializationTest.kt` | Fix test assertion |
-| `docs/STATUS_REPORT.md` | Actualizado |
-
-## Known Issues / Pendings
-
-1. **NowPlayingScreen: volumen no conectado** — Slider de volumen usa estado local. Media3 no expone control de volumen por sesión.
+1. **NowPlayingScreen volumen no conectado** — Slider de volumen usa estado local. Media3/ExoPlayer no expone control de volumen por sesión.
 2. **Pruebas en dispositivo real** — No se ha instalado ni probado en un teléfono real.
-3. **`MichiBackground.kt` y `MichiScreen.kt`** — Componentes disponibles pero no usados actualmente.
+3. **AlbumArtworkCard colores hardcodeados** — 4 colores synthwave en `NowPlayingScreen.kt` (líneas 305-307, 331, 336). Deberían estar en `Color.kt`.
+4. **CoverGrid fallback sin Coil3 placeholder** — `AlbumCoverViewHolder` carga sin fallback/error. Si la imagen no carga, no hay placeholder.
+5. **MichiBackground / MichiScreen sin uso** — Creados pero ninguna pantalla los importa.
+6. **NowPlayingScreen usa `__synthwave_gradient__` visual sin extraer** — `AlbumArtworkCard` es un componente grande dentro de NowPlayingScreen que podría extraerse.
+
+## Próximo paso recomendado
+
+```
+Instalar APK en dispositivo real.
+Verificar reproducción local.
+Verificar logcat que ExoPlayer no se inicializa al abrir.
+Ejecutar checklist en docs/TESTING.md.
+```

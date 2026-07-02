@@ -42,6 +42,7 @@ import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.GlassCardVariant
 import org.michimusic.mobile.ui.components.MichiEmptyState
 import org.michimusic.mobile.ui.components.MichiLoadingState
+import org.michimusic.mobile.ui.components.MichiScreen
 import org.michimusic.mobile.ui.components.MichiSectionHeader
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.AccentCoral
@@ -67,11 +68,9 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SurfaceDark)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = MichiSpacing.lg),
+            .background(SurfaceDark),
     ) {
-        Column {
+        MichiScreen(scrollable = true) {
             Spacer(Modifier.height(MichiSpacing.lg))
             Text("Michi Music", style = MaterialTheme.typography.headlineLarge, color = TextPrimary)
             Text("${allTracks.size} canciones locales", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
@@ -99,7 +98,7 @@ fun HomeScreen(
 
             if (isLoading) {
                 MichiLoadingState(text = "Cargando música local...")
-                return@Column
+                return@MichiScreen
             }
 
             if (allTracks.isEmpty()) {
@@ -108,7 +107,7 @@ fun HomeScreen(
                     title = "No se encontraron canciones",
                     description = "Asegúrate de tener música en el dispositivo y haber concedido permisos",
                 )
-                return@Column
+                return@MichiScreen
             }
 
             GlassCard(modifier = Modifier.fillMaxWidth()) {

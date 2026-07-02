@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import coil3.load
 import coil3.request.crossfade
 import org.michimusic.mobile.R
+import org.michimusic.mobile.ui.theme.CoverPlaceholderColors
 
 class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
     LayoutInflater.from(parentView.context).inflate(R.layout.item_album_cover, parentView, false)
@@ -18,13 +19,7 @@ class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
     private val titleText: TextView = itemView.findViewById(R.id.cover_title)
     private val artistText: TextView = itemView.findViewById(R.id.cover_artist)
 
-    private val placeholderColors = listOf(
-        0xFF6B5B95.toInt(),
-        0xFFE56399.toInt(),
-        0xFF4A8FE7.toInt(),
-        0xFF7ED321.toInt(),
-        0xFFF5A623.toInt(),
-    )
+    private val placeholderColors = CoverPlaceholderColors
 
     fun bind(album: CoverFlowAlbum) {
         titleText.text = album.title

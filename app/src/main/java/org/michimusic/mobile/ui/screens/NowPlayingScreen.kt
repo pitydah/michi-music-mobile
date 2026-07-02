@@ -75,9 +75,14 @@ import org.michimusic.mobile.ui.components.MichiIconButton
 import org.michimusic.mobile.ui.components.MichiSlider
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.ArtworkGold
+import org.michimusic.mobile.ui.theme.ArtworkOverlay
 import org.michimusic.mobile.ui.theme.GlassBg
 import org.michimusic.mobile.ui.theme.GlassBorder
 import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SynthwaveEnd
+import org.michimusic.mobile.ui.theme.SynthwaveMid
+import org.michimusic.mobile.ui.theme.SynthwaveStart
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -302,9 +307,9 @@ fun AlbumArtworkCard(
 ) {
     val synthwaveGradient = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF1E0B2D),
-            Color(0xFF8A1C59),
-            Color(0xFFFF6A3D),
+            SynthwaveStart,
+            SynthwaveMid,
+            SynthwaveEnd,
         ),
     )
 
@@ -328,12 +333,12 @@ fun AlbumArtworkCard(
                     .size(120.dp)
                     .offset(y = 20.dp)
                     .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xFFFFD700), AccentPink))),
+                    .background(Brush.verticalGradient(listOf(ArtworkGold, AccentPink))),
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000)))),
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, ArtworkOverlay))),
             )
         }
     }
