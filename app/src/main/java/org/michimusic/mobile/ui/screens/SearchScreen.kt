@@ -18,8 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,13 +34,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.mobile.screens.SearchResult
 import org.michimusic.mobile.screens.SearchViewModel
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
@@ -90,23 +94,25 @@ fun SearchScreen(
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Canciones, artistas, álbumes...", color = TextMuted) },
             leadingIcon = {
-                Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted)
+                Icon(Icons.Default.Search, contentDescription = null, tint = AccentCoral)
             },
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = viewModel::clearSearch) {
-                        Icon(Icons.Default.Clear, contentDescription = "Limpiar", tint = TextMuted)
+                        Icon(Icons.Default.Clear, contentDescription = "Limpiar", tint = TextSecondary)
                     }
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AccentPink,
-                unfocusedBorderColor = SurfaceElevated,
+                focusedBorderColor = AccentCoral,
+                unfocusedBorderColor = SurfaceElevated.copy(alpha = 0.72f),
+                focusedContainerColor = SurfaceElevated.copy(alpha = 0.42f),
+                unfocusedContainerColor = SurfaceElevated.copy(alpha = 0.42f),
                 focusedTextColor = TextPrimary,
                 unfocusedTextColor = TextPrimary,
-                cursorColor = AccentPink,
+                cursorColor = AccentCoral,
             ),
         )
 
@@ -122,7 +128,7 @@ fun SearchScreen(
                     synced = results.count { it.source == "Sincronizada" },
                 )
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(results) { result ->
                         SearchResultRow(
                             result = result,
@@ -148,7 +154,7 @@ private fun LoadingState() {
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        CircularProgressIndicator(color = AccentPink)
+        CircularProgressIndicator(color = AccentCoral)
     }
 }
 
@@ -201,12 +207,12 @@ private fun SearchChip(
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = if (highlighted) AccentPink.copy(alpha = 0.18f) else SurfaceElevated,
+        color = if (highlighted) AccentCoral.copy(alpha = 0.18f) else SurfaceElevated.copy(alpha = 0.58f),
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelMedium,
-            color = if (highlighted) AccentPink else TextMuted,
+            color = if (highlighted) AccentCoral else TextMuted,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         )
     }
@@ -221,25 +227,12 @@ private fun SearchResultRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(SurfaceElevated.copy(alpha = 0.55f))
+            .background(SurfaceElevated.copy(alpha = 0.48f))
             .clickable(onClick = onPlay)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(AccentPink.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Default.MusicNote,
-                contentDescription = null,
-                tint = AccentPink,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        SearchArtwork(coverId = result.track.coverId)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -261,7 +254,42 @@ private fun SearchResultRow(
         Text(
             text = result.source,
             style = MaterialTheme.typography.labelSmall,
-            color = if (result.source == "Sincronizada") AccentPink else TextDim,
+            color = if (result.source == "Sincronizada") AccentCoral else TextDim,
         )
+    }
+}
+
+@Composable
+private fun SearchArtwork(coverId: String) {
+    val modifier = Modifier
+        .size(42.dp)
+        .clip(RoundedCornerShape(8.dp))
+
+    if (coverId.isNotEmpty()) {
+        AsyncImage(
+            model = "content://media/external/audio/albumart/$coverId",
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop,
+        )
+    } else {
+        Box(
+            modifier = modifier.background(
+                Brush.verticalGradient(
+                    listOf(
+                        AccentCoral.copy(alpha = 0.28f),
+                        AccentPink.copy(alpha = 0.16f),
+                    )
+                )
+            ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = AccentCoral,
+                modifier = Modifier.size(22.dp),
+            )
+        }
     }
 }

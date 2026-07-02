@@ -1,6 +1,7 @@
 @file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Error
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,7 +40,6 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,13 +55,12 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
-import org.michimusic.mobile.sync.SyncUiState
 import org.michimusic.mobile.sync.SyncViewModel
+import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -80,6 +82,7 @@ fun SyncScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(SurfaceDark)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -207,29 +210,51 @@ private fun ConnectionPrompt(onStart: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(
-            imageVector = Icons.Default.Lan,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = AccentPink,
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "Sincronización",
-            style = MaterialTheme.typography.headlineLarge,
-            color = TextPrimary,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Conecta con Michi Music Player en tu red local",
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextSecondary,
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onStart) {
-            Icon(Icons.Default.Sync, contentDescription = null)
-            Spacer(Modifier.size(8.dp))
-            Text("Buscar servidores")
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(AccentCoral.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lan,
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp),
+                        tint = AccentCoral,
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Sincronización",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = TextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Conecta con Michi Music Player en tu red local",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = TextSecondary,
+                )
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onStart,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentCoral,
+                        contentColor = SurfaceDark,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Buscar servidores")
+                }
+            }
         }
     }
 }
@@ -249,6 +274,7 @@ private fun DiscoveringState(
             Text(
                 text = "Servidores encontrados",
                 style = MaterialTheme.typography.titleLarge,
+                color = TextPrimary,
             )
             OutlinedButton(onClick = onStop) {
                 Text("Detener")
@@ -263,7 +289,7 @@ private fun DiscoveringState(
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = AccentCoral)
                     Spacer(Modifier.height(16.dp))
                     Text(
                         "Buscando servidores...",
@@ -297,8 +323,9 @@ private fun PeerCard(
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = SurfaceElevated,
+            containerColor = SurfaceElevated.copy(alpha = 0.58f),
         ),
     ) {
         Row(
@@ -309,12 +336,18 @@ private fun PeerCard(
                 imageVector = if (authRequired) Icons.Default.Lock else Icons.Default.Devices,
                 contentDescription = null,
                 tint = if (authRequired) AccentCoral else AccentPink,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background((if (authRequired) AccentCoral else AccentPink).copy(alpha = 0.12f))
+                    .padding(9.dp),
             )
             Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = peer.alias,
                     style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary,
                 )
                 Text(
                     text = "${peer.ip}:${peer.port}",
@@ -395,6 +428,11 @@ private fun PairingForm(
             onClick = { onPair(username, password) },
             modifier = Modifier.fillMaxWidth(),
             enabled = username.isNotBlank() && password.isNotBlank(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AccentCoral,
+                contentColor = SurfaceDark,
+            ),
+            shape = RoundedCornerShape(8.dp),
         ) {
             Text("Emparejar")
         }
@@ -476,6 +514,11 @@ private fun CodePairingForm(
             onClick = { onPair(code) },
             modifier = Modifier.fillMaxWidth(),
             enabled = code.isNotBlank() && !expired,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AccentCoral,
+                contentColor = SurfaceDark,
+            ),
+            shape = RoundedCornerShape(8.dp),
         ) {
             Text("Emparejar")
         }
@@ -493,7 +536,7 @@ private fun ConnectingState(message: String) {
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = AccentCoral)
             Spacer(Modifier.height(16.dp))
             Text(
                 message,
@@ -520,13 +563,14 @@ private fun ConnectedState(
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = null,
-                tint = AccentPink,
+                tint = AccentCoral,
                 modifier = Modifier.size(24.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (pairingConfirm != null) "Emparejado y autorizado" else "Conectado",
                 style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary,
             )
         }
         Spacer(Modifier.height(8.dp))
@@ -549,16 +593,12 @@ private fun ConnectedState(
 
         pairingConfirm?.let { confirm ->
             Spacer(Modifier.height(16.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = SurfaceElevated,
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         "Permisos: ${confirm.permissions.joinToString(", ").ifEmpty { "Ninguno" }}",
                         style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary,
                     )
                     Text(
                         "Servidor: ${confirm.serverDeviceId.take(8)}...",
@@ -576,6 +616,11 @@ private fun ConnectedState(
                 Button(
                     onClick = onSync,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentCoral,
+                        contentColor = SurfaceDark,
+                    ),
+                    shape = RoundedCornerShape(8.dp),
                 ) {
                     Icon(Icons.Default.Sync, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
@@ -584,16 +629,12 @@ private fun ConnectedState(
             }
 
             is SyncProgress.Downloading -> {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = SurfaceElevated,
-                    ),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             "Descargando biblioteca...",
                             style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
                         )
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(
@@ -603,6 +644,8 @@ private fun ConnectedState(
                                 } else 0f
                             },
                             modifier = Modifier.fillMaxWidth(),
+                            color = AccentCoral,
+                            trackColor = SurfaceElevated,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -615,19 +658,15 @@ private fun ConnectedState(
             }
 
             is SyncProgress.Complete -> {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = AccentPink.copy(alpha = 0.15f),
-                    ),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             "Sincronización completa",
                             style = MaterialTheme.typography.titleMedium,
+                            color = AccentCoral,
                         )
-                        Text("${syncProgress.tracks} canciones en biblioteca")
-                        Text("${syncProgress.downloaded} descargadas")
+                        Text("${syncProgress.tracks} canciones en biblioteca", color = TextPrimary)
+                        Text("${syncProgress.downloaded} descargadas", color = TextSecondary)
                         if (syncProgress.errors > 0) {
                             Text(
                                 "${syncProgress.errors} errores",
