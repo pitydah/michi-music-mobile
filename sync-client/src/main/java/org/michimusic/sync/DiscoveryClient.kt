@@ -20,6 +20,7 @@ import org.michimusic.core.models.DiscoveredPeer
 import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.MulticastSocket
+import java.net.SocketException
 
 class DiscoveryClient(
     private val context: Context,
@@ -108,8 +109,13 @@ class DiscoveryClient(
                 }
             } catch (_: java.net.SocketTimeoutException) {
                 cleanStalePeers()
+            } catch (_: java.net.SocketException) {
+                break
+            } catch (_: Exception) {
+                break
             }
         }
+        closeSocket()
     }
 
     suspend fun stop() = withContext(Dispatchers.IO) {
