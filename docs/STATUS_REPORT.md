@@ -3,7 +3,7 @@
 **Date:** 2026-07-01
 **Version:** 0.1.0-alpha
 **Branch:** main
-**Commit HEAD:** `59bdd13`
+**Commit HEAD:** `bc48544`
 
 ## Build Status
 
@@ -22,32 +22,33 @@
 | `:remote` | OK | OkHttp remote control client |
 | `:app` | OK | UI, navigation, DI (normalDebug variant) |
 
-## AudioController — lazy init
+## AudioController — lazy init con pending queue
 
 - `init` block que cree MediaController: **NO EXISTE**
 - `MediaController.Builder` solo en `ensureConnected()`: **SÍ**
-- Llamadas a `ensureConnected()` desde: playQueue, play, pause, seekTo, skipNext/Previous, setRepeatMode, toggleShuffle, addToQueue, removeFromQueue, clearQueue
+- `pendingTracks`/`pendingStartIndex`/`pendingPlay`: **SÍ** — `playQueue()` guarda la acción si MediaController aún no está listo, y `flushPending()` la ejecuta cuando la conexión asíncrona se completa
 - `connectStarted` es `@Volatile`: **SÍ**
 - NavGraph ya no inyecta `AudioController` al arrancar: **SÍ**
+- Logs con tag `MichiAudio` para verificar: **SÍ**
 
 ## Design System verificable
 
-- `MichiTokens.kt`: **EXISTE** (`app/.../ui/theme/MichiTokens.kt`)
-- Componentes en `ui/components/` (14 archivos):
-  - GlassCard, GlowPlayButton, MichiActionButton, MichiArtworkCard, MichiBackground, MichiBottomNavigation, MichiEmptyState, MichiIconButton, MichiLoadingState, MichiScreen, MichiSectionHeader, MichiSlider, MiniPlayer, TrackRow
-- `MichiBottomNavigation` se usa en NavGraph, reemplazando `NavigationBar` de Material3: **SÍ**
-- `NavigationBar` de Material3 en NavGraph: **0 referencias**
+- `MichiTokens.kt`: **EXISTE**
+- Componentes en `ui/components/`: **14 archivos**
+- `MichiBottomNavigation` usado en NavGraph: **SÍ** — 0 referencias a `NavigationBar` de Material3
 
-## Navegación verificable
+## MichiBackground/MichiScreen adoptados
 
-- `QueueScreen.kt`: **EXISTE**
-- `composable("queue")` en NavGraph: **SÍ**
-- 13 rutas totales: home, library, playlist, playlists, queue, nowplaying, sync, synced, search, remote, audio-route, diagnostics, settings
-- Bottom nav: 6 items (home, library, nowplaying, remote, sync, settings)
-
-## Documentación
-
-- `docs/UI_UX_GUIDE.md`: **EXISTE**
+| Pantalla | MichiBackground | MichiScreen |
+|----------|:---:|:---:|
+| HomeScreen | - | ✅ |
+| AlbumsScreen | ✅ | - |
+| SearchScreen | ✅ | ✅ |
+| QueueScreen | ✅ | ✅ |
+| PlaylistsScreen | ✅ | - |
+| SettingsScreen | ✅ | - |
+| RemoteScreen | ✅ | - |
+| SyncScreen | ✅ | - |
 
 ## Screens (13/13)
 
