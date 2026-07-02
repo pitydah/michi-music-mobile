@@ -54,8 +54,8 @@ import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.components.GlassCardVariant
 import org.michimusic.mobile.ui.components.MichiActionButton
+import org.michimusic.mobile.ui.components.MichiBackground
 import org.michimusic.mobile.ui.components.MichiButtonStyle
 import org.michimusic.mobile.ui.theme.MichiSpacing
 
@@ -72,7 +72,7 @@ fun SyncScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
+    MichiBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()

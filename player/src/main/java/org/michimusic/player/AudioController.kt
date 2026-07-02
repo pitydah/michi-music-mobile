@@ -2,6 +2,7 @@ package org.michimusic.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -20,6 +21,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 
+private const val TAG = "MichiAudio"
+
 @OptIn(UnstableApi::class)
 class AudioController(
     private val context: Context,
@@ -32,6 +35,10 @@ class AudioController(
     @Volatile
     private var connectStarted = false
     private var connectJob: Job? = null
+
+    private var pendingTracks: List<Track>? = null
+    private var pendingStartIndex: Int = 0
+    private var pendingPlay: Boolean = false
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -73,16 +80,58 @@ class AudioController(
     fun ensureConnected() {
         if (connectStarted) return
         connectStarted = true
+        Log.d(TAG, "ensureConnected called")
         val sessionToken = SessionToken(
             context,
             ComponentName(context, MichiPlaybackService::class.java),
         )
         val future = MediaController.Builder(context, sessionToken).buildAsync()
         future.addListener({
-            val controller = future.get()
-            mediaController = controller
-            controller.addListener(listener)
+            val controller = try { future.get() } catch (e: Exception) { null }
+            if (controller != null) {
+                mediaController = controller
+                controller.addListener(listener)
+                Log.d(TAG, "MediaController ready")
+                flushPending()
+            } else {
+                Log.e(TAG, "MediaController failed")
+                connectStarted = false
+            }
         }, MoreExecutors.directExecutor())
+    }
+
+    private fun flushPending() {
+        val ctrl = mediaController ?: return
+        val tracks = pendingTracks
+        val startIdx = pendingStartIndex
+        if (tracks != null) {
+            pendingTracks = null
+            Log.d(TAG, "pending playQueue executed ($startIdx/${tracks.size})")
+            val mediaItems = tracks.map { track ->
+                MediaItem.Builder()
+                    .setMediaId(track.id)
+                    .setUri(track.filepath)
+                    .setMediaMetadata(
+                        androidx.media3.common.MediaMetadata.Builder()
+                            .setTitle(track.title)
+                            .setArtist(track.artist)
+                            .build()
+                    )
+                    .build()
+            }
+            ctrl.setMediaItems(mediaItems, startIdx, 0L)
+            _state.value = PlayerState(
+                currentTrack = tracks.getOrNull(startIdx),
+                queue = tracks,
+                queueIndex = startIdx,
+                isPlaying = true,
+                duration = tracks.getOrNull(startIdx)?.duration ?: 0L,
+            )
+            if (pendingPlay) {
+                pendingPlay = false
+                ctrl.play()
+            }
+        }
     }
 
     private fun startPositionUpdates() {
@@ -104,7 +153,12 @@ class AudioController(
 
     fun play() {
         ensureConnected()
-        mediaController?.play()
+        val ctrl = mediaController
+        if (ctrl != null) {
+            ctrl.play()
+        } else {
+            pendingPlay = true
+        }
     }
 
     fun pause() {
@@ -140,6 +194,8 @@ class AudioController(
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         ensureConnected()
+        Log.d(TAG, "playQueue requested (${tracks.size} tracks, start=$startIndex)")
+        val ctrl = mediaController
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -152,7 +208,6 @@ class AudioController(
                 )
                 .build()
         }
-        mediaController?.setMediaItems(mediaItems, startIndex, 0L)
         _state.value = PlayerState(
             currentTrack = tracks.getOrNull(startIndex),
             queue = tracks,
@@ -160,7 +215,14 @@ class AudioController(
             isPlaying = true,
             duration = tracks.getOrNull(startIndex)?.duration ?: 0L,
         )
-        mediaController?.play()
+        if (ctrl != null) {
+            ctrl.setMediaItems(mediaItems, startIndex, 0L)
+            ctrl.play()
+        } else {
+            pendingTracks = tracks
+            pendingStartIndex = startIndex
+            pendingPlay = true
+        }
     }
 
     fun addToQueue(track: Track) {
@@ -192,6 +254,8 @@ class AudioController(
     }
 
     fun clearQueue() {
+        pendingTracks = null
+        pendingPlay = false
         ensureConnected()
         mediaController?.stop()
         mediaController?.clearMediaItems()

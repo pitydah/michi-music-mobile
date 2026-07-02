@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +40,7 @@ import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.MichiBackground
 import org.michimusic.mobile.ui.components.MichiEmptyState
 import org.michimusic.mobile.ui.components.MichiLoadingState
 import org.michimusic.mobile.ui.components.TrackRow
@@ -60,10 +62,10 @@ fun PlaylistsScreen() {
     val controller = rememberAudioController()
     var expandedPlaylistId by remember { mutableStateOf<String?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
+    MichiBackground {
         if (isLoading) {
             MichiLoadingState(text = "Cargando playlists...")
-            return
+            return@MichiBackground
         }
 
         if (playlists.isEmpty()) {
@@ -72,7 +74,7 @@ fun PlaylistsScreen() {
                 title = "Sin playlists",
                 description = "Crea playlists en tu app de música favorita",
             )
-            return
+            return@MichiBackground
         }
 
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = MichiSpacing.lg)) {
@@ -131,5 +133,3 @@ fun PlaylistsScreen() {
         }
     }
 }
-
-private fun Modifier.background(color: androidx.compose.ui.graphics.Color): Modifier = this

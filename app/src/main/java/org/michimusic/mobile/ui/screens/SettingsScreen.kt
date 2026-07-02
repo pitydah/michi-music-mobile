@@ -37,7 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.components.MichiBackground
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
@@ -59,12 +61,12 @@ fun SettingsScreen() {
 
     var autoSync by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SYNC, false)) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
+    MichiBackground {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = MichiSpacing.lg),
     ) {
         Spacer(Modifier.height(16.dp))
 
@@ -312,4 +314,5 @@ fun SettingsScreen() {
 
         Spacer(Modifier.height(32.dp))
     }
+}
 }

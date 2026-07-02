@@ -56,6 +56,7 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.components.MichiActionButton
+import org.michimusic.mobile.ui.components.MichiBackground
 import org.michimusic.mobile.ui.components.MichiButtonStyle
 import org.michimusic.mobile.ui.theme.MichiSpacing
 
@@ -72,7 +73,7 @@ fun RemoteScreen(
         viewModel.connectIfNeeded()
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
+    MichiBackground {
         if (!connected) {
             Column(
                 modifier = Modifier
