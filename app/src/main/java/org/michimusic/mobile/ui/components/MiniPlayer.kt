@@ -3,7 +3,6 @@ package org.michimusic.mobile.ui.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,11 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -28,7 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,14 +34,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceBorder
-import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -73,9 +73,9 @@ fun MiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(SurfaceElevated, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .border(0.5.dp, SurfaceBorder, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .background(Color(0xD912141B), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+            .border(0.5.dp, SurfaceBorder, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         if (playerState.duration > 0 && track != null) {
             LinearProgressIndicator(
@@ -86,7 +86,7 @@ fun MiniPlayer(
                     .align(Alignment.TopCenter)
                     .padding(top = 0.dp),
                 trackColor = SurfaceDark,
-                color = AccentPink,
+                color = AccentCoral,
             )
         }
         Row(
@@ -102,7 +102,7 @@ fun MiniPlayer(
                         contentDescription = null,
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(6.dp)),
+                            .clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop,
                     )
                     Spacer(Modifier.width(10.dp))
@@ -110,11 +110,18 @@ fun MiniPlayer(
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(AccentPink.copy(alpha = 0.15f)),
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        AccentCoral.copy(alpha = 0.28f),
+                                        AccentPink.copy(alpha = 0.18f),
+                                    )
+                                )
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Default.MusicNote, null, tint = AccentPink, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Rounded.MusicNote, null, tint = AccentCoral, modifier = Modifier.size(20.dp))
                     }
                     Spacer(Modifier.width(10.dp))
                 }
@@ -147,7 +154,7 @@ fun MiniPlayer(
 
             IconButton(onClick = { controller.skipPrevious() }, modifier = Modifier.size(36.dp)) {
                 Icon(
-                    imageVector = Icons.Default.SkipPrevious,
+                    imageVector = Icons.Rounded.SkipPrevious,
                     contentDescription = "Previous",
                     tint = TextMuted,
                     modifier = Modifier.size(20.dp),
@@ -155,9 +162,9 @@ fun MiniPlayer(
             }
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
-                    .background(AccentPink, CircleShape),
+                    .background(Color(0xE6F4EFE7), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(
@@ -167,7 +174,7 @@ fun MiniPlayer(
                     modifier = Modifier.size(36.dp),
                 ) {
                     Icon(
-                        imageVector = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        imageVector = if (playerState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (playerState.isPlaying) "Pause" else "Play",
                         tint = SurfaceDark,
                         modifier = Modifier.size(20.dp),
@@ -176,7 +183,7 @@ fun MiniPlayer(
             }
             IconButton(onClick = { controller.skipNext() }, modifier = Modifier.size(36.dp)) {
                 Icon(
-                    imageVector = Icons.Default.SkipNext,
+                    imageVector = Icons.Rounded.SkipNext,
                     contentDescription = "Next",
                     tint = TextMuted,
                     modifier = Modifier.size(20.dp),

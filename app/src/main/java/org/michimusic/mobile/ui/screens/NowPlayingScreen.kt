@@ -17,12 +17,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +35,6 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.sync.SyncViewModel
 import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.theme.AccentPink
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.AudioController
@@ -44,10 +42,11 @@ import org.michimusic.player.PlayerState
 
 // --- PALETA DE COLORES (Estilo Michi Music Player) ---
 val BgDark = Color(0xFF05070C)
-val GlassBg = Color(0xAA151820)
-val GlassBorder = Color(0x1AFFFFFF)
+val GlassBorder = Color(0x24FFFFFF)
 val AccentCoral = Color(0xFFFF6A3D)
 val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
+private val PremiumGlass = Color(0x8F181B22)
+private val PremiumGlassSoft = Color(0x52181B22)
 
 // --- MODELOS ---
 data class PlaybackSource(
@@ -102,21 +101,18 @@ fun NowPlayingScreen(
         return "%d:%02d".format(min, sec)
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(SurfaceDark, BgDark)))
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        PlayerBackdrop(coverId = currentTrack?.coverId)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // 1 & 2. Selector Desplegable de Fuente
             Box(contentAlignment = Alignment.TopCenter) {
                 PlaybackSourceDropdown(
                     source = selectedSource,
@@ -151,85 +147,138 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // 3. Carátula del Álbum
             AlbumArtworkCard(
                 coverId = currentTrack?.coverId,
                 modifier = Modifier
                     .weight(1f)
                     .aspectRatio(1f)
-                    .widthIn(max = 330.dp)
+                    .widthIn(max = 350.dp)
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // 4. Información de la Canción
-            TrackInfo(
-                title = currentTrack?.title ?: "Sin reproducción",
-                artist = currentTrack?.artist ?: ""
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 5. Barra de Progreso
             var dragProgress by remember { mutableFloatStateOf(progress) }
             LaunchedEffect(state.position, state.duration) {
                 if (state.duration > 0L) {
                     dragProgress = (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
                 }
             }
-            MichiSlider(
-                value = dragProgress,
-                onValueChange = { dragProgress = it },
-                onValueChangeFinished = {
-                    if (state.duration > 0L) {
-                        audioController?.seekTo((dragProgress * state.duration).toLong())
-                    }
-                },
-                timeStart = formatTime(state.position),
-                timeEnd = formatTime(state.duration)
-            )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // 6. Controles Principales
-            PlaybackControls(
-                isPlaying = state.isPlaying,
-                onPlayPause = {
-                    if (state.isPlaying) audioController?.pause()
-                    else audioController?.play()
-                },
-                onNext = { audioController?.skipNext() },
-                onPrevious = { audioController?.skipPrevious() },
-                onShuffle = { audioController?.toggleShuffle() },
-                onRepeat = { audioController?.let {
-                    val next = (it.state.value.repeatMode + 1) % 3
-                    it.setRepeatMode(next)
-                } },
-                isShuffled = state.shuffleMode,
-                repeatMode = state.repeatMode,
-            )
+            PlayerGlassPanel {
+                TrackInfo(
+                    title = currentTrack?.title ?: "Sin reproducción",
+                    artist = currentTrack?.artist ?: ""
+                )
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // 7. Volumen y Accesos Rápidos
-            VolumeAndToolsRow(
-                volume = volume,
-                onVolumeChange = { fraction ->
-                    volume = fraction
-                    val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
-                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
-                },
-                onNavigateToAudioRoute = onNavigateToAudioRoute,
-            )
+                UtilityIconRow(
+                    isShuffled = state.shuffleMode,
+                    repeatMode = state.repeatMode,
+                    onShuffle = { audioController?.toggleShuffle() },
+                    onRepeat = {
+                        audioController?.let {
+                            val next = (it.state.value.repeatMode + 1) % 3
+                            it.setRepeatMode(next)
+                        }
+                    },
+                    onNavigateToAudioRoute = onNavigateToAudioRoute,
+                )
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                MichiSlider(
+                    value = dragProgress,
+                    onValueChange = { dragProgress = it },
+                    onValueChangeFinished = {
+                        if (state.duration > 0L) {
+                            audioController?.seekTo((dragProgress * state.duration).toLong())
+                        }
+                    },
+                    timeStart = formatTime(state.position),
+                    timeEnd = formatTime(state.duration)
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                PlaybackControls(
+                    isPlaying = state.isPlaying,
+                    onPlayPause = {
+                        if (state.isPlaying) audioController?.pause()
+                        else audioController?.play()
+                    },
+                    onNext = { audioController?.skipNext() },
+                    onPrevious = { audioController?.skipPrevious() },
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                VolumeAndToolsRow(
+                    volume = volume,
+                    onVolumeChange = { fraction ->
+                        volume = fraction
+                        val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+                    },
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
         }
     }
 }
 
 // --- COMPONENTES ---
+
+@Composable
+private fun PlayerBackdrop(coverId: String?) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgDark)
+    ) {
+        if (!coverId.isNullOrEmpty()) {
+            AsyncImage(
+                model = "content://media/external/audio/albumart/$coverId",
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(36.dp),
+                contentScale = ContentScale.Crop,
+                alpha = 0.42f,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xB005070C),
+                            Color(0x8A2C1816),
+                            Color(0xF205070C),
+                        )
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun PlayerGlassPanel(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(PremiumGlass)
+            .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
+            .padding(horizontal = 18.dp, vertical = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        content = content,
+    )
+}
 
 @Composable
 fun PlaybackSourceDropdown(
@@ -240,20 +289,20 @@ fun PlaybackSourceDropdown(
     Row(
         modifier = Modifier
             .width(280.dp)
-            .height(58.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(GlassBg)
-            .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
+            .height(54.dp)
+            .clip(RoundedCornerShape(27.dp))
+            .background(PremiumGlassSoft)
+            .border(1.dp, GlassBorder, RoundedCornerShape(27.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(source.icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(24.dp))
+            Icon(source.icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(22.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Column {
-                Text(source.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(source.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(source.subtitle, color = TextSecondary, fontSize = 12.sp)
             }
         }
@@ -276,7 +325,7 @@ fun PlaybackSourceMenu(
         modifier = Modifier
             .width(280.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(GlassBg)
+            .background(PremiumGlass)
             .border(1.dp, GlassBorder, RoundedCornerShape(22.dp))
             .padding(vertical = 16.dp)
     ) {
@@ -336,9 +385,9 @@ fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(24.dp))
+            .clip(RoundedCornerShape(26.dp))
             .background(synthwaveGradient)
-            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp)),
+            .border(1.dp, GlassBorder, RoundedCornerShape(26.dp)),
         contentAlignment = Alignment.Center
     ) {
         if (!coverId.isNullOrEmpty()) {
@@ -376,15 +425,60 @@ fun TrackInfo(title: String, artist: String) {
         Text(
             text = title,
             color = TextPrimary,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 23.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = artist,
             color = TextSecondary,
-            fontSize = 20.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Normal
+        )
+    }
+}
+
+@Composable
+private fun UtilityIconRow(
+    isShuffled: Boolean,
+    repeatMode: Int,
+    onShuffle: () -> Unit,
+    onRepeat: () -> Unit,
+    onNavigateToAudioRoute: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MichiIconButton(
+            Icons.Rounded.FavoriteBorder,
+            size = 20.dp,
+            tint = TextSecondary,
+        )
+        MichiIconButton(
+            Icons.Rounded.Shuffle,
+            size = 20.dp,
+            tint = if (isShuffled) AccentPink else TextSecondary,
+            onClick = onShuffle,
+        )
+        MichiIconButton(
+            Icons.AutoMirrored.Rounded.QueueMusic,
+            size = 20.dp,
+            tint = TextSecondary,
+        )
+        MichiIconButton(
+            icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+            size = 20.dp,
+            tint = if (repeatMode != 0) AccentPink else TextSecondary,
+            onClick = onRepeat,
+        )
+        MichiIconButton(
+            Icons.Rounded.SpeakerGroup,
+            size = 20.dp,
+            tint = AccentCoral,
+            onClick = onNavigateToAudioRoute,
         )
     }
 }
@@ -427,9 +521,9 @@ fun MichiSlider(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.dp)
+                        .height(4.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF2A2E38))
+                        .background(Color(0x4DFFFFFF))
                 ) {
                     Box(
                         modifier = Modifier
@@ -454,31 +548,26 @@ fun PlaybackControls(
     onPlayPause: () -> Unit = {},
     onNext: () -> Unit = {},
     onPrevious: () -> Unit = {},
-    onShuffle: () -> Unit = {},
-    onRepeat: () -> Unit = {},
-    isShuffled: Boolean = false,
-    repeatMode: Int = 0,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MichiIconButton(Icons.Rounded.Shuffle, size = 24.dp, tint = if (isShuffled) AccentPink else AccentCoral, onClick = onShuffle)
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 32.dp, onClick = onPrevious)
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 30.dp, tint = TextPrimary, onClick = onPrevious)
 
         Box(
             modifier = Modifier
-                .size(86.dp)
+                .size(72.dp)
                 .drawBehind {
                     drawCircle(
-                        color = AccentPink.copy(alpha = 0.15f),
-                        radius = size.width / 2 + 12.dp.toPx()
+                        color = AccentCoral.copy(alpha = 0.14f),
+                        radius = size.width / 2 + 10.dp.toPx()
                     )
                 }
                 .clip(CircleShape)
-                .background(GlassBg)
-                .border(2.dp, AccentPink.copy(alpha = 0.6f), CircleShape)
+                .background(Color(0xE6F4EFE7))
+                .border(1.dp, Color.White.copy(alpha = 0.32f), CircleShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -489,18 +578,12 @@ fun PlaybackControls(
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = AccentCoral,
-                modifier = Modifier.size(38.dp)
+                tint = Color(0xFF191B21),
+                modifier = Modifier.size(34.dp)
             )
         }
 
-        MichiIconButton(Icons.Rounded.SkipNext, size = 32.dp, onClick = onNext)
-        MichiIconButton(
-            icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-            size = 24.dp,
-            tint = if (repeatMode != 0) AccentPink else AccentCoral,
-            onClick = onRepeat,
-        )
+        MichiIconButton(Icons.Rounded.SkipNext, size = 30.dp, tint = TextPrimary, onClick = onNext)
     }
 }
 
@@ -508,7 +591,6 @@ fun PlaybackControls(
 fun VolumeAndToolsRow(
     volume: Float,
     onVolumeChange: (Float) -> Unit,
-    onNavigateToAudioRoute: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -526,9 +608,7 @@ fun VolumeAndToolsRow(
 
         Spacer(modifier = Modifier.width(24.dp))
 
-        MichiIconButton(Icons.Rounded.Tune, size = 20.dp, tint = AccentCoral)
-        Spacer(modifier = Modifier.width(16.dp))
-        MichiIconButton(Icons.Rounded.SpeakerGroup, size = 20.dp, tint = AccentCoral, onClick = onNavigateToAudioRoute)
+        MichiIconButton(Icons.Rounded.Equalizer, size = 20.dp, tint = AccentCoral)
     }
 }
 
@@ -537,9 +617,18 @@ fun MichiIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     size: Dp,
     tint: Color = TextSecondary,
-    onClick: () -> Unit = {},
+    onClick: (() -> Unit)? = null,
 ) {
-    IconButton(onClick = onClick, modifier = Modifier.size(size + 16.dp)) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+    if (onClick == null) {
+        Box(
+            modifier = Modifier.size(size + 16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+        }
+    } else {
+        IconButton(onClick = onClick, modifier = Modifier.size(size + 16.dp)) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+        }
     }
 }
