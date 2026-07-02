@@ -31,7 +31,7 @@ class LinkTransferManager(
         item: DownloadItem,
     ): Result<File> = withContext(Dispatchers.IO) {
         val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val file = File(musicDir, "${item.trackId}.$ext")
+        val file = File(musicDir, "${safeFileName(item.trackId)}.$ext")
 
         if (file.exists() && file.length() > 0) {
             if (item.checksum.isNotEmpty() && !verifyChecksum(file, item.checksum)) {
@@ -44,11 +44,13 @@ class LinkTransferManager(
 
         _downloads.value += (item.trackId to DownloadProgress.Downloading(0L))
 
-        val result = client.streamTrack(
-            trackId = item.trackId,
-            outputStream = FileOutputStream(file),
-            startBytes = 0,
-        )
+        val result = FileOutputStream(file).use { outputStream ->
+            client.streamTrack(
+                trackId = item.trackId,
+                outputStream = outputStream,
+                startBytes = 0,
+            )
+        }
 
         result.onSuccess { bytes ->
             if (item.checksum.isNotEmpty()) {
@@ -103,7 +105,7 @@ class LinkTransferManager(
 
     fun getTrackFile(trackId: String, format: String): File? {
         val ext = format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val file = File(musicDir, "${trackId}.$ext")
+        val file = File(musicDir, "${safeFileName(trackId)}.$ext")
         return file.takeIf { it.exists() }
     }
 
@@ -128,6 +130,9 @@ class LinkTransferManager(
             false
         }
     }
+
+    private fun safeFileName(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
 }
 
 sealed class DownloadProgress {

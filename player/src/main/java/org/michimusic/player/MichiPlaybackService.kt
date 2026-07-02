@@ -25,7 +25,8 @@ class MichiPlaybackService : MediaLibraryService() {
     private var playerController: PlayerController? = null
     private lateinit var replayGainProcessor: ReplayGainAudioProcessor
     private lateinit var stateStore: PlaybackStateStore
-    private val saveScope = CoroutineScope(Dispatchers.IO + Job())
+    private val saveScopeJob = Job()
+    private val saveScope = CoroutineScope(Dispatchers.IO + saveScopeJob)
     private var saveJob: Job? = null
 
     override fun onCreate() {
@@ -40,15 +41,16 @@ class MichiPlaybackService : MediaLibraryService() {
 
             val replayGainDao = PlayerDependencies.replayGainDao
             val controller = PlayerController(this, listOf(replayGainProcessor), replayGainDao)
+            val exoPlayer = controller.getExoPlayer()
             playerController = controller
-            player = controller.getExoPlayer()
+            player = exoPlayer
 
             val libraryProvider = LibraryProvider(this, controller.getRepository())
             val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore)
 
             setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
 
-            mediaLibrarySession = MediaLibrarySession.Builder(this, player!!, callback)
+            mediaLibrarySession = MediaLibrarySession.Builder(this, exoPlayer, callback)
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         this,
@@ -61,7 +63,7 @@ class MichiPlaybackService : MediaLibraryService() {
 
             restorePlaybackState(libraryProvider)
 
-            player!!.addListener(object : Player.Listener {
+            exoPlayer.addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
                     if (songId != null) {
@@ -98,13 +100,12 @@ class MichiPlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         saveNow()
         saveJob?.cancel()
+        saveScopeJob.cancel()
+        mediaLibrarySession?.release()
+        mediaLibrarySession = null
         playerController?.release()
         playerController = null
-        mediaLibrarySession?.run {
-            player.release()
-            release()
-            mediaLibrarySession = null
-        }
+        player = null
         super.onDestroy()
     }
 

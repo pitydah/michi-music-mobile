@@ -39,6 +39,8 @@ import org.michimusic.link.dto.TrackListResponseDto
 import org.michimusic.link.errors.LinkException
 import org.michimusic.link.errors.LinkErrorResponse
 import java.io.OutputStream
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 class LinkClient(
     val baseUrl: String,
@@ -60,6 +62,12 @@ class LinkClient(
     private fun authHeader(): String {
         return "Bearer ${deviceToken.ifEmpty { sessionToken }}"
     }
+
+    private fun encodeQueryValue(value: String): String =
+        URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+
+    private fun encodePathSegment(value: String): String =
+        encodeQueryValue(value).replace("+", "%20")
 
     private suspend fun httpGet(url: String): HttpResponse = client.get(url) {
         if (isAuthenticated) header("Authorization", authHeader())
@@ -250,7 +258,7 @@ class LinkClient(
 
     suspend fun search(query: String): Result<List<org.michimusic.link.dto.TrackResponseDto>> = withContext(Dispatchers.IO) {
         try {
-            val response = httpGet("$baseUrl/api/v1/search?q=$query")
+            val response = httpGet("$baseUrl/api/v1/search?q=${encodeQueryValue(query)}")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<SearchResponseDto>().results)
         } catch (e: Exception) {
@@ -267,8 +275,8 @@ class LinkClient(
         bufferSize: Int = 65536,
     ): Result<Long> = withContext(Dispatchers.IO) {
         try {
-            val response = client.get("$baseUrl/api/v1/stream/$trackId") {
-                header("Authorization", authHeader())
+            val response = client.get("$baseUrl/api/v1/stream/${encodePathSegment(trackId)}") {
+                if (isAuthenticated) header("Authorization", authHeader())
                 if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
                 if (startBytes > 0) header("Range", "bytes=$startBytes-")
             }
@@ -297,7 +305,7 @@ class LinkClient(
         outputStream: OutputStream,
     ): Result<Long> = withContext(Dispatchers.IO) {
         try {
-            val response = httpGet("$baseUrl/api/v1/artwork/$coverId")
+            val response = httpGet("$baseUrl/api/v1/artwork/${encodePathSegment(coverId)}")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             val channel = response.bodyAsChannel()
             var totalRead = 0L
@@ -319,7 +327,7 @@ class LinkClient(
 
     suspend fun fetchSyncManifest(deviceId: String): Result<SyncManifestDto> = withContext(Dispatchers.IO) {
         try {
-            val response = httpGet("$baseUrl/api/v1/sync/manifest?device_id=$deviceId")
+            val response = httpGet("$baseUrl/api/v1/sync/manifest?device_id=${encodeQueryValue(deviceId)}")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<SyncManifestDto>())
         } catch (e: Exception) {
@@ -329,7 +337,9 @@ class LinkClient(
 
     suspend fun fetchSyncManifestDelta(deviceId: String, cursor: String): Result<SyncManifestDto> = withContext(Dispatchers.IO) {
         try {
-            val response = httpGet("$baseUrl/api/v1/sync/manifest/delta?device_id=$deviceId&cursor=$cursor")
+            val response = httpGet(
+                "$baseUrl/api/v1/sync/manifest/delta?device_id=${encodeQueryValue(deviceId)}&cursor=${encodeQueryValue(cursor)}",
+            )
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<SyncManifestDto>())
         } catch (e: Exception) {
