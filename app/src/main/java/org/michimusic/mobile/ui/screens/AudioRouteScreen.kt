@@ -21,10 +21,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BluetoothAudio
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Speaker
-import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.rounded.BluetoothAudio
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,8 +41,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.PremiumScreen
 import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 
@@ -76,94 +76,95 @@ fun AudioRouteScreen() {
         onDispose { context.unregisterReceiver(receiver) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Text(
-            text = "Ruta de audio",
-            style = MaterialTheme.typography.headlineMedium,
-            color = TextPrimary,
-        )
-        Spacer(Modifier.height(16.dp))
+    PremiumScreen {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text(
+                text = "Ruta de audio",
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary,
+            )
+            Spacer(Modifier.height(16.dp))
 
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(AccentCoral.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(routeIcon(route), contentDescription = null, tint = AccentCoral, modifier = Modifier.size(28.dp))
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Salida actual", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = routeName(route),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = AccentCoral,
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        Text("Detalles técnicos", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
-        Spacer(Modifier.height(8.dp))
-
-        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        devices.forEach { device ->
-            val deviceName = device.productName?.toString() ?: "Desconocido"
-            val typeName = when (device.type) {
-                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz interno"
-                AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Auriculares con cable"
-                AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares con cable"
-                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth A2DP"
-                AudioDeviceInfo.TYPE_USB_DEVICE -> "USB DAC"
-                AudioDeviceInfo.TYPE_USB_HEADSET -> "USB Headset"
-                AudioDeviceInfo.TYPE_DOCK -> "Dock"
-                else -> "Tipo ${device.type}"
-            }
             GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth()) {
-                    Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
-                    Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(AccentCoral.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(routeIcon(route), contentDescription = null, tint = AccentCoral, modifier = Modifier.size(28.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Salida actual", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = routeName(route),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = AccentCoral,
+                        )
+                    }
                 }
             }
+
+            Spacer(Modifier.height(16.dp))
+
+            Text("Detalles técnicos", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
             Spacer(Modifier.height(8.dp))
+
+            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            devices.forEach { device ->
+                val deviceName = device.productName?.toString() ?: "Desconocido"
+                val typeName = when (device.type) {
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz interno"
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Auriculares con cable"
+                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares con cable"
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth A2DP"
+                    AudioDeviceInfo.TYPE_USB_DEVICE -> "USB DAC"
+                    AudioDeviceInfo.TYPE_USB_HEADSET -> "USB Headset"
+                    AudioDeviceInfo.TYPE_DOCK -> "Dock"
+                    else -> "Tipo ${device.type}"
+                }
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
+                        Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = TextSecondary.copy(alpha = 0.18f))
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                text = "Consejos",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = when (route) {
+                    is AudioRoute.UsbDac -> "USB DAC detectado. La reproducción es bit-perfect si tu DAC lo soporta."
+                    is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
+                    is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
+                    is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+            )
         }
-
-        Spacer(Modifier.height(16.dp))
-        HorizontalDivider()
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = "Consejos",
-            style = MaterialTheme.typography.titleMedium,
-            color = TextPrimary,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = when (route) {
-                is AudioRoute.UsbDac -> "USB DAC detectado. La reproducción es bit-perfect si tu DAC lo soporta."
-                is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
-                is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
-                is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary,
-        )
     }
 }
 
@@ -175,10 +176,10 @@ private fun routeName(route: AudioRoute): String = when (route) {
 }
 
 private fun routeIcon(route: AudioRoute) = when (route) {
-    is AudioRoute.InternalSpeaker -> Icons.Default.Speaker
-    is AudioRoute.UsbDac -> Icons.Default.Usb
-    is AudioRoute.Bluetooth -> Icons.Default.BluetoothAudio
-    is AudioRoute.Unknown -> Icons.Default.Headphones
+    is AudioRoute.InternalSpeaker -> Icons.Rounded.Speaker
+    is AudioRoute.UsbDac -> Icons.Rounded.Usb
+    is AudioRoute.Bluetooth -> Icons.Rounded.BluetoothAudio
+    is AudioRoute.Unknown -> Icons.Rounded.Headphones
 }
 
 private fun detectRoute(audioManager: AudioManager): AudioRoute {

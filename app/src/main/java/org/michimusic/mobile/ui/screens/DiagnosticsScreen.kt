@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
 import android.content.Context
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,13 +13,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,8 +39,9 @@ import org.michimusic.link.LinkDiagnostics
 import org.michimusic.link.TokenStore
 import org.michimusic.link.dto.DiagnosticReport
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.PremiumButton
+import org.michimusic.mobile.ui.components.PremiumScreen
 import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -58,15 +56,15 @@ fun DiagnosticsScreen() {
     var serverUrl by remember { mutableStateOf("") }
     val tokenStore = remember { TokenStore(context) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-    ) {
-        Text("Diagnóstico Michi Link", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
-        Spacer(Modifier.height(8.dp))
+    PremiumScreen {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Text("Diagnóstico Michi Link", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
+            Spacer(Modifier.height(8.dp))
 
         val savedUrl = tokenStore.getServerUrl()
         if (!savedUrl.isNullOrEmpty() && serverUrl.isEmpty()) {
@@ -86,34 +84,26 @@ fun DiagnosticsScreen() {
 
         Spacer(Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                running = true
-                report = null
-                scope.launch {
-                    val client = LinkClient(
-                        baseUrl = serverUrl.ifEmpty { savedUrl ?: "" },
-                        deviceToken = tokenStore.getDeviceToken() ?: "",
-                        clientDeviceId = tokenStore.getClientDeviceId() ?: "",
-                    )
-                    val diagnostics = LinkDiagnostics(context)
-                    report = diagnostics.runAll(client)
-                    running = false
-                }
-            },
-            enabled = !running && (serverUrl.isNotEmpty() || !savedUrl.isNullOrEmpty()),
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AccentCoral,
-                contentColor = SurfaceDark,
-            ),
-        ) {
-            if (running) {
-                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-            }
-            Text(if (running) "Ejecutando..." else "Ejecutar diagnóstico")
-        }
+            PremiumButton(
+                text = if (running) "Ejecutando..." else "Ejecutar diagnóstico",
+                icon = Icons.Rounded.Sync,
+                onClick = {
+                    running = true
+                    report = null
+                    scope.launch {
+                        val client = LinkClient(
+                            baseUrl = serverUrl.ifEmpty { savedUrl ?: "" },
+                            deviceToken = tokenStore.getDeviceToken() ?: "",
+                            clientDeviceId = tokenStore.getClientDeviceId() ?: "",
+                        )
+                        val diagnostics = LinkDiagnostics(context)
+                        report = diagnostics.runAll(client)
+                        running = false
+                    }
+                },
+                enabled = !running && (serverUrl.isNotEmpty() || !savedUrl.isNullOrEmpty()),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
         Spacer(Modifier.height(16.dp))
 
@@ -124,7 +114,7 @@ fun DiagnosticsScreen() {
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.fillMaxWidth()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, null, tint = AccentCoral, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Rounded.Info, null, tint = AccentCoral, modifier = Modifier.size(24.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("$passed/$total pruebas pasaron", color = TextPrimary)
                     }
@@ -145,7 +135,7 @@ fun DiagnosticsScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            if (test.passed) Icons.Default.CheckCircle else Icons.Default.Error,
+                            if (test.passed) Icons.Rounded.CheckCircle else Icons.Rounded.Error,
                             null,
                             tint = if (test.passed) Color(0xFF4CAF50) else Color(0xFFEF5350),
                             modifier = Modifier.size(20.dp),
@@ -182,22 +172,16 @@ fun DiagnosticsScreen() {
 
             // Export
             Spacer(Modifier.height(16.dp))
-            Button(
+            PremiumButton(
+                text = "Copiar reporte JSON",
+                icon = Icons.Rounded.Folder,
                 onClick = {
                     val json = LinkDiagnostics(context).exportJson(rep)
                     val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clip.setPrimaryClip(android.content.ClipData.newPlainText("diagnostics", json))
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentCoral,
-                    contentColor = SurfaceDark,
-                ),
-            ) {
-                Icon(Icons.Default.Folder, null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Copiar reporte JSON")
-            }
+            )
         }
 
         if (!running && report == null && (serverUrl.isEmpty() && savedUrl.isNullOrEmpty())) {
@@ -207,6 +191,7 @@ fun DiagnosticsScreen() {
                 color = TextDim,
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
         }
     }
 }
