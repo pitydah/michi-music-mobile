@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +29,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,10 +42,13 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.EditorialCoverCollage
+import org.michimusic.mobile.ui.components.PremiumFilterChips
 import org.michimusic.mobile.ui.components.PremiumButton
 import org.michimusic.mobile.ui.components.PremiumEmptyState
 import org.michimusic.mobile.ui.components.PremiumLoadingState
 import org.michimusic.mobile.ui.components.PremiumScreen
+import org.michimusic.mobile.ui.components.PremiumSectionHeader
 import org.michimusic.mobile.ui.components.PremiumStatPill
 import org.michimusic.mobile.ui.components.PremiumTrackItem
 import org.michimusic.mobile.ui.components.ScreenHeader
@@ -61,6 +68,23 @@ fun HomeScreen(
     val allTracks by viewModel.allTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val controller: AudioController = koinInject()
+    var selectedFilter by remember { mutableIntStateOf(0) }
+    val filters = listOf("Todo", "Artistas", "Álbumes", "Recientes")
+    val visibleTracks = remember(allTracks, selectedFilter) {
+        when (selectedFilter) {
+            1 -> allTracks.sortedBy { it.artist.lowercase() }
+            2 -> allTracks.sortedBy { it.album.lowercase() }
+            3 -> allTracks.take(30)
+            else -> allTracks
+        }
+    }
+    val coverIds = remember(allTracks) {
+        allTracks
+            .map { it.coverId }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(3)
+    }
 
     LaunchedEffect(Unit) { viewModel.loadMedia() }
 
@@ -84,6 +108,14 @@ fun HomeScreen(
                     PremiumStatPill("${allTracks.size}")
                 }
             }
+
+            Spacer(Modifier.height(12.dp))
+
+            PremiumFilterChips(
+                items = filters,
+                selectedIndex = selectedFilter,
+                onSelected = { selectedFilter = it },
+            )
 
             Spacer(Modifier.height(12.dp))
 
@@ -121,7 +153,14 @@ fun HomeScreen(
                 return@Column
             }
 
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            EditorialCoverCollage(
+                coverIds = coverIds,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = 14.dp) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -135,7 +174,7 @@ fun HomeScreen(
                                 color = TextPrimary,
                             )
                             Text(
-                            text = "Arranca sin entrar a un álbum",
+                                text = "Arranca sin entrar a un álbum",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextMuted,
                             )
@@ -186,24 +225,43 @@ fun HomeScreen(
             } else {
                 Spacer(Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Canciones recientes",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextSecondary,
-                    )
-                    Text(
-                        text = "20 de ${allTracks.size}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextDim,
-                    )
-                }
+                PremiumSectionHeader(
+                    title = "Destacados",
+                    subtitle = "covers y pistas listas",
+                )
 
                 Spacer(Modifier.height(8.dp))
+
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    itemsIndexed(visibleTracks.take(8)) { index, track ->
+                        PremiumTrackItem(
+                            title = track.title,
+                            subtitle = track.artist.ifBlank { track.album },
+                            coverId = track.coverId,
+                            modifier = Modifier.width(230.dp),
+                            trailing = {
+                                Spacer(Modifier.width(8.dp))
+                                Icon(
+                                    Icons.Rounded.PlayArrow,
+                                    contentDescription = null,
+                                    tint = AccentCoral,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            },
+                            onClick = { controller.playQueue(visibleTracks, index) },
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                PremiumSectionHeader(
+                    title = "Biblioteca",
+                    subtitle = "${visibleTracks.take(20).size} de ${visibleTracks.size}",
+                )
 
                 LazyColumn(
                     modifier = Modifier
@@ -211,7 +269,7 @@ fun HomeScreen(
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    itemsIndexed(allTracks.take(20)) { index, track ->
+                    itemsIndexed(visibleTracks.take(20)) { index, track ->
                         PremiumTrackItem(
                             title = track.title,
                             subtitle = "${track.artist} · ${track.album}",
@@ -225,7 +283,7 @@ fun HomeScreen(
                                     modifier = Modifier.size(18.dp),
                                 )
                             },
-                            onClick = { controller.playQueue(allTracks, index) },
+                            onClick = { controller.playQueue(visibleTracks, index) },
                         )
                     }
                 }

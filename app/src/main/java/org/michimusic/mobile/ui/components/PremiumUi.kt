@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.components
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
@@ -35,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -45,6 +49,7 @@ import coil3.compose.AsyncImage
 import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.AccentPurple
 import org.michimusic.mobile.ui.theme.SmokeBottom
 import org.michimusic.mobile.ui.theme.SmokeMid
 import org.michimusic.mobile.ui.theme.SmokeTop
@@ -92,8 +97,48 @@ fun PremiumScreen(
                     )
                 )
             ),
-        content = content,
-    )
+    ) {
+        PremiumWaveBackdrop(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(260.dp)
+                .align(Alignment.TopCenter),
+        )
+        content()
+    }
+}
+
+@Composable
+fun PremiumWaveBackdrop(
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val upperWave = Path().apply {
+            moveTo(0f, h * 0.26f)
+            quadraticTo(w * 0.22f, h * 0.02f, w * 0.48f, h * 0.24f)
+            quadraticTo(w * 0.72f, h * 0.44f, w, h * 0.18f)
+            lineTo(w, 0f)
+            lineTo(0f, 0f)
+            close()
+        }
+        val lowerWave = Path().apply {
+            moveTo(0f, h * 0.62f)
+            quadraticTo(w * 0.24f, h * 0.38f, w * 0.5f, h * 0.58f)
+            quadraticTo(w * 0.78f, h * 0.78f, w, h * 0.48f)
+            lineTo(w, h)
+            lineTo(0f, h)
+            close()
+        }
+        drawPath(upperWave, AccentPink.copy(alpha = 0.09f))
+        drawPath(lowerWave, AccentCoral.copy(alpha = 0.08f))
+        drawCircle(
+            color = AccentPurple.copy(alpha = 0.055f),
+            radius = w * 0.34f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.78f, h * 0.1f),
+        )
+    }
 }
 
 @Composable
@@ -153,6 +198,218 @@ fun PremiumStatPill(
             color = AccentCoral,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun PremiumSectionHeader(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = TextPrimary,
+            modifier = Modifier.alignByBaseline(),
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .alignByBaseline(),
+        )
+        if (action != null && onAction != null) {
+            Text(
+                text = action,
+                style = MaterialTheme.typography.labelMedium,
+                color = AccentCoral,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .clickable(onClick = onAction)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .alignByBaseline(),
+            )
+        }
+    }
+}
+
+@Composable
+fun PremiumFilterChips(
+    items: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        itemsIndexed(items) { index, item ->
+            val selected = index == selectedIndex
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        if (selected) {
+                            Brush.horizontalGradient(
+                                listOf(
+                                    AccentCoral.copy(alpha = 0.22f),
+                                    AccentPink.copy(alpha = 0.14f),
+                                )
+                            )
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.075f),
+                                    Color.White.copy(alpha = 0.035f),
+                                )
+                            )
+                        }
+                    )
+                    .border(
+                        0.5.dp,
+                        if (selected) AccentCoral.copy(alpha = 0.46f) else SurfaceBorder.copy(alpha = 1.3f),
+                        RoundedCornerShape(999.dp),
+                    )
+                    .clickable { onSelected(index) }
+                    .padding(horizontal = 13.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = item,
+                    color = if (selected) TextPrimary else TextMuted,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EditorialCoverCollage(
+    coverIds: List<String>,
+    modifier: Modifier = Modifier,
+) {
+    GlassCard(modifier = modifier, contentPadding = 10.dp) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(176.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CollageTile(
+                coverId = coverIds.getOrNull(0).orEmpty(),
+                modifier = Modifier
+                    .weight(1.65f)
+                    .fillMaxSize(),
+                large = true,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CollageTile(
+                    coverId = coverIds.getOrNull(1).orEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+                CollageTile(
+                    coverId = coverIds.getOrNull(2).orEmpty(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollageTile(
+    coverId: String,
+    modifier: Modifier = Modifier,
+    large: Boolean = false,
+) {
+    CollageTileContent(coverId = coverId, modifier = modifier, large = large)
+}
+
+@Composable
+private fun CollageTileContent(
+    coverId: String,
+    modifier: Modifier = Modifier,
+    large: Boolean = false,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF53D8B6),
+                        Color(0xFFD33259),
+                        Color(0xFF9F8042),
+                    )
+                )
+            )
+            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.35f), RoundedCornerShape(8.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (coverId.isNotEmpty()) {
+            AsyncImage(
+                model = "content://media/external/audio/albumart/$coverId",
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.42f),
+                                Color.Transparent,
+                            ),
+                            radius = if (large) 250f else 170f,
+                        )
+                    ),
+            )
+            Icon(
+                Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = Color(0xE91B0D14),
+                modifier = Modifier.size(if (large) 54.dp else 30.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.06f),
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.16f),
+                        )
+                    )
+                ),
         )
     }
 }

@@ -29,10 +29,12 @@ import androidx.compose.ui.unit.dp
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.PremiumFilterChips
 import org.michimusic.mobile.ui.components.PremiumButton
 import org.michimusic.mobile.ui.components.PremiumEmptyState
 import org.michimusic.mobile.ui.components.PremiumLoadingState
 import org.michimusic.mobile.ui.components.PremiumScreen
+import org.michimusic.mobile.ui.components.PremiumSectionHeader
 import org.michimusic.mobile.ui.components.ScreenHeader
 import org.michimusic.mobile.ui.components.TrackArtwork
 import org.michimusic.mobile.ui.components.TrackRow
@@ -80,14 +82,23 @@ fun AlbumsScreen() {
     }
 
     var selectedIndex by remember { mutableIntStateOf(0) }
-    LaunchedEffect(albums.size) {
-        if (albums.isNotEmpty() && selectedIndex !in albums.indices) {
-            selectedIndex = albums.lastIndex
+    var selectedFilter by remember { mutableIntStateOf(0) }
+    val albumFilters = listOf("Todos", "Recientes", "Más pistas")
+    val visibleAlbums = remember(albums, selectedFilter) {
+        when (selectedFilter) {
+            1 -> albums.sortedByDescending { it.album.year }
+            2 -> albums.sortedByDescending { it.tracks.size }
+            else -> albums
         }
     }
-    val selectedAlbum = albums.getOrNull(selectedIndex)
-    val coverFlowAlbums = remember(albums) {
-        albums.map { local ->
+    LaunchedEffect(visibleAlbums.size, selectedFilter) {
+        if (visibleAlbums.isNotEmpty() && selectedIndex !in visibleAlbums.indices) {
+            selectedIndex = 0
+        }
+    }
+    val selectedAlbum = visibleAlbums.getOrNull(selectedIndex)
+    val coverFlowAlbums = remember(visibleAlbums) {
+        visibleAlbums.map { local ->
             org.michimusic.mobile.library.coverflow.CoverFlowAlbum(
                 id = local.album.id,
                 title = local.album.title,
@@ -112,10 +123,10 @@ fun AlbumsScreen() {
 
             ScreenHeader(
                 title = "Albums",
-                subtitle = "${albums.size} colecciones en tu biblioteca",
+                subtitle = "${visibleAlbums.size} colecciones en tu biblioteca",
             ) {
                 Text(
-                    text = "${selectedIndex + 1}/${albums.size}",
+                    text = "${selectedIndex + 1}/${visibleAlbums.size}",
                     style = MaterialTheme.typography.bodySmall,
                     color = AccentCoral,
                 )
@@ -123,13 +134,24 @@ fun AlbumsScreen() {
 
             Spacer(Modifier.height(8.dp))
 
+            PremiumFilterChips(
+                items = albumFilters,
+                selectedIndex = selectedFilter,
+                onSelected = {
+                    selectedFilter = it
+                    selectedIndex = 0
+                },
+            )
+
+            Spacer(Modifier.height(10.dp))
+
             MichiCoverFlowHost(
                 albums = coverFlowAlbums,
                 onCurrentChanged = { index ->
-                    selectedIndex = index.coerceIn(albums.indices)
+                    selectedIndex = index.coerceIn(visibleAlbums.indices)
                 },
                 onAlbumClick = { index ->
-                    val album = albums.getOrNull(index)
+                    val album = visibleAlbums.getOrNull(index)
                     if (album != null && album.tracks.isNotEmpty()) {
                         selectedIndex = index
                         audioController.playQueue(album.tracks, 0)
@@ -182,6 +204,13 @@ fun AlbumsScreen() {
                 )
 
                 Spacer(Modifier.height(12.dp))
+
+                PremiumSectionHeader(
+                    title = "Pistas",
+                    subtitle = "${selectedAlbum.tracks.size} canciones del álbum",
+                )
+
+                Spacer(Modifier.height(8.dp))
 
                 GlassCard(
                     modifier = Modifier

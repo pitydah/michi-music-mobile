@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.SmokeMid
 import org.michimusic.mobile.ui.theme.SurfaceBorder
@@ -21,6 +22,7 @@ import org.michimusic.mobile.ui.theme.SurfaceElevated
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
+    contentPadding: Dp = 16.dp,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Card(
@@ -42,7 +44,7 @@ fun GlassCard(
                         )
                     )
                 )
-                .padding(16.dp),
+                .padding(contentPadding),
             content = content,
         )
     }

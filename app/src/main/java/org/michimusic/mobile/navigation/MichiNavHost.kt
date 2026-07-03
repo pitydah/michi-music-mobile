@@ -24,7 +24,9 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -58,6 +60,7 @@ import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.TextDim
+import org.michimusic.mobile.ui.theme.TextPrimary
 
 data class BottomNavEntry(
     val route: String,
@@ -167,12 +170,20 @@ private fun FloatingBottomDock(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .shadow(18.dp, RoundedCornerShape(26.dp), clip = false)
-                    .clip(RoundedCornerShape(26.dp))
-                    .background(Color(0xA8111319))
-                    .border(0.6.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(26.dp))
-                    .padding(horizontal = 11.dp, vertical = 5.dp),
+                    .heightIn(min = 54.dp)
+                    .shadow(22.dp, RoundedCornerShape(30.dp), clip = false)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.12f),
+                                Color(0xB00F1117),
+                                Color(0xD5080A0F),
+                            )
+                        )
+                    )
+                    .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(30.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -200,8 +211,24 @@ private fun FloatingDockItem(
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(22.dp))
-            .background(if (selected) Color.White.copy(alpha = 0.07f) else Color.Transparent)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .background(
+                if (selected) {
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.11f),
+                            AccentCoral.copy(alpha = 0.08f),
+                        )
+                    )
+                } else {
+                    Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+                }
+            )
+            .border(
+                0.5.dp,
+                if (selected) AccentCoral.copy(alpha = 0.34f) else Color.Transparent,
+                RoundedCornerShape(22.dp),
+            )
+            .padding(horizontal = 5.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
@@ -212,7 +239,17 @@ private fun FloatingDockItem(
                 modifier = Modifier.size(20.dp),
             )
         }
-        Spacer(modifier = Modifier.height(1.dp))
+        if (selected) {
+            Text(
+                text = entry.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextPrimary,
+                maxLines = 1,
+            )
+        } else {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+        Spacer(modifier = Modifier.height(2.dp))
         Box(
             modifier = Modifier
                 .size(width = if (selected) 15.dp else 3.dp, height = 2.dp)
