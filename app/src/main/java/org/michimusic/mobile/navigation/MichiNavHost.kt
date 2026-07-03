@@ -4,24 +4,26 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CastConnected
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.LocalOffer
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -30,9 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -56,7 +56,6 @@ import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.TextDim
-import org.michimusic.mobile.ui.theme.TextPrimary
 
 data class BottomNavEntry(
     val route: String,
@@ -65,12 +64,12 @@ data class BottomNavEntry(
 )
 
 private val navItems = listOf(
-    BottomNavEntry("home", "Inicio", Icons.Default.Home),
-    BottomNavEntry("library", "Biblioteca", Icons.Default.LibraryMusic),
-    BottomNavEntry("nowplaying", "Ahora", Icons.Default.MusicNote),
-    BottomNavEntry("remote", "Remoto", Icons.Default.CastConnected),
-    BottomNavEntry("sync", "Sync", Icons.Default.Sync),
-    BottomNavEntry("settings", "Ajustes", Icons.Default.Settings),
+    BottomNavEntry("home", "Inicio", Icons.Rounded.Folder),
+    BottomNavEntry("library", "Biblioteca", Icons.Rounded.Album),
+    BottomNavEntry("nowplaying", "Ahora", Icons.Rounded.PlayCircle),
+    BottomNavEntry("remote", "Remoto", Icons.Rounded.Person),
+    BottomNavEntry("sync", "Sync", Icons.Rounded.LocalOffer),
+    BottomNavEntry("settings", "Ajustes", Icons.Rounded.MoreVert),
 )
 
 @Composable
@@ -154,10 +153,10 @@ private fun FloatingBottomDock(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(30.dp))
-                .background(SurfaceElevated.copy(alpha = 0.78f))
-                .border(0.5.dp, SurfaceBorder.copy(alpha = 0.82f), RoundedCornerShape(30.dp))
-                .padding(horizontal = 8.dp, vertical = 7.dp),
+                .clip(RoundedCornerShape(28.dp))
+                .background(SurfaceElevated.copy(alpha = 0.70f))
+                .border(0.5.dp, SurfaceBorder.copy(alpha = 0.92f), RoundedCornerShape(28.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -179,44 +178,30 @@ private fun FloatingDockItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val tint = if (selected) SurfaceDark else TextDim
-    val labelColor = if (selected) TextPrimary else TextDim
+    val tint = if (selected) AccentCoral else TextDim
 
-    Box(
+    Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-                if (selected) {
-                    Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
-                } else {
-                    Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
-                }
-            )
-            .padding(horizontal = if (selected) 10.dp else 2.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center,
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (selected) AccentCoral.copy(alpha = 0.13f) else Color.Transparent)
+            .padding(horizontal = 5.dp, vertical = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+        IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
+            Icon(
+                imageVector = entry.icon,
+                contentDescription = entry.label,
+                tint = tint,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .size(width = if (selected) 16.dp else 4.dp, height = 3.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(if (selected) Brush.horizontalGradient(listOf(AccentCoral, AccentPink)) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))),
         ) {
-            IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
-                Icon(
-                    imageVector = entry.icon,
-                    contentDescription = entry.label,
-                    tint = tint,
-                    modifier = Modifier.size(21.dp),
-                )
-            }
-            if (selected) {
-                Text(
-                    text = entry.label,
-                    color = labelColor,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(end = 8.dp),
-                    maxLines = 1,
-                )
-            }
         }
     }
 }

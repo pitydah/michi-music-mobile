@@ -2,7 +2,9 @@ package org.michimusic.mobile.ui.screens
 
 import android.content.Context
 import android.media.AudioManager
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,12 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,7 +46,6 @@ import org.michimusic.player.PlayerState
 // --- PALETA DE COLORES (Estilo Michi Music Player) ---
 val BgDark = Color(0xFF05070C)
 val GlassBorder = Color(0x24FFFFFF)
-val GradientProgress = Brush.horizontalGradient(listOf(AccentCoral, AccentPink))
 private val PremiumGlass = Color(0x8F181B22)
 private val PremiumGlassSoft = Color(0x52181B22)
 
@@ -153,9 +154,10 @@ fun NowPlayingScreen(
             AlbumArtworkCard(
                 coverId = currentTrack?.coverId,
                 modifier = Modifier
-                    .weight(0.82f)
+                    .weight(0.92f)
                     .aspectRatio(1f)
-                    .widthIn(max = 320.dp)
+                    .fillMaxWidth()
+                    .widthIn(max = 360.dp)
             )
 
             var dragProgress by remember { mutableFloatStateOf(progress) }
@@ -167,13 +169,14 @@ fun NowPlayingScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            PlayerGlassPanel {
+            FloatingControlsColumn {
                 TrackInfo(
                     title = currentTrack?.title ?: "Sin reproducción",
-                    artist = currentTrack?.artist ?: ""
+                    artist = currentTrack?.artist ?: "Artista",
+                    album = currentTrack?.album ?: "Álbum",
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 UtilityIconRow(
                     isShuffled = state.shuffleMode,
@@ -188,7 +191,7 @@ fun NowPlayingScreen(
                     onNavigateToAudioRoute = onNavigateToAudioRoute,
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 MichiSlider(
                     value = dragProgress,
@@ -202,9 +205,15 @@ fun NowPlayingScreen(
                     timeEnd = formatTime(state.duration)
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                PlaybackControls(
+                TransportAndVolumeRow(
+                    volume = volume,
+                    onVolumeChange = { fraction ->
+                        volume = fraction
+                        val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
+                    },
                     isPlaying = state.isPlaying,
                     onPlayPause = {
                         if (state.isPlaying) audioController?.pause()
@@ -212,17 +221,6 @@ fun NowPlayingScreen(
                     },
                     onNext = { audioController?.skipNext() },
                     onPrevious = { audioController?.skipPrevious() },
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                VolumeAndToolsRow(
-                    volume = volume,
-                    onVolumeChange = { fraction ->
-                        volume = fraction
-                        val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
-                    },
                 )
             }
 
@@ -268,14 +266,11 @@ private fun PlayerBackdrop(coverId: String?) {
 }
 
 @Composable
-private fun PlayerGlassPanel(content: @Composable ColumnScope.() -> Unit) {
+private fun FloatingControlsColumn(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
-            .background(PremiumGlass)
-            .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
-            .padding(horizontal = 18.dp, vertical = 15.dp),
+            .padding(horizontal = 2.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
@@ -378,64 +373,114 @@ fun PlaybackSourceMenu(
 fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
     val synthwaveGradient = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF1E0B2D),
-            Color(0xFF8A1C59),
-            Color(0xFFFF6A3D)
+            Color(0xFF1AE1B0),
+            Color(0xFFFF375F),
+            Color(0xFFFFD166),
         )
     )
 
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(26.dp))
-            .background(synthwaveGradient)
-            .border(1.dp, GlassBorder, RoundedCornerShape(26.dp)),
-        contentAlignment = Alignment.Center
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
     ) {
         if (!coverId.isNullOrEmpty()) {
             AsyncImage(
                 model = "content://media/external/audio/albumart/$coverId",
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(12.dp)
+                    .blur(28.dp),
                 contentScale = ContentScale.Crop,
+                alpha = 0.34f,
             )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(synthwaveGradient)
+                .border(1.dp, GlassBorder, RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!coverId.isNullOrEmpty()) {
+                AsyncImage(
+                    model = "content://media/external/audio/albumart/$coverId",
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xA0000000))))
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.58f)
+                        .aspectRatio(1f)
+                        .offset(y = 16.dp)
+                        .clip(CircleShape)
+                        .background(Brush.verticalGradient(listOf(Color(0xFFFFF2CE), AccentPink)))
+                )
+                Icon(
+                    imageVector = Icons.Rounded.MusicNote,
+                    contentDescription = null,
+                    tint = Color(0xF21B0D14),
+                    modifier = Modifier.size(76.dp),
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .offset(y = 20.dp)
-                    .clip(CircleShape)
-                    .background(Brush.verticalGradient(listOf(Color(0xFFFFD700), AccentPink)))
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAA000000))))
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x73000000))))
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TrackInfo(title: String, artist: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun TrackInfo(title: String, artist: String, album: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Text(
             text = title,
             color = TextPrimary,
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(3.dp))
         Text(
             text = artist,
             color = TextSecondary,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Normal
+            fontWeight = FontWeight.Normal,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
+        )
+        Text(
+            text = album,
+            color = TextSecondary.copy(alpha = 0.70f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Normal,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
         )
     }
 }
@@ -455,31 +500,36 @@ private fun UtilityIconRow(
     ) {
         MichiIconButton(
             Icons.Rounded.FavoriteBorder,
-            size = 20.dp,
+            size = 19.dp,
             tint = TextSecondary,
         )
         MichiIconButton(
-            Icons.Rounded.Shuffle,
-            size = 20.dp,
-            tint = if (isShuffled) AccentPink else TextSecondary,
-            onClick = onShuffle,
+            Icons.Rounded.Info,
+            size = 19.dp,
+            tint = TextSecondary,
         )
         MichiIconButton(
             Icons.AutoMirrored.Rounded.QueueMusic,
-            size = 20.dp,
+            size = 19.dp,
             tint = TextSecondary,
         )
         MichiIconButton(
+            Icons.Rounded.SpeakerGroup,
+            size = 19.dp,
+            tint = AccentCoral,
+            onClick = onNavigateToAudioRoute,
+        )
+        MichiIconButton(
             icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-            size = 20.dp,
+            size = 19.dp,
             tint = if (repeatMode != 0) AccentPink else TextSecondary,
             onClick = onRepeat,
         )
         MichiIconButton(
-            Icons.Rounded.SpeakerGroup,
-            size = 20.dp,
-            tint = AccentCoral,
-            onClick = onNavigateToAudioRoute,
+            Icons.Rounded.Shuffle,
+            size = 19.dp,
+            tint = if (isShuffled) AccentPink else TextSecondary,
+            onClick = onShuffle,
         )
     }
 }
@@ -512,9 +562,9 @@ fun MichiSlider(
             thumb = {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(if (isVolume) 10.dp else 16.dp)
                         .clip(CircleShape)
-                        .background(AccentCoral)
+                        .background(Color.White)
                 )
             },
             track = { sliderState ->
@@ -522,15 +572,15 @@ fun MichiSlider(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
+                        .height(if (isVolume) 3.dp else 4.dp)
                         .clip(CircleShape)
-                        .background(Color(0x4DFFFFFF))
+                        .background(Color(0x33FFFFFF))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(fraction)
                             .fillMaxHeight()
-                            .background(GradientProgress)
+                            .background(if (isVolume) Color.White.copy(alpha = 0.78f) else Color.White)
                     )
                 }
             }
@@ -544,31 +594,34 @@ fun MichiSlider(
 }
 
 @Composable
-fun PlaybackControls(
+fun TransportAndVolumeRow(
+    volume: Float,
+    onVolumeChange: (Float) -> Unit,
     isPlaying: Boolean = false,
     onPlayPause: () -> Unit = {},
     onNext: () -> Unit = {},
     onPrevious: () -> Unit = {},
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(PremiumGlassSoft)
+            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 28.dp, tint = TextPrimary, onClick = onPrevious)
-
+        Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        Box(modifier = Modifier.weight(1f)) {
+            MichiSlider(value = volume, onValueChange = onVolumeChange, isVolume = true)
+        }
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 25.dp, tint = TextPrimary, onClick = onPrevious)
         Box(
             modifier = Modifier
-                .size(66.dp)
-                .drawBehind {
-                    drawCircle(
-                        color = AccentCoral.copy(alpha = 0.14f),
-                        radius = size.width / 2 + 8.dp.toPx()
-                    )
-                }
+                .size(52.dp)
                 .clip(CircleShape)
-                .background(Color(0xE6F4EFE7))
-                .border(1.dp, Color.White.copy(alpha = 0.32f), CircleShape)
+                .background(Color.White)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -579,37 +632,12 @@ fun PlaybackControls(
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = Color(0xFF191B21),
-                modifier = Modifier.size(32.dp)
+                tint = Color(0xFF15171D),
+                modifier = Modifier.size(30.dp)
             )
         }
-
-        MichiIconButton(Icons.Rounded.SkipNext, size = 28.dp, tint = TextPrimary, onClick = onNext)
-    }
-}
-
-@Composable
-fun VolumeAndToolsRow(
-    volume: Float,
-    onVolumeChange: (Float) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Box(modifier = Modifier.weight(1f)) {
-            MichiSlider(value = volume, onValueChange = onVolumeChange, isVolume = true)
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(20.dp))
-
-        Spacer(modifier = Modifier.width(24.dp))
-
-        MichiIconButton(Icons.Rounded.Equalizer, size = 20.dp, tint = AccentCoral)
+        MichiIconButton(Icons.Rounded.SkipNext, size = 25.dp, tint = TextPrimary, onClick = onNext)
+        MichiIconButton(Icons.Rounded.Equalizer, size = 19.dp, tint = AccentCoral)
     }
 }
 
