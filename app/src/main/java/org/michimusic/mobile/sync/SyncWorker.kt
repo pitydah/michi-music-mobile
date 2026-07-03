@@ -31,6 +31,7 @@ class SyncWorker(
         const val RESULT_ERROR = "result_error"
         const val CHANNEL_ID = "michi_sync"
         const val NOTIFICATION_ID = 1001
+        private const val SYNC_WAKELOCK_TIMEOUT_MS = 30 * 60 * 1000L
 
         fun buildInputData(
             baseUrl: String,
@@ -59,7 +60,7 @@ class SyncWorker(
 
         val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
-        wakeLock?.acquire(10_000L) // 10s timeout base, se renueva durante descarga
+        wakeLock?.acquire(SYNC_WAKELOCK_TIMEOUT_MS)
 
         // Check available storage
         val storage = StatFs(applicationContext.filesDir.absolutePath)

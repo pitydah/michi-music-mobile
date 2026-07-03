@@ -2,6 +2,7 @@ package org.michimusic.link
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -62,6 +63,11 @@ class LinkClient private constructor(
     private val ownsClient = httpClient == null
 
     private val client = httpClient ?: HttpClient {
+        install(HttpTimeout) {
+            connectTimeoutMillis = 8_000
+            requestTimeoutMillis = 30_000
+            socketTimeoutMillis = 30_000
+        }
         install(ContentNegotiation) {
             json(json)
         }

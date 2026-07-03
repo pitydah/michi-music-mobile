@@ -17,8 +17,12 @@ object ReplayGainConfig {
     }
 
     fun getMode(): ReplayGainMode = prefs?.let {
-        val ordinal = it.getInt(KEY_RG_MODE, 0)
-        ReplayGainMode.entries.getOrElse(ordinal) { ReplayGainMode.OFF }
+        val raw = it.all[KEY_RG_MODE]
+        when (raw) {
+            is String -> runCatching { ReplayGainMode.valueOf(raw) }.getOrDefault(ReplayGainMode.OFF)
+            is Int -> ReplayGainMode.entries.getOrElse(raw) { ReplayGainMode.OFF }
+            else -> ReplayGainMode.OFF
+        }
     } ?: ReplayGainMode.OFF
 
     fun getPreAmp(): ReplayGainPreAmp = prefs?.let {
