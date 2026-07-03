@@ -150,23 +150,36 @@ private fun FloatingBottomDock(
             .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
-                .background(SurfaceElevated.copy(alpha = 0.58f))
-                .border(0.5.dp, SurfaceBorder.copy(alpha = 1.18f), RoundedCornerShape(28.dp))
-                .padding(horizontal = 12.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            navItems.forEach { entry ->
-                val selected = currentRoute == entry.route
-                FloatingDockItem(
-                    entry = entry,
-                    selected = selected,
-                    onClick = { onNavigate(entry.route) },
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.82f)
+                    .height(1.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(Color.White.copy(alpha = 0.18f)),
+            )
+            Spacer(modifier = Modifier.height(7.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(SurfaceElevated.copy(alpha = 0.58f))
+                    .border(0.5.dp, SurfaceBorder.copy(alpha = 1.18f), RoundedCornerShape(28.dp))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                navItems.forEach { entry ->
+                    val selected = currentRoute == entry.route
+                    FloatingDockItem(
+                        entry = entry,
+                        selected = selected,
+                        onClick = { onNavigate(entry.route) },
+                    )
+                }
             }
         }
     }

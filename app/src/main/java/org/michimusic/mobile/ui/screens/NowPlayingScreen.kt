@@ -498,7 +498,7 @@ private fun UtilityIconRow(
             tint = TextSecondary,
         )
         MichiIconButton(
-            Icons.Rounded.SpeakerGroup,
+            Icons.Rounded.MoreHoriz,
             size = 19.dp,
             tint = AccentCoral,
             onClick = onNavigateToAudioRoute,
