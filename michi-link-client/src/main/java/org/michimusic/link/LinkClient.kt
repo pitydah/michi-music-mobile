@@ -42,19 +42,39 @@ import java.io.OutputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-class LinkClient(
-    val baseUrl: String,
-    var sessionToken: String = "",
-    var deviceToken: String = "",
-    var clientDeviceId: String = "",
+class LinkClient private constructor(
+    baseUrl: String,
+    var sessionToken: String,
+    var deviceToken: String,
+    var clientDeviceId: String,
+    httpClient: HttpClient? = null,
 ) {
+    constructor(
+        baseUrl: String,
+        sessionToken: String = "",
+        deviceToken: String = "",
+        clientDeviceId: String = "",
+    ) : this(baseUrl, sessionToken, deviceToken, clientDeviceId, null)
+
+    val baseUrl: String = LinkClientConfig.normalizeBaseUrl(baseUrl)
     var tokenRefreshSupported: Boolean? = null
     private val json = Json { ignoreUnknownKeys = true }
+    private val ownsClient = httpClient == null
 
-    private val client = HttpClient {
+    private val client = httpClient ?: HttpClient {
         install(ContentNegotiation) {
             json(json)
         }
+    }
+
+    internal companion object {
+        fun createForTest(
+            baseUrl: String,
+            sessionToken: String = "",
+            deviceToken: String = "",
+            clientDeviceId: String = "",
+            httpClient: HttpClient,
+        ): LinkClient = LinkClient(baseUrl, sessionToken, deviceToken, clientDeviceId, httpClient)
     }
 
     val isAuthenticated: Boolean get() = sessionToken.isNotEmpty() || deviceToken.isNotEmpty()
@@ -500,7 +520,9 @@ class LinkClient(
     }
 
     fun close() {
-        client.close()
+        if (ownsClient) {
+            client.close()
+        }
     }
 }
 

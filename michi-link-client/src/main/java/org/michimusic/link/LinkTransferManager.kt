@@ -31,7 +31,9 @@ class LinkTransferManager(
         item: DownloadItem,
     ): Result<File> = withContext(Dispatchers.IO) {
         val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val file = File(musicDir, "${safeFileName(item.trackId)}.$ext")
+        val fileName = "${safeFileName(item.trackId)}.$ext"
+        val file = File(musicDir, fileName)
+        val tempFile = File(musicDir, "$fileName.part")
 
         if (file.exists() && file.length() > 0) {
             if (item.checksum.isNotEmpty() && !verifyChecksum(file, item.checksum)) {
@@ -43,8 +45,9 @@ class LinkTransferManager(
         }
 
         _downloads.value += (item.trackId to DownloadProgress.Downloading(0L))
+        tempFile.delete()
 
-        val result = FileOutputStream(file).use { outputStream ->
+        val result = FileOutputStream(tempFile).use { outputStream ->
             client.streamTrack(
                 trackId = item.trackId,
                 outputStream = outputStream,
@@ -53,19 +56,32 @@ class LinkTransferManager(
         }
 
         result.onSuccess { bytes ->
+            if (item.size > 0 && bytes != item.size) {
+                tempFile.delete()
+                _downloads.value += (item.trackId to DownloadProgress.Failed("Size mismatch"))
+                return@withContext Result.failure(SizeMismatchException(item.trackId, item.size, bytes))
+            }
             if (item.checksum.isNotEmpty()) {
-                if (verifyChecksum(file, item.checksum)) {
-                    _downloads.value += (item.trackId to DownloadProgress.Completed(bytes))
+                if (verifyChecksum(tempFile, item.checksum)) {
+                    if (!promoteDownload(tempFile, file)) {
+                        _downloads.value += (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
+                        return@withContext Result.failure(DownloadFinalizeException(item.trackId))
+                    }
+                    _downloads.value += (item.trackId to DownloadProgress.Completed(file.length()))
                 } else {
-                    file.delete()
+                    tempFile.delete()
                     _downloads.value += (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
                     return@withContext Result.failure(ChecksumException(item.trackId))
                 }
             } else {
-                _downloads.value += (item.trackId to DownloadProgress.Completed(bytes))
+                if (!promoteDownload(tempFile, file)) {
+                    _downloads.value += (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
+                    return@withContext Result.failure(DownloadFinalizeException(item.trackId))
+                }
+                _downloads.value += (item.trackId to DownloadProgress.Completed(file.length()))
             }
         }.onFailure { e ->
-            file.delete()
+            tempFile.delete()
             _downloads.value += (item.trackId to DownloadProgress.Failed(e.message ?: "Error"))
         }
 
@@ -131,6 +147,12 @@ class LinkTransferManager(
         }
     }
 
+    private fun promoteDownload(tempFile: File, finalFile: File): Boolean {
+        if (!tempFile.exists() || tempFile.length() <= 0L) return false
+        if (finalFile.exists() && !finalFile.delete()) return false
+        return tempFile.renameTo(finalFile)
+    }
+
     private fun safeFileName(value: String): String =
         value.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
 }
@@ -143,3 +165,7 @@ sealed class DownloadProgress {
 }
 
 class ChecksumException(trackId: String) : Exception("Checksum falló para $trackId")
+class SizeMismatchException(trackId: String, expected: Long, actual: Long) :
+    Exception("Tamaño inválido para $trackId: esperado $expected, recibido $actual")
+
+class DownloadFinalizeException(trackId: String) : Exception("No se pudo finalizar descarga de $trackId")
