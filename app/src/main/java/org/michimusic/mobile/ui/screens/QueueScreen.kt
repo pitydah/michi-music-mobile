@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,12 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,9 +33,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.PremiumButton
+import org.michimusic.mobile.ui.components.PremiumEmptyState
+import org.michimusic.mobile.ui.components.PremiumIconButton
+import org.michimusic.mobile.ui.components.PremiumScreen
+import org.michimusic.mobile.ui.components.PremiumStatPill
+import org.michimusic.mobile.ui.components.PremiumTrackItem
+import org.michimusic.mobile.ui.components.ScreenHeader
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
@@ -55,95 +55,70 @@ fun QueueScreen() {
     val queue = state.queue
     val currentIndex = state.queueIndex
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(horizontal = 16.dp),
-    ) {
-        Spacer(Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+    PremiumScreen {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
         ) {
-            Text(
-                text = "Cola",
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
-            )
-            if (queue.isNotEmpty()) {
-                IconButton(onClick = { controller.clearQueue() }) {
-                    Icon(
-                        Icons.Default.Clear,
+            Spacer(Modifier.height(16.dp))
+
+            ScreenHeader(
+                title = "Cola",
+                subtitle = if (queue.isEmpty()) {
+                    "Reproduce desde cualquier pantalla"
+                } else {
+                    "${queue.size} canciones preparadas"
+                },
+            ) {
+                if (queue.isNotEmpty()) {
+                    PremiumIconButton(
+                        icon = Icons.Default.Clear,
                         contentDescription = "Limpiar cola",
-                        tint = AccentCoral,
+                        onClick = { controller.clearQueue() },
                     )
                 }
             }
-        }
 
-        Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
 
-        QueueStatusCard(
-            count = queue.size,
-            currentTitle = state.currentTrack?.title,
-            isPlaying = state.isPlaying,
-            onClear = { controller.clearQueue() },
-        )
+            QueueStatusCard(
+                count = queue.size,
+                currentTitle = state.currentTrack?.title,
+                isPlaying = state.isPlaying,
+                onClear = { controller.clearQueue() },
+            )
 
-        Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
 
-        if (queue.isEmpty()) {
-            EmptyQueueState()
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(queue) { index, track ->
-                    val isCurrent = index == currentIndex
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isCurrent) {
-                                AccentCoral.copy(alpha = 0.16f)
-                            } else {
-                                SurfaceElevated.copy(alpha = 0.48f)
+            if (queue.isEmpty()) {
+                PremiumEmptyState(
+                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    title = "No hay canciones en la cola",
+                    subtitle = "Elige un álbum, búsqueda o canción reciente",
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    itemsIndexed(queue) { index, track ->
+                        val isCurrent = index == currentIndex
+                        PremiumTrackItem(
+                            title = track.title,
+                            subtitle = track.artist.ifEmpty { track.album },
+                            coverId = track.coverId,
+                            isActive = isCurrent,
+                            trailing = {
+                                Spacer(Modifier.width(8.dp))
+                                QueueLeadingIcon(isCurrent = isCurrent, number = index + 1)
                             },
-                        ),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { controller.playQueue(queue, index) }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (isCurrent) {
-                                QueueLeadingIcon(isCurrent = true, number = index + 1)
-                                Spacer(Modifier.width(8.dp))
-                            } else {
-                                QueueLeadingIcon(isCurrent = false, number = index + 1)
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (isCurrent) AccentCoral else TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = track.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextMuted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
+                            onClick = { controller.playQueue(queue, index) },
+                        )
                     }
+                    item { Spacer(Modifier.height(8.dp)) }
                 }
             }
         }
@@ -159,8 +134,7 @@ private fun QueueStatusCard(
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -192,7 +166,7 @@ private fun QueueStatusCard(
                     color = TextPrimary,
                 )
                 Text(
-                    text = currentTitle ?: "Reproduce desde cualquier pantalla",
+                    text = currentTitle ?: "Sin reproducción activa",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextMuted,
                     maxLines = 1,
@@ -200,16 +174,13 @@ private fun QueueStatusCard(
                 )
             }
             if (count > 0) {
-                Button(
+                PremiumButton(
+                    text = "Limpiar",
+                    icon = Icons.Default.Clear,
                     onClick = onClear,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentCoral.copy(alpha = 0.18f),
-                        contentColor = AccentCoral,
-                    ),
-                ) {
-                    Text("Limpiar")
-                }
+                )
+            } else {
+                PremiumStatPill("Lista")
             }
         }
     }
@@ -236,34 +207,6 @@ private fun QueueLeadingIcon(isCurrent: Boolean, number: Int) {
                 text = "$number",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextDim,
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyQueueState() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = TextDim,
-            )
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "No hay canciones en la cola",
-                style = MaterialTheme.typography.bodyLarge,
-                color = TextDim,
-            )
-            Text(
-                "Reproduce desde cualquier pantalla",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
             )
         }
     }
