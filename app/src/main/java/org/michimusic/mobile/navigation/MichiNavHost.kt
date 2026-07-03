@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -143,11 +145,11 @@ private fun FloatingBottomDock(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.Transparent, SurfaceDark.copy(alpha = 0.72f))
+                    listOf(Color.Transparent, SurfaceDark.copy(alpha = 0.58f))
                 )
             )
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 9.dp),
+            .padding(horizontal = 18.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
@@ -156,19 +158,21 @@ private fun FloatingBottomDock(
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.82f)
+                    .fillMaxWidth(0.72f)
                     .height(1.dp)
                     .clip(RoundedCornerShape(1.dp))
-                    .background(Color.White.copy(alpha = 0.18f)),
+                    .background(Color.White.copy(alpha = 0.12f)),
             )
-            Spacer(modifier = Modifier.height(7.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(SurfaceElevated.copy(alpha = 0.58f))
-                    .border(0.5.dp, SurfaceBorder.copy(alpha = 1.18f), RoundedCornerShape(28.dp))
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                    .heightIn(min = 48.dp)
+                    .shadow(18.dp, RoundedCornerShape(26.dp), clip = false)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Color(0xA8111319))
+                    .border(0.6.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(26.dp))
+                    .padding(horizontal = 11.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -196,22 +200,22 @@ private fun FloatingDockItem(
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(22.dp))
-            .background(if (selected) AccentCoral.copy(alpha = 0.11f) else Color.Transparent)
-            .padding(horizontal = 5.dp, vertical = 3.dp),
+            .background(if (selected) Color.White.copy(alpha = 0.07f) else Color.Transparent)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
+        IconButton(onClick = onClick, modifier = Modifier.size(34.dp)) {
             Icon(
                 imageVector = entry.icon,
                 contentDescription = entry.label,
                 tint = tint,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
-        Spacer(modifier = Modifier.height(2.dp))
+        Spacer(modifier = Modifier.height(1.dp))
         Box(
             modifier = Modifier
-                .size(width = if (selected) 16.dp else 4.dp, height = 3.dp)
+                .size(width = if (selected) 15.dp else 3.dp, height = 2.dp)
                 .clip(RoundedCornerShape(3.dp))
                 .background(if (selected) Brush.horizontalGradient(listOf(AccentCoral, AccentPink)) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))),
         ) {
