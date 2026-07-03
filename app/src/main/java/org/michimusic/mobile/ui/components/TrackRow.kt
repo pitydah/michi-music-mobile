@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,7 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -22,9 +23,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -43,9 +46,14 @@ fun TrackRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .border(
+                0.5.dp,
+                if (isActive) AccentPink.copy(alpha = 0.42f) else SurfaceBorder.copy(alpha = 1.1f),
+                RoundedCornerShape(8.dp),
+            )
             .then(
-                if (isActive) Modifier.background(AccentPink.copy(alpha = 0.08f))
-                else Modifier
+                if (isActive) Modifier.background(AccentPink.copy(alpha = 0.10f))
+                else Modifier.background(Color.White.copy(alpha = 0.045f))
             )
             .clickable(onClick = onPlay)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -54,14 +62,15 @@ fun TrackRow(
         Box(
             modifier = Modifier
                 .size(36.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(TextDim),
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White.copy(alpha = 0.07f))
+                .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = Icons.Default.PlayArrow,
+                imageVector = Icons.Rounded.PlayArrow,
                 contentDescription = null,
-                tint = TextMuted,
+                tint = if (isActive) AccentPink else TextMuted,
                 modifier = Modifier.size(18.dp),
             )
         }

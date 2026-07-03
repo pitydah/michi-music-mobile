@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -42,8 +45,12 @@ import coil3.compose.AsyncImage
 import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.SmokeBottom
+import org.michimusic.mobile.ui.theme.SmokeMid
+import org.michimusic.mobile.ui.theme.SmokeTop
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
+import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -60,9 +67,28 @@ fun PremiumScreen(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color(0xFF05070C),
                         SurfaceDark,
-                        AccentCoral.copy(alpha = 0.08f),
+                        SmokeTop,
+                        SmokeMid,
+                        SmokeBottom,
+                    )
+                )
+            )
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        AccentCoral.copy(alpha = 0.13f),
+                        Color.Transparent,
+                    ),
+                    radius = 920f,
+                )
+            )
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.025f),
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.22f),
                     )
                 )
             ),
@@ -86,7 +112,8 @@ fun ScreenHeader(
             painter = painterResource(R.mipmap.michi_logo),
             contentDescription = null,
             modifier = Modifier
-                .size(46.dp)
+                .size(44.dp)
+                .shadow(12.dp, RoundedCornerShape(12.dp), clip = false)
                 .clip(RoundedCornerShape(12.dp)),
         )
         Column(Modifier.weight(1f)) {
@@ -115,8 +142,9 @@ fun PremiumStatPill(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(AccentCoral.copy(alpha = 0.12f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.6f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -142,10 +170,10 @@ fun PremiumIconButton(
         enabled = enabled,
         modifier = modifier
             .size(42.dp)
-            .clip(RoundedCornerShape(12.dp)),
+            .clip(RoundedCornerShape(999.dp)),
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = SurfaceElevated.copy(alpha = 0.44f),
-            contentColor = AccentCoral,
+            containerColor = Color.White.copy(alpha = 0.08f),
+            contentColor = TextPrimary,
             disabledContainerColor = SurfaceElevated.copy(alpha = 0.24f),
             disabledContentColor = TextDim,
         ),
@@ -185,8 +213,16 @@ fun PremiumEmptyState(
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(AccentCoral.copy(alpha = 0.16f)),
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.11f),
+                                AccentCoral.copy(alpha = 0.12f),
+                            )
+                        )
+                    )
+                    .border(0.5.dp, SurfaceBorder.copy(alpha = 1.35f), RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(34.dp))
@@ -213,7 +249,7 @@ fun PremiumButton(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = AccentCoral,
+            containerColor = Color(0xFFF4EFE7),
             contentColor = SurfaceDark,
             disabledContainerColor = SurfaceElevated.copy(alpha = 0.42f),
             disabledContentColor = TextDim,
@@ -239,9 +275,14 @@ fun PremiumTrackItem(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .border(
+                0.5.dp,
+                if (isActive) AccentCoral.copy(alpha = 0.42f) else SurfaceBorder.copy(alpha = 1.2f),
+                RoundedCornerShape(8.dp),
+            )
             .background(
-                if (isActive) AccentCoral.copy(alpha = 0.14f)
-                else SurfaceElevated.copy(alpha = 0.34f)
+                if (isActive) AccentCoral.copy(alpha = 0.13f)
+                else Color.White.copy(alpha = 0.055f)
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),
@@ -278,6 +319,7 @@ fun TrackArtwork(
     val artworkModifier = modifier
         .size(size)
         .clip(RoundedCornerShape(8.dp))
+        .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp))
 
     if (coverId.isNotEmpty()) {
         AsyncImage(
@@ -291,18 +333,29 @@ fun TrackArtwork(
             modifier = artworkModifier.background(
                 Brush.verticalGradient(
                     listOf(
-                        AccentCoral.copy(alpha = 0.28f),
-                        AccentPink.copy(alpha = 0.18f),
+                        Color(0xFF6EDDBC),
+                        Color(0xFFD03B58),
+                        Color(0xFF9F8247),
                     )
                 )
             ),
             contentAlignment = Alignment.Center,
         ) {
+            Box(
+                modifier = Modifier
+                    .size(size * 0.58f)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFFF6DFC0), Color(0xFFBA5273))
+                        )
+                    ),
+            )
             Icon(
-                Icons.Rounded.MusicNote,
+                Icons.Rounded.GraphicEq,
                 contentDescription = null,
-                tint = AccentCoral,
-                modifier = Modifier.size(size * 0.5f),
+                tint = Color(0xF21B0D14),
+                modifier = Modifier.size(size * 0.38f),
             )
         }
     }

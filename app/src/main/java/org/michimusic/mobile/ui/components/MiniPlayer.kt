@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -77,9 +78,10 @@ fun MiniPlayer(
             .padding(horizontal = 12.dp)
             .navigationBarsPadding()
             .clickable(onClick = onClick)
-            .background(SurfaceElevated.copy(alpha = 0.62f), RoundedCornerShape(24.dp))
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.35f), RoundedCornerShape(24.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .shadow(18.dp, RoundedCornerShape(26.dp), clip = false)
+            .background(Color(0xB0101319), RoundedCornerShape(26.dp))
+            .border(0.6.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(26.dp))
+            .padding(horizontal = 13.dp, vertical = 9.dp),
     ) {
         if (playerState.duration > 0 && track != null) {
             LinearProgressIndicator(
@@ -89,7 +91,7 @@ fun MiniPlayer(
                     .height(2.dp)
                     .align(Alignment.TopCenter)
                     .padding(top = 0.dp),
-                trackColor = SurfaceDark,
+                trackColor = Color.White.copy(alpha = 0.12f),
                 color = Color.White,
             )
         }
@@ -106,7 +108,8 @@ fun MiniPlayer(
                         contentDescription = null,
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(7.dp)),
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop,
                     )
                     Spacer(Modifier.width(10.dp))
@@ -114,18 +117,20 @@ fun MiniPlayer(
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(7.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp))
                             .background(
                                 Brush.verticalGradient(
                                     listOf(
-                                        AccentCoral.copy(alpha = 0.28f),
-                                        AccentPink.copy(alpha = 0.18f),
+                                        Color(0xFF6EDDBC),
+                                        Color(0xFFD03B58),
+                                        Color(0xFF9F8247),
                                     )
                                 )
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.MusicNote, null, tint = AccentCoral, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Rounded.GraphicEq, null, tint = Color(0xF21B0D14), modifier = Modifier.size(19.dp))
                     }
                     Spacer(Modifier.width(10.dp))
                 }
@@ -168,7 +173,7 @@ fun MiniPlayer(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color.White, CircleShape),
+                    .background(Color(0xFFF4EFE7), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(

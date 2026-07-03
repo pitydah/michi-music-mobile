@@ -16,9 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -73,7 +73,7 @@ fun QueueScreen() {
             ) {
                 if (queue.isNotEmpty()) {
                     PremiumIconButton(
-                        icon = Icons.Default.Clear,
+                        icon = Icons.Rounded.Clear,
                         contentDescription = "Limpiar cola",
                         onClick = { controller.clearQueue() },
                     )
@@ -93,7 +93,7 @@ fun QueueScreen() {
 
             if (queue.isEmpty()) {
                 PremiumEmptyState(
-                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
                     title = "No hay canciones en la cola",
                     subtitle = "Elige un álbum, búsqueda o canción reciente",
                 )
@@ -153,7 +153,7 @@ private fun QueueStatusCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    imageVector = if (isPlaying) Icons.Default.PlayArrow else Icons.AutoMirrored.Filled.QueueMusic,
+                    imageVector = if (isPlaying) Icons.Rounded.PlayArrow else Icons.AutoMirrored.Rounded.QueueMusic,
                     contentDescription = null,
                     tint = AccentCoral,
                     modifier = Modifier.size(22.dp),
@@ -176,7 +176,7 @@ private fun QueueStatusCard(
             if (count > 0) {
                 PremiumButton(
                     text = "Limpiar",
-                    icon = Icons.Default.Clear,
+                    icon = Icons.Rounded.Clear,
                     onClick = onClear,
                 )
             } else {
@@ -197,7 +197,7 @@ private fun QueueLeadingIcon(isCurrent: Boolean, number: Int) {
     ) {
         if (isCurrent) {
             Icon(
-                Icons.Default.PlayArrow,
+                Icons.Rounded.PlayArrow,
                 contentDescription = "Reproduciendo",
                 tint = AccentCoral,
                 modifier = Modifier.size(18.dp),

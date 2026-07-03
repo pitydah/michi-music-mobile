@@ -15,10 +15,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -96,7 +96,7 @@ fun HomeScreen(
                     .clickable(onClick = onNavigateToSearch),
                 placeholder = { Text("Buscar canciones...", color = TextMuted) },
                 leadingIcon = {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = AccentCoral)
+                    Icon(Icons.Rounded.Search, contentDescription = null, tint = AccentCoral)
                 },
                 readOnly = true,
                 singleLine = true,
@@ -135,7 +135,7 @@ fun HomeScreen(
                                 color = TextPrimary,
                             )
                             Text(
-                                text = "Arranca sin entrar a un álbum",
+                            text = "Arranca sin entrar a un álbum",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextMuted,
                             )
@@ -153,7 +153,7 @@ fun HomeScreen(
                     ) {
                         PremiumButton(
                             text = "Todo",
-                            icon = Icons.Default.PlayArrow,
+                            icon = Icons.Rounded.PlayArrow,
                             enabled = allTracks.isNotEmpty(),
                             onClick = { controller.playQueue(allTracks, 0) },
                             modifier = Modifier
@@ -162,7 +162,7 @@ fun HomeScreen(
                         )
                         PremiumButton(
                             text = "Aleatorio",
-                            icon = Icons.Default.Shuffle,
+                            icon = Icons.Rounded.Shuffle,
                             enabled = allTracks.isNotEmpty(),
                             onClick = {
                                 controller.clearQueue()
@@ -179,7 +179,7 @@ fun HomeScreen(
             if (allTracks.isEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 PremiumEmptyState(
-                    icon = Icons.Default.LibraryMusic,
+                    icon = Icons.Rounded.LibraryMusic,
                     title = "No hay canciones locales",
                     subtitle = "Revisa permisos o sincroniza desde Michi KDE",
                 )
@@ -219,7 +219,7 @@ fun HomeScreen(
                             trailing = {
                                 Spacer(Modifier.width(8.dp))
                                 Icon(
-                                    Icons.Default.PlayArrow,
+                                    Icons.Rounded.PlayArrow,
                                     contentDescription = null,
                                     tint = AccentCoral,
                                     modifier = Modifier.size(18.dp),
