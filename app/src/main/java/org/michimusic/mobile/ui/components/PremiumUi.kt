@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -59,9 +60,9 @@ fun PremiumScreen(
             .background(
                 Brush.verticalGradient(
                     listOf(
+                        Color(0xFF05070C),
                         SurfaceDark,
-                        SurfaceDark,
-                        AccentCoral.copy(alpha = 0.10f),
+                        AccentCoral.copy(alpha = 0.08f),
                     )
                 )
             ),
@@ -114,7 +115,7 @@ fun PremiumStatPill(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(AccentCoral.copy(alpha = 0.14f))
+            .background(AccentCoral.copy(alpha = 0.12f))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -143,9 +144,9 @@ fun PremiumIconButton(
             .size(42.dp)
             .clip(RoundedCornerShape(12.dp)),
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = SurfaceElevated.copy(alpha = 0.72f),
+            containerColor = SurfaceElevated.copy(alpha = 0.44f),
             contentColor = AccentCoral,
-            disabledContainerColor = SurfaceElevated.copy(alpha = 0.34f),
+            disabledContainerColor = SurfaceElevated.copy(alpha = 0.24f),
             disabledContentColor = TextDim,
         ),
     ) {
@@ -214,7 +215,7 @@ fun PremiumButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = AccentCoral,
             contentColor = SurfaceDark,
-            disabledContainerColor = SurfaceElevated,
+            disabledContainerColor = SurfaceElevated.copy(alpha = 0.42f),
             disabledContentColor = TextDim,
         ),
     ) {
@@ -240,7 +241,7 @@ fun PremiumTrackItem(
             .clip(RoundedCornerShape(8.dp))
             .background(
                 if (isActive) AccentCoral.copy(alpha = 0.14f)
-                else SurfaceElevated.copy(alpha = 0.48f)
+                else SurfaceElevated.copy(alpha = 0.34f)
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),

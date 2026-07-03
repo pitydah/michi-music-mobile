@@ -143,20 +143,20 @@ private fun FloatingBottomDock(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color.Transparent, SurfaceDark.copy(alpha = 0.82f))
+                    listOf(Color.Transparent, SurfaceDark.copy(alpha = 0.72f))
                 )
             )
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(28.dp))
-                .background(SurfaceElevated.copy(alpha = 0.70f))
-                .border(0.5.dp, SurfaceBorder.copy(alpha = 0.92f), RoundedCornerShape(28.dp))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .background(SurfaceElevated.copy(alpha = 0.58f))
+                .border(0.5.dp, SurfaceBorder.copy(alpha = 1.18f), RoundedCornerShape(28.dp))
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -183,7 +183,7 @@ private fun FloatingDockItem(
     Column(
         modifier = Modifier
             .clip(RoundedCornerShape(22.dp))
-            .background(if (selected) AccentCoral.copy(alpha = 0.13f) else Color.Transparent)
+            .background(if (selected) AccentCoral.copy(alpha = 0.11f) else Color.Transparent)
             .padding(horizontal = 5.dp, vertical = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

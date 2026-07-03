@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -44,6 +45,7 @@ import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceBorder
+import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
@@ -72,10 +74,12 @@ fun MiniPlayer(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .navigationBarsPadding()
             .clickable(onClick = onClick)
-            .background(Color(0xE612141B), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-            .border(0.5.dp, SurfaceBorder, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .background(SurfaceElevated.copy(alpha = 0.62f), RoundedCornerShape(24.dp))
+            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.35f), RoundedCornerShape(24.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         if (playerState.duration > 0 && track != null) {
             LinearProgressIndicator(
@@ -86,7 +90,7 @@ fun MiniPlayer(
                     .align(Alignment.TopCenter)
                     .padding(top = 0.dp),
                 trackColor = SurfaceDark,
-                color = AccentCoral,
+                color = Color.White,
             )
         }
         Row(
@@ -102,7 +106,7 @@ fun MiniPlayer(
                         contentDescription = null,
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .clip(RoundedCornerShape(7.dp)),
                         contentScale = ContentScale.Crop,
                     )
                     Spacer(Modifier.width(10.dp))
@@ -110,7 +114,7 @@ fun MiniPlayer(
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(7.dp))
                             .background(
                                 Brush.verticalGradient(
                                     listOf(
@@ -164,7 +168,7 @@ fun MiniPlayer(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color(0xE6F4EFE7), CircleShape),
+                    .background(Color.White, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(

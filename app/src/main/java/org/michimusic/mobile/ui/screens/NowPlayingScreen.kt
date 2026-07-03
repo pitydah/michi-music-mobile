@@ -1,7 +1,5 @@
 package org.michimusic.mobile.ui.screens
 
-import android.content.Context
-import android.media.AudioManager
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -24,7 +22,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -47,7 +44,8 @@ import org.michimusic.player.PlayerState
 val BgDark = Color(0xFF05070C)
 val GlassBorder = Color(0x24FFFFFF)
 private val PremiumGlass = Color(0x8F181B22)
-private val PremiumGlassSoft = Color(0x52181B22)
+private val PremiumGlassSoft = Color(0x6614161D)
+private val GlassSmoke = Color(0x5C111318)
 
 // --- MODELOS ---
 data class PlaybackSource(
@@ -67,14 +65,6 @@ fun NowPlayingScreen(
     val state by audioController?.state?.collectAsState() ?: remember { mutableStateOf(PlayerState()) }
     val syncViewModel: SyncViewModel = koinViewModel()
     val syncUiState by syncViewModel.uiState.collectAsState()
-
-    val context = LocalContext.current
-    val audioManager = remember {
-        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-    } ?: return
-    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-    val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-    var volume by remember { mutableFloatStateOf(currentVolume.toFloat() / maxVolume.coerceAtLeast(1)) }
 
     val localSource = PlaybackSource("local", "Este dispositivo", "Audio local", Icons.Rounded.Smartphone)
     val peerSources = remember(syncUiState.peers) {
@@ -207,13 +197,7 @@ fun NowPlayingScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                TransportAndVolumeRow(
-                    volume = volume,
-                    onVolumeChange = { fraction ->
-                        volume = fraction
-                        val vol = (fraction * maxVolume).toInt().coerceIn(0, maxVolume)
-                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, vol, 0)
-                    },
+                MediaControlsBar(
                     isPlaying = state.isPlaying,
                     onPlayPause = {
                         if (state.isPlaying) audioController?.pause()
@@ -255,9 +239,9 @@ private fun PlayerBackdrop(coverId: String?) {
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0xB005070C),
-                            Color(0x8A2C1816),
-                            Color(0xF205070C),
+                            Color(0xDE05070C),
+                            Color(0x8B3B2A25),
+                            Color(0xF705070C),
                         )
                     )
                 )
@@ -285,9 +269,9 @@ fun PlaybackSourceDropdown(
     Row(
         modifier = Modifier
             .width(280.dp)
-            .height(54.dp)
+            .height(52.dp)
             .clip(RoundedCornerShape(27.dp))
-            .background(PremiumGlassSoft)
+            .background(GlassSmoke)
             .border(1.dp, GlassBorder, RoundedCornerShape(27.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp),
@@ -399,9 +383,9 @@ fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(synthwaveGradient)
-                .border(1.dp, GlassBorder, RoundedCornerShape(14.dp)),
+                .border(1.dp, GlassBorder, RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (!coverId.isNullOrEmpty()) {
@@ -542,7 +526,7 @@ fun MichiSlider(
     onValueChangeFinished: ((Float) -> Unit)? = null,
     timeStart: String? = null,
     timeEnd: String? = null,
-    isVolume: Boolean = false
+    isCompact: Boolean = false
 ) {
     val lastValue = remember { mutableFloatStateOf(value) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -562,7 +546,7 @@ fun MichiSlider(
             thumb = {
                 Box(
                     modifier = Modifier
-                        .size(if (isVolume) 10.dp else 16.dp)
+                        .size(if (isCompact) 10.dp else 16.dp)
                         .clip(CircleShape)
                         .background(Color.White)
                 )
@@ -572,7 +556,7 @@ fun MichiSlider(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(if (isVolume) 3.dp else 4.dp)
+                        .height(if (isCompact) 3.dp else 4.dp)
                         .clip(CircleShape)
                         .background(Color(0x33FFFFFF))
                 ) {
@@ -580,7 +564,7 @@ fun MichiSlider(
                         modifier = Modifier
                             .fillMaxWidth(fraction)
                             .fillMaxHeight()
-                            .background(if (isVolume) Color.White.copy(alpha = 0.78f) else Color.White)
+                            .background(Color.White)
                     )
                 }
             }
@@ -594,9 +578,7 @@ fun MichiSlider(
 }
 
 @Composable
-fun TransportAndVolumeRow(
-    volume: Float,
-    onVolumeChange: (Float) -> Unit,
+fun MediaControlsBar(
     isPlaying: Boolean = false,
     onPlayPause: () -> Unit = {},
     onNext: () -> Unit = {},
@@ -605,21 +587,18 @@ fun TransportAndVolumeRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(PremiumGlassSoft)
-            .border(1.dp, GlassBorder, RoundedCornerShape(24.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .clip(RoundedCornerShape(26.dp))
+            .background(GlassSmoke)
+            .border(1.dp, GlassBorder, RoundedCornerShape(26.dp))
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-        Box(modifier = Modifier.weight(1f)) {
-            MichiSlider(value = volume, onValueChange = onVolumeChange, isVolume = true)
-        }
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 25.dp, tint = TextPrimary, onClick = onPrevious)
+        MichiIconButton(Icons.AutoMirrored.Rounded.VolumeDown, size = 18.dp, tint = TextSecondary)
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 26.dp, tint = TextPrimary, onClick = onPrevious)
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(58.dp)
                 .clip(CircleShape)
                 .background(Color.White)
                 .clickable(
@@ -633,10 +612,10 @@ fun TransportAndVolumeRow(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                 tint = Color(0xFF15171D),
-                modifier = Modifier.size(30.dp)
+                modifier = Modifier.size(34.dp)
             )
         }
-        MichiIconButton(Icons.Rounded.SkipNext, size = 25.dp, tint = TextPrimary, onClick = onNext)
+        MichiIconButton(Icons.Rounded.SkipNext, size = 26.dp, tint = TextPrimary, onClick = onNext)
         MichiIconButton(Icons.Rounded.Equalizer, size = 19.dp, tint = AccentCoral)
     }
 }
