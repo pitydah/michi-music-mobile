@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -22,7 +21,6 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,6 +48,7 @@ private val PremiumGlassSoft = Color(0x6614161D)
 private val GlassSmoke = Color(0x5C111318)
 private val GlassSmokeDeep = Color(0x74101116)
 private val ControlWhite = Color(0xFFF7F4ED)
+private val MockupWarmSmoke = Color(0xFF725247)
 
 // --- MODELOS ---
 data class PlaybackSource(
@@ -148,10 +147,10 @@ fun NowPlayingScreen(
             AlbumArtworkCard(
                 coverId = currentTrack?.coverId,
                 modifier = Modifier
-                    .weight(0.82f)
+                    .weight(0.86f)
                     .aspectRatio(1f)
                     .fillMaxWidth()
-                    .widthIn(max = 348.dp)
+                    .widthIn(max = 352.dp)
             )
 
             var dragProgress by remember { mutableFloatStateOf(progress) }
@@ -161,7 +160,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(11.dp))
+            Spacer(modifier = Modifier.height(9.dp))
 
             FloatingControlsColumn {
                 TrackInfo(
@@ -170,7 +169,7 @@ fun NowPlayingScreen(
                     album = currentTrack?.album ?: "Álbum",
                 )
 
-                Spacer(modifier = Modifier.height(9.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 UtilityIconRow(
                     isShuffled = state.shuffleMode,
@@ -185,7 +184,7 @@ fun NowPlayingScreen(
                     onNavigateToAudioRoute = onNavigateToAudioRoute,
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(5.dp))
 
                 MichiSlider(
                     value = dragProgress,
@@ -199,7 +198,7 @@ fun NowPlayingScreen(
                     timeEnd = formatTime(state.duration)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 MediaControlsBar(
                     isPlaying = state.isPlaying,
@@ -241,8 +240,8 @@ private fun PlayerBackdrop(coverId: String?) {
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0xDE05070C),
-                            Color(0x8B3B2A25),
+                            Color(0xD905070C),
+                            MockupWarmSmoke.copy(alpha = 0.76f),
                             Color(0xF705070C),
                         )
                     )
@@ -256,7 +255,7 @@ private fun FloatingControlsColumn(content: @Composable ColumnScope.() -> Unit) 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 2.dp, vertical = 6.dp),
+            .padding(horizontal = 0.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
@@ -359,9 +358,9 @@ fun PlaybackSourceMenu(
 fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
     val synthwaveGradient = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF74DDBA),
-            Color(0xFFD8345C),
-            Color(0xFFB89A48),
+            Color(0xFF6EDDBC),
+            Color(0xFFD03B58),
+            Color(0xFF9F8247),
         )
     )
 
@@ -375,20 +374,20 @@ fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(6.dp)
-                    .blur(34.dp),
+                    .padding(2.dp)
+                    .blur(26.dp),
                 contentScale = ContentScale.Crop,
-                alpha = 0.38f,
+                alpha = 0.28f,
             )
         }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 4.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .padding(horizontal = 2.dp)
+                .clip(RoundedCornerShape(8.dp))
                 .background(synthwaveGradient)
-                .border(0.7.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(10.dp)),
+                .border(0.6.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
             if (!coverId.isNullOrEmpty()) {
@@ -401,10 +400,10 @@ fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xA0000000))))
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x7A000000))))
                 )
             } else {
-                MockupInspiredPlaceholder()
+                CleanAlbumPlaceholder()
             }
             Box(
                 modifier = Modifier
@@ -414,7 +413,7 @@ fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
                             listOf(
                                 Color.White.copy(alpha = 0.08f),
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.28f),
+                                Color.Black.copy(alpha = 0.22f),
                             )
                         )
                     )
@@ -424,53 +423,38 @@ fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun MockupInspiredPlaceholder() {
+private fun CleanAlbumPlaceholder() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            drawCircle(
-                color = Color(0xEAF4E0BD),
-                radius = w * 0.28f,
-                center = androidx.compose.ui.geometry.Offset(w * 0.50f, h * 0.53f),
-            )
-            drawCircle(
-                color = Color(0xCC3D0713),
-                radius = w * 0.17f,
-                center = androidx.compose.ui.geometry.Offset(w * 0.50f, h * 0.53f),
-            )
-            repeat(5) { index ->
-                val x = w * (0.18f + index * 0.15f)
-                drawLine(
-                    color = Color.White.copy(alpha = 0.18f),
-                    start = androidx.compose.ui.geometry.Offset(x, h * 0.08f),
-                    end = androidx.compose.ui.geometry.Offset(x + w * 0.12f, h * 0.96f),
-                    strokeWidth = 2.2f,
-                    cap = StrokeCap.Round,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.56f)
+                .aspectRatio(1f)
+                .offset(y = 8.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFFF6DFC0),
+                            Color(0xFFBA5273),
+                        )
+                    )
                 )
-            }
-            drawLine(
-                color = Color(0xE9201720),
-                start = androidx.compose.ui.geometry.Offset(w * 0.39f, h * 0.67f),
-                end = androidx.compose.ui.geometry.Offset(w * 0.53f, h * 0.63f),
-                strokeWidth = 13f,
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = Color(0xE9201720),
-                start = androidx.compose.ui.geometry.Offset(w * 0.53f, h * 0.63f),
-                end = androidx.compose.ui.geometry.Offset(w * 0.53f, h * 0.43f),
-                strokeWidth = 8f,
-                cap = StrokeCap.Round,
-            )
-        }
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.21f)
+                .aspectRatio(1f)
+                .offset(y = 8.dp)
+                .clip(CircleShape)
+                .background(Color(0x29120C10))
+        )
         Icon(
             imageVector = Icons.Rounded.MusicNote,
             contentDescription = null,
             tint = Color(0xF21B0D14),
             modifier = Modifier
-                .offset(y = 8.dp)
-                .size(72.dp),
+                .offset(y = 4.dp)
+                .size(68.dp),
         )
     }
 }
@@ -638,21 +622,18 @@ fun MediaControlsBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(GlassSmokeDeep)
-            .border(0.7.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(28.dp))
-            .padding(horizontal = 18.dp, vertical = 6.dp),
+            .height(58.dp)
+            .padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MichiIconButton(Icons.AutoMirrored.Rounded.QueueMusic, size = 17.dp, tint = TextSecondary)
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 25.dp, tint = TextPrimary, onClick = onPrevious)
+        MichiIconButton(Icons.AutoMirrored.Rounded.VolumeDown, size = 17.dp, tint = TextSecondary)
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious)
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(54.dp)
                 .clip(CircleShape)
-                .background(ControlWhite)
+                .background(Color.Transparent)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -663,12 +644,12 @@ fun MediaControlsBar(
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = Color(0xFF15171D),
-                modifier = Modifier.size(31.dp)
+                tint = ControlWhite,
+                modifier = Modifier.size(43.dp)
             )
         }
-        MichiIconButton(Icons.Rounded.SkipNext, size = 25.dp, tint = TextPrimary, onClick = onNext)
-        MichiIconButton(Icons.Rounded.Equalizer, size = 18.dp, tint = AccentCoral)
+        MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext)
+        MichiIconButton(Icons.Rounded.Equalizer, size = 17.dp, tint = TextSecondary)
     }
 }
 
