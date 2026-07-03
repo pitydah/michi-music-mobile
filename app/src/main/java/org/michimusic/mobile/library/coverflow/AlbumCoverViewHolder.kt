@@ -4,13 +4,12 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.cardview.widget.CardView
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import coil3.asImage
+import coil3.dispose
 import coil3.load
 import coil3.request.crossfade
-import java.lang.Math.floorMod
 import org.michimusic.mobile.R
 
 class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
@@ -19,25 +18,32 @@ class AlbumCoverViewHolder(parentView: ViewGroup) : RecyclerView.ViewHolder(
     private val coverArt: ImageView = itemView.findViewById(R.id.cover_art)
     private val titleText: TextView = itemView.findViewById(R.id.cover_title)
     private val artistText: TextView = itemView.findViewById(R.id.cover_artist)
+    private val metaText: TextView = itemView.findViewById(R.id.cover_meta)
 
     fun bind(album: CoverFlowAlbum) {
         titleText.text = album.title
         artistText.text = album.artist
+        metaText.text = "${album.year} · ${album.trackCount} canciones"
+        itemView.contentDescription = "${album.title}, ${album.artist}"
         if (album.coverUri.isNotEmpty()) {
+            val placeholderImage = ContextCompat
+                .getDrawable(itemView.context, R.drawable.coverflow_placeholder)
+                ?.asImage()
+            coverArt.setPadding(0, 0, 0, 0)
+            coverArt.scaleType = ImageView.ScaleType.CENTER_CROP
             coverArt.load(album.coverUri) {
                 crossfade(300)
-                fallback(ContextCompat.getDrawable(itemView.context, android.R.color.darker_gray)?.asImage())
+                placeholder(placeholderImage)
+                fallback(placeholderImage)
+                error(placeholderImage)
             }
         } else {
-            val colors = listOf(
-                0xFF6B5B95.toInt(),
-                0xFFE56399.toInt(),
-                0xFF4A8FE7.toInt(),
-                0xFF7ED321.toInt(),
-                0xFFF5A623.toInt(),
-            )
-            coverArt.setBackgroundColor(colors[floorMod(album.id.toIntOrNull()?.minus(1) ?: 0, colors.size)])
-            coverArt.setImageDrawable(null)
+            coverArt.dispose()
+            val logoPadding = itemView.resources.getDimensionPixelSize(R.dimen.coverflow_logo_padding)
+            coverArt.setPadding(logoPadding, logoPadding, logoPadding, logoPadding)
+            coverArt.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            coverArt.setBackgroundResource(R.drawable.coverflow_placeholder)
+            coverArt.setImageResource(R.mipmap.michi_logo)
         }
     }
 

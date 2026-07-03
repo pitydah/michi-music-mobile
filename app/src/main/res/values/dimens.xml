@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="coverflow_logo_padding">38dp</dimen>
+</resources>

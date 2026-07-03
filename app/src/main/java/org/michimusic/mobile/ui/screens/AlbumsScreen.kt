@@ -82,7 +82,27 @@ fun AlbumsScreen() {
     }
 
     var selectedIndex by remember { mutableIntStateOf(0) }
+    LaunchedEffect(albums.size) {
+        if (albums.isNotEmpty() && selectedIndex !in albums.indices) {
+            selectedIndex = albums.lastIndex
+        }
+    }
     val selectedAlbum = albums.getOrNull(selectedIndex)
+    val coverFlowAlbums = remember(albums) {
+        albums.map { local ->
+            org.michimusic.mobile.library.coverflow.CoverFlowAlbum(
+                id = local.album.id,
+                title = local.album.title,
+                artist = local.album.artist,
+                year = local.album.year,
+                trackCount = local.tracks.size,
+                hasArt = local.album.coverId.isNotEmpty(),
+                coverUri = if (local.album.coverId.isNotEmpty())
+                    "content://media/external/audio/albumart/${local.album.coverId}"
+                else "",
+            )
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -106,23 +126,20 @@ fun AlbumsScreen() {
         Spacer(Modifier.height(8.dp))
 
         MichiCoverFlowHost(
-            albums = albums.map { local ->
-                org.michimusic.mobile.library.coverflow.CoverFlowAlbum(
-                    id = local.album.id,
-                    title = local.album.title,
-                    artist = local.album.artist,
-                    year = local.album.year,
-                    trackCount = local.tracks.size,
-                    hasArt = local.album.coverId.isNotEmpty(),
-                    coverUri = if (local.album.coverId.isNotEmpty())
-                        "content://media/external/audio/albumart/${local.album.coverId}"
-                    else "",
-                )
+            albums = coverFlowAlbums,
+            onCurrentChanged = { index ->
+                selectedIndex = index.coerceIn(albums.indices)
             },
-            onCurrentChanged = { selectedIndex = it },
+            onAlbumClick = { index ->
+                val album = albums.getOrNull(index)
+                if (album != null && album.tracks.isNotEmpty()) {
+                    selectedIndex = index
+                    audioController.playQueue(album.tracks, 0)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp),
+                .height(260.dp),
         )
 
         Spacer(Modifier.height(16.dp))
