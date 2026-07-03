@@ -78,9 +78,18 @@ fun MiniPlayer(
             .padding(horizontal = 12.dp)
             .navigationBarsPadding()
             .clickable(onClick = onClick)
-            .shadow(18.dp, RoundedCornerShape(26.dp), clip = false)
-            .background(Color(0xB0101319), RoundedCornerShape(26.dp))
-            .border(0.6.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(26.dp))
+            .shadow(22.dp, RoundedCornerShape(28.dp), clip = false)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.12f),
+                        Color(0xC7101319),
+                        Color(0xE6080A0F),
+                    )
+                ),
+                RoundedCornerShape(28.dp),
+            )
+            .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(28.dp))
             .padding(horizontal = 13.dp, vertical = 9.dp),
     ) {
         if (playerState.duration > 0 && track != null) {
@@ -92,7 +101,7 @@ fun MiniPlayer(
                     .align(Alignment.TopCenter)
                     .padding(top = 0.dp),
                 trackColor = Color.White.copy(alpha = 0.12f),
-                color = Color.White,
+                color = AccentCoral,
             )
         }
         Row(

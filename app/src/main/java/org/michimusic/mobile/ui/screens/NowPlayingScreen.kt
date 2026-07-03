@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -30,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
+import kotlin.math.sin
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.sync.SyncViewModel
 import org.koin.compose.koinInject
@@ -588,19 +591,32 @@ fun MichiSlider(
             },
             track = { sliderState ->
                 val fraction = sliderState.value
-                Box(
+                Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(if (isCompact) 3.dp else 3.5.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x33FFFFFF))
+                        .height(if (isCompact) 12.dp else 22.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .fillMaxHeight()
-                            .background(Color.White)
-                    )
+                    val bars = if (isCompact) 42 else 54
+                    val gap = size.width / bars
+                    val stroke = if (isCompact) 2.4.dp.toPx() else 3.2.dp.toPx()
+                    val centerY = size.height / 2f
+                    repeat(bars) { index ->
+                        val x = gap * index + gap / 2f
+                        val normalized = index / (bars - 1f)
+                        val wave = 0.34f + 0.66f * (
+                            0.5f + 0.5f * sin(index * 0.72f).toFloat()
+                        )
+                        val accentLift = 0.75f + 0.25f * sin(index * 0.19f + 1.4f).toFloat()
+                        val barHeight = size.height * wave * accentLift
+                        val active = normalized <= fraction
+                        drawLine(
+                            color = if (active) Color.White else Color.White.copy(alpha = 0.22f),
+                            start = androidx.compose.ui.geometry.Offset(x, centerY - barHeight / 2f),
+                            end = androidx.compose.ui.geometry.Offset(x, centerY + barHeight / 2f),
+                            strokeWidth = stroke,
+                            cap = StrokeCap.Round,
+                        )
+                    }
                 }
             }
         )
