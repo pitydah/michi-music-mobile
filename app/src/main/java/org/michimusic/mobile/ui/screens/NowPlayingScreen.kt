@@ -107,11 +107,12 @@ fun NowPlayingScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Box(contentAlignment = Alignment.TopCenter) {
                 PlaybackSourceDropdown(
@@ -147,14 +148,14 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             AlbumArtworkCard(
                 coverId = currentTrack?.coverId,
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(0.82f)
                     .aspectRatio(1f)
-                    .widthIn(max = 350.dp)
+                    .widthIn(max = 320.dp)
             )
 
             var dragProgress by remember { mutableFloatStateOf(progress) }
@@ -164,7 +165,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             PlayerGlassPanel {
                 TrackInfo(
@@ -172,7 +173,7 @@ fun NowPlayingScreen(
                     artist = currentTrack?.artist ?: ""
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 UtilityIconRow(
                     isShuffled = state.shuffleMode,
@@ -187,7 +188,7 @@ fun NowPlayingScreen(
                     onNavigateToAudioRoute = onNavigateToAudioRoute,
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 MichiSlider(
                     value = dragProgress,
@@ -201,7 +202,7 @@ fun NowPlayingScreen(
                     timeEnd = formatTime(state.duration)
                 )
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 PlaybackControls(
                     isPlaying = state.isPlaying,
@@ -213,7 +214,7 @@ fun NowPlayingScreen(
                     onPrevious = { audioController?.skipPrevious() },
                 )
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 VolumeAndToolsRow(
                     volume = volume,
@@ -225,7 +226,7 @@ fun NowPlayingScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -274,7 +275,7 @@ private fun PlayerGlassPanel(content: @Composable ColumnScope.() -> Unit) {
             .clip(RoundedCornerShape(28.dp))
             .background(PremiumGlass)
             .border(1.dp, GlassBorder, RoundedCornerShape(28.dp))
-            .padding(horizontal = 18.dp, vertical = 18.dp),
+            .padding(horizontal = 18.dp, vertical = 15.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
@@ -425,7 +426,7 @@ fun TrackInfo(title: String, artist: String) {
         Text(
             text = title,
             color = TextPrimary,
-            fontSize = 23.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
         )
@@ -433,7 +434,7 @@ fun TrackInfo(title: String, artist: String) {
         Text(
             text = artist,
             color = TextSecondary,
-            fontSize = 15.sp,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Normal
         )
     }
@@ -554,15 +555,15 @@ fun PlaybackControls(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 30.dp, tint = TextPrimary, onClick = onPrevious)
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 28.dp, tint = TextPrimary, onClick = onPrevious)
 
         Box(
             modifier = Modifier
-                .size(72.dp)
+                .size(66.dp)
                 .drawBehind {
                     drawCircle(
                         color = AccentCoral.copy(alpha = 0.14f),
-                        radius = size.width / 2 + 10.dp.toPx()
+                        radius = size.width / 2 + 8.dp.toPx()
                     )
                 }
                 .clip(CircleShape)
@@ -579,11 +580,11 @@ fun PlaybackControls(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                 tint = Color(0xFF191B21),
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(32.dp)
             )
         }
 
-        MichiIconButton(Icons.Rounded.SkipNext, size = 30.dp, tint = TextPrimary, onClick = onNext)
+        MichiIconButton(Icons.Rounded.SkipNext, size = 28.dp, tint = TextPrimary, onClick = onNext)
     }
 }
 
