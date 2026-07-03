@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class TrackResponseDto(
-    val id: String,
+    val id: String = "",
+    @SerialName("track_id") val trackId: String = "",
     val title: String,
     val artist: String = "",
     val album: String = "",
@@ -18,7 +19,12 @@ data class TrackResponseDto(
     @SerialName("cover_id") val coverId: String = "",
     @SerialName("track_number") val trackNumber: Int = 0,
     val year: Int = 0,
-)
+) {
+    val effectiveId: String get() = id.ifEmpty { trackId }
+
+    fun normalized(): TrackResponseDto =
+        if (id.isNotEmpty() || trackId.isEmpty()) this else copy(id = trackId)
+}
 
 @Serializable
 data class LibraryStatsDto(

@@ -105,9 +105,10 @@ class SyncWorker(
                 return Result.retry()
             }
             val manifest = manifestResult.getOrThrow()
+            val manifestTracks = manifest.effectiveTracks
 
             repository.saveLibrary(
-                manifest.tracks.map { it.toTrackDto() }
+                manifestTracks.map { it.toTrackDto() }
             )
 
             if (manifest.playlists.isNotEmpty()) {
@@ -118,7 +119,7 @@ class SyncWorker(
 
             val downloadedIds = repository.getDownloadedIds()
 
-            val itemsToDownload = manifest.tracks
+            val itemsToDownload = manifestTracks
                 .filter { it.trackId !in downloadedIds }
                 .map { mt ->
                     DownloadItem(

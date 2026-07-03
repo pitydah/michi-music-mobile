@@ -262,12 +262,16 @@ class LinkClient private constructor(
             val response = httpGet("$baseUrl/api/v1/tracks")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             val body = response.body<TrackListResponseDto>()
-            Result.success(LibraryResponseDto(tracks = body.effectiveTracks, total = body.total))
+            Result.success(LibraryResponseDto(
+                tracks = body.effectiveTracks.map { it.normalized() },
+                total = body.effectiveTotal,
+            ))
         } catch (e: Exception) {
             try {
                 val response = httpGet("$baseUrl/api/library")
                 response.status.checkError()?.let { return@withContext Result.failure(it) }
-                Result.success(response.body<LibraryResponseDto>())
+                val body = response.body<LibraryResponseDto>()
+                Result.success(body.copy(tracks = body.tracks.map { it.normalized() }))
             } catch (e2: Exception) {
                 Result.failure(e2)
             }
@@ -280,7 +284,7 @@ class LinkClient private constructor(
         try {
             val response = httpGet("$baseUrl/api/v1/search?q=${encodeQueryValue(query)}")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
-            Result.success(response.body<SearchResponseDto>().results)
+            Result.success(response.body<SearchResponseDto>().results.map { it.normalized() })
         } catch (e: Exception) {
             Result.failure(e)
         }
