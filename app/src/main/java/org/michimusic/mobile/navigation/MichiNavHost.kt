@@ -185,13 +185,23 @@ private fun FloatingBottomDock(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color.White.copy(alpha = 0.12f),
+                                Color.White.copy(alpha = 0.14f),
                                 Color(0xB00F1117),
                                 Color(0xD5080A0F),
                             )
                         )
                     )
-                    .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(30.dp))
+                    .border(
+                        0.7.dp,
+                        Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.34f),
+                                Color.White.copy(alpha = 0.12f),
+                                accent.copy(alpha = 0.24f),
+                            )
+                        ),
+                        RoundedCornerShape(30.dp),
+                    )
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,

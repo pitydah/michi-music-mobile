@@ -86,16 +86,41 @@ fun MiniPlayer(
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.14f),
                         Color(0xC7101319),
                         Color(0xE6080A0F),
                     )
                 ),
                 RoundedCornerShape(28.dp),
             )
-            .border(0.6.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(28.dp))
+            .border(
+                0.7.dp,
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.34f),
+                        Color.White.copy(alpha = 0.12f),
+                        accent.copy(alpha = 0.24f),
+                    )
+                ),
+                RoundedCornerShape(28.dp),
+            )
             .padding(horizontal = 13.dp, vertical = 9.dp),
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .height(1.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.28f),
+                            Color.Transparent,
+                        )
+                    )
+                )
+        )
         if (playerState.duration > 0 && track != null) {
             LinearProgressIndicator(
                 progress = { (playerState.position.toFloat() / playerState.duration.toFloat()).coerceIn(0f, 1f) },
