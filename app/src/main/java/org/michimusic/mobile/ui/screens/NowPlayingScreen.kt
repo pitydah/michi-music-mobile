@@ -38,6 +38,7 @@ import org.michimusic.mobile.sync.SyncViewModel
 import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
+import org.michimusic.mobile.ui.theme.GlassHighlight
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.michiAccentFor
@@ -294,6 +295,29 @@ private fun PlayerBackdrop(coverId: String?, accent: Color) {
                     )
                 )
         )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val step = 22.dp.toPx()
+            var x = -size.width * 0.15f
+            while (x < size.width * 1.05f) {
+                drawLine(
+                    color = GlassHighlight.copy(alpha = 0.018f),
+                    start = androidx.compose.ui.geometry.Offset(x, 0f),
+                    end = androidx.compose.ui.geometry.Offset(x + size.width * 0.28f, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                )
+                x += step
+            }
+            var y = 14.dp.toPx()
+            while (y < size.height) {
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.045f),
+                    start = androidx.compose.ui.geometry.Offset(0f, y),
+                    end = androidx.compose.ui.geometry.Offset(size.width, y),
+                    strokeWidth = 0.5.dp.toPx(),
+                )
+                y += 30.dp.toPx()
+            }
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()

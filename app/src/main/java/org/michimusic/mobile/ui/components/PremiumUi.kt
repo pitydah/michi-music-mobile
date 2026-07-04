@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -50,6 +51,10 @@ import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.AccentPurple
+import org.michimusic.mobile.ui.theme.GlassHighlight
+import org.michimusic.mobile.ui.theme.GlassInk
+import org.michimusic.mobile.ui.theme.GlassMist
+import org.michimusic.mobile.ui.theme.GlassVeil
 import org.michimusic.mobile.ui.theme.SmokeBottom
 import org.michimusic.mobile.ui.theme.SmokeMid
 import org.michimusic.mobile.ui.theme.SmokeTop
@@ -89,11 +94,20 @@ fun PremiumScreen(
                 )
             )
             .background(
+                Brush.radialGradient(
+                    listOf(
+                        AccentPurple.copy(alpha = 0.085f),
+                        Color.Transparent,
+                    ),
+                    radius = 720f,
+                )
+            )
+            .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.025f),
+                        GlassMist.copy(alpha = 0.10f),
                         Color.Transparent,
-                        Color.Black.copy(alpha = 0.22f),
+                        GlassInk.copy(alpha = 0.36f),
                     )
                 )
             ),
@@ -101,10 +115,48 @@ fun PremiumScreen(
         PremiumWaveBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(260.dp)
+                .height(300.dp)
                 .align(Alignment.TopCenter),
         )
+        PremiumGlassTexture(modifier = Modifier.fillMaxSize())
         content()
+    }
+}
+
+@Composable
+fun PremiumGlassTexture(
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val step = 18.dp.toPx()
+        var x = -w * 0.25f
+        while (x < w * 1.1f) {
+            drawLine(
+                color = GlassHighlight.copy(alpha = 0.018f),
+                start = androidx.compose.ui.geometry.Offset(x, 0f),
+                end = androidx.compose.ui.geometry.Offset(x + w * 0.36f, h),
+                strokeWidth = 1.dp.toPx(),
+            )
+            x += step
+        }
+        val dotStep = 26.dp.toPx()
+        var y = 10.dp.toPx()
+        var row = 0
+        while (y < h) {
+            var dotX = if (row % 2 == 0) 8.dp.toPx() else 21.dp.toPx()
+            while (dotX < w) {
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.014f),
+                    radius = 0.55.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(dotX, y),
+                )
+                dotX += dotStep
+            }
+            row += 1
+            y += dotStep
+        }
     }
 }
 
@@ -131,8 +183,18 @@ fun PremiumWaveBackdrop(
             lineTo(0f, h)
             close()
         }
-        drawPath(upperWave, AccentPink.copy(alpha = 0.09f))
-        drawPath(lowerWave, AccentCoral.copy(alpha = 0.08f))
+        drawPath(upperWave, AccentPink.copy(alpha = 0.075f))
+        drawPath(
+            upperWave,
+            AccentPink.copy(alpha = 0.11f),
+            style = Stroke(width = 0.8.dp.toPx()),
+        )
+        drawPath(lowerWave, AccentCoral.copy(alpha = 0.065f))
+        drawPath(
+            lowerWave,
+            GlassVeil.copy(alpha = 0.08f),
+            style = Stroke(width = 1.dp.toPx()),
+        )
         drawCircle(
             color = AccentPurple.copy(alpha = 0.055f),
             radius = w * 0.34f,
@@ -187,9 +249,16 @@ fun PremiumStatPill(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(Color.White.copy(alpha = 0.08f))
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.6f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        GlassHighlight.copy(alpha = 0.12f),
+                        Color.White.copy(alpha = 0.055f),
+                    )
+                )
+            )
+            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.8f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 11.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -266,22 +335,22 @@ fun PremiumFilterChips(
                         if (selected) {
                             Brush.horizontalGradient(
                                 listOf(
-                                    AccentCoral.copy(alpha = 0.22f),
-                                    AccentPink.copy(alpha = 0.14f),
+                                    AccentCoral.copy(alpha = 0.26f),
+                                    AccentPink.copy(alpha = 0.16f),
                                 )
                             )
                         } else {
                             Brush.verticalGradient(
                                 listOf(
-                                    Color.White.copy(alpha = 0.075f),
-                                    Color.White.copy(alpha = 0.035f),
+                                    GlassHighlight.copy(alpha = 0.08f),
+                                    Color.White.copy(alpha = 0.028f),
                                 )
                             )
                         }
                     )
                     .border(
                         0.5.dp,
-                        if (selected) AccentCoral.copy(alpha = 0.46f) else SurfaceBorder.copy(alpha = 1.3f),
+                        if (selected) AccentCoral.copy(alpha = 0.50f) else SurfaceBorder.copy(alpha = 1.45f),
                         RoundedCornerShape(999.dp),
                     )
                     .clickable { onSelected(index) }
@@ -367,7 +436,7 @@ private fun CollageTileContent(
                     )
                 )
             )
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.35f), RoundedCornerShape(8.dp)),
+            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.55f), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
         if (coverId.isNotEmpty()) {
@@ -404,7 +473,7 @@ private fun CollageTileContent(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.White.copy(alpha = 0.06f),
+                            GlassHighlight.copy(alpha = 0.10f),
                             Color.Transparent,
                             Color.Black.copy(alpha = 0.16f),
                         )
@@ -429,7 +498,7 @@ fun PremiumIconButton(
             .size(42.dp)
             .clip(RoundedCornerShape(999.dp)),
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = Color.White.copy(alpha = 0.08f),
+            containerColor = GlassHighlight.copy(alpha = 0.085f),
             contentColor = TextPrimary,
             disabledContainerColor = SurfaceElevated.copy(alpha = 0.24f),
             disabledContentColor = TextDim,
@@ -506,7 +575,7 @@ fun PremiumButton(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFFF4EFE7),
+            containerColor = Color(0xFFF7F0E8),
             contentColor = SurfaceDark,
             disabledContainerColor = SurfaceElevated.copy(alpha = 0.42f),
             disabledContentColor = TextDim,
@@ -534,12 +603,12 @@ fun PremiumTrackItem(
             .clip(RoundedCornerShape(8.dp))
             .border(
                 0.5.dp,
-                if (isActive) AccentCoral.copy(alpha = 0.42f) else SurfaceBorder.copy(alpha = 1.2f),
+                if (isActive) AccentCoral.copy(alpha = 0.48f) else SurfaceBorder.copy(alpha = 1.35f),
                 RoundedCornerShape(8.dp),
             )
             .background(
-                if (isActive) AccentCoral.copy(alpha = 0.13f)
-                else Color.White.copy(alpha = 0.055f)
+                if (isActive) AccentCoral.copy(alpha = 0.15f)
+                else GlassHighlight.copy(alpha = 0.055f)
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 9.dp),
@@ -576,7 +645,7 @@ fun TrackArtwork(
     val artworkModifier = modifier
         .size(size)
         .clip(RoundedCornerShape(8.dp))
-        .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp))
+        .border(0.5.dp, SurfaceBorder.copy(alpha = 1.45f), RoundedCornerShape(8.dp))
 
     if (coverId.isNotEmpty()) {
         AsyncImage(
