@@ -14,11 +14,26 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHistory(entry: HistoryEntity)
 
+    @Query("DELETE FROM play_history WHERE id NOT IN (SELECT id FROM play_history ORDER BY playedAt DESC LIMIT :limit)")
+    suspend fun trimHistory(limit: Int = 250)
+
     @Query("SELECT * FROM play_counts WHERE trackId = :trackId")
     suspend fun getPlayCount(trackId: String): PlayCountEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPlayCount(count: PlayCountEntity)
+
+    @Query(
+        """
+        INSERT OR REPLACE INTO play_counts(trackId, playCount, lastPlayed)
+        VALUES(
+            :trackId,
+            COALESCE((SELECT playCount FROM play_counts WHERE trackId = :trackId), 0) + 1,
+            :playedAt
+        )
+        """
+    )
+    suspend fun incrementPlayCount(trackId: String, playedAt: Long)
 
     @Query("SELECT * FROM play_counts ORDER BY playCount DESC LIMIT :limit")
     suspend fun getTopTracks(limit: Int = 50): List<PlayCountEntity>

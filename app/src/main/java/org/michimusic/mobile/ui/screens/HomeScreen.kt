@@ -66,17 +66,23 @@ fun HomeScreen(
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
     val allTracks by viewModel.allTracks.collectAsState()
+    val topTracks by viewModel.topTracks.collectAsState()
+    val recentTracks by viewModel.recentTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val controller: AudioController = koinInject()
     var selectedFilter by remember { mutableIntStateOf(0) }
-    val filters = listOf("Todo", "Artistas", "Álbumes", "Recientes")
-    val visibleTracks = remember(allTracks, selectedFilter) {
+    val filters = listOf("Todo", "Artistas", "Álbumes", "Recientes", "Top")
+    val visibleTracks = remember(allTracks, recentTracks, topTracks, selectedFilter) {
         when (selectedFilter) {
             1 -> allTracks.sortedBy { it.artist.lowercase() }
             2 -> allTracks.sortedBy { it.album.lowercase() }
-            3 -> allTracks.take(30)
+            3 -> recentTracks.ifEmpty { allTracks.take(30) }
+            4 -> topTracks.ifEmpty { allTracks }
             else -> allTracks
         }
+    }
+    val featuredTracks = remember(topTracks, recentTracks, visibleTracks) {
+        topTracks.ifEmpty { recentTracks.ifEmpty { visibleTracks } }
     }
     val coverIds = remember(allTracks) {
         allTracks
@@ -227,7 +233,7 @@ fun HomeScreen(
 
                 PremiumSectionHeader(
                     title = "Destacados",
-                    subtitle = "covers y pistas listas",
+                    subtitle = if (topTracks.isNotEmpty()) "más escuchadas" else "covers y pistas listas",
                 )
 
                 Spacer(Modifier.height(8.dp))
@@ -236,7 +242,7 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(visibleTracks.take(8)) { index, track ->
+                    itemsIndexed(featuredTracks.take(8)) { index, track ->
                         PremiumTrackItem(
                             title = track.title,
                             subtitle = track.artist.ifBlank { track.album },
@@ -251,12 +257,47 @@ fun HomeScreen(
                                     modifier = Modifier.size(18.dp),
                                 )
                             },
-                            onClick = { controller.playQueue(visibleTracks, index) },
+                            onClick = { controller.playQueue(featuredTracks, index) },
                         )
                     }
                 }
 
                 Spacer(Modifier.height(14.dp))
+
+                if (recentTracks.isNotEmpty()) {
+                    PremiumSectionHeader(
+                        title = "Últimas",
+                        subtitle = "sesiones recientes",
+                    )
+
+                    Spacer(Modifier.height(8.dp))
+
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        itemsIndexed(recentTracks.take(8)) { index, track ->
+                            PremiumTrackItem(
+                                title = track.title,
+                                subtitle = "${track.artist} · ${track.album}",
+                                coverId = track.coverId,
+                                modifier = Modifier.width(230.dp),
+                                trailing = {
+                                    Spacer(Modifier.width(8.dp))
+                                    Icon(
+                                        Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        tint = AccentCoral,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                },
+                                onClick = { controller.playQueue(recentTracks, index) },
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+                }
 
                 PremiumSectionHeader(
                     title = "Biblioteca",

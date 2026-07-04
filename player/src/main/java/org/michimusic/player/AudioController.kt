@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.michimusic.data.cache.HistoryEntity
 import org.michimusic.core.models.Track
 
 @OptIn(UnstableApi::class)
@@ -32,6 +34,8 @@ class AudioController(
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
     private var positionJob: Job? = null
     private var sleepTimerJob: Job? = null
+    private var lastRecordedTrackId: String? = null
+    private var lastRecordedAt: Long = 0L
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -44,11 +48,13 @@ class AudioController(
             val queue = _state.value.queue
             val index = ctrl.currentMediaItemIndex
             if (index in queue.indices) {
+                val track = queue[index]
                 _state.value = _state.value.copy(
-                    currentTrack = queue[index],
+                    currentTrack = track,
                     queueIndex = index,
                     position = 0L,
                 )
+                recordPlayback(track)
             }
         }
 
@@ -148,6 +154,7 @@ class AudioController(
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         val sleepTimerRemainingMs = _state.value.sleepTimerRemainingMs
+        val startTrack = tracks.getOrNull(startIndex)
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -162,13 +169,14 @@ class AudioController(
         }
         mediaController?.setMediaItems(mediaItems, startIndex, 0L)
         _state.value = PlayerState(
-            currentTrack = tracks.getOrNull(startIndex),
+            currentTrack = startTrack,
             queue = tracks,
             queueIndex = startIndex,
             isPlaying = true,
-            duration = tracks.getOrNull(startIndex)?.duration ?: 0L,
+            duration = startTrack?.duration ?: 0L,
             sleepTimerRemainingMs = sleepTimerRemainingMs,
         )
+        startTrack?.let(::recordPlayback)
         mediaController?.play()
     }
 
@@ -210,5 +218,21 @@ class AudioController(
         cancelSleepTimer()
         mediaController?.release()
         mediaController = null
+    }
+
+    private fun recordPlayback(track: Track) {
+        val appDao = PlayerDependencies.appDao ?: return
+        val now = System.currentTimeMillis()
+        if (lastRecordedTrackId == track.id && now - lastRecordedAt < 2_500L) return
+        lastRecordedTrackId = track.id
+        lastRecordedAt = now
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                val playedAt = now
+                appDao.insertHistory(HistoryEntity(trackId = track.id, playedAt = playedAt))
+                appDao.incrementPlayCount(track.id, playedAt)
+                appDao.trimHistory()
+            }
+        }
     }
 }
