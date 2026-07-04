@@ -51,6 +51,7 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.michiAccentFor
 import org.koin.compose.koinInject
 import org.michimusic.player.AudioController
 import org.michimusic.player.PlayerState
@@ -71,6 +72,9 @@ fun MiniPlayer(
     }
 
     val track = playerState.currentTrack
+    val accent = remember(track?.coverId, track?.title) {
+        michiAccentFor(track?.coverId ?: track?.title)
+    }
 
     Box(
         modifier = modifier
@@ -101,7 +105,7 @@ fun MiniPlayer(
                     .align(Alignment.TopCenter)
                     .padding(top = 0.dp),
                 trackColor = Color.White.copy(alpha = 0.12f),
-                color = AccentCoral,
+                color = accent,
             )
         }
         Row(
@@ -182,7 +186,16 @@ fun MiniPlayer(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFF4EFE7), CircleShape),
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                Color(0xFFF4EFE7),
+                                accent.copy(alpha = 0.28f),
+                            )
+                        ),
+                        CircleShape,
+                    )
+                    .border(0.5.dp, accent.copy(alpha = 0.35f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(

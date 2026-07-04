@@ -40,6 +40,7 @@ import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.michiAccentFor
 import org.michimusic.player.AudioController
 import org.michimusic.player.PlayerState
 
@@ -89,6 +90,9 @@ fun NowPlayingScreen(
 
     val currentTrack = state.currentTrack
     val progress = if (state.duration > 0L) (state.position.toFloat() / state.duration).coerceIn(0f, 1f) else 0f
+    val dynamicAccent = remember(currentTrack?.coverId, currentTrack?.title) {
+        michiAccentFor(currentTrack?.coverId ?: currentTrack?.title)
+    }
 
     fun formatTime(ms: Long): String {
         if (ms < 0) return "0:00"
@@ -99,7 +103,7 @@ fun NowPlayingScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        PlayerBackdrop(coverId = currentTrack?.coverId)
+        PlayerBackdrop(coverId = currentTrack?.coverId, accent = dynamicAccent)
 
         Column(
             modifier = Modifier
@@ -115,6 +119,7 @@ fun NowPlayingScreen(
                 PlaybackSourceDropdown(
                     source = selectedSource,
                     isExpanded = isSourceMenuExpanded,
+                    accent = dynamicAccent,
                     onClick = { isSourceMenuExpanded = !isSourceMenuExpanded }
                 )
 
@@ -128,6 +133,7 @@ fun NowPlayingScreen(
                             PlaybackSourceMenu(
                                 sources = allSources,
                                 selectedSource = selectedSource,
+                                accent = dynamicAccent,
                                 onSourceSelected = { source ->
                                     selectedSource = source
                                     isSourceMenuExpanded = false
@@ -149,6 +155,7 @@ fun NowPlayingScreen(
 
             AlbumArtworkCard(
                 coverId = currentTrack?.coverId,
+                accent = dynamicAccent,
                 modifier = Modifier
                     .weight(0.86f)
                     .aspectRatio(1f)
@@ -184,6 +191,7 @@ fun NowPlayingScreen(
                             it.setRepeatMode(next)
                         }
                     },
+                    accent = dynamicAccent,
                     onNavigateToAudioRoute = onNavigateToAudioRoute,
                 )
 
@@ -198,7 +206,8 @@ fun NowPlayingScreen(
                         }
                     },
                     timeStart = formatTime(state.position),
-                    timeEnd = formatTime(state.duration)
+                    timeEnd = formatTime(state.duration),
+                    accent = dynamicAccent,
                 )
 
                 Spacer(modifier = Modifier.height(2.dp))
@@ -211,6 +220,7 @@ fun NowPlayingScreen(
                     },
                     onNext = { audioController?.skipNext() },
                     onPrevious = { audioController?.skipPrevious() },
+                    accent = dynamicAccent,
                 )
             }
         }
@@ -220,7 +230,7 @@ fun NowPlayingScreen(
 // --- COMPONENTES ---
 
 @Composable
-private fun PlayerBackdrop(coverId: String?) {
+private fun PlayerBackdrop(coverId: String?, accent: Color) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -244,9 +254,22 @@ private fun PlayerBackdrop(coverId: String?) {
                     Brush.verticalGradient(
                         listOf(
                             Color(0xD905070C),
-                            MockupWarmSmoke.copy(alpha = 0.76f),
+                            MockupWarmSmoke.copy(alpha = 0.62f),
                             Color(0xF705070C),
                         )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            accent.copy(alpha = 0.18f),
+                            Color.Transparent,
+                        ),
+                        radius = 820f,
                     )
                 )
         )
@@ -268,6 +291,7 @@ private fun FloatingControlsColumn(content: @Composable ColumnScope.() -> Unit) 
 fun PlaybackSourceDropdown(
     source: PlaybackSource,
     isExpanded: Boolean,
+    accent: Color = AccentCoral,
     onClick: () -> Unit
 ) {
     Row(
@@ -283,7 +307,7 @@ fun PlaybackSourceDropdown(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(source.icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(18.dp))
+            Icon(source.icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(source.title, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -302,6 +326,7 @@ fun PlaybackSourceDropdown(
 fun PlaybackSourceMenu(
     sources: List<PlaybackSource>,
     selectedSource: PlaybackSource,
+    accent: Color = AccentCoral,
     onSourceSelected: (PlaybackSource) -> Unit,
     onManageClick: () -> Unit
 ) {
@@ -315,7 +340,7 @@ fun PlaybackSourceMenu(
     ) {
         Text(
             text = "Seleccionar fuente",
-            color = AccentPink,
+            color = accent,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
@@ -329,14 +354,14 @@ fun PlaybackSourceMenu(
                     .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(source.icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(20.dp))
+                Icon(source.icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(source.title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Text(source.subtitle, color = TextSecondary, fontSize = 12.sp)
                 }
                 if (source.id == selectedSource.id) {
-                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AccentPink, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -350,7 +375,7 @@ fun PlaybackSourceMenu(
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Rounded.Settings, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(20.dp))
+            Icon(Icons.Rounded.Settings, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Text("Gestionar fuentes", color = TextSecondary, fontSize = 14.sp)
         }
@@ -358,11 +383,11 @@ fun PlaybackSourceMenu(
 }
 
 @Composable
-fun AlbumArtworkCard(coverId: String? = null, modifier: Modifier = Modifier) {
+fun AlbumArtworkCard(coverId: String? = null, accent: Color = AccentCoral, modifier: Modifier = Modifier) {
     val synthwaveGradient = Brush.verticalGradient(
         colors = listOf(
             Color(0xFF6EDDBC),
-            Color(0xFFD03B58),
+            accent.copy(alpha = 0.92f),
             Color(0xFF9F8247),
         )
     )
@@ -511,6 +536,7 @@ private fun UtilityIconRow(
     repeatMode: Int,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
+    accent: Color,
     onNavigateToAudioRoute: () -> Unit,
 ) {
     Row(
@@ -544,13 +570,13 @@ private fun UtilityIconRow(
         MichiIconButton(
             icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
             size = 17.dp,
-            tint = if (repeatMode != 0) AccentPink else TextSecondary,
+            tint = if (repeatMode != 0) accent else TextSecondary,
             onClick = onRepeat,
         )
         MichiIconButton(
             Icons.Rounded.Shuffle,
             size = 17.dp,
-            tint = if (isShuffled) AccentPink else TextSecondary,
+            tint = if (isShuffled) accent else TextSecondary,
             onClick = onShuffle,
         )
     }
@@ -564,7 +590,8 @@ fun MichiSlider(
     onValueChangeFinished: ((Float) -> Unit)? = null,
     timeStart: String? = null,
     timeEnd: String? = null,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    accent: Color = AccentCoral,
 ) {
     val lastValue = remember { mutableFloatStateOf(value) }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -610,7 +637,7 @@ fun MichiSlider(
                         val barHeight = size.height * wave * accentLift
                         val active = normalized <= fraction
                         drawLine(
-                            color = if (active) Color.White else Color.White.copy(alpha = 0.22f),
+                            color = if (active) accent else Color.White.copy(alpha = 0.22f),
                             start = androidx.compose.ui.geometry.Offset(x, centerY - barHeight / 2f),
                             end = androidx.compose.ui.geometry.Offset(x, centerY + barHeight / 2f),
                             strokeWidth = stroke,
@@ -634,6 +661,7 @@ fun MediaControlsBar(
     onPlayPause: () -> Unit = {},
     onNext: () -> Unit = {},
     onPrevious: () -> Unit = {},
+    accent: Color = AccentCoral,
 ) {
     Row(
         modifier = Modifier
@@ -649,7 +677,8 @@ fun MediaControlsBar(
             modifier = Modifier
                 .size(54.dp)
                 .clip(CircleShape)
-                .background(Color.Transparent)
+                .background(accent.copy(alpha = 0.14f))
+                .border(0.6.dp, accent.copy(alpha = 0.32f), CircleShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -660,7 +689,7 @@ fun MediaControlsBar(
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = ControlWhite,
+                tint = Color.White,
                 modifier = Modifier.size(43.dp)
             )
         }
