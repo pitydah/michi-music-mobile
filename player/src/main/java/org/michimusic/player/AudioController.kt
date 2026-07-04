@@ -228,6 +228,8 @@ class AudioController(
         lastRecordedAt = now
         scope.launch {
             withContext(Dispatchers.IO) {
+                val historyEnabled = appDao.getSetting("listening_history_enabled") != "false"
+                if (!historyEnabled) return@withContext
                 val playedAt = now
                 appDao.insertHistory(HistoryEntity(trackId = track.id, playedAt = playedAt))
                 appDao.incrementPlayCount(track.id, playedAt)

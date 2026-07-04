@@ -17,6 +17,9 @@ interface AppDao {
     @Query("DELETE FROM play_history WHERE id NOT IN (SELECT id FROM play_history ORDER BY playedAt DESC LIMIT :limit)")
     suspend fun trimHistory(limit: Int = 250)
 
+    @Query("DELETE FROM play_history")
+    suspend fun clearHistory()
+
     @Query("SELECT * FROM play_counts WHERE trackId = :trackId")
     suspend fun getPlayCount(trackId: String): PlayCountEntity?
 
@@ -37,6 +40,9 @@ interface AppDao {
 
     @Query("SELECT * FROM play_counts ORDER BY playCount DESC LIMIT :limit")
     suspend fun getTopTracks(limit: Int = 50): List<PlayCountEntity>
+
+    @Query("DELETE FROM play_counts")
+    suspend fun clearPlayCounts()
 
     @Query("SELECT * FROM saved_queue WHERE id = 0")
     suspend fun getSavedQueue(): QueueEntity?
