@@ -82,24 +82,24 @@ fun MiniPlayer(
             .padding(horizontal = 12.dp)
             .navigationBarsPadding()
             .clickable(onClick = onClick)
-            .shadow(22.dp, RoundedCornerShape(28.dp), clip = false)
+            .shadow(18.dp, RoundedCornerShape(28.dp), clip = false)
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.14f),
-                        Color(0xC7101319),
-                        Color(0xE6080A0F),
+                        Color.White.copy(alpha = 0.095f),
+                        Color(0xBD101319),
+                        Color(0xD9080A0F),
                     )
                 ),
                 RoundedCornerShape(28.dp),
             )
             .border(
-                0.7.dp,
+                0.35.dp,
                 Brush.linearGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.34f),
-                        Color.White.copy(alpha = 0.12f),
-                        accent.copy(alpha = 0.24f),
+                        Color.White.copy(alpha = 0.18f),
+                        Color.White.copy(alpha = 0.065f),
+                        accent.copy(alpha = 0.11f),
                     )
                 ),
                 RoundedCornerShape(28.dp),
@@ -115,7 +115,7 @@ fun MiniPlayer(
                     Brush.horizontalGradient(
                         listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = 0.28f),
+                            Color.White.copy(alpha = 0.13f),
                             Color.Transparent,
                         )
                     )

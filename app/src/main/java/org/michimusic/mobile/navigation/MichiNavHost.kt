@@ -180,24 +180,24 @@ private fun FloatingBottomDock(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 54.dp)
-                    .shadow(22.dp, RoundedCornerShape(30.dp), clip = false)
+                    .shadow(18.dp, RoundedCornerShape(30.dp), clip = false)
                     .clip(RoundedCornerShape(30.dp))
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                Color.White.copy(alpha = 0.14f),
-                                Color(0xB00F1117),
-                                Color(0xD5080A0F),
+                                Color.White.copy(alpha = 0.095f),
+                                Color(0xAA0F1117),
+                                Color(0xCC080A0F),
                             )
                         )
                     )
                     .border(
-                        0.7.dp,
+                        0.35.dp,
                         Brush.linearGradient(
                             listOf(
-                                Color.White.copy(alpha = 0.34f),
-                                Color.White.copy(alpha = 0.12f),
-                                accent.copy(alpha = 0.24f),
+                                Color.White.copy(alpha = 0.18f),
+                                Color.White.copy(alpha = 0.065f),
+                                accent.copy(alpha = 0.11f),
                             )
                         ),
                         RoundedCornerShape(30.dp),
