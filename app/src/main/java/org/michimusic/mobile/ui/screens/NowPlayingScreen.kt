@@ -102,6 +102,22 @@ fun NowPlayingScreen(
         return "%d:%02d".format(min, sec)
     }
 
+    fun formatTimer(ms: Long): String {
+        val totalMin = ((ms + 59_999L) / 60_000L).coerceAtLeast(0L)
+        return "${totalMin} min"
+    }
+
+    fun cycleSleepTimer() {
+        val current = state.sleepTimerRemainingMs
+        val next = when {
+            current <= 0L -> 15 * 60_000L
+            current <= 15 * 60_000L -> 30 * 60_000L
+            current <= 30 * 60_000L -> 60 * 60_000L
+            else -> 0L
+        }
+        audioController?.setSleepTimer(next)
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         PlayerBackdrop(coverId = currentTrack?.coverId, accent = dynamicAccent)
 
@@ -184,6 +200,7 @@ fun NowPlayingScreen(
                 UtilityIconRow(
                     isShuffled = state.shuffleMode,
                     repeatMode = state.repeatMode,
+                    sleepTimerRemainingMs = state.sleepTimerRemainingMs,
                     onShuffle = { audioController?.toggleShuffle() },
                     onRepeat = {
                         audioController?.let {
@@ -191,11 +208,28 @@ fun NowPlayingScreen(
                             it.setRepeatMode(next)
                         }
                     },
+                    onSleepTimer = ::cycleSleepTimer,
                     accent = dynamicAccent,
                     onNavigateToAudioRoute = onNavigateToAudioRoute,
                 )
 
-                Spacer(modifier = Modifier.height(5.dp))
+                if (state.sleepTimerRemainingMs > 0L) {
+                    Text(
+                        text = "Temporizador: ${formatTimer(state.sleepTimerRemainingMs)}",
+                        color = dynamicAccent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color.White.copy(alpha = 0.06f))
+                            .border(0.5.dp, dynamicAccent.copy(alpha = 0.28f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(5.dp))
+                }
+
 
                 MichiSlider(
                     value = dragProgress,
@@ -534,8 +568,10 @@ fun TrackInfo(title: String, artist: String, album: String) {
 private fun UtilityIconRow(
     isShuffled: Boolean,
     repeatMode: Int,
+    sleepTimerRemainingMs: Long,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
+    onSleepTimer: () -> Unit,
     accent: Color,
     onNavigateToAudioRoute: () -> Unit,
 ) {
@@ -552,9 +588,10 @@ private fun UtilityIconRow(
             tint = TextSecondary,
         )
         MichiIconButton(
-            Icons.Rounded.Info,
+            Icons.Rounded.Bedtime,
             size = 17.dp,
-            tint = TextSecondary,
+            tint = if (sleepTimerRemainingMs > 0L) accent else TextSecondary,
+            onClick = onSleepTimer,
         )
         MichiIconButton(
             Icons.AutoMirrored.Rounded.QueueMusic,

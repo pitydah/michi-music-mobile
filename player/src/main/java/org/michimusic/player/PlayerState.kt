@@ -11,4 +11,5 @@ data class PlayerState(
     val duration: Long = 0L,
     val repeatMode: Int = 0,
     val shuffleMode: Boolean = false,
+    val sleepTimerRemainingMs: Long = 0L,
 )

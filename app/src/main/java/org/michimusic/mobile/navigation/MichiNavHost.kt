@@ -28,7 +28,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,13 +56,13 @@ import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
-import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.SurfaceBorder
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextPrimary
+import org.michimusic.mobile.ui.theme.michiAccentFor
+import org.koin.compose.koinInject
+import org.michimusic.player.AudioController
 
 data class BottomNavEntry(
     val route: String,
@@ -84,12 +86,18 @@ fun MichiNavHost() {
     val currentDest = backStackEntry?.destination
     val currentRoute = currentDest?.route
     val miniPlayerVisible = currentRoute != "nowplaying"
+    val audioController: AudioController = koinInject()
+    val playerState by audioController.state.collectAsState()
+    val dockAccent = remember(playerState.currentTrack?.coverId, playerState.currentTrack?.title) {
+        michiAccentFor(playerState.currentTrack?.coverId ?: playerState.currentTrack?.title)
+    }
 
     Scaffold(
         containerColor = SurfaceDark,
         bottomBar = {
             FloatingBottomDock(
                 currentRoute = currentRoute,
+                accent = dockAccent,
                 onNavigate = { route ->
                     navController.navigate(route) {
                         popUpTo(navController.graph.findStartDestination().id) {
@@ -141,6 +149,7 @@ fun MichiNavHost() {
 @Composable
 private fun FloatingBottomDock(
     currentRoute: String?,
+    accent: Color,
     onNavigate: (String) -> Unit,
 ) {
     Box(
@@ -192,6 +201,7 @@ private fun FloatingBottomDock(
                     FloatingDockItem(
                         entry = entry,
                         selected = selected,
+                        accent = accent,
                         onClick = { onNavigate(entry.route) },
                     )
                 }
@@ -204,9 +214,10 @@ private fun FloatingBottomDock(
 private fun FloatingDockItem(
     entry: BottomNavEntry,
     selected: Boolean,
+    accent: Color,
     onClick: () -> Unit,
 ) {
-    val tint = if (selected) AccentCoral else TextDim
+    val tint = if (selected) accent else TextDim
 
     Column(
         modifier = Modifier
@@ -216,7 +227,7 @@ private fun FloatingDockItem(
                     Brush.verticalGradient(
                         listOf(
                             Color.White.copy(alpha = 0.11f),
-                            AccentCoral.copy(alpha = 0.08f),
+                            accent.copy(alpha = 0.08f),
                         )
                     )
                 } else {
@@ -225,7 +236,7 @@ private fun FloatingDockItem(
             )
             .border(
                 0.5.dp,
-                if (selected) AccentCoral.copy(alpha = 0.34f) else Color.Transparent,
+                if (selected) accent.copy(alpha = 0.34f) else Color.Transparent,
                 RoundedCornerShape(22.dp),
             )
             .padding(horizontal = 5.dp, vertical = 2.dp),
@@ -254,7 +265,7 @@ private fun FloatingDockItem(
             modifier = Modifier
                 .size(width = if (selected) 15.dp else 3.dp, height = 2.dp)
                 .clip(RoundedCornerShape(3.dp))
-                .background(if (selected) Brush.horizontalGradient(listOf(AccentCoral, AccentPink)) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))),
+                .background(if (selected) Brush.horizontalGradient(listOf(accent, AccentPink)) else Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))),
         ) {
         }
     }

@@ -31,6 +31,7 @@ class AudioController(
     private val _isReady = MutableStateFlow(false)
     val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
     private var positionJob: Job? = null
+    private var sleepTimerJob: Job? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -117,7 +118,36 @@ class AudioController(
         mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
     }
 
+    fun setSleepTimer(durationMs: Long) {
+        sleepTimerJob?.cancel()
+        if (durationMs <= 0L) {
+            _state.value = _state.value.copy(sleepTimerRemainingMs = 0L)
+            sleepTimerJob = null
+            return
+        }
+
+        val endsAt = System.currentTimeMillis() + durationMs
+        _state.value = _state.value.copy(sleepTimerRemainingMs = durationMs)
+        sleepTimerJob = scope.launch {
+            while (isActive) {
+                val remaining = (endsAt - System.currentTimeMillis()).coerceAtLeast(0L)
+                _state.value = _state.value.copy(sleepTimerRemainingMs = remaining)
+                if (remaining <= 0L) {
+                    pause()
+                    sleepTimerJob = null
+                    break
+                }
+                delay(1_000)
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        setSleepTimer(0L)
+    }
+
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+        val sleepTimerRemainingMs = _state.value.sleepTimerRemainingMs
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -137,6 +167,7 @@ class AudioController(
             queueIndex = startIndex,
             isPlaying = true,
             duration = tracks.getOrNull(startIndex)?.duration ?: 0L,
+            sleepTimerRemainingMs = sleepTimerRemainingMs,
         )
         mediaController?.play()
     }
@@ -170,11 +201,13 @@ class AudioController(
     fun clearQueue() {
         mediaController?.stop()
         mediaController?.clearMediaItems()
+        cancelSleepTimer()
         _state.value = PlayerState()
     }
 
     fun release() {
         stopPositionUpdates()
+        cancelSleepTimer()
         mediaController?.release()
         mediaController = null
     }
