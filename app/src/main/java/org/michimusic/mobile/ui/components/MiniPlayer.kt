@@ -27,8 +27,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +35,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import org.michimusic.mobile.ui.getAudioController
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceElevated
@@ -44,18 +43,16 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.getAudioController
+import org.michimusic.player.PlayerState
 
 @Composable
 fun MiniPlayer(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    playerState: PlayerState? = null,
 ) {
-    val controller = remember { getAudioController() }
-    val state by controller?.state?.collectAsState() ?: remember {
-        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
-    }
-    val track = state.currentTrack
+    val state = playerState
+    val track = state?.currentTrack
 
     Box(
         modifier = modifier
@@ -64,7 +61,7 @@ fun MiniPlayer(
             .background(SurfaceElevated, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        if (state.duration > 0 && track != null) {
+        if (state != null && state.duration > 0 && track != null) {
             LinearProgressIndicator(
                 progress = { state.position.toFloat() / state.duration.toFloat() },
                 modifier = Modifier
@@ -131,7 +128,9 @@ fun MiniPlayer(
 
             Spacer(Modifier.width(8.dp))
 
-            IconButton(onClick = { controller?.skipPrevious() }) {
+            IconButton(onClick = {
+                getAudioController()?.skipPrevious()
+            }) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
                     contentDescription = "Previous",
@@ -147,17 +146,20 @@ fun MiniPlayer(
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = {
-                    if (state.isPlaying) controller?.pause() else controller?.play()
+                    val ctrl = getAudioController()
+                    if (state?.isPlaying == true) ctrl?.pause() else ctrl?.play()
                 }) {
                     Icon(
-                        imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (state.isPlaying) "Pause" else "Play",
+                        imageVector = if (state?.isPlaying == true) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (state?.isPlaying == true) "Pause" else "Play",
                         tint = SurfaceDark,
                         modifier = Modifier.size(20.dp),
                     )
                 }
             }
-            IconButton(onClick = { controller?.skipNext() }) {
+            IconButton(onClick = {
+                getAudioController()?.skipNext()
+            }) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
                     contentDescription = "Next",

@@ -10,16 +10,18 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -27,16 +29,18 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import org.michimusic.mobile.ui.components.MiniPlayer
+import org.michimusic.mobile.ui.getAudioController
 import org.michimusic.mobile.ui.screens.AlbumsScreen
+import org.michimusic.mobile.ui.screens.AudioRouteScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
-import org.michimusic.mobile.ui.screens.AudioRouteScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
 import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
+
 data class BottomNavItem(
     val route: String,
     val label: String,
@@ -57,6 +61,11 @@ fun MichiNavHost() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+
+    val controller = remember { getAudioController() }
+    val playerState by controller?.state?.collectAsState() ?: remember {
+        androidx.compose.runtime.mutableStateOf(org.michimusic.player.PlayerState())
+    }
 
     Scaffold(
         bottomBar = {
@@ -107,6 +116,7 @@ fun MichiNavHost() {
             MiniPlayer(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onClick = { navController.navigate("nowplaying") },
+                playerState = if (playerState.currentTrack != null) playerState else null,
             )
         }
     }

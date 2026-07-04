@@ -2,6 +2,7 @@ package org.michimusic.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -20,6 +21,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 
+private const val TAG = "MichiAudio"
+
 @OptIn(UnstableApi::class)
 class AudioController(
     context: Context,
@@ -29,6 +32,10 @@ class AudioController(
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private var positionJob: Job? = null
+
+    private var pendingQueueTracks: List<Track>? = null
+    private var pendingStartIndex: Int = 0
+    private var pendingAutoPlay: Boolean = false
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -68,6 +75,7 @@ class AudioController(
     }
 
     init {
+        Log.d(TAG, "AudioController created")
         val sessionToken = SessionToken(
             context,
             ComponentName(context, MichiPlaybackService::class.java),
@@ -77,6 +85,8 @@ class AudioController(
             val controller = future.get()
             mediaController = controller
             controller.addListener(listener)
+            Log.d(TAG, "MediaController ready")
+            executePendingPlayQueue()
         }, MoreExecutors.directExecutor())
     }
 
@@ -97,20 +107,58 @@ class AudioController(
         positionJob = null
     }
 
-    fun play() { mediaController?.play() }
-    fun pause() { mediaController?.pause() }
+    fun play() {
+        Log.d(TAG, "play requested")
+        mediaController?.play()
+    }
+    fun pause() {
+        Log.d(TAG, "pause requested")
+        mediaController?.pause()
+    }
     fun seekTo(position: Long) {
         mediaController?.seekTo(position)
         _state.value = _state.value.copy(position = position)
     }
-    fun skipNext() { mediaController?.seekToNextMediaItem() }
-    fun skipPrevious() { mediaController?.seekToPreviousMediaItem() }
+    fun skipNext() {
+        Log.d(TAG, "skipNext requested")
+        mediaController?.seekToNextMediaItem()
+    }
+    fun skipPrevious() {
+        mediaController?.seekToPreviousMediaItem()
+    }
     fun setRepeatMode(mode: Int) { mediaController?.repeatMode = mode }
     fun toggleShuffle() {
         mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
     }
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+        if (mediaController == null) {
+            Log.d(TAG, "playQueue deferred: MediaController not ready")
+            pendingQueueTracks = tracks
+            pendingStartIndex = startIndex
+            pendingAutoPlay = true
+            _state.value = PlayerState(
+                currentTrack = tracks.getOrNull(startIndex),
+                queue = tracks,
+                queueIndex = startIndex,
+                isPlaying = true,
+                duration = tracks.getOrNull(startIndex)?.duration ?: 0L,
+            )
+            return
+        }
+        Log.d(TAG, "playQueue requested")
+        executePlayQueue(tracks, startIndex, autoPlay = true)
+    }
+
+    private fun executePendingPlayQueue() {
+        pendingQueueTracks?.let { tracks ->
+            Log.d(TAG, "Executing deferred playQueue")
+            executePlayQueue(tracks, pendingStartIndex, pendingAutoPlay)
+            pendingQueueTracks = null
+        }
+    }
+
+    private fun executePlayQueue(tracks: List<Track>, startIndex: Int, autoPlay: Boolean) {
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -128,10 +176,10 @@ class AudioController(
             currentTrack = tracks.getOrNull(startIndex),
             queue = tracks,
             queueIndex = startIndex,
-            isPlaying = true,
+            isPlaying = autoPlay,
             duration = tracks.getOrNull(startIndex)?.duration ?: 0L,
         )
-        mediaController?.play()
+        if (autoPlay) mediaController?.play()
     }
 
     fun addToQueue(track: Track) {
@@ -161,6 +209,7 @@ class AudioController(
     }
 
     fun clearQueue() {
+        Log.d(TAG, "clearQueue requested")
         mediaController?.stop()
         mediaController?.clearMediaItems()
         _state.value = PlayerState()
