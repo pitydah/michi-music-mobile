@@ -1,0 +1,1 @@
+Reproductor de música local con sincronización con Michi Music Player en Linux/KDE

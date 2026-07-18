@@ -259,6 +259,7 @@ class AudioController(
             sleepTimerRemainingMs = sleepTimerRemainingMs,
         )
         startTrack?.let(::recordPlayback)
+        saveCurrentQueueToDb()
         if (autoPlay) mediaController?.play()
     }
 
@@ -278,6 +279,7 @@ class AudioController(
                 .build(),
         )
         _state.value = _state.value.copy(queue = newQueue)
+        saveCurrentQueueToDb()
     }
 
     fun removeFromQueue(index: Int) {
@@ -287,6 +289,7 @@ class AudioController(
             newQueue.removeAt(index)
             mediaController?.removeMediaItem(index)
             _state.value = _state.value.copy(queue = newQueue)
+            saveCurrentQueueToDb()
         }
     }
 
@@ -300,6 +303,17 @@ class AudioController(
         _state.value = PlayerState()
     }
 
+    fun restoreQueue(tracks: List<Track>, startIndex: Int, positionMs: Long, repeatMode: Int, shuffleMode: Boolean) {
+        if (tracks.isEmpty()) return
+        _state.value = _state.value.copy(
+            queue = tracks,
+            queueIndex = startIndex,
+            position = positionMs,
+            repeatMode = repeatMode,
+            shuffleMode = shuffleMode,
+        )
+    }
+
     fun release() {
         stopPositionUpdates()
         cancelSleepTimer()
@@ -307,6 +321,24 @@ class AudioController(
         mediaController = null
         connectStarted = false
         pendingQueueTracks = null
+    }
+
+    private fun saveCurrentQueueToDb() {
+        val appDao = PlayerDependencies.appDao ?: return
+        val s = _state.value
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                appDao.saveQueue(
+                    org.michimusic.data.cache.QueueEntity(
+                        trackIds = s.queue.joinToString(",") { it.id },
+                        startIndex = s.queueIndex.coerceAtLeast(0),
+                        positionMs = s.position,
+                        repeatMode = s.repeatMode,
+                        shuffleMode = s.shuffleMode,
+                    )
+                )
+            }
+        }
     }
 
     private fun recordPlayback(track: Track) {

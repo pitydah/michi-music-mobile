@@ -14,6 +14,17 @@ val keystoreProps = if (keystorePropsFile.exists()) {
     Properties().apply { load(FileInputStream(keystorePropsFile)) }
 } else null
 
+val gitCommitCount: String = rootProject.rootDir.let {
+    try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(it)
+            .start()
+        process.inputStream.bufferedReader().readText().trim()
+    } catch (_: Exception) {
+        "1"
+    }
+}
+
 android {
     namespace = "org.michimusic.mobile"
     compileSdk = 35
@@ -22,7 +33,7 @@ android {
         applicationId = "org.michimusic.mobile"
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
+        versionCode = gitCommitCount.toIntOrNull() ?: 1
         versionName = "0.1.0-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -44,6 +55,7 @@ android {
         }
         create("fdroid") {
             dimension = "build"
+            versionName = "0.1.0-alpha-fdroid"
         }
         create("playstore") {
             dimension = "build"
@@ -52,8 +64,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -79,6 +91,21 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    productFlavors.all {
+        if (name == "fdroid") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+        }
+    }
+
+    androidComponents {
+        onVariants { variant ->
+            if (variant.buildType == "release" || variant.flavorName == "fdroid") {
+                variant.reproducibleBuild = true
+            }
+        }
     }
 }
 

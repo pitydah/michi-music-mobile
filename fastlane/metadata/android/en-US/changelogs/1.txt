@@ -1,0 +1,7 @@
+Versión inicial para F-Droid:
+- Reproducción de música local con ReplayGain
+- Sincronización con Michi Music Player en Linux/KDE
+- Control remoto del reproductor de escritorio
+- CoverFlow 3D para álbumes
+- Cola de reproducción persistente
+- Sin rastreadores ni dependencias propietarias

@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.michimusic.data.cache.ReplayGainDao
 
 @OptIn(UnstableApi::class)
@@ -46,7 +47,7 @@ class MichiPlaybackService : MediaLibraryService() {
             player = exoPlayer
 
             val libraryProvider = LibraryProvider(this, controller.getRepository())
-            val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore)
+            val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore, saveScope)
 
             setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
 
@@ -61,15 +62,19 @@ class MichiPlaybackService : MediaLibraryService() {
                 )
                 .build()
 
-            restorePlaybackState(libraryProvider)
+            saveScope.launch {
+                restorePlaybackState(libraryProvider)
+            }
 
             exoPlayer.addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
                     if (songId != null) {
-                        val track = controller.getRepository().loadTracks()
-                            .firstOrNull { it.id == songId }
-                        replayGainProcessor.onSongChanged(track)
+                        saveScope.launch {
+                            val track = controller.getRepository().loadTracks()
+                                .firstOrNull { it.id == songId }
+                            replayGainProcessor.onSongChanged(track)
+                        }
                     }
                     deferSave()
                 }
@@ -109,7 +114,7 @@ class MichiPlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 
-    private fun restorePlaybackState(provider: LibraryProvider) {
+    private suspend fun restorePlaybackState(provider: LibraryProvider) {
         val saved = stateStore.restore()
         if (saved.mediaIds.isEmpty()) return
         provider.refresh()
@@ -118,10 +123,12 @@ class MichiPlaybackService : MediaLibraryService() {
         val p = player ?: return
         val resolved = provider.resolveForPlayback(items) ?: return
         val startIndex = saved.startIndex.coerceIn(0, resolved.lastIndex)
-        p.setMediaItems(resolved, startIndex, saved.positionMs)
-        p.repeatMode = saved.repeatMode
-        p.shuffleModeEnabled = saved.shuffleMode
-        p.prepare()
+        withContext(Dispatchers.Main) {
+            p.setMediaItems(resolved, startIndex, saved.positionMs)
+            p.repeatMode = saved.repeatMode
+            p.shuffleModeEnabled = saved.shuffleMode
+            p.prepare()
+        }
     }
 
     private fun deferSave() {

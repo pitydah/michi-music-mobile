@@ -2,6 +2,8 @@ package org.michimusic.data.repository
 
 import android.content.Context
 import android.provider.MediaStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.michimusic.core.models.Album
 import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
@@ -29,7 +31,7 @@ class LocalMediaRepository(
         val tracks: List<Track>,
     )
 
-    fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
+    suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
         val albums = loadAlbums()
         return albums.groupBy { it.album.artist }
             .map { (name, artistAlbums) ->
@@ -44,7 +46,7 @@ class LocalMediaRepository(
             .sortedBy { it.first.name }
     }
 
-    fun loadAlbums(): List<LocalAlbum> {
+    suspend fun loadAlbums(): List<LocalAlbum> {
         val tracks = loadTracks()
         val grouped = tracks.groupBy { it.album to it.artist }
         return grouped.map { (albumArtist, albumTracks) ->
@@ -66,15 +68,15 @@ class LocalMediaRepository(
     }
 
     @Synchronized
-    fun loadTracks(): List<Track> {
+    suspend fun loadTracks(): List<Track> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (cachedTracks != null && now - cacheTime < CACHE_TTL_MS) {
-            return cachedTracks!!
+            return@withContext cachedTracks!!
         }
-        val tracks = kotlinx.coroutines.runBlocking { queryTracks() }
+        val tracks = queryTracks()
         cachedTracks = tracks
         cacheTime = now
-        return tracks
+        tracks
     }
 
     fun invalidateCache() {
@@ -168,7 +170,7 @@ class LocalMediaRepository(
         }
     }
 
-    fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {
+    suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {
         val allTracks = loadTracks()
         val trackById = allTracks.associateBy { it.id }
 

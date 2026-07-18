@@ -13,11 +13,15 @@ import androidx.media3.session.SessionError
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
 class MichiMediaLibrarySessionCallback(
     private val libraryProvider: LibraryProvider,
     private val stateStore: PlaybackStateStore,
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
 ) : MediaLibraryService.MediaLibrarySession.Callback {
 
     override fun onConnect(
@@ -35,7 +39,7 @@ class MichiMediaLibrarySessionCallback(
         browser: MediaSession.ControllerInfo,
         params: MediaLibraryService.LibraryParams?,
     ): ListenableFuture<LibraryResult<MediaItem>> {
-        libraryProvider.refresh()
+        scope.launch { libraryProvider.refresh() }
         val root = MediaItem.Builder()
             .setMediaId(LibraryProvider.ROOT)
             .setMediaMetadata(
@@ -89,7 +93,7 @@ class MichiMediaLibrarySessionCallback(
                 MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
             )
         }
-        libraryProvider.refresh()
+        scope.launch { libraryProvider.refresh() }
         val items = saved.mediaIds.mapNotNull { libraryProvider.getItem(it) }
         if (items.isEmpty()) {
             return Futures.immediateFuture(

@@ -80,7 +80,7 @@ class LibraryProvider(
     private var cachedPlaylists: List<Pair<Playlist, List<Track>>> = emptyList()
     private var cachedArtists: List<Pair<Artist, List<LocalMediaRepository.LocalAlbum>>> = emptyList()
 
-    fun refresh() {
+    suspend fun refresh() {
         cachedTracks = repository.loadTracks()
         cachedAlbums = repository.loadAlbums()
         cachedPlaylists = repository.loadPlaylists()

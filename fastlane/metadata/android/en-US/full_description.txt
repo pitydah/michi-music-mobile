@@ -1,0 +1,22 @@
+Michi Music Mobile es el compañero Android para Michi Music Player en Linux/KDE.
+
+Características principales:
+
+• Reproducción de música local desde el almacenamiento del dispositivo
+• Sincronización inalámbrica con Michi Music Player en la red local
+• Control remoto del reproductor de escritorio
+• CoverFlow 3D para navegar álbumes
+• Soporte para Android Auto
+• ReplayGain para nivelación de volumen
+• Ecualizador y temporizador de sueño
+• Cola de reproducción persistente
+• Temas dinámicos con acentos de color basados en carátulas
+• Interfaz Material You con diseño glassmorphism
+
+Permisos:
+• READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE — Para acceder a tu biblioteca musical local
+• INTERNET — Solo para comunicación con Michi Music Player en la red local (no se requiere internet externo)
+• BLUETOOTH — Para detección de dispositivos de audio Bluetooth
+• FOREGROUND_SERVICE — Para reproducción en segundo plano
+
+Esta aplicación es software libre (GPL-3.0). No contiene rastreadores, publicidad ni servicios de Google Play.

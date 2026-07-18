@@ -45,8 +45,7 @@ Sync your music library wirelessly from your desktop and control playback remote
 - `:core` — Shared domain models (Track, Album, Playlist, Sync DTOs)
 - `:data` — Room database, MediaStore reader, repositories
 - `:player` — Media3 `MediaLibraryService`, custom `RenderersFactory`, ReplayGain `AudioProcessor`
-- `:sync-client` — Sync protocol (UDP discovery, Ktor HTTP client, transfer manager)
-- `:remote` — KDE remote control HTTP client (OkHttp)
+- `:michi-link-client` — Michi Link API v1 client (UDP discovery, Ktor HTTP, pairing, sync, remote control, receivers)
 
 ## Screens
 
@@ -64,29 +63,36 @@ Sync your music library wirelessly from your desktop and control playback remote
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
-./gradlew assembleDebug
+./gradlew assembleNormalDebug
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`
+APK: `app/build/outputs/apk/normal/debug/app-normal-debug.apk`
 
-For release builds:
+For F-Droid release:
 
 ```bash
-./gradlew assembleRelease
+./gradlew assembleFdroidRelease
 ```
 
-APK: `app/build/outputs/apk/release/app-release.apk`
+APK: `app/build/outputs/apk/fdroid/release/app-fdroid-release.apk`
 
 Minimum SDK: 31 (Android 12)
 Target SDK: 35
 
 ## Permissions
 
-- `READ_MEDIA_AUDIO` (Android 13+) — MediaStore access
-- `INTERNET`, `ACCESS_NETWORK_STATE` — HTTP sync + remote control
-- `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE` — UDP peer discovery
-- `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` — Media playback notification
-- `POST_NOTIFICATIONS` — Android 13+ notification permission
+| Permission | Purpose |
+|-----------|---------|
+| `READ_MEDIA_AUDIO` (13+) / `READ_EXTERNAL_STORAGE` (≤12) | Access local music library |
+| `INTERNET` | LAN-only communication with desktop server. No external internet required |
+| `ACCESS_NETWORK_STATE` | Check connectivity before sync operations |
+| `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE` | UDP multicast discovery of desktop server |
+| `BLUETOOTH`, `BLUETOOTH_CONNECT` | Detect Bluetooth A2DP audio devices |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Background audio playback (Android 14+) |
+| `POST_NOTIFICATIONS` | Media playback notification (Android 13+) |
+| `WAKE_LOCK` | Keep CPU awake during music sync/download |
+
+Network traffic is restricted to private IP ranges via `network_security_config.xml`.
 
 ## License
 
