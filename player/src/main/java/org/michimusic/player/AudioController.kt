@@ -2,6 +2,7 @@ package org.michimusic.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -22,12 +23,15 @@ import kotlinx.coroutines.withContext
 import org.michimusic.data.cache.HistoryEntity
 import org.michimusic.core.models.Track
 
+private const val TAG = "MichiAudio"
+
 @OptIn(UnstableApi::class)
 class AudioController(
-    context: Context,
+    private val context: Context,
     private val scope: CoroutineScope,
 ) {
     private var mediaController: MediaController? = null
+    private var connectStarted = false
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
     private val _isReady = MutableStateFlow(false)
@@ -36,6 +40,10 @@ class AudioController(
     private var sleepTimerJob: Job? = null
     private var lastRecordedTrackId: String? = null
     private var lastRecordedAt: Long = 0L
+
+    private var pendingQueueTracks: List<Track>? = null
+    private var pendingStartIndex: Int = 0
+    private var pendingAutoPlay: Boolean = false
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -77,6 +85,17 @@ class AudioController(
     }
 
     init {
+        Log.d(TAG, "AudioController created")
+    }
+
+    fun ensureConnected() {
+        if (mediaController != null) return
+        if (connectStarted) {
+            Log.d(TAG, "ensureConnected ignored: already started")
+            return
+        }
+        Log.d(TAG, "ensureConnected called")
+        connectStarted = true
         val sessionToken = SessionToken(
             context,
             ComponentName(context, MichiPlaybackService::class.java),
@@ -88,6 +107,8 @@ class AudioController(
                 mediaController = controller
                 controller.addListener(listener)
                 _isReady.value = true
+                Log.d(TAG, "MediaController ready")
+                executePendingPlayQueue()
             } catch (_: Exception) {
                 _isReady.value = false
             }
@@ -111,16 +132,42 @@ class AudioController(
         positionJob = null
     }
 
-    fun play() { mediaController?.play() }
-    fun pause() { mediaController?.pause() }
+    fun play() {
+        ensureConnected()
+        Log.d(TAG, "play requested")
+        mediaController?.play()
+    }
+
+    fun pause() {
+        ensureConnected()
+        Log.d(TAG, "pause requested")
+        mediaController?.pause()
+    }
+
     fun seekTo(position: Long) {
+        ensureConnected()
         mediaController?.seekTo(position)
         _state.value = _state.value.copy(position = position)
     }
-    fun skipNext() { mediaController?.seekToNextMediaItem() }
-    fun skipPrevious() { mediaController?.seekToPreviousMediaItem() }
-    fun setRepeatMode(mode: Int) { mediaController?.repeatMode = mode }
+
+    fun skipNext() {
+        ensureConnected()
+        Log.d(TAG, "skipNext requested")
+        mediaController?.seekToNextMediaItem()
+    }
+
+    fun skipPrevious() {
+        ensureConnected()
+        mediaController?.seekToPreviousMediaItem()
+    }
+
+    fun setRepeatMode(mode: Int) {
+        ensureConnected()
+        mediaController?.repeatMode = mode
+    }
+
     fun toggleShuffle() {
+        ensureConnected()
         mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
     }
 
@@ -155,6 +202,41 @@ class AudioController(
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         val sleepTimerRemainingMs = _state.value.sleepTimerRemainingMs
         val startTrack = tracks.getOrNull(startIndex)
+        Log.d(TAG, "playQueue requested")
+        if (mediaController == null) {
+            Log.d(TAG, "playQueue deferred: MediaController not ready")
+            pendingQueueTracks = tracks
+            pendingStartIndex = startIndex
+            pendingAutoPlay = true
+            _state.value = PlayerState(
+                currentTrack = startTrack,
+                queue = tracks,
+                queueIndex = startIndex,
+                isPlaying = true,
+                duration = startTrack?.duration ?: 0L,
+                sleepTimerRemainingMs = sleepTimerRemainingMs,
+            )
+            ensureConnected()
+            return
+        }
+        executePlayQueue(tracks, startIndex, autoPlay = true, sleepTimerRemainingMs, startTrack)
+    }
+
+    private fun executePendingPlayQueue() {
+        pendingQueueTracks?.let { tracks ->
+            Log.d(TAG, "Executing deferred playQueue")
+            executePlayQueue(tracks, pendingStartIndex, pendingAutoPlay, 0L, tracks.getOrNull(pendingStartIndex))
+            pendingQueueTracks = null
+        }
+    }
+
+    private fun executePlayQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        autoPlay: Boolean,
+        sleepTimerRemainingMs: Long,
+        startTrack: Track?,
+    ) {
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -172,15 +254,16 @@ class AudioController(
             currentTrack = startTrack,
             queue = tracks,
             queueIndex = startIndex,
-            isPlaying = true,
+            isPlaying = autoPlay,
             duration = startTrack?.duration ?: 0L,
             sleepTimerRemainingMs = sleepTimerRemainingMs,
         )
         startTrack?.let(::recordPlayback)
-        mediaController?.play()
+        if (autoPlay) mediaController?.play()
     }
 
     fun addToQueue(track: Track) {
+        ensureConnected()
         val newQueue = _state.value.queue + track
         mediaController?.addMediaItem(
             MediaItem.Builder()
@@ -198,6 +281,7 @@ class AudioController(
     }
 
     fun removeFromQueue(index: Int) {
+        ensureConnected()
         val newQueue = _state.value.queue.toMutableList()
         if (index in newQueue.indices) {
             newQueue.removeAt(index)
@@ -207,6 +291,9 @@ class AudioController(
     }
 
     fun clearQueue() {
+        ensureConnected()
+        Log.d(TAG, "clearQueue requested")
+        pendingQueueTracks = null
         mediaController?.stop()
         mediaController?.clearMediaItems()
         cancelSleepTimer()
@@ -218,6 +305,8 @@ class AudioController(
         cancelSleepTimer()
         mediaController?.release()
         mediaController = null
+        connectStarted = false
+        pendingQueueTracks = null
     }
 
     private fun recordPlayback(track: Track) {
