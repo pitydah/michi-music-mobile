@@ -5,9 +5,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -92,10 +95,10 @@ class LinkTransferManager(
         client: LinkClient,
         items: List<DownloadItem>,
         maxConcurrent: Int = 4,
-        onProgress: (Int, Int) -> Unit = { _, _ -> },
+        onProgress: suspend (Int, Int) -> Unit = { _, _ -> },
     ): Map<String, Result<File>> = withContext(Dispatchers.IO) {
         val total = items.size
-        val mutex = Any()
+        val mutex = Mutex()
         val semaphore = Semaphore(maxConcurrent.coerceAtLeast(1))
         var completed = 0
         val results = mutableMapOf<String, Result<File>>()
@@ -106,11 +109,11 @@ class LinkTransferManager(
                     val result = semaphore.withPermit {
                         downloadTrack(client, item)
                     }
-                    synchronized(mutex) {
+                    mutex.withLock {
                         results[item.trackId] = result
                         completed++
-                        onProgress(completed, total)
                     }
+                    onProgress(completed, total)
                     result
                 }
             }.awaitAll()

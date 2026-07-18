@@ -53,12 +53,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.size
 import kotlin.math.sin
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
@@ -85,10 +88,15 @@ data class PlaybackSource(
 
 @Composable
 fun PlayerBackdrop(coverId: String?, accent: Color) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxSize()) {
         if (coverId != null && coverId.isNotEmpty()) {
             AsyncImage(
-                model = coverId,
+                model = ImageRequest.Builder(context)
+                    .data(coverId)
+                    .size(480)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
@@ -436,41 +444,13 @@ fun MichiSlider(
                 }
             },
             track = { sliderState ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val active = sliderState.value / (sliderState.valueRange.endInclusive - sliderState.valueRange.start)
-                    val barHeight = 3.dp
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(barHeight)
-                            .padding(horizontal = 1.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(active.coerceIn(0f, 1f))
-                                .height(barHeight)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(accent, accent.copy(alpha = 0.5f))
-                                    ),
-                                    RoundedCornerShape(3.dp),
-                                )
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight((1f - active).coerceIn(0f, 1f))
-                                .height(barHeight)
-                                .background(
-                                    Color.White.copy(alpha = 0.14f),
-                                    RoundedCornerShape(3.dp),
-                                )
-                        )
-                    }
+                val active = sliderState.value / (sliderState.valueRange.endInclusive - sliderState.valueRange.start)
+                val barHeightPx = with(LocalDensity.current) { 3.dp.toPx() }
+                Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
+                    val barTop = (size.height - barHeightPx) / 2f
+                    val activeW = size.width * active.coerceIn(0f, 1f)
+                    drawRoundRect(Color.White.copy(alpha = 0.14f), Offset(0f, barTop), Size(size.width, barHeightPx), 3f, 3f)
+                    drawRoundRect(accent, Offset(0f, barTop), Size(activeW, barHeightPx), 3f, 3f)
                 }
             },
         )

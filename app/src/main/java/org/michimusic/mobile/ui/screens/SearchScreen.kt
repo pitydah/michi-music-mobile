@@ -128,7 +128,7 @@ fun SearchScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(results) { result ->
+                    items(results, key = { it.track.id }) { result ->
                         SearchResultRow(
                             result = result,
                             onPlay = {

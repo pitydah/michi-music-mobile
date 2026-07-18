@@ -136,14 +136,12 @@ class SyncWorker(
                 client = client,
                 items = itemsToDownload,
             ) { completed, _ ->
-                kotlinx.coroutines.runBlocking {
-                    setProgress(workDataOf(
-                        PROGRESS_TOTAL to total,
-                        PROGRESS_CURRENT to completed,
-                    ))
-                    val msg = "Sincronizando $completed de $total"
-                    setForeground(createForegroundInfo(completed, total, msg))
-                }
+                setProgress(workDataOf(
+                    PROGRESS_TOTAL to total,
+                    PROGRESS_CURRENT to completed,
+                ))
+                val msg = "Sincronizando $completed de $total"
+                setForeground(createForegroundInfo(completed, total, msg))
             }
 
             var downloaded = 0

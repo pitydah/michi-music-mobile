@@ -82,9 +82,9 @@ import java.nio.charset.StandardCharsets
 
 class LinkClient private constructor(
     baseUrl: String,
-    var sessionToken: String,
-    var deviceToken: String,
-    var clientDeviceId: String,
+    @Volatile var sessionToken: String,
+    @Volatile var deviceToken: String,
+    @Volatile var clientDeviceId: String,
     httpClient: HttpClient? = null,
 ) {
     constructor(
@@ -95,7 +95,7 @@ class LinkClient private constructor(
     ) : this(baseUrl, sessionToken, deviceToken, clientDeviceId, null)
 
     val baseUrl: String = LinkClientConfig.normalizeBaseUrl(baseUrl)
-    var tokenRefreshSupported: Boolean? = null
+    @Volatile var tokenRefreshSupported: Boolean? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val ownsClient = httpClient == null
 
@@ -132,9 +132,11 @@ class LinkClient private constructor(
     private fun encodePathSegment(value: String): String =
         encodeQueryValue(value).replace("+", "%20")
 
-    private suspend fun httpGet(url: String): HttpResponse = client.get(url) {
-        if (isAuthenticated) header("Authorization", authHeader())
-        if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+    private suspend fun httpGet(url: String): HttpResponse = withContext(Dispatchers.IO) {
+        client.get(url) {
+            if (isAuthenticated) header("Authorization", authHeader())
+            if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+        }
     }
 
     private fun parseError(body: String): LinkException {

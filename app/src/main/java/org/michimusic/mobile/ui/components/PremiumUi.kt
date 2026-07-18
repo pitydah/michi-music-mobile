@@ -2,12 +2,8 @@ package org.michimusic.mobile.ui.components
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,32 +15,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.michimusic.mobile.R
@@ -71,46 +64,29 @@ fun PremiumScreen(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val bgVg = remember {
+        Brush.verticalGradient(listOf(SurfaceDark, SmokeTop, SmokeMid, SmokeBottom))
+    }
+    val glowCoral = remember {
+        Brush.radialGradient(listOf(AccentCoral.copy(alpha = 0.13f), Color.Transparent))
+    }
+    val glowPurple = remember {
+        Brush.radialGradient(listOf(AccentPurple.copy(alpha = 0.085f), Color.Transparent))
+    }
+    val glassOverlay = remember {
+        Brush.verticalGradient(listOf(GlassMist.copy(alpha = 0.10f), Color.Transparent, GlassInk.copy(alpha = 0.36f)))
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        SurfaceDark,
-                        SmokeTop,
-                        SmokeMid,
-                        SmokeBottom,
-                    )
-                )
-            )
-            .background(
-                Brush.radialGradient(
-                    listOf(
-                        AccentCoral.copy(alpha = 0.13f),
-                        Color.Transparent,
-                    ),
-                    radius = 920f,
-                )
-            )
-            .background(
-                Brush.radialGradient(
-                    listOf(
-                        AccentPurple.copy(alpha = 0.085f),
-                        Color.Transparent,
-                    ),
-                    radius = 720f,
-                )
-            )
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        GlassMist.copy(alpha = 0.10f),
-                        Color.Transparent,
-                        GlassInk.copy(alpha = 0.36f),
-                    )
-                )
-            ),
+            .drawWithContent {
+                drawRect(bgVg, size = size)
+                drawRect(glowCoral, size = size)
+                drawRect(glowPurple, size = size)
+                drawRect(glassOverlay, size = size)
+                drawContent()
+            },
     ) {
         PremiumWaveBackdrop(
             modifier = Modifier
@@ -133,12 +109,7 @@ fun PremiumGlassTexture(
         val step = 18.dp.toPx()
         var x = -w * 0.25f
         while (x < w * 1.1f) {
-            drawLine(
-                color = GlassHighlight.copy(alpha = 0.018f),
-                start = androidx.compose.ui.geometry.Offset(x, 0f),
-                end = androidx.compose.ui.geometry.Offset(x + w * 0.36f, h),
-                strokeWidth = 1.dp.toPx(),
-            )
+            drawLine(GlassHighlight.copy(alpha = 0.018f), Offset(x, 0f), Offset(x + w * 0.36f, h), strokeWidth = 1.dp.toPx())
             x += step
         }
         val dotStep = 26.dp.toPx()
@@ -147,11 +118,7 @@ fun PremiumGlassTexture(
         while (y < h) {
             var dotX = if (row % 2 == 0) 8.dp.toPx() else 21.dp.toPx()
             while (dotX < w) {
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.014f),
-                    radius = 0.55.dp.toPx(),
-                    center = androidx.compose.ui.geometry.Offset(dotX, y),
-                )
+                drawCircle(Color.White.copy(alpha = 0.014f), 0.55.dp.toPx(), center = Offset(dotX, y))
                 dotX += dotStep
             }
             row += 1
@@ -326,7 +293,7 @@ fun PremiumFilterChips(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        itemsIndexed(items) { index, item ->
+        itemsIndexed(items, key = { index, _ -> index }) { index, item ->
             val selected = index == selectedIndex
             Box(
                 modifier = Modifier

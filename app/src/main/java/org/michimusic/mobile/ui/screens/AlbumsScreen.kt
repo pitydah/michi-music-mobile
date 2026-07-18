@@ -218,7 +218,7 @@ fun AlbumsScreen() {
                         .weight(1f),
                 ) {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(selectedAlbum.tracks) { track ->
+                        items(selectedAlbum.tracks, key = { it.id }) { track ->
                             TrackRow(
                                 title = track.title,
                                 artist = track.artist,

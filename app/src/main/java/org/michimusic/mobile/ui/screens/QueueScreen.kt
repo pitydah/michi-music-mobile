@@ -52,6 +52,7 @@ import org.michimusic.player.AudioController
 fun QueueScreen() {
     val controller: AudioController = koinInject()
     val state by controller.state.collectAsState()
+    val isReady by controller.isReady.collectAsState()
     val queue = state.queue
     val currentIndex = state.queueIndex
 
@@ -71,7 +72,7 @@ fun QueueScreen() {
                     "${queue.size} canciones preparadas"
                 },
             ) {
-                if (queue.isNotEmpty()) {
+                if (queue.isNotEmpty() && isReady) {
                     PremiumIconButton(
                         icon = Icons.Rounded.Clear,
                         contentDescription = "Limpiar cola",
@@ -104,7 +105,7 @@ fun QueueScreen() {
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    itemsIndexed(queue) { index, track ->
+                    itemsIndexed(queue, key = { _, track -> track.id }) { index, track ->
                         val isCurrent = index == currentIndex
                         PremiumTrackItem(
                             title = track.title,

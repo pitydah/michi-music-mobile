@@ -296,7 +296,7 @@ fun RemoteScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                itemsIndexed(uiState.queue.tracks) { index, track ->
+                itemsIndexed(uiState.queue.tracks, key = { _, track -> track.trackId }) { index, track ->
                     val isCurrent = index == uiState.queue.currentIndex
                     Card(
                         modifier = Modifier.fillMaxWidth(),

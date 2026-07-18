@@ -91,7 +91,7 @@ fun SyncedTracksScreen(
                         EmptySyncedState()
                     } else {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(pagedTracks.itemCount) { index ->
+                            items(pagedTracks.itemCount, key = { index -> pagedTracks[index]?.id ?: index.toString() }) { index ->
                                 val track = pagedTracks[index]
                                 if (track != null) {
                                     SyncedTrackRow(

@@ -60,11 +60,7 @@ fun NowPlayingScreen(
     onBack: () -> Unit = {},
 ) {
     val audioController: AudioController = koinInject()
-    var playerState by remember { mutableStateOf(PlayerState()) }
-
-    LaunchedEffect(audioController) {
-        audioController.state.collect { playerState = it }
-    }
+    val playerState by audioController.state.collectAsState()
 
     val track = playerState.currentTrack
     val accent = remember(track?.coverId, track?.title) {

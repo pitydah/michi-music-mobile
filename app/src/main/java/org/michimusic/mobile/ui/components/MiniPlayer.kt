@@ -63,15 +63,11 @@ fun MiniPlayer(
     onClick: () -> Unit = {},
     visible: Boolean = true,
 ) {
-    val controller: AudioController = koinInject()
-    var playerState by remember { mutableStateOf(PlayerState()) }
-    val isReady by controller.isReady.collectAsState()
-
     if (!visible) return
 
-    LaunchedEffect(controller) {
-        controller.state.collect { playerState = it }
-    }
+    val controller: AudioController = koinInject()
+    val playerState by controller.state.collectAsState()
+    val isReady by controller.isReady.collectAsState()
 
     val track = playerState.currentTrack
     val accent = remember(track?.coverId, track?.title) {

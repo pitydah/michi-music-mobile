@@ -3,6 +3,8 @@ package org.michimusic.data.repository
 import android.content.Context
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.michimusic.core.models.Album
 import org.michimusic.core.models.Artist
@@ -25,6 +27,7 @@ class LocalMediaRepository(
 
     private var cachedTracks: List<Track>? = null
     private var cacheTime = 0L
+    private val cacheMutex = Mutex()
 
     data class LocalAlbum(
         val album: Album,
@@ -67,20 +70,23 @@ class LocalMediaRepository(
         }.sortedBy { it.album.title }
     }
 
-    @Synchronized
-    suspend fun loadTracks(): List<Track> = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        if (cachedTracks != null && now - cacheTime < CACHE_TTL_MS) {
-            return@withContext cachedTracks!!
+    suspend fun loadTracks(): List<Track> = cacheMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            if (cachedTracks != null && now - cacheTime < CACHE_TTL_MS) {
+                return@withContext cachedTracks!!
+            }
+            val tracks = queryTracks()
+            cachedTracks = tracks
+            cacheTime = now
+            tracks
         }
-        val tracks = queryTracks()
-        cachedTracks = tracks
-        cacheTime = now
-        tracks
     }
 
-    fun invalidateCache() {
-        cachedTracks = null
+    suspend fun invalidateCache() {
+        cacheMutex.withLock {
+            cachedTracks = null
+        }
     }
 
     private suspend fun queryTracks(): List<Track> {

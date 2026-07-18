@@ -121,7 +121,7 @@ fun DiscoveringState(
             }
         } else {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(peers) { peer ->
+                items(peers, key = { "${it.ip}:${it.port}" }) { peer ->
                     PeerCard(peer = peer, onClick = { onSelect(peer) })
                 }
             }

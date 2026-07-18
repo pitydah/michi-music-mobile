@@ -71,6 +71,7 @@ fun HomeScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val controller: AudioController = koinInject()
+    val controllerReady by controller.isReady.collectAsState()
     var selectedFilter by remember { mutableIntStateOf(0) }
     val filters = listOf("Todo", "Artistas", "Álbumes", "Recientes", "Top")
     val visibleTracks = remember(allTracks, recentTracks, topTracks, selectedFilter) {
@@ -216,7 +217,7 @@ fun HomeScreen(
                         PremiumButton(
                             text = "Todo",
                             icon = Icons.Rounded.PlayArrow,
-                            enabled = allTracks.isNotEmpty(),
+                            enabled = allTracks.isNotEmpty() && controllerReady,
                             onClick = { controller.playQueue(allTracks, 0) },
                             modifier = Modifier
                                 .weight(1f)
@@ -225,7 +226,7 @@ fun HomeScreen(
                         PremiumButton(
                             text = "Aleatorio",
                             icon = Icons.Rounded.Shuffle,
-                            enabled = allTracks.isNotEmpty(),
+                            enabled = allTracks.isNotEmpty() && controllerReady,
                             onClick = {
                                 controller.clearQueue()
                                 controller.playQueue(allTracks.shuffled(), 0)
@@ -259,7 +260,7 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(featuredTracks.take(8)) { index, track ->
+                    itemsIndexed(featuredTracks.take(8), key = { _, track -> track.id }) { index, track ->
                         PremiumTrackItem(
                             title = track.title,
                             subtitle = track.artist.ifBlank { track.album },
@@ -293,7 +294,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        itemsIndexed(recentTracks.take(8)) { index, track ->
+                        itemsIndexed(recentTracks.take(8), key = { _, track -> track.id }) { index, track ->
                             PremiumTrackItem(
                                 title = track.title,
                                 subtitle = "${track.artist} · ${track.album}",
@@ -327,7 +328,7 @@ fun HomeScreen(
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    itemsIndexed(visibleTracks.take(20)) { index, track ->
+                    itemsIndexed(visibleTracks.take(20), key = { _, track -> track.id }) { index, track ->
                         PremiumTrackItem(
                             title = track.title,
                             subtitle = "${track.artist} · ${track.album}",
