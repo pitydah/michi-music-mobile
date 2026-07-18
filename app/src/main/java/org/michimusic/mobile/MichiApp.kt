@@ -5,10 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.util.Log
 import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
-import coil3.util.DebugLogger
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.michimusic.mobile.di.appDao as michiAppDao
@@ -34,7 +35,7 @@ class MichiApp : Application() {
     }
 
     private fun configureImageLoader() {
-        ImageLoader.Builder(this)
+        val imageLoader = ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder()
                     .maxSizePercent(0.25)
@@ -48,6 +49,7 @@ class MichiApp : Application() {
             }
             .crossfade(true)
             .build()
+        SingletonImageLoader.setSafe(this) { imageLoader }
     }
 
     private fun createNotificationChannels() {
