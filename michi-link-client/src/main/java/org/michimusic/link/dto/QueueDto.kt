@@ -8,6 +8,7 @@ data class QueueDto(
     val tracks: List<QueueTrackDto> = emptyList(),
     @SerialName("current_index") val currentIndex: Int = -1,
     @SerialName("total_duration") val totalDuration: Long = 0L,
+    @SerialName("queue_id") val queueId: String = "",
 )
 
 @Serializable
@@ -18,6 +19,7 @@ data class QueueTrackDto(
     val album: String = "",
     val duration: Long = 0L,
     @SerialName("cover_id") val coverId: String = "",
+    @SerialName("download_path") val downloadPath: String = "",
 )
 
 @Serializable

@@ -60,7 +60,7 @@ data class ManifestTrackDto(
     val year: Int = 0,
     val genre: String = "",
     @SerialName("cover_id") val coverId: String = "",
-    val checksum: String = "",
+    val checksum: String? = null,
     @SerialName("download_path") val downloadPath: String = "",
 ) {
     fun toTrackDto() = org.michimusic.core.models.TrackDto(

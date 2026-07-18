@@ -4,7 +4,7 @@
 # Kotlin Serialization
 -keep class kotlinx.serialization.** { *; }
 -keepclassmembers class org.michimusic.core.models.** { *; }
--keepclassmembers class org.michimusic.sync.models.** { *; }
+-keepclassmembers class org.michimusic.link.dto.** { *; }
 -keepclassmembers class * {
     @kotlinx.serialization.Serializable <fields>;
 }

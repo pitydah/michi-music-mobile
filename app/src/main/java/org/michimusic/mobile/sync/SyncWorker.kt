@@ -15,6 +15,8 @@ import org.michimusic.core.models.DownloadItem
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.SyncedTrackRepository
+import org.michimusic.mobile.di.trackDao
+import org.michimusic.mobile.di.playlistDao
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.errors.LinkException
@@ -79,18 +81,13 @@ class SyncWorker(
             deviceToken = deviceToken,
             clientDeviceId = clientDeviceId.ifEmpty { deviceId },
         )
-        val trackDao = try {
-            KoinJavaComponent.get<TrackDao>(TrackDao::class.java)
-        } catch (_: Exception) {
+        val trackDao = trackDao
+        if (trackDao == null) {
             client.close()
             try { wakeLock?.release() } catch (_: Exception) {}
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
-        val playlistDao = try {
-            KoinJavaComponent.get<PlaylistDao>(PlaylistDao::class.java)
-        } catch (_: Exception) {
-            null
-        }
+        val playlistDao = playlistDao
         val repository = SyncedTrackRepository(trackDao, playlistDao)
         val transferManager = LinkTransferManager(applicationContext)
 
@@ -122,16 +119,7 @@ class SyncWorker(
 
             val itemsToDownload = manifestTracks
                 .filter { it.trackId !in downloadedIds }
-                .map { mt ->
-                    DownloadItem(
-                        trackId = mt.trackId,
-                        title = mt.title,
-                        format = mt.format,
-                        checksum = mt.checksum,
-                        size = mt.size,
-                        downloadPath = mt.downloadPath,
-                    )
-                }
+                .map { DownloadItem.fromManifest(it) }
 
             val total = itemsToDownload.size
             if (total == 0) {

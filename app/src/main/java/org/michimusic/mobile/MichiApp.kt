@@ -6,9 +6,8 @@ import android.app.NotificationManager
 import android.util.Log
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
-import org.koin.java.KoinJavaComponent.get
-import org.michimusic.data.cache.AppDao
-import org.michimusic.data.cache.ReplayGainDao
+import org.michimusic.mobile.di.appDao as michiAppDao
+import org.michimusic.mobile.di.replayGainDao as michiReplayGainDao
 import org.michimusic.mobile.sync.SyncWorker
 import org.michimusic.player.PlayerDependencies
 
@@ -20,8 +19,8 @@ class MichiApp : Application() {
             modules(appModule)
         }
         try {
-            PlayerDependencies.replayGainDao = get(ReplayGainDao::class.java)
-            PlayerDependencies.appDao = get(AppDao::class.java)
+            PlayerDependencies.replayGainDao = michiReplayGainDao
+            PlayerDependencies.appDao = michiAppDao
         } catch (e: Exception) {
             Log.w("MichiApp", "No se pudieron resolver DAOs para PlayerDependencies: ${e.message}")
         }

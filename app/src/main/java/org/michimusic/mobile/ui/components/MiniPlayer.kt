@@ -42,7 +42,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-import org.michimusic.mobile.ui.getAudioController
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.SurfaceDark
@@ -51,6 +50,7 @@ import org.michimusic.mobile.ui.theme.SurfaceElevated
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
+import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.michiAccentFor
 import org.koin.compose.koinInject
 import org.michimusic.player.AudioController

@@ -252,4 +252,183 @@ class LinkClientTest {
         assertEquals("t1", queue.tracks.single().trackId)
         assertEquals("Legacy Track", queue.tracks.single().title)
     }
+
+    @Test
+    fun fetchAlbums_parsesServerResponse() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"items":[{"id":"a1","title":"Abbey Road","artist":"The Beatles"}],"total":1}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val albums = client.fetchAlbums().getOrThrow()
+        assertEquals(1, albums.total)
+        assertEquals("Abbey Road", albums.items.single().title)
+    }
+
+    @Test
+    fun fetchAlbum_detailReturnsTracks() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"album":{"id":"a1","title":"Abbey Road"},"tracks":[{"track_id":"t1","title":"Come Together"}]}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val detail = client.fetchAlbum("a1").getOrThrow()
+        assertEquals("Abbey Road", detail.album.title)
+        assertEquals("t1", detail.tracks.single().trackId)
+    }
+
+    @Test
+    fun fetchArtists_parsesServerResponse() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"items":[{"id":"art1","name":"The Beatles","album_count":13}],"total":1}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val artists = client.fetchArtists().getOrThrow()
+        assertEquals(1, artists.total)
+        assertEquals("The Beatles", artists.items.single().name)
+    }
+
+    @Test
+    fun createAndFetchPlaylist_roundtrip() = runBlocking {
+        var created = false
+        val engine = MockEngine { request ->
+            if (!created) {
+                created = true
+                respond(
+                    content = """{"id":"pl1","name":"Favorites","track_count":0,"tracks":[]}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            } else {
+                respond(
+                    content = """{"id":"pl1","name":"Favorites","track_count":1,"tracks":[{"track_id":"t1","title":"Test"}]}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+            }
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val createdPlaylist = client.createPlaylist(PlaylistCreateRequest("Favorites")).getOrThrow()
+        assertEquals("pl1", createdPlaylist.id)
+        val fetchedPlaylist = client.fetchPlaylist("pl1").getOrThrow()
+        assertEquals(1, fetchedPlaylist.trackCount)
+    }
+
+    @Test
+    fun starAndRateTrack_success() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"id":"t1","starred":true,"starred_at":"2026-07-18T12:00:00Z"}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val star = client.starTrack("t1").getOrThrow()
+        assertTrue(star.starred)
+    }
+
+    @Test
+    fun fetchReceivers_parsesList() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """[{"id":"r1","name":"Living Room","device_type":"hifi","volume":70,"is_active":true}]""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val receivers = client.fetchReceivers().getOrThrow()
+        assertEquals("Living Room", receivers.single().name)
+        assertEquals(70, receivers.single().volume)
+    }
+
+    @Test
+    fun parsePlaybackStateWithTrackId() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"state":"playing","current_track":{"track_id":"t1","title":"Song1"},"queue_id":"q1"}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val state = client.getPlaybackState().getOrThrow()
+        assertEquals("playing", state.effectiveState)
+        assertEquals("Song1", state.effectiveTitle)
+        assertEquals("q1", state.queueId)
+    }
+
+    @Test
+    fun parseQueueWithQueueId() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"tracks":[{"track_id":"t1","title":"Song1"}],"current_index":0,"queue_id":"q1"}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val queue = client.getQueue().getOrThrow()
+        assertEquals("q1", queue.queueId)
+        assertEquals("t1", queue.tracks.single().trackId)
+    }
+
+    @Test
+    fun fetchHistory_parsesEntries() = runBlocking {
+        val engine = MockEngine {
+            respond(
+                content = """{"items":[{"track_id":"t1","played_at":"2026-07-18T10:00:00Z"}],"page":1,"total":1}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val history = client.fetchHistory().getOrThrow()
+        assertEquals(1, history.total)
+        assertEquals("t1", history.items.single().trackId)
+    }
+
+    @Test
+    fun reorderQueue_sendsCorrectPayload() = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = """{}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        client.reorderQueue(QueueReorderRequest(fromIndex = 2, toIndex = 0)).getOrThrow()
+        assertTrue(requestBody.contains("from_index"))
+        assertTrue(requestBody.contains("to_index"))
+    }
+
+    @Test
+    fun diagnostics_usesApiV1() = runBlocking {
+        var requestedUrl = ""
+        val engine = MockEngine { request ->
+            requestedUrl = request.url.toString()
+            respond(
+                content = """{"status":"ok","version":"0.2.0","uptime_secs":3600}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        client.fetchServerDiagnostics().getOrThrow()
+        assertTrue(requestedUrl.contains("/api/v1/diagnostics"))
+    }
 }

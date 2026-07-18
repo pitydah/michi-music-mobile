@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.michimusic.link.EventClient
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkSession
 import org.michimusic.link.dto.PlaybackStateDto
@@ -49,12 +50,15 @@ class RemoteViewModel(
     val uiState: StateFlow<RemoteUiState> = _uiState.asStateFlow()
 
     private var client: LinkClient? = null
+    private var eventClient: EventClient? = null
     private var pollingJob: Job? = null
+    private var eventJob: Job? = null
 
     fun connectIfNeeded() {
         if (_uiState.value.connected) return
         val peer = session.connectedPeer.value ?: return
         val linkClient = session.linkClient ?: return
+        val token = linkClient.deviceToken.ifEmpty { linkClient.sessionToken }
 
         client = linkClient
         _uiState.value = _uiState.value.copy(
@@ -63,77 +67,102 @@ class RemoteViewModel(
             connected = true,
             sourceName = peer.alias,
         )
-        startPolling(linkClient)
+
+        eventClient = EventClient(linkClient.baseUrl, token, linkClient.clientDeviceId).also { ec ->
+            eventJob = viewModelScope.launch {
+                ec.events.collect { event ->
+                    when (event.type) {
+                        "playback_state_changed" -> refreshState()
+                        "queue_changed" -> refreshQueue()
+                    }
+                }
+            }
+            ec.connect(viewModelScope)
+        }
+
+        refreshState()
+        startPollingFallback(linkClient)
     }
 
     fun disconnect() {
+        eventClient?.disconnect()
+        eventClient = null
+        eventJob?.cancel()
+        eventJob = null
         pollingJob?.cancel()
         pollingJob = null
         client = null
         _uiState.value = RemoteUiState()
     }
 
-    private fun startPolling(client: LinkClient) {
+    private fun startPollingFallback(client: LinkClient) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
+            delay(5_000)
             while (isActive && _uiState.value.connected) {
-                client.getPlaybackState().onSuccess { state ->
-                    _uiState.value = _uiState.value.copy(
-                        playerState = state,
-                        connState = RemoteConnectionState.CONNECTED,
-                        error = null,
-                    )
-                }.onFailure { e ->
-                    when (e) {
-                        is LinkException.Unauthorized -> {
-                            _uiState.value = _uiState.value.copy(
-                                connState = RemoteConnectionState.UNAUTHORIZED,
-                                error = "Sesión expirada. Reconecta desde Sync.",
-                                connected = false,
-                            )
-                            pollingJob?.cancel(); return@launch
-                        }
-                        is LinkException.Revoked -> {
-                            _uiState.value = _uiState.value.copy(
-                                connState = RemoteConnectionState.FORBIDDEN,
-                                error = "Acceso denegado por el servidor.",
-                            )
-                            pollingJob?.cancel(); return@launch
-                        }
-                        is LinkException.Incompatible -> {
-                            _uiState.value = _uiState.value.copy(
-                                connState = RemoteConnectionState.INCOMPATIBLE,
-                                error = "Versión incompatible del servidor.",
-                            )
-                            pollingJob?.cancel(); return@launch
-                        }
-                        is LinkException.NotImplemented -> {
-                            _uiState.value = _uiState.value.copy(
-                                connState = RemoteConnectionState.ENDPOINT_MISSING,
-                                error = "Endpoint no disponible en este servidor.",
-                            )
-                        }
-                        else -> {
-                            val msg = e.message ?: ""
-                            if (msg.contains("timeout") || msg.contains("Network") || msg.contains("Unreachable")) {
-                                _uiState.value = _uiState.value.copy(
-                                    connState = RemoteConnectionState.OFFLINE,
-                                    error = "Servidor fuera de línea.",
-                                    connected = false,
-                                )
-                                pollingJob?.cancel(); return@launch
-                            }
-                            _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
-                        }
-                    }
-                }
-
-                client.getQueue().onSuccess { queue ->
-                    _uiState.value = _uiState.value.copy(queue = queue)
-                }.onFailure { }
-
-                delay(2000)
+                refreshState()
+                refreshQueue()
+                delay(5_000)
             }
+        }
+    }
+
+    private suspend fun refreshState() {
+        client?.getPlaybackState()?.onSuccess { state ->
+            _uiState.value = _uiState.value.copy(
+                playerState = state,
+                connState = RemoteConnectionState.CONNECTED,
+                error = null,
+            )
+        }?.onFailure { e ->
+            when (e) {
+                is LinkException.Unauthorized -> {
+                    _uiState.value = _uiState.value.copy(
+                        connState = RemoteConnectionState.UNAUTHORIZED,
+                        error = "Sesión expirada. Reconecta desde Sync.",
+                        connected = false,
+                    )
+                    pollingJob?.cancel(); return
+                }
+                is LinkException.Revoked -> {
+                    _uiState.value = _uiState.value.copy(
+                        connState = RemoteConnectionState.FORBIDDEN,
+                        error = "Acceso denegado por el servidor.",
+                    )
+                    pollingJob?.cancel(); return
+                }
+                is LinkException.Incompatible -> {
+                    _uiState.value = _uiState.value.copy(
+                        connState = RemoteConnectionState.INCOMPATIBLE,
+                        error = "Versión incompatible del servidor.",
+                    )
+                    pollingJob?.cancel(); return
+                }
+                is LinkException.NotImplemented -> {
+                    _uiState.value = _uiState.value.copy(
+                        connState = RemoteConnectionState.ENDPOINT_MISSING,
+                        error = "Endpoint no disponible en este servidor.",
+                    )
+                }
+                else -> {
+                    val msg = e.message ?: ""
+                    if (msg.contains("timeout") || msg.contains("Network") || msg.contains("Unreachable")) {
+                        _uiState.value = _uiState.value.copy(
+                            connState = RemoteConnectionState.OFFLINE,
+                            error = "Servidor fuera de línea.",
+                            connected = false,
+                        )
+                        pollingJob?.cancel(); return
+                    }
+                    _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshQueue() {
+        client?.getQueue()?.onSuccess { queue ->
+            _uiState.value = _uiState.value.copy(queue = queue)
         }
     }
 
@@ -141,7 +170,7 @@ class RemoteViewModel(
 
     fun retry() {
         _uiState.value = _uiState.value.copy(connState = RemoteConnectionState.CONNECTED, connected = true)
-        client?.let { startPolling(it) } ?: connectIfNeeded()
+        client?.let { startPollingFallback(it) } ?: connectIfNeeded()
     }
 
     private fun sendCommand(command: String, value: String = "") {
@@ -213,6 +242,7 @@ class RemoteViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        eventClient?.disconnect()
         pollingJob?.cancel()
         client?.close()
     }

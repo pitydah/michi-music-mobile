@@ -4,9 +4,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.HttpResponse
@@ -20,28 +22,14 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.michimusic.link.dto.LibraryResponseDto
-import org.michimusic.link.dto.ManifestTrackDto
-import org.michimusic.link.dto.PairConfirmRequestDto
-import org.michimusic.link.dto.PairConfirmResponseDto
-import org.michimusic.link.dto.PairStartRequestDto
-import org.michimusic.link.dto.PairStartResponseDto
-import org.michimusic.link.dto.PlaybackControlRequestDto
-import org.michimusic.link.dto.PlaybackStateDto
-import org.michimusic.link.dto.QueueDto
-import org.michimusic.link.dto.QueueJumpRequestDto
-import org.michimusic.link.dto.SearchResponseDto
-import org.michimusic.link.dto.ServerInfoDto
-import org.michimusic.link.dto.SyncManifestDto
-import org.michimusic.link.dto.SyncStateEntry
-import org.michimusic.link.dto.TokenRefreshRequestDto
-import org.michimusic.link.dto.TokenRefreshResponseDto
-import org.michimusic.link.dto.TrackListResponseDto
+import kotlinx.serialization.serializer
+import org.michimusic.link.dto.*
 import org.michimusic.link.errors.LinkException
 import org.michimusic.link.errors.LinkErrorResponse
 import java.io.OutputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import kotlin.reflect.typeOf
 
 class LinkClient private constructor(
     baseUrl: String,
@@ -123,6 +111,26 @@ class LinkClient private constructor(
         value >= 400 -> body?.let { parseError(it) } ?: LinkException.ServerError("$value", "HTTP $value")
         else -> null
     }
+
+    private suspend inline fun <reified T> httpPost(
+        url: String,
+        body: Any,
+    ): Result<T> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.post(url) {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(json.encodeToString(body))
+            }
+            response.status.checkError(response.bodyOrNull())?.let { return@withContext Result.failure(it) }
+            Result.success(response.body<T>())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun HttpResponse.bodyOrNull(): String? = try { body() } catch (_: Exception) { null }
 
     // --- Server Info / Ping ---
 
@@ -295,6 +303,119 @@ class LinkClient private constructor(
             Result.failure(e)
         }
     }
+
+    // --- Albums ---
+
+    suspend fun fetchAlbums(page: Int = 1, pageSize: Int = 50): Result<ListResponse<AlbumDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/albums?page=$page&pageSize=$pageSize")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchAlbum(id: String): Result<AlbumDetailDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/albums/${encodePathSegment(id)}")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- Artists ---
+
+    suspend fun fetchArtists(page: Int = 1, pageSize: Int = 50): Result<ListResponse<ArtistDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/artists?page=$page&pageSize=$pageSize")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchArtist(id: String): Result<ArtistDetailDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/artists/${encodePathSegment(id)}")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- Tracks detail ---
+
+    suspend fun fetchTrack(id: String): Result<TrackResponseDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/tracks/${encodePathSegment(id)}")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body<TrackResponseDto>().normalized())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchTracksBulk(ids: List<String>): Result<TrackBulkResponse> =
+        httpPost("$baseUrl/api/v1/tracks/bulk", TrackBulkRequest(trackIds = ids))
+
+    // --- Playlists ---
+
+    suspend fun fetchPlaylists(page: Int = 1): Result<ListResponse<PlaylistDetailDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/playlists?page=$page")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createPlaylist(request: PlaylistCreateRequest): Result<PlaylistDetailDto> =
+        httpPost("$baseUrl/api/v1/playlists", request)
+
+    suspend fun fetchPlaylist(id: String): Result<PlaylistDetailDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/playlists/${encodePathSegment(id)}")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updatePlaylist(id: String, request: PlaylistUpdateRequest): Result<PlaylistDetailDto> =
+        httpPost("$baseUrl/api/v1/playlists/${encodePathSegment(id)}", request)
+
+    suspend fun deletePlaylist(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.delete("$baseUrl/api/v1/playlists/${encodePathSegment(id)}") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchPlaylistTracks(id: String): Result<List<TrackResponseDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/playlists/${encodePathSegment(id)}/tracks")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body<TrackListResponseDto>().effectiveTracks.map { it.normalized() })
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updatePlaylistTracks(id: String, request: PlaylistTracksUpdateRequest): Result<PlaylistDetailDto> =
+        httpPost("$baseUrl/api/v1/playlists/${encodePathSegment(id)}/tracks", request)
 
     // --- Streaming ---
 
@@ -494,6 +615,225 @@ class LinkClient private constructor(
                 if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
                 setBody(request)
             }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- Queue (extended) ---
+
+    suspend fun reorderQueue(request: QueueReorderRequest): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.put("$baseUrl/api/v1/queue/reorder") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(request)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeQueueItem(queueItemId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.delete("$baseUrl/api/v1/queue/items/${encodePathSegment(queueItemId)}") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun saveQueue(request: QueueSaveRequest): Result<QueueDto> =
+        httpPost("$baseUrl/api/v1/queue/save", request)
+
+    suspend fun fetchSavedQueues(): Result<List<SavedQueueDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/queue/saved")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun transferQueue(request: QueueTransferRequest): Result<QueueTransferResponse> =
+        httpPost("$baseUrl/api/v1/queue/transfer", request)
+
+    // --- Favorites, Rating, History, Bookmarks ---
+
+    suspend fun fetchStarred(page: Int = 1): Result<StarredListResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/starred?page=$page")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun starTrack(id: String): Result<StarResponse> =
+        httpPost("$baseUrl/api/v1/star/${encodePathSegment(id)}", emptyMap<String, String>())
+
+    suspend fun unstarTrack(id: String): Result<StarResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.delete("$baseUrl/api/v1/star/${encodePathSegment(id)}") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body<StarResponse>())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun rateTrack(id: String, rating: Int): Result<RateResponse> =
+        httpPost("$baseUrl/api/v1/rate/${encodePathSegment(id)}", RateRequest(rating = rating))
+
+    suspend fun fetchHistory(page: Int = 1): Result<HistoryResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/history?page=$page")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun clearHistory(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.delete("$baseUrl/api/v1/history") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchBookmarks(): Result<List<BookmarkDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/bookmarks")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            val body = response.body<Map<String, List<BookmarkDto>>>()
+            Result.success(body["bookmarks"] ?: body["items"] ?: emptyList())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun upsertBookmark(trackId: String, request: BookmarkUpsertRequest): Result<BookmarkDto> =
+        httpPost("$baseUrl/api/v1/bookmarks/${encodePathSegment(trackId)}", request)
+
+    suspend fun deleteBookmark(trackId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.delete("$baseUrl/api/v1/bookmarks/${encodePathSegment(trackId)}") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // --- Receivers ---
+
+    suspend fun fetchReceivers(): Result<List<ReceiverDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/receivers")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchReceiver(id: String): Result<ReceiverDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/receivers/${encodePathSegment(id)}")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun startReceiverSession(id: String, request: ReceiverSessionRequest = ReceiverSessionRequest()): Result<Unit> =
+        httpPost("$baseUrl/api/v1/receivers/${encodePathSegment(id)}/session/start", request)
+
+    suspend fun stopReceiverSession(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.post("$baseUrl/api/v1/receivers/${encodePathSegment(id)}/session/stop") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setReceiverVolume(id: String, volume: Int): Result<Unit> =
+        httpPost("$baseUrl/api/v1/receivers/${encodePathSegment(id)}/volume", ReceiverVolumeRequest(volume = volume))
+
+    // --- Rooms ---
+
+    suspend fun fetchRooms(): Result<List<RoomDto>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/rooms")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun createRoom(request: RoomCreateRequest): Result<RoomDto> =
+        httpPost("$baseUrl/api/v1/rooms", request)
+
+    suspend fun fetchRoom(id: String): Result<RoomDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/rooms/${encodePathSegment(id)}")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun playInRoom(id: String, request: RoomPlayRequest): Result<Unit> =
+        httpPost("$baseUrl/api/v1/rooms/${encodePathSegment(id)}/play", request)
+
+    // --- QR Pairing ---
+
+    suspend fun pairQr(request: QrPairingRequest): Result<QrPairingResponse> =
+        httpPost("$baseUrl/api/v1/pair/qr", request)
+
+    suspend fun claimQr(qrCode: String, request: QrClaimRequest): Result<QrClaimResponse> =
+        httpPost("$baseUrl/api/v1/pair/qr/${encodePathSegment(qrCode)}/claim", request)
+
+    suspend fun revokeDevice(request: DeviceRevokeRequest): Result<Unit> =
+        httpPost("$baseUrl/api/v1/devices/revoke", request)
+
+    // --- Diagnostics ---
+
+    suspend fun fetchServerDiagnostics(): Result<Map<String, JsonElement>> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/diagnostics")
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {

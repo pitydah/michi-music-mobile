@@ -29,6 +29,7 @@ data class PlaybackStateDto(
     @SerialName("device_id") val deviceId: String = "",
     @SerialName("is_local") val isLocal: Boolean = false,
     @SerialName("updated_at") val updatedAt: String = "",
+    @SerialName("queue_id") val queueId: String = "",
 ) {
     val effectiveState: String get() {
         if (state != "stopped") return state
@@ -44,13 +45,16 @@ data class PlaybackStateDto(
 
 @Serializable
 data class CurrentTrackDto(
-    val id: String = "",
+    @SerialName("track_id") val trackId: String = "",
+    @SerialName("id") val id: String = "",
     val title: String = "",
     val artist: String = "",
     val album: String = "",
     val duration: Long = 0L,
     @SerialName("cover_id") val coverId: String = "",
-)
+) {
+    val effectiveId: String get() = trackId.ifEmpty { id }
+}
 
 @Serializable
 data class PlaybackControlRequestDto(
