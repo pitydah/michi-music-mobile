@@ -1,69 +1,40 @@
 @file:Suppress("DEPRECATION")
+
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Lan
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
-import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
-import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncViewModel
-import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.sync.SyncProgress
+import org.michimusic.mobile.sync.SyncUiState
+import org.michimusic.mobile.ui.screens.sync.CodePairingForm
+import org.michimusic.mobile.ui.screens.sync.ConnectedState
+import org.michimusic.mobile.ui.screens.sync.ConnectingState
+import org.michimusic.mobile.ui.screens.sync.ConnectionPrompt
+import org.michimusic.mobile.ui.screens.sync.DiscoveringState
+import org.michimusic.mobile.ui.screens.sync.ErrorState
+import org.michimusic.mobile.ui.screens.sync.PairingForm
 import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextPrimary
-import org.michimusic.mobile.ui.theme.TextSecondary
 
 @Composable
 fun SyncScreen(
@@ -109,7 +80,7 @@ fun SyncScreen(
                                         viewModel.startPairing(peer, "", code)
                                     }
                                 },
-                                onBack = viewModel::disconnect,
+                                onBack = { viewModel.disconnect() },
                             )
                         }
                         else -> {
@@ -120,65 +91,48 @@ fun SyncScreen(
                                         viewModel.startPairing(peer, username, password)
                                     }
                                 },
-                                onBack = viewModel::disconnect,
+                                onBack = { viewModel.disconnect() },
                             )
                         }
                     }
                 }
 
                 SyncConnectionState.PAIRING -> {
-                    ConnectingState("Emparejando...")
-                }
-
-                SyncConnectionState.PAIRED -> {
-                    ConnectedState(
-                        peer = uiState.connectedPeer,
-                        pairingConfirm = uiState.pairingConfirm,
-                        syncProgress = uiState.syncProgress,
-                        onSync = viewModel::syncLibrary,
-                        onDisconnect = viewModel::disconnect,
-                        onForget = viewModel::forgetServer,
-                        onNavigateToSynced = onNavigateToSynced,
-                    )
+                    ConnectingState(message = "Emparejando...")
                 }
 
                 SyncConnectionState.CONNECTING -> {
-                    ConnectingState("Conectando...")
+                    ConnectingState(message = "Conectando...")
                 }
 
-                SyncConnectionState.CONNECTED -> {
+                SyncConnectionState.PAIRED, SyncConnectionState.CONNECTED -> {
                     ConnectedState(
-                        peer = uiState.connectedPeer,
-                        pairingConfirm = null,
+                        name = uiState.sourceName,
                         syncProgress = uiState.syncProgress,
-                        onSync = viewModel::syncLibrary,
-                        onDisconnect = viewModel::disconnect,
-                        onForget = viewModel::forgetServer,
-                        onNavigateToSynced = onNavigateToSynced,
+                        onSync = { viewModel.syncLibrary() },
+                        onDisconnect = { viewModel.disconnect() },
+                        onForget = { viewModel.forgetServer() },
                     )
                 }
 
                 SyncConnectionState.AUTH_ERROR -> {
                     ErrorState(
                         message = "Error de autenticación. Intenta emparejar de nuevo.",
-                        onRetry = viewModel::disconnect,
+                        onRetry = { viewModel.startDiscovery() },
                     )
                 }
 
                 SyncConnectionState.REVOKED -> {
                     ErrorState(
-                        message = "Dispositivo revocado desde Michi Music Player. Olvida el servidor y empareja de nuevo.",
-                        onRetry = viewModel::forgetServer,
+                        message = "Dispositivo revocado desde Michi Music Player. Vuelve a emparejar.",
+                        onRetry = { viewModel.startDiscovery() },
                     )
                 }
 
                 SyncConnectionState.ERROR -> {
                     ErrorState(
                         message = uiState.error ?: "Error desconocido",
-                        onRetry = {
-                            viewModel.clearError()
-                            viewModel.startDiscovery()
-                        },
+                        onRetry = { viewModel.retry() },
                     )
                 }
             }
@@ -190,556 +144,16 @@ fun SyncScreen(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp),
-                    action = {
-                        TextButton(onClick = viewModel::clearError) {
-                            Text("OK")
-                        }
-                    },
+                    containerColor = AccentCoral,
+                    shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text(msg)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConnectionPrompt(onStart: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(AccentCoral.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lan,
-                        contentDescription = null,
-                        modifier = Modifier.size(36.dp),
-                        tint = AccentCoral,
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "Sincronización",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = TextPrimary,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Conecta con Michi Music Player en tu red local",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = TextSecondary,
-                )
-                Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = onStart,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentCoral,
-                        contentColor = SurfaceDark,
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Icon(Icons.Default.Sync, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("Buscar servidores")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiscoveringState(
-    peers: List<DiscoveredPeer>,
-    onSelect: (DiscoveredPeer) -> Unit,
-    onStop: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Servidores encontrados",
-                style = MaterialTheme.typography.titleLarge,
-                color = TextPrimary,
-            )
-            OutlinedButton(onClick = onStop) {
-                Text("Detener")
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        if (peers.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = AccentCoral)
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        "Buscando servidores...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = TextSecondary,
-                    )
-                }
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(peers) { peer ->
-                    PeerCard(
-                        peer = peer,
-                        authRequired = peer.authRequired,
-                        onClick = { onSelect(peer) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PeerCard(
-    peer: DiscoveredPeer,
-    authRequired: Boolean,
-    onClick: () -> Unit,
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = SurfaceElevated.copy(alpha = 0.58f),
-        ),
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = if (authRequired) Icons.Default.Lock else Icons.Default.Devices,
-                contentDescription = null,
-                tint = if (authRequired) AccentCoral else AccentPink,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background((if (authRequired) AccentCoral else AccentPink).copy(alpha = 0.12f))
-                    .padding(9.dp),
-            )
-            Spacer(Modifier.size(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = peer.alias,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextPrimary,
-                )
-                Text(
-                    text = "${peer.ip}:${peer.port}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                )
-            }
-            if (authRequired) {
-                Text(
-                    text = "Requiere emparejamiento",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AccentCoral,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PairingForm(
-    peer: DiscoveredPeer?,
-    onPair: (String, String) -> Unit,
-    onBack: () -> Unit,
-) {
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Lock,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = AccentPink,
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "Emparejar dispositivo",
-            style = MaterialTheme.typography.headlineMedium,
-        )
-        if (peer != null) {
-            Text(
-                text = "Conectar a ${peer.alias} (${peer.ip})",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Ingresa usuario y contraseña local del servidor Michi",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Usuario") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-        )
-        Spacer(Modifier.height(12.dp))
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Contraseña") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = { onPair(username, password) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = username.isNotBlank() && password.isNotBlank(),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AccentCoral,
-                contentColor = SurfaceDark,
-            ),
-            shape = RoundedCornerShape(8.dp),
-        ) {
-            Text("Emparejar")
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onBack) {
-            Text("Cancelar")
-        }
-    }
-}
-
-@Composable
-private fun CodePairingForm(
-    peer: DiscoveredPeer?,
-    onPair: (String) -> Unit,
-    onBack: () -> Unit,
-) {
-    var code by remember { mutableStateOf("") }
-    var secondsLeft by remember { mutableStateOf(60) }
-    var expired by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        while (secondsLeft > 0) {
-            kotlinx.coroutines.delay(1000)
-            secondsLeft--
-        }
-        expired = true
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Lock,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = AccentPink,
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "Emparejar dispositivo",
-            style = MaterialTheme.typography.headlineMedium,
-        )
-        if (peer != null) {
-            Text(
-                text = "Conectar a ${peer.alias} (${peer.ip})",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Ingresa el código de emparejamiento del servidor",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-        )
-
-        Spacer(Modifier.height(24.dp))
-
-        OutlinedTextField(
-            value = code,
-            onValueChange = { code = it },
-            label = { Text("Código de emparejamiento") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            enabled = !expired,
-        )
-
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = if (expired) "Tiempo agotado" else "Tiempo restante: ${secondsLeft}s",
-            color = if (expired) MaterialTheme.colorScheme.error else TextSecondary,
-            style = MaterialTheme.typography.bodySmall,
-        )
-
-        Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = { onPair(code) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = code.isNotBlank() && !expired,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = AccentCoral,
-                contentColor = SurfaceDark,
-            ),
-            shape = RoundedCornerShape(8.dp),
-        ) {
-            Text("Emparejar")
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onBack) {
-            Text("Cancelar")
-        }
-    }
-}
-
-@Composable
-private fun ConnectingState(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = AccentCoral)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                message,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConnectedState(
-    peer: DiscoveredPeer?,
-    pairingConfirm: org.michimusic.link.dto.PairConfirmResponseDto?,
-    syncProgress: SyncProgress,
-    onSync: () -> Unit,
-    onDisconnect: () -> Unit,
-    onForget: () -> Unit,
-    onNavigateToSynced: () -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = null,
-                tint = AccentCoral,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = if (pairingConfirm != null) "Emparejado y autorizado" else "Conectado",
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = peer?.let { "${it.alias} (${it.ip})" } ?: "Servidor",
-            style = MaterialTheme.typography.bodyLarge,
-            color = TextSecondary,
-        )
-
-        pairingConfirm?.let { confirm ->
-            if (confirm.permissions.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "Permisos: ${confirm.permissions.joinToString(", ")}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                )
-            }
-        }
-
-        pairingConfirm?.let { confirm ->
-            Spacer(Modifier.height(16.dp))
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        "Permisos: ${confirm.permissions.joinToString(", ").ifEmpty { "Ninguno" }}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextPrimary,
-                    )
-                    Text(
-                        "Servidor: ${confirm.serverDeviceId.take(8)}...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        when (syncProgress) {
-            is SyncProgress.Idle -> {
-                Button(
-                    onClick = onSync,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentCoral,
-                        contentColor = SurfaceDark,
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Icon(Icons.Default.Sync, contentDescription = null)
-                    Spacer(Modifier.size(8.dp))
-                    Text("Sincronizar biblioteca")
-                }
-            }
-
-            is SyncProgress.Downloading -> {
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            "Descargando biblioteca...",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = TextPrimary,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        LinearProgressIndicator(
-                            progress = {
-                                if (syncProgress.total > 0) {
-                                    syncProgress.completed.toFloat() / syncProgress.total.toFloat()
-                                } else 0f
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            color = AccentCoral,
-                            trackColor = SurfaceElevated,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "${syncProgress.completed} / ${syncProgress.total} canciones",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                        )
+                    Text(msg, color = SurfaceDark)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { viewModel.clearError() }) {
+                        Text("OK", color = SurfaceDark)
                     }
                 }
             }
-
-            is SyncProgress.Complete -> {
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            "Sincronización completa",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = AccentCoral,
-                        )
-                        Text("${syncProgress.tracks} canciones en biblioteca", color = TextPrimary)
-                        Text("${syncProgress.downloaded} descargadas", color = TextSecondary)
-                        if (syncProgress.errors > 0) {
-                            Text(
-                                "${syncProgress.errors} errores",
-                                color = AccentCoral,
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = onNavigateToSynced) {
-                            Icon(Icons.Default.List, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("Ver biblioteca")
-                        }
-                    }
-                }
-            }
-
-            is SyncProgress.Error -> {
-                Text(
-                    syncProgress.message,
-                    color = AccentCoral,
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedButton(
-                onClick = onDisconnect,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Desconectar")
-            }
-            OutlinedButton(
-                onClick = onForget,
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Olvidar")
-            }
-        }
-    }
-}
-
-@Composable
-private fun ErrorState(message: String, onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Error,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = AccentCoral,
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            text = "Error",
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary,
-        )
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onRetry) {
-            Text("Reintentar")
         }
     }
 }
