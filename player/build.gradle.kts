@@ -32,7 +32,6 @@ dependencies {
     implementation(libs.media3.common)
 
     implementation(libs.guava)
-    implementation(libs.coroutines.guava)
 
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)

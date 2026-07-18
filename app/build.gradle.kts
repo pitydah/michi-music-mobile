@@ -93,13 +93,6 @@ android {
         compose = true
     }
 
-    productFlavors.all {
-        if (name == "fdroid") {
-            isMinifyEnabled = true
-            isShrinkResources = true
-        }
-    }
-
     androidComponents {
         onVariants { variant ->
             if (variant.buildType == "release" || variant.flavorName == "fdroid") {
