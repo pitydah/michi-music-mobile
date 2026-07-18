@@ -96,7 +96,7 @@ android {
     androidComponents {
         onVariants { variant ->
             if (variant.buildType == "release" || variant.flavorName == "fdroid") {
-                variant.reproducibleBuild = true
+                variant.isReproducibleBuild = true
             }
         }
     }
