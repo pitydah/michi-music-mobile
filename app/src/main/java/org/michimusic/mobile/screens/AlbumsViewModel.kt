@@ -33,9 +33,13 @@ class AlbumsViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
     fun loadMedia() {
         viewModelScope.launch {
             _isLoading.value = true
+            _error.value = null
             try {
                 val result = withContext(Dispatchers.IO) { repo.loadAlbums() }
                 val tracks = result.flatMap { it.tracks }
@@ -52,14 +56,17 @@ class AlbumsViewModel(
                 _allTracks.value = tracks
                 _topTracks.value = smartLists.first
                 _recentTracks.value = smartLists.second
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 _albums.value = emptyList()
                 _allTracks.value = emptyList()
                 _topTracks.value = emptyList()
                 _recentTracks.value = emptyList()
+                _error.value = e.message ?: "Error al cargar la biblioteca"
             } finally {
                 _isLoading.value = false
             }
         }
     }
+
+    fun clearError() { _error.value = null }
 }

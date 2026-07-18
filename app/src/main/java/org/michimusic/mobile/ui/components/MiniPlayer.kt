@@ -204,7 +204,7 @@ fun MiniPlayer(
             IconButton(onClick = { controller.skipPrevious() }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Rounded.SkipPrevious,
-                    contentDescription = "Previous",
+                    contentDescription = "Anterior",
                     tint = TextMuted,
                     modifier = Modifier.size(20.dp),
                 )
@@ -233,7 +233,7 @@ fun MiniPlayer(
                 ) {
                     Icon(
                         imageVector = if (playerState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (playerState.isPlaying) "Pause" else "Play",
+                        contentDescription = if (playerState.isPlaying) "Pausar" else "Reproducir",
                         tint = SurfaceDark,
                         modifier = Modifier.size(20.dp),
                     )
@@ -242,7 +242,7 @@ fun MiniPlayer(
             IconButton(onClick = { controller.skipNext() }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = Icons.Rounded.SkipNext,
-                    contentDescription = "Next",
+                    contentDescription = "Siguiente",
                     tint = TextMuted,
                     modifier = Modifier.size(20.dp),
                 )

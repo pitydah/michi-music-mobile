@@ -35,6 +35,9 @@ class SearchViewModel(
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
     private var localTracks: List<Track> = emptyList()
     private var syncedTracks: List<org.michimusic.data.cache.CachedTrack> = emptyList()
     private var searchJob: Job? = null
@@ -42,12 +45,18 @@ class SearchViewModel(
     fun loadLocalTracks() {
         viewModelScope.launch {
             _isSearching.value = true
-            val albums = withContext(Dispatchers.IO) { localRepo.loadAlbums() }
-            localTracks = albums.flatMap { it.tracks }
-            syncedTracks = withContext(Dispatchers.IO) {
-                syncedRepo.getAllSynced().first()
+            _error.value = null
+            try {
+                val albums = withContext(Dispatchers.IO) { localRepo.loadAlbums() }
+                localTracks = albums.flatMap { it.tracks }
+                syncedTracks = withContext(Dispatchers.IO) {
+                    syncedRepo.getAllSynced().first()
+                }
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Error al cargar canciones"
+            } finally {
+                _isSearching.value = false
             }
-            _isSearching.value = false
         }
     }
 
@@ -104,6 +113,9 @@ class SearchViewModel(
     fun clearSearch() {
         _query.value = ""
         _results.value = emptyList()
+        _error.value = null
         searchJob?.cancel()
     }
+
+    fun clearError() { _error.value = null }
 }

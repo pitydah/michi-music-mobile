@@ -69,6 +69,7 @@ fun HomeScreen(
     val topTracks by viewModel.topTracks.collectAsState()
     val recentTracks by viewModel.recentTracks.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
     val controller: AudioController = koinInject()
     var selectedFilter by remember { mutableIntStateOf(0) }
     val filters = listOf("Todo", "Artistas", "Álbumes", "Recientes", "Top")
@@ -157,6 +158,22 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
                 return@Column
+            }
+
+            if (error != null) {
+                Spacer(Modifier.height(16.dp))
+                PremiumEmptyState(
+                    icon = Icons.Rounded.LibraryMusic,
+                    title = "Error al cargar",
+                    subtitle = error!!,
+                )
+                Spacer(Modifier.height(8.dp))
+                PremiumButton(
+                    text = "Reintentar",
+                    onClick = { viewModel.loadMedia(); viewModel.clearError() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(16.dp))
             }
 
             EditorialCoverCollage(

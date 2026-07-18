@@ -502,8 +502,8 @@ fun MediaControlsBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MichiIconButton(Icons.AutoMirrored.Rounded.VolumeDown, size = 17.dp, tint = TextSecondary)
-        MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious)
+        MichiIconButton(Icons.AutoMirrored.Rounded.VolumeDown, size = 17.dp, tint = TextSecondary, contentDescription = "Bajar volumen")
+        MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious, contentDescription = "Anterior")
         Box(
             modifier = Modifier
                 .size(58.dp)
@@ -532,8 +532,8 @@ fun MediaControlsBar(
                 modifier = Modifier.size(34.dp)
             )
         }
-        MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext)
-        MichiIconButton(Icons.Rounded.Equalizer, size = 17.dp, tint = TextSecondary)
+        MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext, contentDescription = "Siguiente")
+        MichiIconButton(Icons.Rounded.Equalizer, size = 17.dp, tint = TextSecondary, contentDescription = "Ecualizador")
     }
 }
 
@@ -543,17 +543,18 @@ fun MichiIconButton(
     size: Dp,
     tint: Color = TextSecondary,
     onClick: (() -> Unit)? = null,
+    contentDescription: String? = null,
 ) {
     if (onClick == null) {
         Box(
             modifier = Modifier.size(size + 16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
         }
     } else {
         IconButton(onClick = onClick, modifier = Modifier.size(size + 16.dp)) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
         }
     }
 }
