@@ -75,9 +75,7 @@ PY
   sleep 4
 }
 
-echo "Compilando APK real del proyecto..."
-./gradlew --no-daemon --stacktrace assembleNormalDebug
-
+echo "Instalando el APK real compilado previamente..."
 test -f "$APK"
 adb install -r "$APK"
 adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_AUDIO || true
