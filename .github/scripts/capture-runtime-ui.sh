@@ -12,21 +12,58 @@ finish() {
   adb logcat -d > "$OUT_DIR/logcat.txt" 2>/dev/null || true
   adb shell dumpsys window > "$OUT_DIR/window-dumpsys.txt" 2>/dev/null || true
   adb shell dumpsys activity activities > "$OUT_DIR/activity-dumpsys.txt" 2>/dev/null || true
+  adb shell dumpsys meminfo "$PACKAGE" > "$OUT_DIR/app-meminfo.txt" 2>/dev/null || true
 }
 trap finish EXIT
 
 capture_screen() {
   local name="$1"
-  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+  timeout 15s adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/window.xml "$OUT_DIR/${name}.xml" >/dev/null 2>&1 || true
   adb exec-out screencap -p > "$OUT_DIR/${name}.png"
+}
+
+dump_ui() {
+  timeout 15s adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
+  adb pull /sdcard/window.xml /tmp/window.xml >/dev/null 2>&1 || return 1
+}
+
+has_ui_label() {
+  local label="$1"
+  dump_ui || return 1
+  python3 - "$label" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+label = sys.argv[1]
+root = ET.parse('/tmp/window.xml').getroot()
+for node in root.iter('node'):
+    text = node.attrib.get('text', '')
+    desc = node.attrib.get('content-desc', '')
+    if label in text or label in desc:
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+wait_for_ui_label() {
+  local label="$1"
+  local attempts="${2:-60}"
+  for _ in $(seq 1 "$attempts"); do
+    if has_ui_label "$label"; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "La UI no mostró el texto esperado: $label" >&2
+  capture_screen "00-timeout-${label// /-}"
+  return 1
 }
 
 tap_node() {
   local label="$1"
   local prefer="${2:-top}"
-  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
-  adb pull /sdcard/window.xml /tmp/window.xml >/dev/null 2>&1
+  dump_ui
 
   local point
   point="$(python3 - "$label" "$prefer" <<'PY'
@@ -75,18 +112,35 @@ PY
   sleep 4
 }
 
+echo "Estabilizando el dispositivo virtual..."
+adb wait-for-device
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell settings put global show_first_crash_dialog 0 || true
+adb shell settings put global anr_show_background 0 || true
+adb shell settings put global window_animation_scale 0 || true
+adb shell settings put global transition_animation_scale 0 || true
+adb shell settings put global animator_duration_scale 0 || true
+adb shell settings put global device_provisioned 1 || true
+adb shell settings put secure user_setup_complete 1 || true
+adb shell wm dismiss-keyguard || true
+adb shell wm size 720x1280 || true
+adb shell wm density 320 || true
+adb shell input keyevent 82 || true
+sleep 25
+
 echo "Instalando el APK real compilado previamente..."
 test -f "$APK"
-adb install -r "$APK"
+adb install -r --no-streaming "$APK"
+adb shell pm grant "$PACKAGE" android.permission.READ_EXTERNAL_STORAGE || true
 adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_AUDIO || true
 adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS || true
-adb shell settings put global window_animation_scale 0
-adb shell settings put global transition_animation_scale 0
-adb shell settings put global animator_duration_scale 0
+adb shell cmd package compile -m speed -f "$PACKAGE" || true
+adb logcat -c || true
 
 # Primera ejecución real, sin biblioteca cargada.
 adb shell am force-stop "$PACKAGE"
 adb shell am start -W -n "$PACKAGE/$ACTIVITY"
+wait_for_ui_label "Inicio" 90
 sleep 8
 capture_screen "01-inicio-sin-biblioteca"
 
@@ -108,59 +162,66 @@ tracks = [
     ('Michi Session', 349.23),
 ]
 out = '/tmp/michi-runtime-audio'
-rate = 44100
-seconds = 3
+rate = 22050
+seconds = 2
 for index, (title, frequency) in enumerate(tracks, start=1):
     path = os.path.join(out, f'{index:02d} - {title}.wav')
     with wave.open(path, 'w') as wav:
-        wav.setnchannels(2)
+        wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(rate)
+        frames = bytearray()
         for n in range(rate * seconds):
-            envelope = min(1.0, n / (rate * 0.08), (rate * seconds - n) / (rate * 0.10))
-            sample = int(10000 * envelope * math.sin(2 * math.pi * frequency * n / rate))
-            frame = struct.pack('<hh', sample, sample)
-            wav.writeframesraw(frame)
+            envelope = min(1.0, n / (rate * 0.05), (rate * seconds - n) / (rate * 0.08))
+            sample = int(8000 * envelope * math.sin(2 * math.pi * frequency * n / rate))
+            frames.extend(struct.pack('<h', sample))
+        wav.writeframes(frames)
 PY
 
 adb shell rm -rf /sdcard/Music/MichiRuntime
 adb shell mkdir -p /sdcard/Music/MichiRuntime
 adb push /tmp/michi-runtime-audio/. /sdcard/Music/MichiRuntime/ >/dev/null
-adb shell cmd media_provider scan_volume external_primary || true
 for file in /tmp/michi-runtime-audio/*.wav; do
   base="$(basename "$file")"
   adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file:///sdcard/Music/MichiRuntime/$base" >/dev/null || true
 done
-sleep 8
+sleep 15
 adb shell content query --uri content://media/external/audio/media > "$OUT_DIR/media-store.txt" 2>&1 || true
 
 # Relanza para que el repositorio lea MediaStore desde cero.
 adb shell am force-stop "$PACKAGE"
 adb shell am start -W -n "$PACKAGE/$ACTIVITY"
-sleep 10
+wait_for_ui_label "Inicio" 90
+sleep 12
 capture_screen "02-inicio-con-biblioteca"
 
 # Capturas de navegación real. Si una pantalla falla, conserva las demás.
 tap_node "Biblioteca" || true
+sleep 5
 capture_screen "03-biblioteca"
 
 tap_node "Inicio" || true
 tap_node "Aleatorio" largest || true
-sleep 5
+sleep 8
 tap_node "Ahora" || true
+sleep 5
 capture_screen "04-ahora-reproduciendo"
 
 tap_node "Remoto" || true
+sleep 5
 capture_screen "05-remoto"
 
 tap_node "Sync" || true
+sleep 5
 capture_screen "06-sync"
 
 tap_node "Ajustes" || true
+sleep 5
 capture_screen "07-ajustes"
 
 tap_node "Inicio" || true
 tap_node "Buscar canciones..." largest || true
+sleep 5
 capture_screen "08-busqueda"
 
 # Evidencia técnica de que la actividad quedó ejecutándose.
