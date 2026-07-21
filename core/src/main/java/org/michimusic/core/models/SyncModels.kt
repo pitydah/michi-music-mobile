@@ -240,15 +240,4 @@ data class DownloadItem(
     val checksum: String = "",
     val size: Long = 0L,
     val downloadPath: String = "",
-) {
-    companion object {
-        fun fromManifest(mt: ManifestTrackDto) = DownloadItem(
-            trackId = mt.trackId,
-            title = mt.title,
-            format = mt.format,
-            checksum = mt.checksum ?: "",
-            size = mt.size,
-            downloadPath = mt.downloadPath,
-        )
-    }
-}
+)
