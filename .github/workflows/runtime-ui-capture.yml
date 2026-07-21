@@ -8,10 +8,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: runtime-ui-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   capture-runtime-ui:
     name: Capture real Android UI
