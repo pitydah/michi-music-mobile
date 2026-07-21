@@ -1,0 +1,68 @@
+name: Runtime UI Capture
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture-runtime-ui:
+    name: Capture real Android UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant script permissions
+        run: chmod +x gradlew .github/scripts/capture-runtime-ui.sh .github/scripts/prepare-runtime-build.py .github/scripts/finalize-runtime-build.py
+
+      - name: Apply temporary compile compatibility patches
+        run: |
+          python3 .github/scripts/prepare-runtime-build.py
+          python3 .github/scripts/finalize-runtime-build.py
+
+      - name: Build actual debug APK before emulator startup
+        shell: bash
+        run: |
+          mkdir -p runtime-screenshots
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleNormalDebug 2>&1 | tee runtime-screenshots/build.log
+
+      - name: Launch actual application and capture UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 384M
+          disk-size: 6144M
+          emulator-boot-timeout: 900
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: .github/scripts/capture-runtime-ui.sh
+
+      - name: Upload runtime screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: michi-mobile-runtime-ui
+          path: runtime-screenshots/
+          if-no-files-found: warn
+          retention-days: 7

@@ -92,14 +92,6 @@ android {
     buildFeatures {
         compose = true
     }
-
-    androidComponents {
-        onVariants { variant ->
-            if (variant.buildType == "release" || variant.flavorName == "fdroid") {
-                variant.isReproducibleBuild = true
-            }
-        }
-    }
 }
 
 dependencies {
