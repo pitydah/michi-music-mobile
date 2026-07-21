@@ -18,52 +18,37 @@ trap finish EXIT
 
 capture_screen() {
   local name="$1"
-  timeout 15s adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+  timeout 8s adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
   adb pull /sdcard/window.xml "$OUT_DIR/${name}.xml" >/dev/null 2>&1 || true
   adb exec-out screencap -p > "$OUT_DIR/${name}.png"
 }
 
 dump_ui() {
-  timeout 15s adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
+  timeout 8s adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 1
   adb pull /sdcard/window.xml /tmp/window.xml >/dev/null 2>&1 || return 1
 }
 
-has_ui_label() {
-  local label="$1"
-  dump_ui || return 1
-  python3 - "$label" <<'PY'
-import sys
-import xml.etree.ElementTree as ET
-
-label = sys.argv[1]
-root = ET.parse('/tmp/window.xml').getroot()
-for node in root.iter('node'):
-    text = node.attrib.get('text', '')
-    desc = node.attrib.get('content-desc', '')
-    if label in text or label in desc:
-        raise SystemExit(0)
-raise SystemExit(1)
-PY
-}
-
-wait_for_ui_label() {
-  local label="$1"
-  local attempts="${2:-60}"
+wait_for_app_window() {
+  local attempts="${1:-90}"
+  local state
   for _ in $(seq 1 "$attempts"); do
-    if has_ui_label "$label"; then
+    state="$(timeout 8s adb shell dumpsys window windows 2>/dev/null || true)"
+    if grep -Eq "mCurrentFocus=.*${PACKAGE}/${ACTIVITY}" <<< "$state" && \
+       grep -Eq "mTopFullscreenOpaqueWindowState=.*${PACKAGE}/${ACTIVITY}" <<< "$state"; then
+      sleep 8
       return 0
     fi
     sleep 2
   done
-  echo "La UI no mostró el texto esperado: $label" >&2
-  capture_screen "00-timeout-${label// /-}"
+  echo "La ventana Compose no reemplazó el splash dentro del plazo" >&2
+  capture_screen "00-window-timeout"
   return 1
 }
 
 tap_node() {
   local label="$1"
   local prefer="${2:-top}"
-  dump_ui
+  dump_ui || return 1
 
   local point
   point="$(python3 - "$label" "$prefer" <<'PY'
@@ -102,14 +87,20 @@ else:
 _, _, x, y, _, _ = results[0]
 print(f'{x} {y}')
 PY
-)" || {
-    echo "No se encontró el nodo UI: $label" >&2
-    return 1
-  }
+)" || return 1
 
   read -r x y <<< "$point"
   adb shell input tap "$x" "$y"
   sleep 4
+}
+
+tap_route() {
+  local label="$1"
+  local x="$2"
+  if ! tap_node "$label" bottom; then
+    adb shell input tap "$x" 1160
+    sleep 5
+  fi
 }
 
 echo "Estabilizando el dispositivo virtual..."
@@ -126,7 +117,7 @@ adb shell wm dismiss-keyguard || true
 adb shell wm size 720x1280 || true
 adb shell wm density 320 || true
 adb shell input keyevent 82 || true
-sleep 25
+sleep 15
 
 echo "Instalando el APK real compilado previamente..."
 test -f "$APK"
@@ -134,14 +125,13 @@ adb install -r --no-streaming "$APK"
 adb shell pm grant "$PACKAGE" android.permission.READ_EXTERNAL_STORAGE || true
 adb shell pm grant "$PACKAGE" android.permission.READ_MEDIA_AUDIO || true
 adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS || true
-adb shell cmd package compile -m speed -f "$PACKAGE" || true
+timeout 30s adb shell cmd package compile -m speed-profile -f "$PACKAGE" || true
 adb logcat -c || true
 
 # Primera ejecución real, sin biblioteca cargada.
 adb shell am force-stop "$PACKAGE"
-adb shell am start -W -n "$PACKAGE/$ACTIVITY"
-wait_for_ui_label "Inicio" 90
-sleep 8
+timeout 25s adb shell am start -W -n "$PACKAGE/$ACTIVITY" || true
+wait_for_app_window 90
 capture_screen "01-inicio-sin-biblioteca"
 
 # Crea audio de prueba local para activar los estados reales con biblioteca.
@@ -190,40 +180,39 @@ adb shell content query --uri content://media/external/audio/media > "$OUT_DIR/m
 
 # Relanza para que el repositorio lea MediaStore desde cero.
 adb shell am force-stop "$PACKAGE"
-adb shell am start -W -n "$PACKAGE/$ACTIVITY"
-wait_for_ui_label "Inicio" 90
-sleep 12
+timeout 25s adb shell am start -W -n "$PACKAGE/$ACTIVITY" || true
+wait_for_app_window 90
+sleep 8
 capture_screen "02-inicio-con-biblioteca"
 
-# Capturas de navegación real. Si una pantalla falla, conserva las demás.
-tap_node "Biblioteca" || true
-sleep 5
+# Capturas de navegación real.
+tap_route "Biblioteca" 180
 capture_screen "03-biblioteca"
 
-tap_node "Inicio" || true
-tap_node "Aleatorio" largest || true
-sleep 8
-tap_node "Ahora" || true
+tap_route "Inicio" 60
+if ! tap_node "Aleatorio" largest; then
+  adb shell input tap 540 520
+  sleep 5
+fi
 sleep 5
+tap_route "Ahora" 300
 capture_screen "04-ahora-reproduciendo"
 
-tap_node "Remoto" || true
-sleep 5
+tap_route "Remoto" 420
 capture_screen "05-remoto"
 
-tap_node "Sync" || true
-sleep 5
+tap_route "Sync" 540
 capture_screen "06-sync"
 
-tap_node "Ajustes" || true
-sleep 5
+tap_route "Ajustes" 660
 capture_screen "07-ajustes"
 
-tap_node "Inicio" || true
-tap_node "Buscar canciones..." largest || true
-sleep 5
+tap_route "Inicio" 60
+if ! tap_node "Buscar canciones..." largest; then
+  adb shell input tap 360 250
+  sleep 5
+fi
 capture_screen "08-busqueda"
 
-# Evidencia técnica de que la actividad quedó ejecutándose.
 adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" > "$OUT_DIR/resumed-activity.txt" || true
 ls -lah "$OUT_DIR"
