@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: runtime-ui-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   capture-runtime-ui:
     name: Capture real Android UI
@@ -30,17 +34,24 @@ jobs:
       - name: Grant script permissions
         run: chmod +x gradlew .github/scripts/capture-runtime-ui.sh
 
-      - name: Build, launch and capture actual application
+      - name: Build actual debug APK before emulator startup
+        shell: bash
+        run: |
+          mkdir -p runtime-screenshots
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleNormalDebug 2>&1 | tee runtime-screenshots/build.log
+
+      - name: Launch actual application and capture UI
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          target: google_apis
+          target: default
           arch: x86_64
-          profile: pixel_6
+          profile: pixel_2
           cores: 2
-          ram-size: 4096M
-          heap-size: 1024M
-          disk-size: 8192M
+          ram-size: 2048M
+          heap-size: 512M
+          disk-size: 6144M
           disable-animations: true
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: .github/scripts/capture-runtime-ui.sh
