@@ -28,7 +28,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Grant script permissions
-        run: chmod +x gradlew .github/scripts/capture-runtime-ui.sh
+        run: chmod +x gradlew .github/scripts/capture-runtime-ui.sh .github/scripts/prepare-runtime-build.py
+
+      - name: Apply temporary compile compatibility patches
+        run: python3 .github/scripts/prepare-runtime-build.py
 
       - name: Build actual debug APK before emulator startup
         shell: bash
