@@ -12,12 +12,13 @@ import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 
-class SyncedTrackRepository(
-    private val trackDao: TrackDao,
+open class SyncedTrackRepository(
+    private val trackDao: TrackDao? = null,
     private val playlistDao: PlaylistDao? = null,
 ) {
-    suspend fun saveLibrary(tracks: List<TrackDto>) {
-        val existing = trackDao.getAllTracks().let { flow ->
+    open suspend fun saveLibrary(tracks: List<TrackDto>) {
+        val td = trackDao ?: return
+        val existing = td.getAllTracks().let { flow ->
             flow.flowFirst()
         }
         val existingMap = existing.associateBy { it.id }
@@ -26,14 +27,14 @@ class SyncedTrackRepository(
             val old = existingMap[dto.id]
             dto.toCachedTrackPreserving(old)
         }
-        trackDao.insertAll(entities)
+        td.insertAll(entities)
 
         val newIds = tracks.map { it.id }.toSet()
         val removed = existing.filter { it.id !in newIds && !it.downloaded }
-        removed.forEach { trackDao.delete(it) }
+        removed.forEach { td.delete(it) }
     }
 
-    suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {
+    open suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {
         val entities = playlists.map { mp ->
             CachedPlaylist(
                 id = mp.playlistId,
@@ -48,28 +49,30 @@ class SyncedTrackRepository(
         }
     }
 
-    suspend fun getDownloadedIds(): Set<String> =
-        trackDao.getDownloadedTracks().let { flow ->
+    open suspend fun getDownloadedIds(): Set<String> =
+        trackDao?.getDownloadedTracks()?.let { flow ->
             flow.flowFirst().map { it.id }.toSet()
-        }
+        } ?: emptySet()
 
-    suspend fun count(): Int = trackDao.count()
+    open suspend fun count(): Int = trackDao?.count() ?: 0
 
-    fun getAllSynced(): Flow<List<CachedTrack>> = trackDao.getAllTracks()
+    open fun getAllSynced(): Flow<List<CachedTrack>> = trackDao?.getAllTracks() ?: kotlinx.coroutines.flow.emptyFlow()
 
-    fun getPagedTracks(): Flow<PagingData<CachedTrack>> = Pager(
-        config = PagingConfig(pageSize = 50, enablePlaceholders = false),
-        pagingSourceFactory = { trackDao.getAllTracksPagingSource() }
-    ).flow
+    open fun getPagedTracks(): Flow<PagingData<CachedTrack>> = trackDao?.let { td ->
+        Pager(
+            config = PagingConfig(pageSize = 50, enablePlaceholders = false),
+            pagingSourceFactory = { td.getAllTracksPagingSource() }
+        ).flow
+    } ?: kotlinx.coroutines.flow.emptyFlow()
 
-    suspend fun getById(id: String): CachedTrack? = trackDao.getTrackById(id)
+    open suspend fun getById(id: String): CachedTrack? = trackDao?.getTrackById(id)
 
-    suspend fun markDownloaded(id: String) {
-        trackDao.markDownloaded(id)
+    open suspend fun markDownloaded(id: String) {
+        trackDao?.markDownloaded(id)
     }
 
-    suspend fun markDownloadedWithPath(id: String, filepath: String) {
-        trackDao.markDownloadedWithPath(id, filepath)
+    open suspend fun markDownloadedWithPath(id: String, filepath: String) {
+        trackDao?.markDownloadedWithPath(id, filepath)
     }
 }
 

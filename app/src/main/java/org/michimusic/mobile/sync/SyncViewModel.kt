@@ -81,17 +81,21 @@ class SyncViewModel(
         combine(_error, _syncProgress) { err, progress -> err to progress }
     ) { state, (err, progress) ->
         state.copy(error = err, syncProgress = progress)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, SyncUiState())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, SyncUiState(state = linkSession.connectionState.value))
 
     private var clientId: String = ""
     private var pendingPairingId: String = ""
     private var currentClient: LinkClient? = null
 
     init {
-        clientId = "android_${android.provider.Settings.Secure.getString(
-            context.contentResolver,
-            android.provider.Settings.Secure.ANDROID_ID,
-        )?.takeLast(6) ?: "000000"}"
+        clientId = try {
+            "android_${android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID,
+            )?.takeLast(6) ?: "000000"}"
+        } catch (_: Exception) {
+            "android_000000"
+        }
     }
 
     fun startDiscovery() {
@@ -380,6 +384,7 @@ class SyncViewModel(
             WorkManager.getInstance(context)
                 .getWorkInfoByIdFlow(workRequest.id)
                 .collect { info ->
+                    if (info == null) return@collect
                     val progress = info.progress
                     val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
                     val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)

@@ -2,6 +2,7 @@ package org.michimusic.mobile.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -24,6 +25,7 @@ data class SearchResult(
 class SearchViewModel(
     private val localRepo: LocalMediaRepository,
     private val syncedRepo: SyncedTrackRepository,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -47,9 +49,9 @@ class SearchViewModel(
             _isSearching.value = true
             _error.value = null
             try {
-                val albums = withContext(Dispatchers.IO) { localRepo.loadAlbums() }
+                val albums = withContext(ioDispatcher) { localRepo.loadAlbums() }
                 localTracks = albums.flatMap { it.tracks }
-                syncedTracks = withContext(Dispatchers.IO) {
+                syncedTracks = withContext(ioDispatcher) {
                     syncedRepo.getAllSynced().first()
                 }
             } catch (e: Exception) {

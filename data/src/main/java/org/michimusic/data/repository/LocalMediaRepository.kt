@@ -16,9 +16,9 @@ import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.local.MediaQueryDispatcher
 import org.michimusic.data.local.ReplayGainReader
 
-class LocalMediaRepository(
-    private val context: Context,
-    private val replayGainDao: ReplayGainDao,
+open class LocalMediaRepository(
+    private val context: Context? = null,
+    private val replayGainDao: ReplayGainDao? = null,
 ) {
 
     companion object {
@@ -34,7 +34,7 @@ class LocalMediaRepository(
         val tracks: List<Track>,
     )
 
-    suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
+    open suspend fun loadArtists(): List<Pair<Artist, List<LocalAlbum>>> {
         val albums = loadAlbums()
         return albums.groupBy { it.album.artist }
             .map { (name, artistAlbums) ->
@@ -49,7 +49,7 @@ class LocalMediaRepository(
             .sortedBy { it.first.name }
     }
 
-    suspend fun loadAlbums(): List<LocalAlbum> {
+    open suspend fun loadAlbums(): List<LocalAlbum> {
         val tracks = loadTracks()
         val grouped = tracks.groupBy { it.album to it.artist }
         return grouped.map { (albumArtist, albumTracks) ->
@@ -60,7 +60,7 @@ class LocalMediaRepository(
                 album = Album(
                     id = "album_$albumId",
                     title = albumName.ifEmpty { "Unknown Album" },
-                    artist = artistName.ifEmpty { "Unknown Artist" },
+                    artist = artistName.ifEmpty { "Unknown" },
                     year = first.year,
                     trackCount = albumTracks.size,
                     coverId = first.coverId,
@@ -70,7 +70,7 @@ class LocalMediaRepository(
         }.sortedBy { it.album.title }
     }
 
-    suspend fun loadTracks(): List<Track> = cacheMutex.withLock {
+    open suspend fun loadTracks(): List<Track> = cacheMutex.withLock {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             if (cachedTracks != null && now - cacheTime < CACHE_TTL_MS) {
@@ -83,15 +83,16 @@ class LocalMediaRepository(
         }
     }
 
-    suspend fun invalidateCache() {
+    open suspend fun invalidateCache() {
         cacheMutex.withLock {
             cachedTracks = null
         }
     }
 
     private suspend fun queryTracks(): List<Track> {
+        val ctx = context ?: return emptyList()
         val cursor = MediaQueryDispatcher(
-            context.contentResolver,
+            ctx.contentResolver,
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
         )
             .withColumns(
@@ -156,7 +157,7 @@ class LocalMediaRepository(
             }
         }
 
-        val rgBatch = replayGainDao.getAllReplayGains()
+        val rgBatch = replayGainDao?.getAllReplayGains() ?: emptyList()
         val rgMap = rgBatch.associateBy { it.trackId }
 
         val rgUpdates = mutableListOf<ReplayGainEntity>()
@@ -171,17 +172,18 @@ class LocalMediaRepository(
             }
         }.also {
             if (rgUpdates.isNotEmpty()) {
-                replayGainDao.upsertAll(rgUpdates)
+                replayGainDao?.upsertAll(rgUpdates)
             }
         }
     }
 
-    suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {
+    open suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {
+        val ctx = context ?: return emptyList()
         val allTracks = loadTracks()
         val trackById = allTracks.associateBy { it.id }
 
         val cursor = MediaQueryDispatcher(
-            context.contentResolver,
+            ctx.contentResolver,
             MediaStore.Audio.Playlists.EXTERNAL_CONTENT_URI,
         )
             .withColumns(
@@ -202,7 +204,7 @@ class LocalMediaRepository(
                 val playlistName = c.getString(nameCol) ?: continue
 
                 val trackCursor = MediaQueryDispatcher(
-                    context.contentResolver,
+                    ctx.contentResolver,
                     MediaStore.Audio.Playlists.Members.getContentUri("external", playlistId.toLong()),
                 )
                     .withColumns(MediaStore.Audio.Playlists.Members.AUDIO_ID)

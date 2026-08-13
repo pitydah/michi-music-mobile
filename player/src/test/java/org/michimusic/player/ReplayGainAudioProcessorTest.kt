@@ -1,9 +1,12 @@
 package org.michimusic.player
 
+import androidx.media3.common.C
+import androidx.media3.common.audio.AudioProcessor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.pow
 
 class ReplayGainAudioProcessorTest {
@@ -29,8 +32,8 @@ class ReplayGainAudioProcessorTest {
         val p = processor()
         p.configure(ReplayGainMode.OFF, ReplayGainPreAmp())
         p.onSongChanged(track(trackGain = -8.5f))
-        val buffer = pToBuffer(p)
-        assertEquals(0, buffer.capacity()) // no samples processed = no output
+        val sample = processSingleSample(p, 10000.toShort())
+        assertEquals(10000.toShort(), sample)
     }
 
     @Test
@@ -61,7 +64,7 @@ class ReplayGainAudioProcessorTest {
         p.configure(ReplayGainMode.TRACK, ReplayGainPreAmp(with = 15f))
         p.onSongChanged(track(trackGain = 0f))
         val sample = processSingleSample(p, 30000.toShort())
-        assertEquals(Short.MAX_VALUE, sample.toInt())
+        assertEquals(Short.MAX_VALUE, sample)
     }
 
     @Test
@@ -99,14 +102,13 @@ class ReplayGainAudioProcessorTest {
     }
 
     private fun processSingleSample(p: ReplayGainAudioProcessor, input: Short): Short {
-        val buf = ByteBuffer.allocate(2).putShort(0, input)
-        buf.position(0)
+        p.configure(AudioProcessor.AudioFormat(44100, 1, C.ENCODING_PCM_16BIT))
+        p.flush()
+        val buf = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putShort(input)
+        buf.flip()
         p.queueInput(buf)
-        val out = p.getOutput()
-        return if (out != null && out.hasRemaining()) out.short else 0
-    }
-
-    private fun pToBuffer(p: ReplayGainAudioProcessor): ByteBuffer {
-        return p.getOutput() ?: ByteBuffer.allocate(0)
+        val out = p.output.order(ByteOrder.LITTLE_ENDIAN)
+        return if (out.hasRemaining()) out.getShort() else 0
     }
 }

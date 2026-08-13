@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Error
@@ -149,7 +150,7 @@ fun PeerCard(
             Icon(Icons.Default.Devices, contentDescription = null, tint = AccentCoral)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(peer.name, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
+                Text(peer.alias, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
                 Text("${peer.ip}:${peer.port}", style = MaterialTheme.typography.bodySmall, color = TextMuted)
             }
             Text("Emparejar", color = AccentCoral, style = MaterialTheme.typography.labelMedium)
@@ -168,7 +169,7 @@ fun PairingForm(
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth()) {
-                Text("Emparejar con ${peer?.name ?: "servidor"}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                Text("Emparejar con ${peer?.alias ?: "servidor"}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(value = username, onValueChange = { username = it }, label = { Text("Usuario") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
@@ -192,13 +193,13 @@ fun CodePairingForm(
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         GlassCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth()) {
-                Text("Emparejar con ${peer?.name ?: "servidor"}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                Text("Emparejar con ${peer?.alias ?: "servidor"}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
                 Spacer(Modifier.height(8.dp))
                 Text("Ingresa el código mostrado en el servidor", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(value = code, onValueChange = { code = it }, label = { Text("Código") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = { onPair(code) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = SurfaceDark)) { Text("Confirmar") }
+                Button(onClick = { onPair(code) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = SurfaceDark)) { Text("Emparejar") }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
             }
@@ -248,6 +249,11 @@ fun ConnectedState(
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(onClick = { onSync() }) { Text("Sincronizar de nuevo") }
                     }
+                    is SyncProgress.Error -> {
+                        Text(syncProgress.message, style = MaterialTheme.typography.bodyMedium, color = AccentPink)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = { onSync() }) { Text("Reintentar") }
+                    }
                 }
             }
         }
@@ -263,13 +269,13 @@ fun ConnectedState(
 private fun SyncProgressContent(progress: SyncProgress.Downloading) {
     Column(Modifier.fillMaxWidth()) {
         LinearProgressIndicator(
-            progress = { if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f },
+            progress = { if (progress.total > 0) progress.completed.toFloat() / progress.total else 0f },
             modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
             color = AccentCoral,
             trackColor = SurfaceElevated,
         )
         Spacer(Modifier.height(8.dp))
-        Text("${progress.downloaded} / ${progress.total}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        Text("${progress.completed} / ${progress.total}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
 }
 

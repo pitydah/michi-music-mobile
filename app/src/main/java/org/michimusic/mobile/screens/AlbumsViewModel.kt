@@ -2,6 +2,7 @@ package org.michimusic.mobile.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
 class AlbumsViewModel(
     private val repo: LocalMediaRepository,
     private val appDao: AppDao,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _albums = MutableStateFlow<List<LocalAlbum>>(emptyList())
@@ -41,10 +43,10 @@ class AlbumsViewModel(
             _isLoading.value = true
             _error.value = null
             try {
-                val result = withContext(Dispatchers.IO) { repo.loadAlbums() }
+                val result = withContext(ioDispatcher) { repo.loadAlbums() }
                 val tracks = result.flatMap { it.tracks }
                 val trackById = tracks.associateBy { it.id }
-                val smartLists = withContext(Dispatchers.IO) {
+                val smartLists = withContext(ioDispatcher) {
                     val top = appDao.getTopTracks(12).mapNotNull { trackById[it.trackId] }
                     val recent = appDao.getRecentHistory(20)
                         .mapNotNull { trackById[it.trackId] }

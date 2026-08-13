@@ -30,6 +30,13 @@ class EventClient(
     private val baseUrl: String,
     private val token: String,
     private val clientDeviceId: String = "",
+    private val client: HttpClient = HttpClient {
+        install(HttpTimeout) {
+            connectTimeoutMillis = 8_000
+            requestTimeoutMillis = Long.MAX_VALUE
+            socketTimeoutMillis = Long.MAX_VALUE
+        }
+    },
 ) {
     private val _events = MutableSharedFlow<ServerEvent>(replay = 1, extraBufferCapacity = 64)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
@@ -37,22 +44,17 @@ class EventClient(
     private var connectionJob: Job? = null
     private var reconnectJob: Job? = null
 
-    private val client = HttpClient {
-        install(HttpTimeout) {
-            connectTimeoutMillis = 8_000
-            requestTimeoutMillis = Long.MAX_VALUE
-            socketTimeoutMillis = Long.MAX_VALUE
-        }
-    }
-
     private val json = Json { ignoreUnknownKeys = true }
 
     fun connect(scope: CoroutineScope) {
         disconnect()
         reconnectJob = scope.launch {
             while (isActive) {
-                connectionJob = listen(scope)
-                connectionJob?.join()
+                try {
+                    connectionJob = listen(scope)
+                    connectionJob?.join()
+                } catch (_: Exception) {
+                }
                 delay(5_000L)
             }
         }
@@ -80,11 +82,11 @@ class EventClient(
                             try {
                                 val event = json.decodeFromString<ServerEvent>(data)
                                 _events.emit(event)
-                            } catch (_: Exception) { }
+                            } catch (_: Throwable) { }
                         }
                     }
                 }
             }
-        } catch (_: Exception) { }
+        } catch (_: Throwable) { }
     }
 }

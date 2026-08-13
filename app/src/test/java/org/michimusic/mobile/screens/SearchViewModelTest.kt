@@ -5,6 +5,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -15,7 +17,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.Album
+import org.michimusic.core.models.Artist
+import org.michimusic.core.models.ManifestPlaylist
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
@@ -23,22 +29,23 @@ import org.michimusic.data.repository.SyncedTrackRepository
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
-
+    private lateinit var testDispatcher: TestDispatcher
     private lateinit var localRepo: LocalMediaRepository
     private lateinit var syncedRepo: SyncedTrackRepository
     private lateinit var viewModel: SearchViewModel
 
     @Before
     fun setup() {
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         localRepo = FakeLocalMediaRepository()
         syncedRepo = FakeSyncedTrackRepository()
-        viewModel = SearchViewModel(localRepo, syncedRepo)
+        viewModel = SearchViewModel(localRepo, syncedRepo, testDispatcher)
     }
 
     @After
     fun tearDown() {
+        viewModel.clearSearch()
         Dispatchers.resetMain()
     }
 
@@ -55,11 +62,11 @@ class SearchViewModelTest {
     fun setQuery_matchesLocalTrackTitle() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
-        viewModel.setQuery("Song A")
+        viewModel.setQuery("Song 1")
         advanceUntilIdle()
         val results = viewModel.results.value
         assertTrue(results.isNotEmpty())
-        assertEquals("Song A", results.first().track.title)
+        assertEquals("Song 1", results.first().track.title)
         assertEquals("Local", results.first().source)
     }
 
@@ -117,7 +124,7 @@ class SearchViewModelTest {
     }
 }
 
-private class FakeLocalMediaRepository : LocalMediaRepository {
+private class FakeLocalMediaRepository : LocalMediaRepository() {
     override suspend fun loadAlbums(): List<LocalMediaRepository.LocalAlbum> {
         val tracks = (1..60).map { i ->
             Track(
@@ -144,10 +151,10 @@ private class FakeLocalMediaRepository : LocalMediaRepository {
     override suspend fun loadTracks(): List<Track> = loadAlbums().flatMap { it.tracks }
     override suspend fun loadArtists(): List<Pair<Artist, List<LocalMediaRepository.LocalAlbum>>> = emptyList()
     override suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> = emptyList()
-    override fun invalidateCache() {}
+    override suspend fun invalidateCache() {}
 }
 
-private class FakeSyncedTrackRepository : SyncedTrackRepository {
+private class FakeSyncedTrackRepository : SyncedTrackRepository() {
     private val cached = (1..40).map { i ->
         CachedTrack(
             id = "synced_$i",
@@ -168,10 +175,5 @@ private class FakeSyncedTrackRepository : SyncedTrackRepository {
     override suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {}
     override suspend fun getById(id: String): CachedTrack? = cached.find { it.id == id }
     override suspend fun markDownloaded(id: String) {}
-    override suspend fun markDownloadedWithPath(id: String, path: String) {}
+    override suspend fun markDownloadedWithPath(id: String, filepath: String) {}
 }
-
-private typealias Artist = org.michimusic.core.models.Artist
-private typealias Playlist = org.michimusic.core.models.Playlist
-private typealias TrackDto = org.michimusic.core.models.TrackDto
-private typealias ManifestPlaylist = org.michimusic.core.models.ManifestPlaylist

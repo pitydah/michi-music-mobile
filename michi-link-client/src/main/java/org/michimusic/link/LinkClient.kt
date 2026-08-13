@@ -22,6 +22,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.michimusic.link.dto.AlbumDetailDto
 import org.michimusic.link.dto.AlbumDto
 import org.michimusic.link.dto.ArtistDetailDto
@@ -99,6 +100,7 @@ class LinkClient private constructor(
     private val json = Json { ignoreUnknownKeys = true }
     private val ownsClient = httpClient == null
 
+    val httpClient: HttpClient get() = client
     private val client = httpClient ?: HttpClient {
         install(HttpTimeout) {
             connectTimeoutMillis = 8_000
@@ -110,7 +112,7 @@ class LinkClient private constructor(
         }
     }
 
-    internal companion object {
+    companion object {
         fun createForTest(
             baseUrl: String,
             sessionToken: String = "",
@@ -121,6 +123,10 @@ class LinkClient private constructor(
     }
 
     val isAuthenticated: Boolean get() = sessionToken.isNotEmpty() || deviceToken.isNotEmpty()
+
+    fun createEventClient(token: String = deviceToken.ifEmpty { sessionToken }): EventClient {
+        return EventClient(baseUrl, token, clientDeviceId, client)
+    }
 
     private fun authHeader(): String {
         return "Bearer ${deviceToken.ifEmpty { sessionToken }}"
@@ -163,14 +169,14 @@ class LinkClient private constructor(
         else -> null
     }
 
-    private suspend inline fun <reified T> httpPost(
+    private suspend inline fun <reified B : Any, reified T> httpPost(
         url: String,
-        body: Any,
+        body: B,
     ): Result<T> = withContext(Dispatchers.IO) {
         try {
             val response = client.post(url) {
                 contentType(ContentType.Application.Json)
-                header("Authorization", authHeader())
+                if (isAuthenticated) header("Authorization", authHeader())
                 if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
                 setBody(json.encodeToString(body))
             }

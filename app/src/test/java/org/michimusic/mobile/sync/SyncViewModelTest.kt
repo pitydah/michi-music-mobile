@@ -3,6 +3,7 @@ package org.michimusic.mobile.sync
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.mockk.MockKAnnotations
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.verify
@@ -19,11 +20,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
+import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.LinkDiscovery
 import org.michimusic.link.LinkSession
-import org.michimusic.link.dto.DiscoveredPeer as LinkPeer
 import org.michimusic.link.errors.LinkException
 import org.michimusic.link.dto.PairingStrategy
 
@@ -43,13 +44,16 @@ class SyncViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         MockKAnnotations.init(this)
-        context = ApplicationProvider.getApplicationContext()
+        context = io.mockk.mockk(relaxed = true)
 
         every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        coEvery { linkDiscovery.start() } returns Unit
+        coEvery { linkDiscovery.stop() } returns Unit
         every { linkSession.connectionState } returns MutableStateFlow(SyncConnectionState.DISCONNECTED)
         every { linkSession.connectedPeer } returns MutableStateFlow(null as org.michimusic.core.models.DiscoveredPeer?)
         every { linkSession.pairStartResponse } returns MutableStateFlow(null)
         every { linkSession.pairConfirmResponse } returns MutableStateFlow(null)
+        every { linkSession.updateState(any()) } returns Unit
 
         viewModel = SyncViewModel(context, linkDiscovery, linkSession, trackRepository)
     }

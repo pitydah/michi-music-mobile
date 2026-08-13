@@ -91,7 +91,7 @@ class LocalMediaRepositoryTest {
 private class TestableLocalMediaRepository(
     private val tracks: List<Track> = defaultTracks(),
 ) : LocalMediaRepository(
-    context = null!!,
+    context = null,
     replayGainDao = object : ReplayGainDao {
         override suspend fun getReplayGain(trackId: String) = null
         override suspend fun getAllReplayGains() = emptyList<ReplayGainEntity>()

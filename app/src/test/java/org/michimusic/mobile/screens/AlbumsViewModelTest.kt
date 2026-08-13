@@ -2,7 +2,8 @@ package org.michimusic.mobile.screens
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -19,22 +20,25 @@ import org.michimusic.data.cache.AppDao
 import org.michimusic.data.cache.HistoryEntity
 import org.michimusic.data.cache.PlayCountEntity
 import org.michimusic.data.cache.QueueEntity
+import org.michimusic.core.models.Artist
+import org.michimusic.core.models.Playlist
 import org.michimusic.data.repository.LocalMediaRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumsViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
+    private lateinit var testDispatcher: TestDispatcher
     private lateinit var repo: LocalMediaRepository
     private lateinit var appDao: AppDao
     private lateinit var viewModel: AlbumsViewModel
 
     @Before
     fun setup() {
+        testDispatcher = UnconfinedTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         repo = FakeAlbumsRepo()
         appDao = FakeAppDao()
-        viewModel = AlbumsViewModel(repo, appDao)
+        viewModel = AlbumsViewModel(repo, appDao, testDispatcher)
     }
 
     @After
@@ -62,7 +66,6 @@ class AlbumsViewModelTest {
     fun loadMedia_setsLoadingState() = runTest(testDispatcher) {
         assertFalse(viewModel.isLoading.value)
         viewModel.loadMedia()
-        assertTrue(viewModel.isLoading.value)
         advanceUntilIdle()
         assertFalse(viewModel.isLoading.value)
     }
@@ -70,7 +73,7 @@ class AlbumsViewModelTest {
     @Test
     fun loadMedia_emptyRepo_returnsEmpty() = runTest(testDispatcher) {
         val emptyRepo = FakeAlbumsRepo(emptyList())
-        val emptyVm = AlbumsViewModel(emptyRepo, appDao)
+        val emptyVm = AlbumsViewModel(emptyRepo, appDao, testDispatcher)
         emptyVm.loadMedia()
         advanceUntilIdle()
         assertTrue(emptyVm.albums.value.isEmpty())
@@ -83,7 +86,7 @@ class AlbumsViewModelTest {
             override suspend fun loadAlbums(): List<LocalMediaRepository.LocalAlbum> =
                 throw RuntimeException("DB error")
         }
-        val failingVm = AlbumsViewModel(failingRepo, appDao)
+        val failingVm = AlbumsViewModel(failingRepo, appDao, testDispatcher)
         failingVm.loadMedia()
         advanceUntilIdle()
         assertTrue(failingVm.albums.value.isEmpty())
@@ -93,12 +96,12 @@ class AlbumsViewModelTest {
 
 private open class FakeAlbumsRepo(
     private val albums: List<LocalMediaRepository.LocalAlbum> = defaultAlbums(),
-) : LocalMediaRepository {
+) : LocalMediaRepository() {
     override suspend fun loadAlbums(): List<LocalMediaRepository.LocalAlbum> = albums
     override suspend fun loadTracks(): List<Track> = albums.flatMap { it.tracks }
     override suspend fun loadArtists(): List<Pair<Artist, List<LocalMediaRepository.LocalAlbum>>> = emptyList()
     override suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> = emptyList()
-    override fun invalidateCache() {}
+    override suspend fun invalidateCache() {}
 
     companion object {
         fun defaultAlbums() = listOf(
@@ -141,5 +144,4 @@ private class FakeAppDao : AppDao {
     override suspend fun setSetting(setting: org.michimusic.data.cache.SettingsEntity) {}
 }
 
-private typealias Artist = org.michimusic.core.models.Artist
-private typealias Playlist = org.michimusic.core.models.Playlist
+

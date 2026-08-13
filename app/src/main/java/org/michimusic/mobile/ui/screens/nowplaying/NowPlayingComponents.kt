@@ -42,18 +42,23 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,7 +66,6 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
-import coil3.request.size
 import kotlin.math.sin
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
@@ -92,11 +96,7 @@ fun PlayerBackdrop(coverId: String?, accent: Color) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (coverId != null && coverId.isNotEmpty()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(coverId)
-                    .size(480)
-                    .crossfade(true)
-                    .build(),
+                model = coverId,
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
@@ -331,7 +331,7 @@ fun TrackInfo(title: String, artist: String, album: String) {
             textAlign = TextAlign.Center,
             maxLines = 1,
             modifier = Modifier
-                .basicMarquee(iterations = 30, delayMillis = 2000)
+                .basicMarquee(iterations = 30, initialDelayMillis = 2000)
                 .fillMaxWidth(),
         )
         Spacer(Modifier.height(4.dp))
@@ -449,8 +449,8 @@ fun MichiSlider(
                 Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
                     val barTop = (size.height - barHeightPx) / 2f
                     val activeW = size.width * active.coerceIn(0f, 1f)
-                    drawRoundRect(Color.White.copy(alpha = 0.14f), Offset(0f, barTop), Size(size.width, barHeightPx), 3f, 3f)
-                    drawRoundRect(accent, Offset(0f, barTop), Size(activeW, barHeightPx), 3f, 3f)
+                    drawRoundRect(Color.White.copy(alpha = 0.14f), Offset(0f, barTop), Size(size.width, barHeightPx), CornerRadius(3f, 3f))
+                    drawRoundRect(accent, Offset(0f, barTop), Size(activeW, barHeightPx), CornerRadius(3f, 3f))
                 }
             },
         )

@@ -9,10 +9,6 @@ import org.michimusic.core.models.Track
 class ReplayGainAudioProcessor : BaseAudioProcessor() {
 
     private var volume = 1f
-        set(value) {
-            field = value
-            flush()
-        }
 
     private var mode: ReplayGainMode = ReplayGainMode.OFF
     private var preAmp: ReplayGainPreAmp = ReplayGainPreAmp()

@@ -74,6 +74,15 @@ data class ManifestTrackDto(
         coverId = coverId,
         year = year,
     )
+
+    fun toDownloadItem() = org.michimusic.core.models.DownloadItem(
+        trackId = trackId,
+        title = title,
+        format = format,
+        checksum = checksum ?: "",
+        size = size,
+        downloadPath = downloadPath,
+    )
 }
 
 @Serializable

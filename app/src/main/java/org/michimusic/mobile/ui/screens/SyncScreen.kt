@@ -107,7 +107,7 @@ fun SyncScreen(
 
                 SyncConnectionState.PAIRED, SyncConnectionState.CONNECTED -> {
                     ConnectedState(
-                        name = uiState.sourceName,
+                        name = uiState.connectedPeer?.alias ?: "Servidor",
                         syncProgress = uiState.syncProgress,
                         onSync = { viewModel.syncLibrary() },
                         onDisconnect = { viewModel.disconnect() },
@@ -132,7 +132,7 @@ fun SyncScreen(
                 SyncConnectionState.ERROR -> {
                     ErrorState(
                         message = uiState.error ?: "Error desconocido",
-                        onRetry = { viewModel.retry() },
+                        onRetry = { viewModel.startDiscovery() },
                     )
                 }
             }
@@ -146,12 +146,13 @@ fun SyncScreen(
                         .padding(16.dp),
                     containerColor = AccentCoral,
                     shape = RoundedCornerShape(12.dp),
+                    action = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text("OK", color = SurfaceDark)
+                        }
+                    },
                 ) {
                     Text(msg, color = SurfaceDark)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { viewModel.clearError() }) {
-                        Text("OK", color = SurfaceDark)
-                    }
                 }
             }
         }

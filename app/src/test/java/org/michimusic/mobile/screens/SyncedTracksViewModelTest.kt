@@ -1,7 +1,9 @@
 package org.michimusic.mobile.screens
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -20,12 +22,13 @@ import org.michimusic.data.repository.SyncedTrackRepository
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncedTracksViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
+    private lateinit var testDispatcher: TestDispatcher
     private lateinit var repository: SyncedTrackRepository
     private lateinit var viewModel: SyncedTracksViewModel
 
     @Before
     fun setup() {
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         repository = FakeSyncedRepo()
         viewModel = SyncedTracksViewModel(repository)
@@ -62,7 +65,7 @@ class SyncedTracksViewModelTest {
     }
 }
 
-private class FakeSyncedRepo : SyncedTrackRepository {
+private class FakeSyncedRepo : SyncedTrackRepository() {
     private val items = listOf(
         CachedTrack(id = "s1", title = "Song 1", artist = "A", album = "X",
             duration = 100_000L, filepath = "/mnt/s1.mp3", downloaded = true),
@@ -75,12 +78,12 @@ private class FakeSyncedRepo : SyncedTrackRepository {
     )
 
     override fun getAllSynced() = flowOf(items)
-    override fun getPagedTracks() = flowOf(androidx.paging.PagingData.empty())
+    override fun getPagedTracks() = flowOf(androidx.paging.PagingData.empty<CachedTrack>())
     override suspend fun getDownloadedIds() = items.filter { it.downloaded }.map { it.id }.toSet()
     override suspend fun count() = items.size
     override suspend fun saveLibrary(tracks: List<TrackDto>) {}
     override suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {}
     override suspend fun getById(id: String) = items.find { it.id == id }
     override suspend fun markDownloaded(id: String) {}
-    override suspend fun markDownloadedWithPath(id: String, path: String) {}
+    override suspend fun markDownloadedWithPath(id: String, filepath: String) {}
 }

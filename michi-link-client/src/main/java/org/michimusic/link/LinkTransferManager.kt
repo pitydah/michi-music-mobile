@@ -5,15 +5,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import org.michimusic.core.models.DownloadItem
 import java.io.File
 import java.io.FileInputStream
@@ -130,7 +129,7 @@ class LinkTransferManager(
 
     fun clearDownloads() {
         musicDir.listFiles()?.forEach { it.delete() }
-        _downloads.value = emptyMap()
+        _downloads.value = emptyMap<String, DownloadProgress>()
     }
 
     private fun verifyChecksum(file: File, expected: String): Boolean {

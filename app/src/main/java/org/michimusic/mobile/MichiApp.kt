@@ -5,13 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.util.Log
 import coil3.ImageLoader
-import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
+import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import org.michimusic.data.dataModule
 import org.michimusic.mobile.di.appDao as michiAppDao
 import org.michimusic.mobile.di.replayGainDao as michiReplayGainDao
 import org.michimusic.mobile.sync.SyncWorker
@@ -22,7 +23,7 @@ class MichiApp : Application() {
         super.onCreate()
         startKoin {
             androidContext(this@MichiApp)
-            modules(appModule)
+            modules(appModule, dataModule, playerModule, remoteModule, syncModule)
         }
         try {
             PlayerDependencies.replayGainDao = michiReplayGainDao
@@ -38,18 +39,18 @@ class MichiApp : Application() {
         val imageLoader = ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(this, 0.25)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("coil"))
+                    .directory(cacheDir.resolve("coil").toOkioPath())
                     .maxSizeBytes(50L * 1024 * 1024)
                     .build()
             }
             .crossfade(true)
             .build()
-        SingletonImageLoader.setSafe(this) { imageLoader }
+        SingletonImageLoader.setSafe { imageLoader }
     }
 
     private fun createNotificationChannels() {

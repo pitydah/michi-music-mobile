@@ -11,9 +11,10 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
@@ -32,13 +33,13 @@ import org.michimusic.link.dto.PlaybackStateDto
 @OptIn(ExperimentalCoroutinesApi::class)
 class RemoteViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
-
+    private lateinit var testDispatcher: TestDispatcher
     private lateinit var session: LinkSession
     private lateinit var viewModel: RemoteViewModel
 
     @Before
     fun setup() {
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         session = LinkSession()
         val json = Json { ignoreUnknownKeys = true }
@@ -63,12 +64,12 @@ class RemoteViewModelTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         viewModel.disconnect()
+        Dispatchers.resetMain()
     }
 
     @Test
-    fun initialState_isDisconnected() {
+    fun initialState_isDisconnected() = runTest(testDispatcher) {
         val state = viewModel.uiState.value
         assertEquals(RemoteConnectionState.DISCONNECTED, state.connState)
         assertFalse(state.connected)
@@ -76,8 +77,9 @@ class RemoteViewModelTest {
     }
 
     @Test
-    fun connect_setsConnectedState() {
+    fun connect_setsConnectedState() = runTest(testDispatcher) {
         viewModel.connectIfNeeded()
+        runCurrent()
         val state = viewModel.uiState.value
         assertTrue(state.connected)
         assertEquals(RemoteConnectionState.CONNECTED, state.connState)
@@ -85,9 +87,11 @@ class RemoteViewModelTest {
     }
 
     @Test
-    fun disconnect_resetsToInitial() {
+    fun disconnect_resetsToInitial() = runTest(testDispatcher) {
         viewModel.connectIfNeeded()
+        runCurrent()
         viewModel.disconnect()
+        runCurrent()
         val state = viewModel.uiState.value
         assertFalse(state.connected)
         assertEquals(RemoteConnectionState.DISCONNECTED, state.connState)
@@ -96,26 +100,27 @@ class RemoteViewModelTest {
     @Test
     fun setVolume_updatesLocally() = runTest(testDispatcher) {
         viewModel.connectIfNeeded()
-        advanceUntilIdle()
+        runCurrent()
         viewModel.setVolume(75)
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(75, viewModel.uiState.value.playerState.volume)
     }
 
     @Test
     fun setVolume_clampsTo100() = runTest(testDispatcher) {
         viewModel.connectIfNeeded()
-        advanceUntilIdle()
+        runCurrent()
         viewModel.setVolume(150)
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(100, viewModel.uiState.value.playerState.volume)
     }
 
     @Test
     fun queueJump_callsClient() = runTest(testDispatcher) {
         viewModel.connectIfNeeded()
-        advanceUntilIdle()
+        runCurrent()
         viewModel.queueJump(3)
-        advanceUntilIdle()
+        runCurrent()
+        assertTrue(viewModel.uiState.value.connected)
     }
 }

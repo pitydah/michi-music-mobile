@@ -53,6 +53,7 @@ class RemoteViewModel(
     private var eventClient: EventClient? = null
     private var pollingJob: Job? = null
     private var eventJob: Job? = null
+    private var refreshJob: Job? = null
 
     fun connectIfNeeded() {
         if (_uiState.value.connected) return
@@ -68,7 +69,7 @@ class RemoteViewModel(
             sourceName = peer.alias,
         )
 
-        eventClient = EventClient(linkClient.baseUrl, token, linkClient.clientDeviceId).also { ec ->
+        eventClient = linkClient.createEventClient(token).also { ec ->
             eventJob = viewModelScope.launch {
                 ec.events.collect { event ->
                     when (event.type) {
@@ -80,11 +81,14 @@ class RemoteViewModel(
             ec.connect(viewModelScope)
         }
 
-        refreshState()
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch { refreshState() }
         startPollingFallback(linkClient)
     }
 
     fun disconnect() {
+        refreshJob?.cancel()
+        refreshJob = null
         eventClient?.disconnect()
         eventClient = null
         eventJob?.cancel()

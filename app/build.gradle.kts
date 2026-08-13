@@ -93,13 +93,14 @@ android {
         compose = true
     }
 
-    androidComponents {
-        onVariants { variant ->
-            if (variant.buildType == "release" || variant.flavorName == "fdroid") {
-                variant.isReproducibleBuild = true
-            }
-        }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
+}
+
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
 }
 
 dependencies {
@@ -148,5 +149,8 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.room.testing)
     testImplementation(libs.mockk)
+    testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.ktor.serialization.kotlinx.json)
     testImplementation("androidx.test:core:1.6.1")
 }

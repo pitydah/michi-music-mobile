@@ -1,40 +1,34 @@
 package org.michimusic.data.repository
 
-import android.content.Context
-import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.test.core.app.ApplicationProvider
+import androidx.paging.PagingSource
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runTest
-import org.junit.After
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.michimusic.core.models.TrackDto
 import org.michimusic.core.models.ManifestPlaylist
-import org.michimusic.data.cache.MichiDatabase
+import org.michimusic.core.models.TrackDto
+import org.michimusic.data.cache.CachedPlaylist
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.PlaylistDao
+import org.michimusic.data.cache.TrackDao
 
 class SyncedTrackRepositoryTest {
 
-    private lateinit var db: MichiDatabase
+    private lateinit var trackDao: FakeTrackDao
+    private lateinit var playlistDao: FakePlaylistDao
     private lateinit var repository: SyncedTrackRepository
 
     @Before
     fun setup() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, MichiDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        repository = SyncedTrackRepository(db.trackDao(), db.playlistDao())
-    }
-
-    @After
-    fun tearDown() {
-        db.close()
+        trackDao = FakeTrackDao()
+        playlistDao = FakePlaylistDao()
+        repository = SyncedTrackRepository(trackDao, playlistDao)
     }
 
     @Test
@@ -64,7 +58,7 @@ class SyncedTrackRepositoryTest {
     fun saveLibrary_preservesDownloadedStatus() = runTest {
         val tracks = listOf(TrackDto(id = "t1", title = "Song", artist = "A", album = "X"))
         repository.saveLibrary(tracks)
-        db.trackDao().markDownloadedWithPath("t1", "/music/song.mp3")
+        trackDao.markDownloadedWithPath("t1", "/music/song.mp3")
 
         repository.saveLibrary(tracks)
         val track = repository.getById("t1")
@@ -95,7 +89,7 @@ class SyncedTrackRepositoryTest {
             TrackDto(id = "t1", title = "Song", artist = "A", album = "X"),
         )
         repository.saveLibrary(existing)
-        db.trackDao().markDownloaded("t1")
+        trackDao.markDownloaded("t1")
 
         repository.saveLibrary(emptyList())
         val all = repository.getAllSynced().first()
@@ -110,7 +104,7 @@ class SyncedTrackRepositoryTest {
             TrackDto(id = "t2", title = "Song 2", artist = "B", album = "Y"),
         )
         repository.saveLibrary(tracks)
-        db.trackDao().markDownloaded("t1")
+        trackDao.markDownloaded("t1")
 
         val downloaded = repository.getDownloadedIds()
         assertEquals(setOf("t1"), downloaded)
@@ -122,8 +116,82 @@ class SyncedTrackRepositoryTest {
             ManifestPlaylist(playlistId = "pl1", name = "Favorites", trackIds = listOf("t1", "t2")),
         )
         repository.saveManifestPlaylists(playlists)
-        val all = db.playlistDao().getAll()
+        val all = playlistDao.getAllPlaylists()
         assertEquals(1, all.size)
         assertEquals("Favorites", all.first().name)
+    }
+}
+
+private class FakeTrackDao : TrackDao {
+    private val tracks = MutableStateFlow<Map<String, CachedTrack>>(emptyMap())
+
+    override fun getAllTracks(): Flow<List<CachedTrack>> =
+        tracks.map { it.values.toList().sortedBy { t -> t.title } }
+
+    override fun getAllTracksPagingSource(): PagingSource<Int, CachedTrack> =
+        throw UnsupportedOperationException()
+
+    override suspend fun getTrackById(id: String): CachedTrack? =
+        tracks.value[id]
+
+    override fun getDownloadedTracks(): Flow<List<CachedTrack>> =
+        tracks.map { it.values.filter { t -> t.downloaded } }
+
+    override suspend fun insertAll(items: List<CachedTrack>) {
+        val updated = tracks.value.toMutableMap()
+        items.forEach { updated[it.id] = it }
+        tracks.value = updated
+    }
+
+    override suspend fun insert(track: CachedTrack) {
+        val updated = tracks.value.toMutableMap()
+        updated[track.id] = track
+        tracks.value = updated
+    }
+
+    override suspend fun delete(track: CachedTrack) {
+        val updated = tracks.value.toMutableMap()
+        updated.remove(track.id)
+        tracks.value = updated
+    }
+
+    override suspend fun deleteAll() {
+        tracks.value = emptyMap()
+    }
+
+    override suspend fun count(): Int = tracks.value.size
+
+    override suspend fun getUndownloaded(): List<CachedTrack> =
+        tracks.value.values.filter { !it.downloaded }
+
+    override suspend fun markDownloaded(id: String) {
+        tracks.value[id]?.let {
+            val updated = tracks.value.toMutableMap()
+            updated[id] = it.copy(downloaded = true)
+            tracks.value = updated
+        }
+    }
+
+    override suspend fun markDownloadedWithPath(id: String, filepath: String) {
+        tracks.value[id]?.let {
+            val updated = tracks.value.toMutableMap()
+            updated[id] = it.copy(downloaded = true, filepath = filepath)
+            tracks.value = updated
+        }
+    }
+}
+
+private class FakePlaylistDao : PlaylistDao {
+    private val playlists = mutableListOf<CachedPlaylist>()
+
+    override suspend fun getAllPlaylists(): List<CachedPlaylist> =
+        playlists.toList().sortedBy { it.name }
+
+    override suspend fun insertAll(items: List<CachedPlaylist>) {
+        playlists.addAll(items)
+    }
+
+    override suspend fun deleteAll() {
+        playlists.clear()
     }
 }

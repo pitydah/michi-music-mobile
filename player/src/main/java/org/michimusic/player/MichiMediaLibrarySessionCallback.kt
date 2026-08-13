@@ -85,7 +85,6 @@ class MichiMediaLibrarySessionCallback(
     override fun onPlaybackResumption(
         session: MediaSession,
         controller: MediaSession.ControllerInfo,
-        isForPlayback: Boolean,
     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
         val saved = stateStore.restore()
         if (saved.mediaIds.isEmpty()) {

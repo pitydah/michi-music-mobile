@@ -2,6 +2,7 @@ package org.michimusic.mobile.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,7 @@ data class PlaylistItem(
 
 class PlaylistsViewModel(
     private val repo: PlaylistRepository,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _playlists = MutableStateFlow<List<PlaylistItem>>(emptyList())
@@ -30,7 +32,7 @@ class PlaylistsViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val items = withContext(Dispatchers.IO) { repo.getAllPlaylists() }
+                val items = withContext(ioDispatcher) { repo.getAllPlaylists() }
                 _playlists.value = items.map {
                     PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount)
                 }

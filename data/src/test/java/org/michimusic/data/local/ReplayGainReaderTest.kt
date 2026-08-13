@@ -9,6 +9,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class ReplayGainReaderTest {
 
@@ -147,16 +148,16 @@ class ReplayGainReaderTest {
         val comments = ByteArrayOutputStream()
         for ((key, value) in entries) {
             val entry = "$key=$value".toByteArray(Charsets.UTF_8)
-            comments.write(ByteBuffer.allocate(4).putInt(entry.size).array())
+            comments.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(entry.size).array())
             comments.write(entry)
         }
 
         val commentsBytes = comments.toByteArray()
         val vendorString = "reference libFLAC".toByteArray(Charsets.UTF_8)
         val blockBody = ByteArrayOutputStream()
-        blockBody.write(ByteBuffer.allocate(4).putInt(vendorString.size).array())
+        blockBody.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(vendorString.size).array())
         blockBody.write(vendorString)
-        blockBody.write(ByteBuffer.allocate(4).putInt(entries.size).array())
+        blockBody.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(entries.size).array())
         blockBody.write(commentsBytes)
 
         val body = blockBody.toByteArray()
@@ -172,5 +173,5 @@ class ReplayGainReaderTest {
 }
 
 private class ByteArrayOutputStream : java.io.ByteArrayOutputStream() {
-    fun write(b: ByteArray) = write(b, 0, b.size)
+    override fun write(b: ByteArray) = write(b, 0, b.size)
 }

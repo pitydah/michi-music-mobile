@@ -122,8 +122,7 @@ fun MichiNavHost() {
                 composable("library") { AlbumsScreen() }
                 composable("nowplaying") {
                     NowPlayingScreen(
-                        onNavigateToSettings = { navController.navigate("settings") },
-                        onNavigateToAudioRoute = { navController.navigate("audio-route") },
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 composable("playlist") { PlaylistScreen() }

@@ -30,8 +30,14 @@ object ReplayGainReader {
 
                 val headerStr = String(header, Charsets.ISO_8859_1)
                 when {
-                    headerStr.startsWith(ID3_HEADER) -> readId3v2(raf)
-                    headerStr.startsWith(FLAC_HEADER) -> readFlac(raf)
+                    headerStr.startsWith(ID3_HEADER) -> {
+                        raf.seek(3)
+                        readId3v2(raf)
+                    }
+                    headerStr.startsWith(FLAC_HEADER) -> {
+                        raf.seek(4)
+                        readFlac(raf)
+                    }
                     else -> ReplayGainData()
                 }
             }
@@ -95,8 +101,9 @@ object ReplayGainReader {
         var albumGain = Float.NaN
 
         while (true) {
-            val isLast = (raf.readByte().toInt() and 0x80) != 0
-            val blockType = raf.readByte().toInt() and 0x7F
+            val headerByte = raf.readByte().toInt() and 0xFF
+            val isLast = (headerByte and 0x80) != 0
+            val blockType = headerByte and 0x7F
             val blockSize = readBigEndianInt24(raf)
 
             if (blockType == 4) {

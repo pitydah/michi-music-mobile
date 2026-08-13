@@ -119,7 +119,7 @@ class SyncWorker(
 
             val itemsToDownload = manifestTracks
                 .filter { it.trackId !in downloadedIds }
-                .map { DownloadItem.fromManifest(it) }
+                .map { it.toDownloadItem() }
 
             val total = itemsToDownload.size
             if (total == 0) {
