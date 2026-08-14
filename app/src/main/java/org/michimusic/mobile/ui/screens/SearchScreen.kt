@@ -1,8 +1,10 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,39 +17,60 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.SearchResult
 import org.michimusic.mobile.screens.SearchViewModel
-import org.michimusic.mobile.ui.components.PremiumScreen
-import org.michimusic.mobile.ui.components.TrackArtwork
-import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.SurfaceBorder
-import org.michimusic.mobile.ui.theme.TextDim
+import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.EqualizerWaveBars
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.formatTimeMillis
+import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.GlassFillHigh
+import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.PrimaryPink
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SecondaryPurple
+import org.michimusic.mobile.ui.theme.SurfaceDark
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
+import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -61,201 +84,260 @@ fun SearchScreen(
     val results by viewModel.results.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val audioController: AudioController = koinInject()
+    val playerState by audioController.state.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadLocalTracks()
     }
 
-    PremiumScreen {
+    val quickFilters = listOf("Todo", "Lossless / FLAC", "Artistas", "Álbumes", "Descargados")
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SurfaceObsidian)
+            .drawBehind {
+                drawCircle(
+                    color = PrimaryPinkContainer.copy(alpha = 0.08f),
+                    radius = size.width * 0.7f,
+                    center = androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.1f),
+                )
+                drawCircle(
+                    color = TertiaryCyan.copy(alpha = 0.06f),
+                    radius = size.width * 0.6f,
+                    center = androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.85f),
+                )
+            },
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 20.dp),
         ) {
+            Spacer(Modifier.height(24.dp))
+
+            // Header
+            Text(
+                text = "EXPLORADOR",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = TertiaryCyan,
+                letterSpacing = 2.sp,
+            )
+            Text(
+                text = "Búsqueda Sónica",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = PureWhite,
+                    letterSpacing = (-0.5).sp,
+                ),
+            )
+
             Spacer(Modifier.height(16.dp))
 
-            Text(
-                text = "Buscar",
-                style = MaterialTheme.typography.headlineMedium,
-                color = TextPrimary,
-            )
-            Text(
-                text = "Encuentra música local y sincronizada",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
-            )
+            // Luminous Search Box
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GlassFillHigh)
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.horizontalGradient(
+                            colors = if (query.isNotEmpty()) listOf(TertiaryCyan, PrimaryPink) else listOf(GlassBorderHigh, GlassBorderLow),
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Buscar",
+                        tint = if (query.isNotEmpty()) TertiaryCyan else TextMuted,
+                        modifier = Modifier.size(20.dp),
+                    )
 
-        Spacer(Modifier.height(12.dp))
+                    BasicTextField(
+                        value = query,
+                        onValueChange = viewModel::setQuery,
+                        modifier = Modifier.weight(1f),
+                        textStyle = TextStyle(
+                            color = PureWhite,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        cursorBrush = SolidColor(TertiaryCyan),
+                        singleLine = true,
+                        decorationBox = { innerTextField ->
+                            if (query.isEmpty()) {
+                                Text(
+                                    text = "Canciones, artistas, álbumes...",
+                                    color = TextMuted,
+                                    fontSize = 14.sp,
+                                )
+                            }
+                            innerTextField()
+                        },
+                    )
 
-        OutlinedTextField(
-            value = query,
-            onValueChange = viewModel::setQuery,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Canciones, artistas, álbumes...", color = TextMuted) },
-            leadingIcon = {
-                Icon(Icons.Rounded.Search, contentDescription = null, tint = AccentCoral)
-            },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = viewModel::clearSearch) {
-                        Icon(Icons.Rounded.Clear, contentDescription = "Limpiar", tint = TextSecondary)
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AccentCoral,
-                unfocusedBorderColor = SurfaceElevated.copy(alpha = 0.72f),
-                focusedContainerColor = SurfaceElevated.copy(alpha = 0.42f),
-                unfocusedContainerColor = SurfaceElevated.copy(alpha = 0.42f),
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = AccentCoral,
-            ),
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        when {
-            isSearching -> LoadingState()
-            query.length >= 2 && results.isEmpty() -> EmptySearchState("Sin resultados")
-            results.isNotEmpty() -> {
-                SearchSummary(
-                    total = results.size,
-                    local = results.count { it.source == "Local" },
-                    synced = results.count { it.source == "Sincronizada" },
-                )
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(results, key = { it.track.id }) { result ->
-                        SearchResultRow(
-                            result = result,
-                            onPlay = {
-                                val allTracks = results.map { it.track }
-                                val idx = allTracks.indexOfFirst { it.id == result.track.id }
-                                if (idx >= 0) {
-                                    audioController.playQueue(allTracks, idx)
-                                }
-                            },
+                    if (query.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = "Limpiar",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clickable { viewModel.clearSearch() },
                         )
                     }
                 }
             }
-            else -> EmptySearchState("Busca en tu biblioteca local y sincronizada", large = true)
+
+            Spacer(Modifier.height(14.dp))
+
+            // Quick Filter Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(quickFilters) { filter ->
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(GlassFillLow)
+                            .border(1.dp, GlassBorderLow, RoundedCornerShape(10.dp))
+                            .clickable {
+                                if (filter != "Todo") viewModel.setQuery(filter) else viewModel.clearSearch()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = filter,
+                            fontSize = 12.sp,
+                            color = TextSecondary,
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Results State
+            if (isSearching) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = TertiaryCyan,
+                        strokeWidth = 2.5.dp,
+                    )
+                }
+            } else if (results.isEmpty() && query.isNotEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(48.dp),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "No se encontraron coincidencias",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextSecondary,
+                        )
+                        Text(
+                            text = "Prueba buscando por título, álbum o artista",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMuted,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(results) { item ->
+                        val isPlayingThis = playerState.currentTrack?.id == item.track.id
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            backgroundColor = if (isPlayingThis) TertiaryCyan.copy(alpha = 0.08f) else GlassFillLow,
+                            borderColor = if (isPlayingThis) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
+                            accent = if (isPlayingThis) TertiaryCyan else null,
+                            onClick = {
+                                val allTracks = results.map { it.track }
+                                val idx = allTracks.indexOfFirst { it.id == item.track.id }.coerceAtLeast(0)
+                                audioController.playQueue(allTracks, idx)
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                // Thumbnail
+                                AlbumArtView(
+                                    coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(item.track.title),
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(RoundedCornerShape(10.dp)),
+                                )
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = item.track.title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isPlayingThis) TertiaryCyan else PureWhite,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = "${item.track.artist} • ${item.track.album}",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+
+                                if (isPlayingThis && playerState.isPlaying) {
+                                    EqualizerWaveBars(
+                                        isPlaying = true,
+                                        barCount = 3,
+                                        color = TertiaryCyan,
+                                    )
+                                } else {
+                                    Text(
+                                        text = formatTimeMillis(item.track.duration),
+                                        fontSize = 11.sp,
+                                        color = TextMuted,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(Modifier.height(100.dp))
+                    }
+                }
+            }
         }
-        }
-    }
-}
-
-@Composable
-private fun LoadingState() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        CircularProgressIndicator(color = AccentCoral)
-    }
-}
-
-@Composable
-private fun EmptySearchState(
-    text: String,
-    large: Boolean = false,
-) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Rounded.Search,
-                contentDescription = null,
-                modifier = Modifier.size(if (large) 64.dp else 48.dp),
-                tint = TextDim,
-            )
-            Spacer(Modifier.height(if (large) 16.dp else 12.dp))
-            Text(
-                text,
-                style = if (large) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
-                color = if (large) TextMuted else TextDim,
-            )
-        }
-    }
-}
-
-@Composable
-private fun SearchSummary(
-    total: Int,
-    local: Int,
-    synced: Int,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        SearchChip(text = "$total resultados", highlighted = true)
-        SearchChip(text = "$local local")
-        SearchChip(text = "$synced sync")
-    }
-}
-
-@Composable
-private fun SearchChip(
-    text: String,
-    highlighted: Boolean = false,
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = if (highlighted) AccentCoral.copy(alpha = 0.18f) else SurfaceElevated.copy(alpha = 0.58f),
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (highlighted) AccentCoral else TextMuted,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        )
-    }
-}
-
-@Composable
-private fun SearchResultRow(
-    result: SearchResult,
-    onPlay: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = 0.055f))
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp))
-            .clickable(onClick = onPlay)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        TrackArtwork(coverId = result.track.coverId, size = 42.dp)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = result.track.title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${result.track.artist} · ${result.track.album}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Spacer(Modifier.width(4.dp))
-        Text(
-            text = result.source,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (result.source == "Sincronizada") AccentCoral else TextDim,
-        )
     }
 }
