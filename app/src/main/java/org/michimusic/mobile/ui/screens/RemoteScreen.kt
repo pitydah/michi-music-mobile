@@ -23,14 +23,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.WifiTethering
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
@@ -40,7 +43,9 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,6 +88,8 @@ fun RemoteScreen(
 ) {
     val viewModel: RemoteViewModel = koinViewModel()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val audioController: org.michimusic.player.AudioController? = runCatching { org.koin.compose.koinInject<org.michimusic.player.AudioController>() }.getOrNull()
+    var handoffMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.connectIfNeeded()
@@ -364,7 +371,7 @@ fun RemoteScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Icon(Icons.Filled.VolumeDown, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
+                                Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
                                 Slider(
                                     value = playerState.effectiveVolume.toFloat(),
                                     onValueChange = { viewModel.setVolume(it.toInt()) },
@@ -376,8 +383,52 @@ fun RemoteScreen(
                                         inactiveTrackColor = GlassFillHigh,
                                     ),
                                 )
-                                Icon(Icons.Filled.VolumeUp, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
+                                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
                             }
+                        }
+                    }
+
+                    // Handoff to This Phone
+                    item {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                audioController?.let { ctrl ->
+                                    viewModel.handoffToLocal(ctrl) { _, msg ->
+                                        handoffMessage = msg
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            ) {
+                                Icon(Icons.Filled.PhoneAndroid, contentDescription = null, tint = PureWhite, modifier = Modifier.size(20.dp))
+                                Text(
+                                    text = "Continuar en este teléfono (Handoff)",
+                                    color = PureWhite,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                )
+                            }
+                        }
+
+                        if (handoffMessage != null) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = handoffMessage ?: "",
+                                color = TertiaryCyan,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
                         }
                     }
 

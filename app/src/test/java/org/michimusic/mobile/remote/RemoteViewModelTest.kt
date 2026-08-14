@@ -126,4 +126,20 @@ class RemoteViewModelTest {
         runCurrent()
         assertTrue(viewModel.uiState.value.connected)
     }
+
+    @Test
+    fun handoffToLocal_emptyTracks_returnsMessage() = runTest(testDispatcher) {
+        val audioController = io.mockk.mockk<org.michimusic.player.AudioController>(relaxed = true)
+        viewModel.connectIfNeeded()
+        runCurrent()
+        var resultSuccess = false
+        var resultMsg = ""
+        viewModel.handoffToLocal(audioController) { success, msg ->
+            resultSuccess = success
+            resultMsg = msg
+        }
+        runCurrent()
+        assertFalse(resultSuccess)
+        assertEquals("No hay pista activa para transferir", resultMsg)
+    }
 }

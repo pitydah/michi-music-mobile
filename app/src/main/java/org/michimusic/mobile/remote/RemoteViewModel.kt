@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.michimusic.core.models.Track
+import org.michimusic.core.models.TrackSource
 import org.michimusic.link.EventClient
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkSession
@@ -244,6 +247,69 @@ class RemoteViewModel(
     fun queueJump(index: Int) {
         viewModelScope.launch {
             client?.queueJump(index)?.onFailure { e -> handleCmdError(e) }
+        }
+    }
+
+    fun handoffToLocal(
+        audioController: org.michimusic.player.AudioController,
+        onResult: (Boolean, String) -> Unit,
+    ) {
+        viewModelScope.launch(ioDispatcher) {
+            val ps = _uiState.value.playerState
+            val q = _uiState.value.queue
+            val clientRef = client
+            if (clientRef == null) {
+                withContext(Dispatchers.Main) { onResult(false, "No hay conexión con el nodo remoto") }
+                return@launch
+            }
+
+            val tracks = if (q.tracks.isNotEmpty()) {
+                q.tracks.map { qt ->
+                    Track(
+                        id = qt.trackId,
+                        title = qt.title,
+                        artist = qt.artist,
+                        album = qt.album,
+                        duration = qt.duration,
+                        filepath = "${clientRef.baseUrl}/api/v1/stream/${qt.trackId}",
+                        source = TrackSource.STREAMING,
+                    )
+                }
+            } else if (ps.effectiveTitle.isNotEmpty()) {
+                listOf(
+                    Track(
+                        id = ps.trackId.ifEmpty { "remote_track" },
+                        title = ps.effectiveTitle,
+                        artist = ps.effectiveArtist,
+                        album = ps.album,
+                        duration = ps.effectiveDuration,
+                        filepath = if (ps.trackId.isNotEmpty()) "${clientRef.baseUrl}/api/v1/stream/${ps.trackId}" else "",
+                        source = TrackSource.STREAMING,
+                    )
+                )
+            } else {
+                emptyList()
+            }
+
+            if (tracks.isEmpty()) {
+                withContext(Dispatchers.Main) { onResult(false, "No hay pista activa para transferir") }
+                return@launch
+            }
+
+            try {
+                // Pause remote playback
+                clientRef.sendPlaybackCommand("pause")
+                val targetIndex = q.currentIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
+                withContext(Dispatchers.Main) {
+                    audioController.playQueue(tracks, targetIndex)
+                    if (ps.effectivePosition > 0) {
+                        audioController.seekTo(ps.effectivePosition)
+                    }
+                    onResult(true, "Continuando reproducción en este teléfono")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { onResult(false, "Error al transferir: ${e.message}") }
+            }
         }
     }
 
