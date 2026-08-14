@@ -113,6 +113,16 @@ class SyncViewModel(
         }
     }
 
+    fun connectManual(name: String, host: String, port: Int) {
+        val peer = DiscoveredPeer(
+            alias = name,
+            ip = host,
+            port = port,
+        )
+        linkSession.updateState(SyncConnectionState.DISCOVERING)
+        selectPeer(peer)
+    }
+
     fun selectPeer(peer: DiscoveredPeer) {
         if (linkSession.connectionState.value != SyncConnectionState.DISCOVERING) return
 

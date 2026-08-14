@@ -22,17 +22,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -47,8 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -61,26 +59,29 @@ import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
-import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.coverStyleFor
-import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
-import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.TextMuted
+import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.AudioController
 
 @Composable
 fun HomeScreen(
     onNavigateToSearch: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToDevices: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
@@ -93,7 +94,6 @@ fun HomeScreen(
     val currentTrack = playerState.currentTrack
     val isPlaying = playerState.isPlaying
 
-    var showEqualizer by remember { mutableStateOf(false) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -113,7 +113,8 @@ fun HomeScreen(
             // Top App Bar
             HomeTopBar(
                 onSearchClick = onNavigateToSearch,
-                onEqualizerClick = { showEqualizer = true },
+                onDevicesClick = onNavigateToDevices,
+                onSettingsClick = onNavigateToSettings,
             )
 
             // Scrollable Content
@@ -122,25 +123,35 @@ fun HomeScreen(
                     .fillMaxSize()
                     .testTag("home_scroll_list"),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                // Hero Action Buttons
+                // 1. Continue Listening (Hero section)
                 item {
-                    ActionButtonsSection(
-                        onQuickPlay = {
-                            if (allTracks.isNotEmpty()) {
-                                audioController.playQueue(allTracks, 0)
-                            }
-                        },
-                        onShuffle = {
-                            if (allTracks.isNotEmpty()) {
-                                audioController.playQueue(allTracks.shuffled(), 0)
-                            }
-                        },
-                    )
+                    if (currentTrack != null) {
+                        ContinueListeningCard(
+                            track = currentTrack,
+                            isPlaying = isPlaying,
+                            onPlayPause = {
+                                if (isPlaying) audioController.pause() else audioController.play()
+                            },
+                        )
+                    } else {
+                        ActionButtonsSection(
+                            onQuickPlay = {
+                                if (allTracks.isNotEmpty()) {
+                                    audioController.playQueue(allTracks, 0)
+                                }
+                            },
+                            onShuffle = {
+                                if (allTracks.isNotEmpty()) {
+                                    audioController.playQueue(allTracks.shuffled(), 0)
+                                }
+                            },
+                        )
+                    }
                 }
 
-                // Recently Played Carousel
+                // 2. Recently Played Carousel
                 if (recentTracks.isNotEmpty() || allTracks.isNotEmpty()) {
                     item {
                         RecentlyPlayedSection(
@@ -155,7 +166,7 @@ fun HomeScreen(
                     }
                 }
 
-                // Your Playlists Grid
+                // 3. Your Music / Playlists Grid
                 item {
                     YourPlaylistsSection(
                         totalTracks = allTracks.size,
@@ -172,7 +183,7 @@ fun HomeScreen(
                     )
                 }
 
-                // Suggested Tracks Showcase (Curated quick picks instead of thousands of rows)
+                // 4. Quick Picks Showcase
                 if (allTracks.isNotEmpty()) {
                     item {
                         QuickPicksSection(
@@ -189,11 +200,6 @@ fun HomeScreen(
             }
         }
 
-        // Dialogs
-        if (showEqualizer) {
-            EqualizerDialog(onDismiss = { showEqualizer = false })
-        }
-
         if (showCreatePlaylist) {
             CreatePlaylistDialog(
                 onCreate = { _ ->
@@ -208,55 +214,161 @@ fun HomeScreen(
 @Composable
 private fun HomeTopBar(
     onSearchClick: () -> Unit,
-    onEqualizerClick: () -> Unit,
+    onDevicesClick: () -> Unit,
+    onSettingsClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(60.dp)
             .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = onEqualizerClick,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(GlassFillLow)
-                .testTag("home_eq_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.GraphicEq,
-                contentDescription = "Ecualizador",
-                tint = OnSurfaceVariant,
-                modifier = Modifier.size(22.dp),
+        Column {
+            Text(
+                text = "MICHI MUSIC",
+                style = MichiTypography.screenEyebrow,
+            )
+            Text(
+                text = "Inicio",
+                style = MichiTypography.screenTitle,
             )
         }
 
-        Text(
-            text = "Michi Music",
-            color = PrimaryPink,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.5).sp,
-            modifier = Modifier.testTag("home_title"),
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onDevicesClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(GlassFillLow)
+                    .testTag("home_devices_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Devices,
+                    contentDescription = "Dispositivos",
+                    tint = PureWhite,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
 
-        IconButton(
-            onClick = onSearchClick,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(GlassFillLow)
-                .testTag("home_search_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = "Buscar",
-                tint = OnSurfaceVariant,
-                modifier = Modifier.size(22.dp),
-            )
+            Spacer(modifier = Modifier.width(6.dp))
+
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(GlassFillLow)
+                    .testTag("home_search_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = "Buscar",
+                    tint = PureWhite,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(GlassFillLow)
+                    .testTag("home_settings_button"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Ajustes",
+                    tint = PureWhite,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueListeningCard(
+    track: Track,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("continue_listening_card"),
+        backgroundColor = GlassFillHigh,
+        borderColor = PrimaryPinkContainer.copy(alpha = 0.35f),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "CONTINUAR ESCUCHANDO",
+                    style = MichiTypography.microLabel,
+                    color = PrimaryPinkContainer,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "Este teléfono",
+                    style = MichiTypography.microLabel,
+                    color = TertiaryCyan,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                AlbumArtView(
+                    coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
+                    imageModel = track.filepath.ifEmpty { track.coverId },
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(MichiShapes.sm),
+                )
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = track.title,
+                        style = MichiTypography.cardTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = track.artist,
+                        style = MichiTypography.metadata,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Button(
+                    onClick = onPlayPause,
+                    modifier = Modifier.size(44.dp),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                        tint = PureWhite,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -270,24 +382,13 @@ private fun ActionButtonsSection(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // Quick Play (Pink-to-Purple Gradient Button)
+        // Quick Play Button
         Box(
             modifier = Modifier
                 .weight(1f)
                 .height(48.dp)
-                .drawBehind {
-                    drawCircle(
-                        color = PrimaryPinkContainer.copy(alpha = 0.35f),
-                        radius = size.maxDimension * 0.75f,
-                        center = center,
-                    )
-                }
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(PrimaryPink, SecondaryPurple),
-                    ),
-                )
+                .clip(MichiShapes.sm)
+                .background(PrimaryPinkContainer)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(color = PureWhite),
@@ -303,26 +404,26 @@ private fun ActionButtonsSection(
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    tint = Color(0xFF370C11),
+                    tint = PureWhite,
                     modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Reproducir",
-                    color = Color(0xFF370C11),
+                    text = "Reproducir todo",
+                    color = PureWhite,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
         }
 
-        // Shuffle (Glass Card Button)
+        // Shuffle Button
         GlassCard(
             modifier = Modifier
                 .weight(1f)
                 .height(48.dp)
                 .testTag("shuffle_button"),
-            shape = RoundedCornerShape(12.dp),
+            shape = MichiShapes.sm,
             onClick = onShuffle,
         ) {
             Row(
@@ -362,85 +463,99 @@ private fun RecentlyPlayedSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Escuchado Recientemente",
-                color = PureWhite,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp,
-                modifier = Modifier.testTag("recent_section_title"),
+                text = "Recientemente Escuchadas",
+                style = MichiTypography.sectionTitle,
+                modifier = Modifier.testTag("recently_played_title"),
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             contentPadding = PaddingValues(horizontal = 4.dp),
         ) {
-            items(tracks, key = { it.id }) { track ->
+            items(tracks) { track ->
                 val isCurrent = currentTrack?.id == track.id
+                RecentTrackCard(
+                    track = track,
+                    isCurrent = isCurrent,
+                    isPlaying = isPlaying && isCurrent,
+                    onClick = { onTrackClick(track) },
+                )
+            }
+        }
+    }
+}
 
-                Column(
+@Composable
+private fun RecentTrackCard(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(132.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = PrimaryPinkContainer),
+                onClick = onClick,
+            )
+            .testTag("recent_track_${track.id}"),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(MichiShapes.md)
+                .border(
+                    width = if (isCurrent) 1.5.dp else 1.dp,
+                    color = if (isCurrent) PrimaryPinkContainer else GlassBorderLow,
+                    shape = MichiShapes.md,
+                ),
+        ) {
+            AlbumArtView(
+                coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
+                imageModel = track.filepath.ifEmpty { track.coverId },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            if (isCurrent && isPlaying) {
+                Box(
                     modifier = Modifier
-                        .width(130.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = TertiaryCyan),
-                            onClick = { onTrackClick(track) },
-                        )
-                        .testTag("recent_track_${track.id}"),
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .border(
-                                1.dp,
-                                if (isCurrent) TertiaryCyan else GlassBorderLow,
-                                RoundedCornerShape(16.dp),
-                            ),
-                    ) {
-                        AlbumArtView(
-                            coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                            imageModel = track.coverId,
-                            modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 16.dp,
-                            borderColor = if (isCurrent) TertiaryCyan else GlassBorderLow,
-                        )
-
-                        if (isCurrent) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(SurfaceObsidian.copy(alpha = 0.5f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                EqualizerWaveBars(isPlaying = isPlaying, barCount = 3, color = TertiaryCyan)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = track.title,
-                        color = if (isCurrent) TertiaryCyan else PureWhite,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = track.artist,
-                        color = OnSurfaceVariant,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    EqualizerWaveBars(
+                        isPlaying = true,
+                        color = PrimaryPinkContainer,
+                        modifier = Modifier.size(28.dp),
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = track.title,
+            color = if (isCurrent) PrimaryPinkContainer else PureWhite,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        Text(
+            text = track.artist,
+            color = TextSecondary,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -453,111 +568,89 @@ private fun YourPlaylistsSection(
     onPlaylistClick: (String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Tus Listas",
-                color = PureWhite,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp,
-                modifier = Modifier.testTag("playlists_section_title"),
-            )
+        Text(
+            text = "Tu Colección",
+            style = MichiTypography.sectionTitle,
+        )
 
-            IconButton(
-                onClick = onCreatePlaylist,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlaylistAdd,
-                    contentDescription = "Nueva Lista",
-                    tint = PrimaryPink,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Favorites
-            GlassCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(90.dp),
-                shape = RoundedCornerShape(14.dp),
+            PlaylistTile(
+                title = "Favoritos",
+                subtitle = "$topTracksCount temas",
+                icon = Icons.Filled.Star,
+                accentColor = PrimaryPinkContainer,
+                modifier = Modifier.weight(1f),
                 onClick = { onPlaylistClick("top") },
+            )
+            PlaylistTile(
+                title = "Recientes",
+                subtitle = "$recentTracksCount pistas",
+                icon = Icons.Filled.LibraryMusic,
+                accentColor = TertiaryCyan,
+                modifier = Modifier.weight(1f),
+                onClick = { onPlaylistClick("recent") },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistTile(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    GlassCard(
+        modifier = modifier
+            .height(86.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = accentColor),
+                onClick = onClick,
+            ),
+        backgroundColor = GlassFillLow,
+        borderColor = GlassBorderLow,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(MichiShapes.sm)
+                    .background(accentColor.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center,
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Star,
-                        contentDescription = null,
-                        tint = PrimaryPink,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Column {
-                        Text(
-                            text = "Más Escuchadas",
-                            color = PureWhite,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                        )
-                        Text(
-                            text = "$topTracksCount canciones",
-                            color = OnSurfaceVariant,
-                            fontSize = 10.sp,
-                        )
-                    }
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp),
+                )
             }
 
-            // Recent
-            GlassCard(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(90.dp),
-                shape = RoundedCornerShape(14.dp),
-                onClick = { onPlaylistClick("recent") },
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.MusicNote,
-                        contentDescription = null,
-                        tint = TertiaryCyan,
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Column {
-                        Text(
-                            text = "Recientes",
-                            color = PureWhite,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                        )
-                        Text(
-                            text = "$recentTracksCount canciones",
-                            color = OnSurfaceVariant,
-                            fontSize = 10.sp,
-                        )
-                    }
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MichiTypography.cardTitle,
+                    maxLines = 1,
+                )
+                Text(
+                    text = subtitle,
+                    style = MichiTypography.metadata,
+                )
             }
         }
     }
@@ -572,68 +665,80 @@ private fun QuickPicksSection(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "Música Sugerida",
-            color = PureWhite,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.5).sp,
+            text = "Pistas Sugeridas",
+            style = MichiTypography.sectionTitle,
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            tracks.forEach { track ->
-                val isCurrent = currentTrack?.id == track.id
-                val shape = RoundedCornerShape(12.dp)
+        tracks.forEach { track ->
+            val isCurrent = currentTrack?.id == track.id
+            QuickPickTrackRow(
+                track = track,
+                isCurrent = isCurrent,
+                isPlaying = isPlaying && isCurrent,
+                onClick = { onTrackClick(track) },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shape)
-                        .background(if (isCurrent) GlassFillHigh else GlassFillLow)
-                        .border(
-                            1.dp,
-                            if (isCurrent) TertiaryCyan.copy(alpha = 0.5f) else GlassBorderLow,
-                            shape,
-                        )
-                        .clickable { onTrackClick(track) }
-                        .padding(10.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        AlbumArtView(
-                            coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                            imageModel = track.coverId,
-                            modifier = Modifier.size(44.dp),
-                            cornerRadius = 8.dp,
-                        )
+@Composable
+private fun QuickPickTrackRow(
+    track: Track,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = PrimaryPinkContainer),
+                onClick = onClick,
+            ),
+        backgroundColor = if (isCurrent) GlassFillHigh else GlassFillLow,
+        borderColor = if (isCurrent) PrimaryPinkContainer.copy(alpha = 0.4f) else GlassBorderLow,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AlbumArtView(
+                coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
+                imageModel = track.filepath.ifEmpty { track.coverId },
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(MichiShapes.xs),
+            )
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = track.title,
-                                color = if (isCurrent) TertiaryCyan else PureWhite,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = "${track.artist} • ${track.album}",
-                                color = OnSurfaceVariant,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    color = if (isCurrent) PrimaryPinkContainer else PureWhite,
+                    style = MichiTypography.trackTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${track.artist} · ${track.album}",
+                    style = MichiTypography.metadata,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
 
-                        if (isCurrent) {
-                            EqualizerWaveBars(isPlaying = isPlaying, barCount = 3, color = TertiaryCyan)
-                        }
-                    }
-                }
+            if (isCurrent && isPlaying) {
+                EqualizerWaveBars(
+                    isPlaying = true,
+                    color = PrimaryPinkContainer,
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
     }

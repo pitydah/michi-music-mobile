@@ -1,11 +1,5 @@
 package org.michimusic.mobile.ui.screens
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,14 +19,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -41,7 +32,6 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -57,7 +47,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -76,12 +65,12 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
-import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
-import org.michimusic.mobile.ui.theme.SecondaryPurpleDeep
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.player.AudioController
@@ -109,37 +98,28 @@ fun NowPlayingScreen(
     val repeatMode = playerState.repeatMode
     var showQueueDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }
-
-    val transition = rememberInfiniteTransition(label = "now_playing_glow")
-    val glowRadiusScale by transition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "glow_radius",
-    )
+    var showAudioRouteDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(SurfaceObsidian),
+            .background(SurfaceObsidian)
+            .testTag("now_playing_screen"),
     ) {
-        // Deep Space Ambient Glow Orbs
+        // Subtle Hi-Fi Ambient Depth
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
                     drawCircle(
-                        color = PrimaryPinkContainer.copy(alpha = 0.18f),
-                        radius = size.width * 0.55f * glowRadiusScale,
-                        center = Offset(size.width * 0.25f, size.height * 0.35f),
+                        color = PrimaryPinkContainer.copy(alpha = 0.08f),
+                        radius = size.width * 0.5f,
+                        center = Offset(size.width * 0.3f, size.height * 0.3f),
                     )
                     drawCircle(
-                        color = TertiaryCyan.copy(alpha = 0.14f),
-                        radius = size.width * 0.65f * glowRadiusScale,
-                        center = Offset(size.width * 0.75f, size.height * 0.65f),
+                        color = TertiaryCyan.copy(alpha = 0.06f),
+                        radius = size.width * 0.6f,
+                        center = Offset(size.width * 0.7f, size.height * 0.7f),
                     )
                 },
         )
@@ -149,10 +129,10 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
+                .padding(horizontal = 24.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            // Header
+            // Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -161,7 +141,7 @@ fun NowPlayingScreen(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(MichiSpacing.minTouchTarget)
                         .clip(CircleShape)
                         .background(GlassFillLow)
                         .testTag("now_playing_close_button"),
@@ -177,16 +157,11 @@ fun NowPlayingScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "REPRODUCIENDO AHORA",
-                        color = PrimaryPink,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
+                        style = MichiTypography.screenEyebrow,
                     )
                     Text(
                         text = currentTrack?.album ?: "Michi Music",
-                        color = OnSurfaceVariant,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
+                        style = MichiTypography.metadata,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -205,7 +180,7 @@ fun NowPlayingScreen(
                             if (next <= 0L) audioController.cancelSleepTimer() else audioController.setSleepTimer(next)
                         },
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(if (sleepActive) TertiaryCyan.copy(alpha = 0.2f) else GlassFillLow)
                             .border(1.dp, if (sleepActive) TertiaryCyan else GlassBorderLow, CircleShape)
@@ -222,7 +197,7 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { showQueueDialog = true },
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .testTag("now_playing_queue_button"),
@@ -242,38 +217,31 @@ fun NowPlayingScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(vertical = 16.dp),
+                    .padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.88f)
+                        .fillMaxWidth(0.85f)
                         .aspectRatio(1f)
-                        .drawBehind {
-                            drawCircle(
-                                color = PrimaryPink.copy(alpha = 0.22f),
-                                radius = size.maxDimension * 0.65f * glowRadiusScale,
-                                center = center,
-                            )
-                        }
-                        .clip(RoundedCornerShape(32.dp))
-                        .border(1.5.dp, GlassBorderHigh, RoundedCornerShape(32.dp))
+                        .clip(MichiShapes.lg)
+                        .border(1.dp, GlassBorderHigh, MichiShapes.lg)
                         .testTag("now_playing_album_art"),
                 ) {
                     AlbumArtView(
-                        coverStyle = coverStyleFor(currentTrack?.coverId ?: currentTrack?.title),
-                        imageModel = currentTrack?.filepath?.ifEmpty { currentTrack.coverId },
+                        coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
+                        imageModel = currentTrack?.filepath?.ifEmpty { currentTrack.coverId } ?: currentTrack?.coverId,
                         modifier = Modifier.fillMaxSize(),
-                        cornerRadius = 32.dp,
+                        cornerRadius = 24.dp,
                         borderWidth = 0.dp,
                     )
                 }
             }
 
-            // Track Information & Controls Section
+            // Track Info & Destination Capsule
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -283,21 +251,52 @@ fun NowPlayingScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = currentTrack?.title ?: "Sin reproducción activa",
-                            color = PureWhite,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = (-0.5).sp,
+                            style = MichiTypography.screenTitle,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = currentTrack?.artist ?: "Selecciona una canción",
-                            color = OnSurfaceVariant.copy(alpha = 0.85f),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Normal,
+                            style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
+                            color = OnSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    }
+
+                    // Endpoint selector capsule
+                    Box(
+                        modifier = Modifier
+                            .clip(MichiShapes.pill)
+                            .background(GlassFillLow)
+                            .border(1.dp, GlassBorderLow, MichiShapes.pill)
+                            .clickable { showAudioRouteDialog = true }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("audio_route_button"),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Headphones,
+                                contentDescription = "Salidas de Audio",
+                                tint = TertiaryCyan,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = "Este teléfono",
+                                color = PureWhite,
+                                style = MichiTypography.microLabel,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.ExpandMore,
+                                contentDescription = null,
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
                     }
                 }
 
@@ -309,7 +308,7 @@ fun NowPlayingScreen(
                         onSeek = { seekSec ->
                             audioController.seekTo((seekSec * 1000).toLong())
                         },
-                        trackHeight = 6.dp,
+                        trackHeight = 5.dp,
                         showThumb = true,
                         testTag = "now_playing_seeker",
                     )
@@ -322,13 +321,13 @@ fun NowPlayingScreen(
                     ) {
                         Text(
                             text = formatTimeSeconds(positionSeconds),
+                            style = MichiTypography.microLabel,
                             color = OnSurfaceVariant,
-                            fontSize = 12.sp,
                         )
                         Text(
                             text = formatRemainingTimeSeconds(positionSeconds, durationSeconds),
+                            style = MichiTypography.microLabel,
                             color = OnSurfaceVariant,
-                            fontSize = 12.sp,
                         )
                     }
                 }
@@ -337,7 +336,7 @@ fun NowPlayingScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
+                        .padding(horizontal = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -345,14 +344,14 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { audioController.toggleShuffle() },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .testTag("now_playing_shuffle"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Shuffle,
                             contentDescription = "Aleatorio",
                             tint = if (isShuffle) TertiaryCyan else OnSurfaceVariant,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
 
@@ -360,7 +359,7 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { audioController.skipPrevious() },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .testTag("now_playing_prev"),
@@ -369,26 +368,16 @@ fun NowPlayingScreen(
                             imageVector = Icons.Filled.SkipPrevious,
                             contentDescription = "Anterior",
                             tint = PureWhite,
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(28.dp),
                         )
                     }
 
-                    // Large Glowing Center Play / Pause
+                    // Center Play / Pause
                     Box(
                         modifier = Modifier
-                            .size(76.dp)
-                            .drawBehind {
-                                drawCircle(
-                                    color = PrimaryPinkContainer.copy(alpha = 0.45f),
-                                    radius = 48.dp.toPx(),
-                                )
-                            }
+                            .size(68.dp)
                             .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(PrimaryPinkContainer, SecondaryPurpleDeep),
-                                ),
-                            )
+                            .background(PrimaryPinkContainer)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(color = PureWhite),
@@ -403,7 +392,7 @@ fun NowPlayingScreen(
                             imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (isPlaying) "Pausa" else "Reproducir",
                             tint = PureWhite,
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier.size(36.dp),
                         )
                     }
 
@@ -411,7 +400,7 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { audioController.skipNext() },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .testTag("now_playing_next"),
@@ -420,7 +409,7 @@ fun NowPlayingScreen(
                             imageVector = Icons.Filled.SkipNext,
                             contentDescription = "Siguiente",
                             tint = PureWhite,
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(28.dp),
                         )
                     }
 
@@ -428,14 +417,14 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { audioController.cycleRepeatMode() },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .testTag("now_playing_repeat"),
                     ) {
                         Icon(
                             imageVector = if (repeatMode == 1) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
                             contentDescription = "Repetir",
                             tint = if (repeatMode != 0) TertiaryCyan else OnSurfaceVariant,
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                 }
@@ -444,30 +433,10 @@ fun NowPlayingScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    var showAudioRouteDialog by remember { mutableStateOf(false) }
-
-                    // Audio Output Route Selector Button (Headphones icon)
-                    IconButton(
-                        onClick = { showAudioRouteDialog = true },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
-                            .border(1.dp, GlassBorderLow, CircleShape)
-                            .testTag("audio_route_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Headphones,
-                            contentDescription = "Salidas de Audio",
-                            tint = TertiaryCyan,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-
                     // Up Next Capsule Pill
                     val queue = playerState.queue
                     val currentIndex = currentTrack?.let { cur -> queue.indexOfFirst { it.id == cur.id } } ?: -1
@@ -479,13 +448,15 @@ fun NowPlayingScreen(
                         null
                     }
                     val nextTrackTitle = nextTrack?.title ?: if (queue.isNotEmpty()) "Fin de la cola" else "Michi Music"
+
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(GlassFillHigh)
-                            .border(1.dp, GlassBorderHigh, RoundedCornerShape(20.dp))
+                            .weight(1f)
+                            .clip(MichiShapes.pill)
+                            .background(GlassFillLow)
+                            .border(1.dp, GlassBorderLow, MichiShapes.pill)
                             .clickable { showQueueDialog = true }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
                             .testTag("up_next_pill"),
                     ) {
                         Row(
@@ -496,12 +467,12 @@ fun NowPlayingScreen(
                                 imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = null,
                                 tint = OnSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                             )
                             Text(
                                 text = "Siguiente: $nextTrackTitle",
                                 color = PureWhite,
-                                fontSize = 12.sp,
+                                style = MichiTypography.microLabel,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -509,11 +480,13 @@ fun NowPlayingScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.width(12.dp))
+
                     // Equalizer Button
                     IconButton(
                         onClick = { showEqualizerDialog = true },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .border(1.dp, GlassBorderLow, CircleShape)
@@ -526,15 +499,15 @@ fun NowPlayingScreen(
                             modifier = Modifier.size(20.dp),
                         )
                     }
-
-                    if (showAudioRouteDialog) {
-                        org.michimusic.mobile.ui.components.AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
-                    }
                 }
             }
         }
 
         // Dialogs
+        if (showAudioRouteDialog) {
+            org.michimusic.mobile.ui.components.AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
+        }
+
         if (showQueueDialog) {
             QueueDialog(
                 queue = playerState.queue,

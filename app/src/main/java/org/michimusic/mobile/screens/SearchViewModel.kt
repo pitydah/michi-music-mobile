@@ -30,6 +30,30 @@ data class SearchResult(
     val source: String,
 )
 
+data class SearchArtistResult(
+    val artist: String,
+    val trackCount: Int,
+    val sampleTrack: Track?,
+)
+
+data class SearchAlbumResult(
+    val album: String,
+    val artist: String,
+    val trackCount: Int,
+    val sampleTrack: Track?,
+)
+
+data class SearchTrackResult(
+    val track: Track,
+    val source: String,
+)
+
+data class StructuredSearchResults(
+    val artists: List<SearchArtistResult> = emptyList(),
+    val albums: List<SearchAlbumResult> = emptyList(),
+    val tracks: List<SearchTrackResult> = emptyList(),
+)
+
 class SearchViewModel(
     private val localRepo: LocalMediaRepository,
     private val syncedRepo: SyncedTrackRepository,
@@ -44,6 +68,9 @@ class SearchViewModel(
 
     private val _results = MutableStateFlow<List<SearchResult>>(emptyList())
     val results: StateFlow<List<SearchResult>> = _results.asStateFlow()
+
+    private val _structuredResults = MutableStateFlow(StructuredSearchResults())
+    val structuredResults: StateFlow<StructuredSearchResults> = _structuredResults.asStateFlow()
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
@@ -93,6 +120,7 @@ class SearchViewModel(
         _query.value = q
         if (q.length < 2) {
             _results.value = emptyList()
+            _structuredResults.value = StructuredSearchResults()
             searchJob?.cancel()
             searchJob = null
             return
@@ -100,7 +128,7 @@ class SearchViewModel(
         searchJob?.cancel()
         searchJob = viewModelScope.launch(ioDispatcher) {
             try {
-                delay(300)
+                delay(250)
                 executeSearch(q)
             } catch (_: kotlinx.coroutines.CancellationException) {
                 // Expected when search query changes
@@ -113,66 +141,103 @@ class SearchViewModel(
         val lower = q.lowercase()
         val filter = _selectedFilter.value
 
-        val localMatches = localTracks.filter { track ->
-            val matchesQuery = when (filter) {
-                SearchFilter.ALL -> track.title.lowercase().contains(lower) ||
-                        track.artist.lowercase().contains(lower) ||
-                        track.album.lowercase().contains(lower)
-                SearchFilter.TRACKS -> track.title.lowercase().contains(lower)
-                SearchFilter.ARTISTS -> track.artist.lowercase().contains(lower)
-                SearchFilter.ALBUMS -> track.album.lowercase().contains(lower)
-                SearchFilter.LOSSLESS -> (track.title.lowercase().contains(lower) ||
-                        track.artist.lowercase().contains(lower) ||
-                        track.album.lowercase().contains(lower)) &&
-                        (track.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (track.sampleRate ?: 0) >= 48000)
-                SearchFilter.DOWNLOADED -> (track.title.lowercase().contains(lower) ||
-                        track.artist.lowercase().contains(lower) ||
-                        track.album.lowercase().contains(lower)) && track.filepath.isNotEmpty()
-            }
-            matchesQuery
-        }.map { SearchResult(it, "Local") }
-
-        val syncedMatches = syncedTracks.filter { cached ->
-            val matchesQuery = when (filter) {
-                SearchFilter.ALL -> cached.title.lowercase().contains(lower) ||
-                        cached.artist.lowercase().contains(lower) ||
-                        cached.album.lowercase().contains(lower)
-                SearchFilter.TRACKS -> cached.title.lowercase().contains(lower)
-                SearchFilter.ARTISTS -> cached.artist.lowercase().contains(lower)
-                SearchFilter.ALBUMS -> cached.album.lowercase().contains(lower)
-                SearchFilter.LOSSLESS -> (cached.title.lowercase().contains(lower) ||
-                        cached.artist.lowercase().contains(lower) ||
-                        cached.album.lowercase().contains(lower)) &&
-                        (cached.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (cached.sampleRate ?: 0) >= 48000)
-                SearchFilter.DOWNLOADED -> (cached.title.lowercase().contains(lower) ||
-                        cached.artist.lowercase().contains(lower) ||
-                        cached.album.lowercase().contains(lower)) && (cached.downloaded || cached.filepath.isNotEmpty())
-            }
-            matchesQuery
-        }.map { cached ->
-            SearchResult(
-                Track(
-                    id = cached.id,
-                    title = cached.title,
-                    artist = cached.artist,
-                    album = cached.album,
-                    duration = cached.duration,
-                    size = cached.size,
-                    format = cached.format,
-                    bitrate = cached.bitrate,
-                    sampleRate = cached.sampleRate,
-                    channels = cached.channels,
-                    coverId = cached.coverId,
-                    trackNumber = cached.trackNumber,
-                    year = cached.year,
-                    filepath = cached.filepath,
-                    source = TrackSource.SYNCED,
-                ),
-                "Sincronizada",
+        val allCombinedTracks = localTracks + syncedTracks.map { cached ->
+            Track(
+                id = cached.id,
+                title = cached.title,
+                artist = cached.artist,
+                album = cached.album,
+                duration = cached.duration,
+                size = cached.size,
+                format = cached.format,
+                bitrate = cached.bitrate,
+                sampleRate = cached.sampleRate,
+                channels = cached.channels,
+                coverId = cached.coverId,
+                trackNumber = cached.trackNumber,
+                year = cached.year,
+                filepath = cached.filepath,
+                source = TrackSource.SYNCED,
             )
         }
 
-        _results.value = (localMatches + syncedMatches).take(50)
+        // Typed Artists
+        val artistMatches = if (filter == SearchFilter.ALL || filter == SearchFilter.ARTISTS) {
+            allCombinedTracks.filter { it.artist.lowercase().contains(lower) }
+                .groupBy { it.artist }
+                .map { (artistName, tracks) ->
+                    SearchArtistResult(
+                        artist = artistName,
+                        trackCount = tracks.size,
+                        sampleTrack = tracks.firstOrNull(),
+                    )
+                }.take(10)
+        } else emptyList()
+
+        // Typed Albums
+        val albumMatches = if (filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS) {
+            allCombinedTracks.filter { it.album.lowercase().contains(lower) }
+                .groupBy { "${it.album}___${it.artist}" }
+                .map { (_, tracks) ->
+                    val first = tracks.first()
+                    SearchAlbumResult(
+                        album = first.album,
+                        artist = first.artist,
+                        trackCount = tracks.size,
+                        sampleTrack = first,
+                    )
+                }.take(10)
+        } else emptyList()
+
+        // Typed Tracks
+        val trackMatches = when (filter) {
+            SearchFilter.ALL -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
+            SearchFilter.TRACKS -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
+            SearchFilter.ARTISTS -> emptyList()
+            SearchFilter.ALBUMS -> emptyList()
+            SearchFilter.LOSSLESS -> allCombinedTracks.filter {
+                it.title.lowercase().contains(lower) &&
+                    (it.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (it.sampleRate ?: 0) >= 48000)
+            }
+            SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
+                it.title.lowercase().contains(lower) && it.filepath.isNotEmpty()
+            }
+        }.map { track ->
+            SearchTrackResult(
+                track = track,
+                source = if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local",
+            )
+        }.take(30)
+
+        _structuredResults.value = StructuredSearchResults(
+            artists = artistMatches,
+            albums = albumMatches,
+            tracks = trackMatches,
+        )
+
+        // Compatibility list
+        val legacyList = when (filter) {
+            SearchFilter.ALL -> allCombinedTracks.filter {
+                it.title.lowercase().contains(lower) ||
+                    it.artist.lowercase().contains(lower) ||
+                    it.album.lowercase().contains(lower)
+            }
+            SearchFilter.ARTISTS -> allCombinedTracks.filter { it.artist.lowercase().contains(lower) }
+            SearchFilter.ALBUMS -> allCombinedTracks.filter { it.album.lowercase().contains(lower) }
+            SearchFilter.TRACKS -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
+            SearchFilter.LOSSLESS -> allCombinedTracks.filter {
+                (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
+                    (it.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (it.sampleRate ?: 0) >= 48000)
+            }
+            SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
+                (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
+                    it.filepath.isNotEmpty()
+            }
+        }.map { track ->
+            SearchResult(track, if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local")
+        }.take(50)
+
+        _results.value = legacyList
         _isSearching.value = false
     }
 
@@ -183,6 +248,7 @@ class SearchViewModel(
         loadJob = null
         _query.value = ""
         _results.value = emptyList()
+        _structuredResults.value = StructuredSearchResults()
         _error.value = null
     }
 

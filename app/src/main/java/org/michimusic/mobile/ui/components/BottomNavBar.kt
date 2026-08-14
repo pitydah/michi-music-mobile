@@ -20,18 +20,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SettingsRemote
-import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
-import androidx.compose.material.icons.outlined.PlayCircle
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SettingsRemote
-import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -41,20 +37,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
-import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 
 data class NavTabItem(
@@ -67,10 +62,8 @@ data class NavTabItem(
 val defaultNavTabs = listOf(
     NavTabItem("home", "Inicio", Icons.Filled.Home, Icons.Outlined.Home),
     NavTabItem("library", "Biblioteca", Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic),
-    NavTabItem("nowplaying", "Ahora", Icons.Filled.PlayCircle, Icons.Outlined.PlayCircle),
-    NavTabItem("remote", "Remoto", Icons.Filled.SettingsRemote, Icons.Outlined.SettingsRemote),
-    NavTabItem("sync", "Sync", Icons.Filled.Sync, Icons.Outlined.Sync),
-    NavTabItem("settings", "Ajustes", Icons.Filled.Settings, Icons.Outlined.Settings),
+    NavTabItem("search", "Buscar", Icons.Filled.Search, Icons.Outlined.Search),
+    NavTabItem("devices", "Dispositivos", Icons.Filled.Devices, Icons.Outlined.Devices),
 )
 
 @Composable
@@ -84,7 +77,7 @@ fun BottomNavBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 20.dp, vertical = 8.dp)
             .testTag("bottom_nav_bar"),
         contentAlignment = Alignment.Center,
     ) {
@@ -92,22 +85,15 @@ fun BottomNavBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .clip(RoundedCornerShape(26.dp))
-                .background(SurfaceObsidian.copy(alpha = 0.92f))
+                .height(60.dp)
+                .clip(MichiShapes.lg)
+                .background(SurfaceObsidian.copy(alpha = 0.94f))
                 .border(
-                    width = 1.2.dp,
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            GlassBorderHigh,
-                            PrimaryPinkContainer.copy(alpha = 0.35f),
-                            TertiaryCyan.copy(alpha = 0.35f),
-                            GlassBorderHigh,
-                        ),
-                    ),
-                    shape = RoundedCornerShape(26.dp),
+                    width = 1.dp,
+                    color = GlassBorderLow,
+                    shape = MichiShapes.lg,
                 )
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -119,42 +105,31 @@ fun BottomNavBar(
                     val isSelected = currentRoute == tab.route
 
                     val scale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.05f else 1.0f,
+                        targetValue = if (isSelected) 1.03f else 1.0f,
                         animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            dampingRatio = Spring.DampingRatioLowBouncy,
                             stiffness = Spring.StiffnessMedium,
                         ),
                         label = "tab_scale",
                     )
 
                     val itemColor by animateColorAsState(
-                        targetValue = if (isSelected) TertiaryCyan else TextMuted,
+                        targetValue = if (isSelected) PrimaryPinkContainer else TextMuted,
                         label = "tab_color",
                     )
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(54.dp)
+                            .height(48.dp)
                             .scale(scale)
-                            .clip(RoundedCornerShape(18.dp))
+                            .clip(MichiShapes.md)
                             .background(
-                                if (isSelected) {
-                                    Brush.verticalGradient(
-                                        colors = listOf(
-                                            TertiaryCyan.copy(alpha = 0.18f),
-                                            PrimaryPinkContainer.copy(alpha = 0.08f),
-                                        ),
-                                    )
-                                } else {
-                                    Brush.verticalGradient(
-                                        colors = listOf(Color.Transparent, Color.Transparent),
-                                    )
-                                },
+                                if (isSelected) GlassFillLow else Color.Transparent,
                             )
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(bounded = true, color = TertiaryCyan),
+                                indication = ripple(bounded = true, color = PrimaryPinkContainer),
                                 onClick = { onTabSelected(tab.route) },
                             )
                             .testTag("nav_tab_${tab.route}"),
@@ -164,35 +139,20 @@ fun BottomNavBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (isSelected) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .drawBehind {
-                                                drawCircle(
-                                                    color = TertiaryCyan.copy(alpha = 0.22f),
-                                                    radius = 14.dp.toPx(),
-                                                )
-                                            },
-                                    )
-                                }
-
-                                Icon(
-                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.label,
-                                    tint = itemColor,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                            }
+                            Icon(
+                                imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                contentDescription = tab.label,
+                                tint = itemColor,
+                                modifier = Modifier.size(22.dp),
+                            )
 
                             Spacer(modifier = Modifier.height(2.dp))
 
                             Text(
                                 text = tab.label,
                                 color = if (isSelected) PureWhite else TextMuted,
-                                fontSize = 10.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1,
                             )
                         }

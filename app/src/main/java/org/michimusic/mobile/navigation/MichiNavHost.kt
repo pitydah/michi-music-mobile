@@ -18,6 +18,7 @@ import org.michimusic.mobile.ui.components.BottomNavBar
 import org.michimusic.mobile.ui.components.MiniPlayer
 import org.michimusic.mobile.ui.screens.AlbumsScreen
 import org.michimusic.mobile.ui.screens.AudioRouteScreen
+import org.michimusic.mobile.ui.screens.DevicesScreen
 import org.michimusic.mobile.ui.screens.DiagnosticsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
@@ -36,26 +37,33 @@ fun MichiNavHost() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDest = backStackEntry?.destination
     val currentRoute = currentDest?.route
-    val miniPlayerVisible = currentRoute != "nowplaying"
+    val isFullscreenNowPlaying = currentRoute == "nowplaying"
+    val miniPlayerVisible = !isFullscreenNowPlaying
 
     Scaffold(
         containerColor = SurfaceObsidian,
         bottomBar = {
-            BottomNavBar(
-                currentRoute = currentRoute,
-                onTabSelected = { route ->
-                    navController.navigate(route) {
-                        popUpTo(navController.graph.findStartDestination().id) {
-                            saveState = true
+            if (!isFullscreenNowPlaying) {
+                BottomNavBar(
+                    currentRoute = currentRoute,
+                    onTabSelected = { route ->
+                        navController.navigate(route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
                         }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-            )
+                    },
+                )
+            }
         },
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(if (isFullscreenNowPlaying) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding),
+        ) {
             NavHost(
                 navController = navController,
                 startDestination = "home",
@@ -63,22 +71,38 @@ fun MichiNavHost() {
                     .fillMaxSize()
                     .padding(bottom = if (miniPlayerVisible) 68.dp else 0.dp),
             ) {
-                composable("home") { HomeScreen(onNavigateToSearch = { navController.navigate("search") }) }
+                composable("home") {
+                    HomeScreen(
+                        onNavigateToSearch = { navController.navigate("search") },
+                        onNavigateToSettings = { navController.navigate("settings") },
+                        onNavigateToDevices = { navController.navigate("devices") },
+                    )
+                }
                 composable("library") { AlbumsScreen() }
+                composable("search") { SearchScreen() }
+                composable("devices") {
+                    DevicesScreen(
+                        onNavigateToSettings = { navController.navigate("settings") },
+                        onNavigateToSynced = { navController.navigate("synced") },
+                    )
+                }
                 composable("nowplaying") {
                     NowPlayingScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
+                composable("settings") {
+                    SettingsScreen(
+                        onNavigateToDiagnostics = { navController.navigate("diagnostics") },
+                    )
+                }
                 composable("playlist") { PlaylistScreen() }
                 composable("queue") { QueueScreen() }
-                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("sync") }) }
-                composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
                 composable("synced") { SyncedTracksScreen() }
-                composable("search") { SearchScreen() }
-                composable("settings") { SettingsScreen(onNavigateToDiagnostics = { navController.navigate("diagnostics") }) }
                 composable("diagnostics") { DiagnosticsScreen() }
                 composable("audio-route") { AudioRouteScreen() }
+                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("devices") }) }
+                composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
             }
 
             MiniPlayer(

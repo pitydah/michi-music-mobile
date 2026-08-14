@@ -65,6 +65,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.collectAsState
+import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -509,6 +510,9 @@ fun QrScannerDialog(
         label = "laser_pos",
     )
 
+    var manualCode by remember { mutableStateOf("") }
+    var scanError by remember { mutableStateOf<String?>(null) }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -531,7 +535,7 @@ fun QrScannerDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Escanear QR de Escritorio",
+                        text = "Vincular Dispositivo",
                         color = PureWhite,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -547,19 +551,19 @@ fun QrScannerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Apunta la cámara al código QR mostrado en Michi Music Desktop para emparejar.",
+                    text = "Apunta la cámara al código QR de Michi Link o ingresa el código de vinculación.",
                     color = OnSurfaceVariant,
                     fontSize = 13.sp,
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Box(
                     modifier = Modifier
-                        .size(200.dp)
+                        .size(180.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(SurfaceObsidian)
-                        .border(2.dp, TertiaryCyan, RoundedCornerShape(16.dp))
+                        .border(1.5.dp, TertiaryCyan, RoundedCornerShape(16.dp))
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -567,7 +571,7 @@ fun QrScannerDialog(
                         imageVector = Icons.Filled.QrCodeScanner,
                         contentDescription = null,
                         tint = Color(0x337DF4FF),
-                        modifier = Modifier.size(100.dp),
+                        modifier = Modifier.size(90.dp),
                     )
 
                     Box(
@@ -575,7 +579,7 @@ fun QrScannerDialog(
                             .fillMaxWidth()
                             .height(2.dp)
                             .align(Alignment.TopCenter)
-                            .padding(top = (160 * laserY).dp)
+                            .padding(top = (140 * laserY).dp)
                             .background(
                                 Brush.horizontalGradient(
                                     listOf(Color.Transparent, TertiaryCyan, Color.Transparent),
@@ -584,20 +588,54 @@ fun QrScannerDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = manualCode,
+                    onValueChange = {
+                        manualCode = it
+                        scanError = null
+                    },
+                    label = { Text("Código de vinculación / Token") },
+                    placeholder = { Text("Ej. MLINK-9281 / JSON", color = OnSurfaceVariant) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = TertiaryCyan,
+                        unfocusedBorderColor = GlassBorderLow,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (scanError != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = scanError!!,
+                        color = ErrorColor,
+                        fontSize = 12.sp,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
                     onClick = {
-                        onScanSuccess("Michi-Desktop-AutoPaired")
-                        onDismiss()
+                        val trimmed = manualCode.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onScanSuccess(trimmed)
+                            onDismiss()
+                        } else {
+                            scanError = "Por favor ingresa un código o token válido"
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = TertiaryCyanContainer),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Emparejar Automáticamente", color = SurfaceObsidian, fontWeight = FontWeight.Bold)
+                    Text("Vincular", color = PureWhite, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -609,8 +647,9 @@ fun ManualConnectionDialog(
     onConnect: (name: String, ip: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var serverName by remember { mutableStateOf("Desktop-Linux") }
-    var ipAddress by remember { mutableStateOf("192.168.1.50:7331") }
+    var serverName by remember { mutableStateOf("") }
+    var ipAddress by remember { mutableStateOf("") }
+    var connectionError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -651,8 +690,13 @@ fun ManualConnectionDialog(
 
                 OutlinedTextField(
                     value = serverName,
-                    onValueChange = { serverName = it },
-                    label = { Text("Nombre del Servidor") },
+                    onValueChange = {
+                        serverName = it
+                        connectionError = null
+                    },
+                    label = { Text("Nombre del Dispositivo") },
+                    placeholder = { Text("Ej. Michi Server", color = OnSurfaceVariant) },
+                    singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = PureWhite,
                         unfocusedTextColor = PureWhite,
@@ -666,8 +710,13 @@ fun ManualConnectionDialog(
 
                 OutlinedTextField(
                     value = ipAddress,
-                    onValueChange = { ipAddress = it },
+                    onValueChange = {
+                        ipAddress = it
+                        connectionError = null
+                    },
                     label = { Text("Dirección IP y Puerto") },
+                    placeholder = { Text("192.168.1.X:7331", color = OnSurfaceVariant) },
+                    singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = PureWhite,
                         unfocusedTextColor = PureWhite,
@@ -677,12 +726,27 @@ fun ManualConnectionDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                if (connectionError != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = connectionError!!,
+                        color = ErrorColor,
+                        fontSize = 12.sp,
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
                     onClick = {
-                        onConnect(serverName, ipAddress)
-                        onDismiss()
+                        val trimmedIp = ipAddress.trim()
+                        val trimmedName = serverName.trim().ifEmpty { "Michi Node" }
+                        if (trimmedIp.isNotEmpty()) {
+                            onConnect(trimmedName, trimmedIp)
+                            onDismiss()
+                        } else {
+                            connectionError = "Por favor ingresa la IP y puerto del dispositivo"
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -690,7 +754,7 @@ fun ManualConnectionDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Conectar Ahora", color = PureWhite, fontWeight = FontWeight.Bold)
+                    Text("Conectar", color = PureWhite, fontWeight = FontWeight.Bold)
                 }
             }
         }

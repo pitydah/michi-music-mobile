@@ -71,4 +71,11 @@ class SyncViewModelTest {
         val uiState = viewModel.uiState.value
         assertNotNull(uiState)
     }
+
+    @Test
+    fun connectManual_triggersDiscoveryState() = runTest(testDispatcher) {
+        viewModel.connectManual("Test Server", "192.168.1.50", 53318)
+        testScheduler.advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value)
+    }
 }

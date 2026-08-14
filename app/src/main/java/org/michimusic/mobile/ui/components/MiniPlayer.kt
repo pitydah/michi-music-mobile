@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -35,8 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -44,12 +41,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
-import org.michimusic.mobile.ui.theme.GlassBorderHigh
-import org.michimusic.mobile.ui.theme.GlassFillOverlay
+import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.GlassFillHigh
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.player.AudioController
 
@@ -76,25 +75,17 @@ fun MiniPlayer(
             } else {
                 0f
             }
-            val shape = RoundedCornerShape(16.dp)
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .drawBehind {
-                        drawCircle(
-                            color = TertiaryCyan.copy(alpha = 0.15f),
-                            radius = size.maxDimension * 0.5f,
-                            center = center,
-                        )
-                    }
-                    .clip(shape)
-                    .background(GlassFillOverlay)
-                    .border(1.dp, GlassBorderHigh, shape)
+                    .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 4.dp)
+                    .clip(MichiShapes.md)
+                    .background(GlassFillHigh)
+                    .border(1.dp, GlassBorderLow, MichiShapes.md)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = ripple(color = TertiaryCyan),
+                        indication = ripple(color = PrimaryPinkContainer),
                         onClick = onClick,
                     )
                     .testTag("mini_player_bar"),
@@ -104,18 +95,14 @@ fun MiniPlayer(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(2.5.dp)
+                            .height(2.dp)
                             .background(Color(0x22FFFFFF)),
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth(fraction = progressFraction)
-                                .height(2.5.dp)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(PrimaryPinkContainer, SecondaryPurple, TertiaryCyan),
-                                    ),
-                                ),
+                                .height(2.dp)
+                                .background(PrimaryPinkContainer),
                         )
                     }
 
@@ -129,42 +116,40 @@ fun MiniPlayer(
                         // Album artwork thumbnail
                         AlbumArtView(
                             coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
-                            imageModel = currentTrack.coverId,
-                            modifier = Modifier.size(44.dp),
-                            cornerRadius = 10.dp,
+                            imageModel = currentTrack.filepath.ifEmpty { currentTrack.coverId },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(MichiShapes.xs),
                         )
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        // Title & Artist
-                        Column(
-                            modifier = Modifier.weight(1f),
-                        ) {
+                        // Title, Artist & Endpoint
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = currentTrack.title,
                                 color = PureWhite,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                style = MichiTypography.trackTitle,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(
-                                text = currentTrack.artist,
-                                color = TertiaryCyan,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = currentTrack.artist,
+                                    color = OnSurfaceVariant,
+                                    style = MichiTypography.metadata,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                Text(
+                                    text = " · Este teléfono",
+                                    color = TertiaryCyan,
+                                    style = MichiTypography.microLabel,
+                                    maxLines = 1,
+                                )
+                            }
                         }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Animated mini equalizer
-                        EqualizerWaveBars(
-                            isPlaying = isPlaying,
-                            barCount = 3,
-                            color = TertiaryCyan,
-                        )
 
                         Spacer(modifier = Modifier.width(6.dp))
 
@@ -174,31 +159,37 @@ fun MiniPlayer(
                                 if (isPlaying) audioController.pause() else audioController.play()
                             },
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(Color(0x1FFFFFFF))
+                                .size(MichiSpacing.minTouchTarget)
                                 .testTag("mini_player_play_pause"),
                         ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                                tint = PureWhite,
-                                modifier = Modifier.size(22.dp),
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(PrimaryPinkContainer),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                                    tint = PureWhite,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
 
                         // Next Track Button
                         IconButton(
                             onClick = { audioController.skipNext() },
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(MichiSpacing.minTouchTarget)
                                 .testTag("mini_player_next"),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SkipNext,
                                 contentDescription = "Siguiente Canción",
-                                tint = OnSurfaceVariant,
-                                modifier = Modifier.size(24.dp),
+                                tint = PureWhite,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }

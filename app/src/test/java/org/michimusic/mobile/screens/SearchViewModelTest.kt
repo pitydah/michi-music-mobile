@@ -145,6 +145,17 @@ class SearchViewModelTest {
         assertTrue(results.isNotEmpty())
         assertTrue(results.all { it.track.filepath.isNotEmpty() })
     }
+
+    @Test
+    fun structuredResults_groupsArtistsAndAlbums() = runTest(testDispatcher) {
+        viewModel.loadLocalTracks()
+        testScheduler.advanceUntilIdle()
+        viewModel.setQuery("Artist")
+        testScheduler.advanceUntilIdle()
+        val structured = viewModel.structuredResults.value
+        assertTrue(structured.artists.isNotEmpty())
+        assertEquals("Artist 1", structured.artists.first().artist)
+    }
 }
 
 private class FakeLocalMediaRepository : LocalMediaRepository() {
