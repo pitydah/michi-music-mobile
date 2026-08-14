@@ -65,6 +65,8 @@ class SearchViewModel(
                 val albums = localRepo.loadAlbums()
                 localTracks = albums.flatMap { it.tracks }
                 syncedTracks = syncedRepo.getAllSynced().first()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _error.value = e.message ?: "Error al cargar canciones"
             } finally {

@@ -12,8 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -26,6 +29,13 @@ data class ServerEvent(
     val payload: JsonElement? = null,
     val timestamp: String = "",
 )
+
+enum class EventConnectionState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED,
+    ERROR,
+}
 
 class EventClient(
     private val baseUrl: String,
@@ -43,6 +53,9 @@ class EventClient(
     private val _events = MutableSharedFlow<ServerEvent>(replay = 1, extraBufferCapacity = 64)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
 
+    private val _connectionState = MutableStateFlow(EventConnectionState.DISCONNECTED)
+    val connectionState: StateFlow<EventConnectionState> = _connectionState.asStateFlow()
+
     private var connectionJob: Job? = null
     private var reconnectJob: Job? = null
 
@@ -50,15 +63,30 @@ class EventClient(
 
     fun connect(scope: CoroutineScope) {
         disconnect()
+        _connectionState.value = EventConnectionState.CONNECTING
         reconnectJob = scope.launch(ioDispatcher) {
+            var backoffMs = 1_000L
             while (isActive) {
                 try {
-                    connectionJob = listen(scope)
+                    _connectionState.value = EventConnectionState.CONNECTING
+                    connectionJob = listen(scope) {
+                        _connectionState.value = EventConnectionState.CONNECTED
+                        backoffMs = 1_000L // Reset backoff upon successful connection
+                    }
                     connectionJob?.join()
+                } catch (_: kotlinx.coroutines.CancellationException) {
+                    break
                 } catch (_: Exception) {
+                    _connectionState.value = EventConnectionState.ERROR
                 }
-                delay(5_000L)
+
+                if (isActive) {
+                    _connectionState.value = EventConnectionState.CONNECTING
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+                }
             }
+            _connectionState.value = EventConnectionState.DISCONNECTED
         }
     }
 
@@ -67,14 +95,19 @@ class EventClient(
         reconnectJob = null
         connectionJob?.cancel()
         connectionJob = null
+        _connectionState.value = EventConnectionState.DISCONNECTED
     }
 
-    private suspend fun listen(scope: CoroutineScope): Job = scope.launch(ioDispatcher) {
+    private suspend fun listen(
+        scope: CoroutineScope,
+        onConnected: () -> Unit = {},
+    ): Job = scope.launch(ioDispatcher) {
         try {
             client.prepareGet("$baseUrl/api/v1/events/sse") {
                 header("Authorization", "Bearer $token")
                 if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
             }.execute { response ->
+                onConnected()
                 val channel = response.bodyAsChannel()
                 while (isActive && !channel.isClosedForRead) {
                     val line = channel.readUTF8Line() ?: break
@@ -89,6 +122,10 @@ class EventClient(
                     }
                 }
             }
-        } catch (_: Throwable) { }
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            // Normal cancellation
+        } catch (_: Throwable) {
+            _connectionState.value = EventConnectionState.ERROR
+        }
     }
 }

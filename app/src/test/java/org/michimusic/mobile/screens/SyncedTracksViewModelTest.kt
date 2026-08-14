@@ -5,7 +5,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.michimusic.core.models.ManifestPlaylist
@@ -22,14 +21,8 @@ class SyncedTracksViewModelTest {
 
     private val testDispatcher get() = mainDispatcherRule.testDispatcher
 
-    private lateinit var repository: SyncedTrackRepository
-    private lateinit var viewModel: SyncedTracksViewModel
-
-    @Before
-    fun setup() {
-        repository = FakeSyncedRepo()
-        viewModel = SyncedTracksViewModel(repository)
-    }
+    private val repository = FakeSyncedRepo()
+    private val viewModel by lazy { SyncedTracksViewModel(repository) }
 
     @Test
     fun toTrack_mapsAllFields() = runTest(testDispatcher) {
