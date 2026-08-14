@@ -384,6 +384,13 @@ fun RemoteScreen(
                                     ),
                                 )
                                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
+                                Text(
+                                    text = "${playerState.effectiveVolume}%",
+                                    color = TertiaryCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(36.dp),
+                                )
                             }
                         }
                     }

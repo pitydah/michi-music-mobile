@@ -112,20 +112,26 @@ fun SettingsSlider(
     valueLabel: String,
     valueRange: ClosedFloatingPointRange<Float> = 0f..12f,
     steps: Int = 0,
+    accentColor: androidx.compose.ui.graphics.Color = AccentCoral,
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
+            Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = accentColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+        }
         Spacer(Modifier.height(4.dp))
-        Text("Pre-amp: ${valueLabel}dB", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-        Spacer(Modifier.height(2.dp))
         Slider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
             steps = steps,
             colors = SliderDefaults.colors(
-                thumbColor = AccentCoral,
-                activeTrackColor = AccentCoral,
+                thumbColor = accentColor,
+                activeTrackColor = accentColor,
                 inactiveTrackColor = SurfaceElevated,
             ),
         )

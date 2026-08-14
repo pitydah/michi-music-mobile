@@ -420,7 +420,7 @@ fun EqualizerDialog(
                                 colors = SliderDefaults.colors(
                                     thumbColor = TertiaryCyan,
                                     activeTrackColor = TertiaryCyan,
-                                    inactiveTrackColor = GlassBorderLow,
+                                    inactiveTrackColor = GlassFillHigh,
                                 ),
                             )
                             Text(
@@ -454,7 +454,7 @@ fun EqualizerDialog(
                             colors = SliderDefaults.colors(
                                 thumbColor = PrimaryPink,
                                 activeTrackColor = PrimaryPink,
-                                inactiveTrackColor = GlassBorderLow,
+                                inactiveTrackColor = GlassFillHigh,
                             ),
                         )
                     }
@@ -472,7 +472,7 @@ fun EqualizerDialog(
                             colors = SliderDefaults.colors(
                                 thumbColor = SecondaryPurple,
                                 activeTrackColor = SecondaryPurple,
-                                inactiveTrackColor = GlassBorderLow,
+                                inactiveTrackColor = GlassFillHigh,
                             ),
                         )
                     }
