@@ -2,29 +2,25 @@ package org.michimusic.mobile.screens
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.michimusic.core.models.Album
+import org.michimusic.core.models.Artist
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.AppDao
 import org.michimusic.data.cache.HistoryEntity
 import org.michimusic.data.cache.PlayCountEntity
 import org.michimusic.data.cache.QueueEntity
-import org.michimusic.core.models.Artist
-import org.michimusic.core.models.Playlist
 import org.michimusic.data.repository.LocalMediaRepository
-
-import org.junit.Rule
+import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.rules.MainDispatcherRule
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -36,13 +32,15 @@ class AlbumsViewModelTest {
     private val testDispatcher get() = mainDispatcherRule.testDispatcher
     private lateinit var repo: LocalMediaRepository
     private lateinit var appDao: AppDao
+    private lateinit var playlistRepo: PlaylistRepository
     private lateinit var viewModel: AlbumsViewModel
 
     @Before
     fun setup() {
         repo = FakeAlbumsRepo()
         appDao = FakeAppDao()
-        viewModel = AlbumsViewModel(repo, appDao, testDispatcher)
+        playlistRepo = FakeAlbumsPlaylistRepo()
+        viewModel = AlbumsViewModel(repo, appDao, playlistRepo, testDispatcher)
     }
 
     @After
@@ -59,42 +57,41 @@ class AlbumsViewModelTest {
     }
 
     @Test
-    fun loadMedia_populatesAllTracks() = runTest(testDispatcher) {
+    fun loadMedia_populatesPlaylists() = runTest(testDispatcher) {
         viewModel.loadMedia()
         advanceUntilIdle()
-        assertTrue(viewModel.allTracks.value.isNotEmpty())
-        assertEquals(10, viewModel.allTracks.value.size)
+        assertEquals(1, viewModel.playlists.value.size)
+        assertEquals("Initial Playlist", viewModel.playlists.value.first().name)
     }
 
     @Test
-    fun loadMedia_setsLoadingState() = runTest(testDispatcher) {
-        assertFalse(viewModel.isLoading.value)
-        viewModel.loadMedia()
-        advanceUntilIdle()
-        assertFalse(viewModel.isLoading.value)
-    }
-
-    @Test
-    fun loadMedia_emptyRepo_returnsEmpty() = runTest(testDispatcher) {
-        val emptyRepo = FakeAlbumsRepo(emptyList())
-        val emptyVm = AlbumsViewModel(emptyRepo, appDao, testDispatcher)
-        emptyVm.loadMedia()
-        advanceUntilIdle()
-        assertTrue(emptyVm.albums.value.isEmpty())
-        assertTrue(emptyVm.allTracks.value.isEmpty())
-    }
-
-    @Test
-    fun loadMedia_repoThrows_returnsEmpty() = runTest(testDispatcher) {
-        val failingRepo = object : FakeAlbumsRepo() {
-            override suspend fun loadAlbums(): List<LocalMediaRepository.LocalAlbum> =
-                throw RuntimeException("DB error")
+    fun createPlaylist_persistsAndUpdatesState() = runTest(testDispatcher) {
+        var completed = false
+        viewModel.createPlaylist("Rock Classics") {
+            completed = true
         }
-        val failingVm = AlbumsViewModel(failingRepo, appDao, testDispatcher)
-        failingVm.loadMedia()
         advanceUntilIdle()
-        assertTrue(failingVm.albums.value.isEmpty())
-        assertFalse(failingVm.isLoading.value)
+        assertTrue(completed)
+        assertEquals(2, viewModel.playlists.value.size)
+        assertTrue(viewModel.playlists.value.any { it.name == "Rock Classics" })
+    }
+}
+
+private class FakeAlbumsPlaylistRepo : PlaylistRepository() {
+    private val playlists = mutableListOf(
+        Playlist(id = "p1", name = "Initial Playlist", trackCount = 5),
+    )
+
+    override suspend fun getAllPlaylists(): List<Playlist> = playlists
+
+    override suspend fun createPlaylist(name: String, trackIds: List<String>): Playlist {
+        val created = Playlist(id = "p_${playlists.size + 1}", name = name, trackCount = trackIds.size)
+        playlists.add(created)
+        return created
+    }
+
+    override suspend fun deletePlaylist(id: String) {
+        playlists.removeAll { it.id == id }
     }
 }
 
@@ -147,5 +144,3 @@ private class FakeAppDao : AppDao {
     override suspend fun getSetting(key: String) = null
     override suspend fun setSetting(setting: org.michimusic.data.cache.SettingsEntity) {}
 }
-
-

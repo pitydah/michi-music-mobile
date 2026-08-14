@@ -27,6 +27,7 @@ import org.michimusic.link.TokenStore
 import org.michimusic.link.dto.PairConfirmResponseDto
 import org.michimusic.link.dto.PairStartResponseDto
 import org.michimusic.link.dto.PairingStrategy
+import org.michimusic.link.dto.QrClaimRequest
 import org.michimusic.link.dto.ServerInfoDto
 import org.michimusic.link.errors.LinkException
 
@@ -113,11 +114,13 @@ class SyncViewModel(
         }
     }
 
-    fun connectManual(name: String, host: String, port: Int) {
+    fun connectManual(name: String, host: String, port: Int = 53318) {
+        val parsedHost = if (host.contains(":")) host.substringBefore(":") else host
+        val parsedPort = if (host.contains(":")) host.substringAfter(":").toIntOrNull() ?: port else port
         val peer = DiscoveredPeer(
-            alias = name,
-            ip = host,
-            port = port,
+            alias = name.ifBlank { "Michi Node" },
+            ip = parsedHost.trim(),
+            port = parsedPort,
         )
         linkSession.updateState(SyncConnectionState.DISCOVERING)
         selectPeer(peer)
@@ -415,6 +418,110 @@ class SyncViewModel(
                     }
                 }
         }
+    }
+
+    fun pairWithQr(qrContent: String, onResult: (Boolean, String) -> Unit) {
+        if (qrContent.isBlank()) {
+            onResult(false, "El código QR está vacío")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                var host: String? = null
+                var port = 53318
+                var qrCode: String = qrContent.trim()
+
+                if (qrContent.startsWith("michi://") || qrContent.startsWith("http://") || qrContent.startsWith("https://")) {
+                    val uri = android.net.Uri.parse(qrContent)
+                    uri.getQueryParameter("host")?.let { host = it }
+                    uri.getQueryParameter("port")?.toIntOrNull()?.let { port = it }
+                    uri.getQueryParameter("code")?.let { qrCode = it }
+                    uri.getQueryParameter("qr_code")?.let { qrCode = it }
+                } else if (qrContent.startsWith("{") && qrContent.endsWith("}")) {
+                    try {
+                        val jsonObj = org.json.JSONObject(qrContent)
+                        if (jsonObj.has("host")) host = jsonObj.getString("host")
+                        if (jsonObj.has("port")) port = jsonObj.getInt("port")
+                        if (jsonObj.has("qr_code")) qrCode = jsonObj.getString("qr_code")
+                        else if (jsonObj.has("code")) qrCode = jsonObj.getString("code")
+                    } catch (_: Exception) {}
+                }
+
+                val targetHost = host
+                    ?: currentClient?.baseUrl?.substringAfter("://")?.substringBefore(":")
+                    ?: linkSession.connectedPeer.value?.ip
+
+                if (targetHost.isNullOrBlank()) {
+                    val firstPeer = linkDiscovery.peers.value.values.firstOrNull()
+                    if (firstPeer != null) {
+                        val client = LinkClient(baseUrl = "http://${firstPeer.ip}:${firstPeer.port}", clientDeviceId = clientId)
+                        executeQrClaim(client, firstPeer, qrCode, onResult)
+                    } else {
+                        onResult(false, "No se encontró ningún servidor Michi en tu red local.")
+                    }
+                    return@launch
+                }
+
+                val baseUrl = "http://$targetHost:$port"
+                val client = LinkClient(baseUrl = baseUrl, clientDeviceId = clientId)
+                val peer = DiscoveredPeer(
+                    alias = "Michi Node",
+                    ip = targetHost,
+                    port = port,
+                    deviceType = "server",
+                    deviceId = "",
+                )
+                executeQrClaim(client, peer, qrCode, onResult)
+            } catch (e: Exception) {
+                onResult(false, "Error al procesar el código: ${e.message}")
+            }
+        }
+    }
+
+    private suspend fun executeQrClaim(
+        client: LinkClient,
+        peer: DiscoveredPeer,
+        qrCode: String,
+        onResult: (Boolean, String) -> Unit,
+    ) {
+        client.claimQr(qrCode, QrClaimRequest(clientDeviceId = clientId)).fold(
+            onSuccess = { response ->
+                if (response.success && response.deviceToken.isNotBlank()) {
+                    tokenStore.save(
+                        serverId = response.deviceId.ifEmpty { peer.deviceId },
+                        serverName = peer.alias,
+                        service = "michi-link",
+                        serverDeviceId = response.deviceId,
+                        serverAlias = peer.alias,
+                        clientDeviceId = clientId,
+                        deviceToken = response.deviceToken,
+                        refreshToken = response.refreshToken,
+                        permissions = listOf("playback", "library", "sync"),
+                        serverUrl = client.baseUrl,
+                        roles = listOf("server"),
+                        features = emptyList(),
+                        authStrategy = PairingStrategy.SERVER_CODE,
+                        tokenRefreshSupported = true,
+                    )
+                    client.deviceToken = response.deviceToken
+                    currentClient = client
+                    linkSession.onConnected(peer, client)
+                    onResult(true, "Dispositivo vinculado correctamente")
+                } else {
+                    onResult(false, "El código QR es inválido o ha expirado")
+                }
+            },
+            onFailure = { err ->
+                val msg = when {
+                    err.message?.contains("404") == true -> "Código QR expirado o no encontrado"
+                    err.message?.contains("401") == true -> "Permiso denegado por el servidor"
+                    err.message?.contains("Connect") == true -> "No se pudo conectar con el servidor"
+                    else -> "Error de vinculación: ${err.message ?: "Intenta de nuevo"}"
+                }
+                onResult(false, msg)
+            }
+        )
     }
 
     fun clearError() { _error.value = null }

@@ -9,15 +9,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.AppDao
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
+import org.michimusic.data.repository.PlaylistRepository
 
 class AlbumsViewModel(
     private val repo: LocalMediaRepository,
     private val appDao: AppDao,
+    private val playlistRepo: PlaylistRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
@@ -32,6 +34,9 @@ class AlbumsViewModel(
 
     private val _recentTracks = MutableStateFlow<List<Track>>(emptyList())
     val recentTracks: StateFlow<List<Track>> = _recentTracks.asStateFlow()
+
+    private val _playlists = MutableStateFlow<List<Playlist>>(emptyList())
+    val playlists: StateFlow<List<Playlist>> = _playlists.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -70,18 +75,41 @@ class AlbumsViewModel(
                 } catch (e: Exception) {
                     emptyList<Track>() to emptyList<Track>()
                 }
+                val loadedPlaylists = try {
+                    playlistRepo.getAllPlaylists()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+
                 _albums.value = result
                 _allTracks.value = tracks
                 _topTracks.value = smartLists.first
                 _recentTracks.value = smartLists.second
+                _playlists.value = loadedPlaylists
             } catch (e: Exception) {
                 _albums.value = emptyList()
                 _allTracks.value = emptyList()
                 _topTracks.value = emptyList()
                 _recentTracks.value = emptyList()
+                _playlists.value = emptyList()
                 _error.value = e.message ?: "Error al cargar la biblioteca"
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    fun createPlaylist(name: String, onComplete: () -> Unit) {
+        if (name.isBlank()) return
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                playlistRepo.createPlaylist(name)
+                val updated = playlistRepo.getAllPlaylists()
+                _playlists.value = updated
+            } catch (e: Exception) {
+                _error.value = "Error al crear la playlist: ${e.message}"
+            } finally {
+                onComplete()
             }
         }
     }

@@ -36,11 +36,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
+import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -58,9 +57,14 @@ fun MiniPlayer(
     onClick: () -> Unit = {},
     visible: Boolean = true,
 ) {
+    val sessionManager: PlaybackSessionManager = koinInject()
+    val sessionState by sessionManager.sessionState.collectAsState()
+    val activeEndpoint = sessionState.activeEndpoint
+
     val audioController: AudioController = koinInject()
-    val state by audioController.state.collectAsState()
-    val currentTrack = state.currentTrack
+    val localState by audioController.state.collectAsState()
+
+    val currentTrack = sessionState.currentTrack ?: localState.currentTrack
 
     AnimatedVisibility(
         visible = visible && currentTrack != null,
@@ -69,9 +73,9 @@ fun MiniPlayer(
         modifier = modifier,
     ) {
         if (currentTrack != null) {
-            val isPlaying = state.isPlaying
-            val progressFraction = if (state.duration > 0) {
-                (state.position.toFloat() / state.duration.toFloat()).coerceIn(0f, 1f)
+            val isPlaying = sessionState.isPlaying
+            val progressFraction = if (sessionState.duration > 0) {
+                (sessionState.position.toFloat() / sessionState.duration.toFloat()).coerceIn(0f, 1f)
             } else {
                 0f
             }
@@ -124,7 +128,7 @@ fun MiniPlayer(
 
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        // Title, Artist & Endpoint
+                        // Title, Artist & Real Active Endpoint
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = currentTrack.title,
@@ -143,8 +147,8 @@ fun MiniPlayer(
                                     modifier = Modifier.weight(1f, fill = false),
                                 )
                                 Text(
-                                    text = " · Este teléfono",
-                                    color = TertiaryCyan,
+                                    text = " · ${activeEndpoint.name}",
+                                    color = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
                                     style = MichiTypography.microLabel,
                                     maxLines = 1,
                                 )
@@ -156,7 +160,7 @@ fun MiniPlayer(
                         // Play / Pause Button
                         IconButton(
                             onClick = {
-                                if (isPlaying) audioController.pause() else audioController.play()
+                                sessionManager.playPause()
                             },
                             modifier = Modifier
                                 .size(MichiSpacing.minTouchTarget)
@@ -180,7 +184,7 @@ fun MiniPlayer(
 
                         // Next Track Button
                         IconButton(
-                            onClick = { audioController.skipNext() },
+                            onClick = { sessionManager.skipNext() },
                             modifier = Modifier
                                 .size(MichiSpacing.minTouchTarget)
                                 .testTag("mini_player_next"),

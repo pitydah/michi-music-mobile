@@ -187,8 +187,17 @@ private class FakePlaylistDao : PlaylistDao {
     override suspend fun getAllPlaylists(): List<CachedPlaylist> =
         playlists.toList().sortedBy { it.name }
 
+    override suspend fun insert(playlist: CachedPlaylist) {
+        playlists.removeAll { it.id == playlist.id }
+        playlists.add(playlist)
+    }
+
     override suspend fun insertAll(items: List<CachedPlaylist>) {
         playlists.addAll(items)
+    }
+
+    override suspend fun deleteById(id: String) {
+        playlists.removeAll { it.id == id }
     }
 
     override suspend fun deleteAll() {

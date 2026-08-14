@@ -11,7 +11,13 @@ interface PlaylistDao {
     suspend fun getAllPlaylists(): List<CachedPlaylist>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(playlist: CachedPlaylist)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(playlists: List<CachedPlaylist>)
+
+    @Query("DELETE FROM cached_playlists WHERE id = :id")
+    suspend fun deleteById(id: String)
 
     @Query("DELETE FROM cached_playlists")
     suspend fun deleteAll()

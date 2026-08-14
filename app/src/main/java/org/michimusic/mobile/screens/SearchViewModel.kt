@@ -34,6 +34,7 @@ data class SearchArtistResult(
     val artist: String,
     val trackCount: Int,
     val sampleTrack: Track?,
+    val tracks: List<Track> = emptyList(),
 )
 
 data class SearchAlbumResult(
@@ -41,6 +42,7 @@ data class SearchAlbumResult(
     val artist: String,
     val trackCount: Int,
     val sampleTrack: Track?,
+    val tracks: List<Track> = emptyList(),
 )
 
 data class SearchTrackResult(
@@ -136,12 +138,8 @@ class SearchViewModel(
         }
     }
 
-    private fun executeSearch(q: String) {
-        _isSearching.value = true
-        val lower = q.lowercase()
-        val filter = _selectedFilter.value
-
-        val allCombinedTracks = localTracks + syncedTracks.map { cached ->
+    private fun getCombinedDeduplicatedTracks(): List<Track> {
+        val convertedSynced = syncedTracks.map { cached ->
             Track(
                 id = cached.id,
                 title = cached.title,
@@ -161,6 +159,21 @@ class SearchViewModel(
             )
         }
 
+        // Deduplicate using unique key (id or title+artist+album)
+        val combined = localTracks + convertedSynced
+        return combined.distinctBy { track ->
+            val key = "${track.title.trim().lowercase()}___${track.artist.trim().lowercase()}___${track.album.trim().lowercase()}"
+            if (key.length > 6) key else track.id
+        }
+    }
+
+    private fun executeSearch(q: String) {
+        _isSearching.value = true
+        val lower = q.lowercase()
+        val filter = _selectedFilter.value
+
+        val allCombinedTracks = getCombinedDeduplicatedTracks()
+
         // Typed Artists
         val artistMatches = if (filter == SearchFilter.ALL || filter == SearchFilter.ARTISTS) {
             allCombinedTracks.filter { it.artist.lowercase().contains(lower) }
@@ -170,6 +183,7 @@ class SearchViewModel(
                         artist = artistName,
                         trackCount = tracks.size,
                         sampleTrack = tracks.firstOrNull(),
+                        tracks = tracks,
                     )
                 }.take(10)
         } else emptyList()
@@ -185,6 +199,7 @@ class SearchViewModel(
                         artist = first.artist,
                         trackCount = tracks.size,
                         sampleTrack = first,
+                        tracks = tracks,
                     )
                 }.take(10)
         } else emptyList()
@@ -200,7 +215,7 @@ class SearchViewModel(
                     (it.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (it.sampleRate ?: 0) >= 48000)
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
-                it.title.lowercase().contains(lower) && it.filepath.isNotEmpty()
+                it.title.lowercase().contains(lower) && (it.filepath.isNotEmpty() || it.source == TrackSource.LOCAL)
             }
         }.map { track ->
             SearchTrackResult(
@@ -231,7 +246,7 @@ class SearchViewModel(
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
                 (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
-                    it.filepath.isNotEmpty()
+                    (it.filepath.isNotEmpty() || it.source == TrackSource.LOCAL)
             }
         }.map { track ->
             SearchResult(track, if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local")

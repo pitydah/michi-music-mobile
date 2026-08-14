@@ -1,11 +1,9 @@
 package org.michimusic.mobile.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,13 +19,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLink
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LaptopMac
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -43,7 +43,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,11 +62,18 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
+import org.michimusic.mobile.playback.PlaybackEndpoint
+import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.mobile.sync.DeviceAction
+import org.michimusic.mobile.sync.DeviceActionResolver
+import org.michimusic.mobile.sync.DeviceActionType
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
@@ -77,9 +86,9 @@ import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
-import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceContainer
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
@@ -97,8 +106,11 @@ fun DevicesScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    val sessionManager: PlaybackSessionManager = koinInject()
+
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
+    var selectedPeerForDetails by remember { mutableStateOf<DiscoveredPeer?>(null) }
 
     LaunchedEffect(Unit) {
         if (uiState.state == SyncConnectionState.DISCONNECTED) {
@@ -132,24 +144,32 @@ fun DevicesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = MichiSpacing.screenHorizontal),
-                contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp),
+                contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(MichiSpacing.md),
             ) {
-                // Local Phone Card (Current Node)
+                // Local Phone Card
                 item {
                     LocalDeviceCard()
                 }
 
+                // Add Device Actions Row
+                item {
+                    AddDeviceShortcutsRow(
+                        onScanQr = { showQrDialog = true },
+                        onManualIp = { showManualDialog = true },
+                    )
+                }
+
                 // Discovered Nodes Section
                 item {
-                    Spacer(modifier = Modifier.height(MichiSpacing.sm))
+                    Spacer(modifier = Modifier.height(MichiSpacing.xs))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Nodos del Ecosistema Michi",
+                            text = "Dispositivos en tu red local",
                             style = MichiTypography.sectionTitle,
                         )
                         if (isSearching) {
@@ -183,117 +203,67 @@ fun DevicesScreen(
                 } else {
                     items(uiState.peers) { peer ->
                         val isConnected = uiState.connectedPeer?.ip == peer.ip &&
-                            uiState.state == SyncConnectionState.PAIRED
+                            (uiState.state == SyncConnectionState.PAIRED || uiState.state == SyncConnectionState.CONNECTED)
                         val isConnecting = uiState.connectedPeer?.ip == peer.ip &&
                             (uiState.state == SyncConnectionState.CONNECTING || uiState.state == SyncConnectionState.PAIRING)
+
+                        val actions = DeviceActionResolver.resolveActions(
+                            peer = peer,
+                            connectionState = uiState.state,
+                            isPeerConnected = isConnected,
+                            isConnecting = isConnecting,
+                        )
 
                         DeviceNodeCard(
                             peer = peer,
                             isConnected = isConnected,
                             isConnecting = isConnecting,
-                            onConnect = { viewModel.selectPeer(peer) },
-                            onDisconnect = { viewModel.disconnect() },
-                            onSync = {
-                                viewModel.syncLibrary()
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Sincronización iniciada con ${peer.alias}")
+                            actions = actions,
+                            onActionClick = { action ->
+                                when (action.type) {
+                                    DeviceActionType.CONNECT -> viewModel.selectPeer(peer)
+                                    DeviceActionType.DISCONNECT -> viewModel.disconnect()
+                                    DeviceActionType.SYNC_LIBRARY -> {
+                                        viewModel.syncLibrary()
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Sincronización iniciada con ${peer.alias}")
+                                        }
+                                    }
+                                    DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
+                                    DeviceActionType.CONTROL_PLAYBACK -> {
+                                        val endpoint = PlaybackEndpoint(
+                                            id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
+                                            name = peer.alias.ifEmpty { "Michi Node" },
+                                            type = org.michimusic.mobile.playback.EndpointType.DESKTOP_PLAYER,
+                                            isLocal = false,
+                                            isConnected = true,
+                                        )
+                                        sessionManager.switchEndpoint(endpoint) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
+                                    }
+                                    DeviceActionType.CONTINUE_PLAYBACK_HERE -> {
+                                        sessionManager.switchEndpoint(PlaybackEndpoint.LocalPhone) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
+                                    }
+                                    DeviceActionType.PLAY_ON_DEVICE -> {
+                                        val endpoint = PlaybackEndpoint(
+                                            id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
+                                            name = peer.alias.ifEmpty { "Michi Stream" },
+                                            type = org.michimusic.mobile.playback.EndpointType.STREAM_RECEIVER,
+                                            isLocal = false,
+                                            isConnected = true,
+                                        )
+                                        sessionManager.switchEndpoint(endpoint) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
+                                    }
+                                    DeviceActionType.VIEW_DETAILS -> selectedPeerForDetails = peer
                                 }
                             },
+                            onInfoClick = { selectedPeerForDetails = peer },
                         )
-                    }
-                }
-
-                // Quick Tools
-                item {
-                    Spacer(modifier = Modifier.height(MichiSpacing.sm))
-                    Text(
-                        text = "Herramientas de Conexión",
-                        style = MichiTypography.sectionTitle,
-                    )
-                }
-
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md),
-                    ) {
-                        GlassCard(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { showQrDialog = true },
-                            backgroundColor = GlassFillLow,
-                            borderColor = GlassBorderLow,
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(MichiSpacing.md),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.QrCodeScanner,
-                                    contentDescription = null,
-                                    tint = TertiaryCyan,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Escanear QR",
-                                    style = MichiTypography.cardTitle,
-                                    fontSize = 13.sp,
-                                )
-                            }
-                        }
-
-                        GlassCard(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { showManualDialog = true },
-                            backgroundColor = GlassFillLow,
-                            borderColor = GlassBorderLow,
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(MichiSpacing.md),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AddLink,
-                                    contentDescription = null,
-                                    tint = PrimaryPinkContainer,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Manual IP",
-                                    style = MichiTypography.cardTitle,
-                                    fontSize = 13.sp,
-                                )
-                            }
-                        }
-
-                        GlassCard(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable { onNavigateToSynced() },
-                            backgroundColor = GlassFillLow,
-                            borderColor = GlassBorderLow,
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(MichiSpacing.md),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.CloudDownload,
-                                    contentDescription = null,
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(24.dp),
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Descargas",
-                                    style = MichiTypography.cardTitle,
-                                    fontSize = 13.sp,
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -301,33 +271,49 @@ fun DevicesScreen(
 
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 72.dp),
         )
 
+        // QR Scanner Dialog
         if (showQrDialog) {
             QrScannerDialog(
-                onScanSuccess = { token ->
-                    viewModel.startDiscovery()
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Procesando vinculación: $token")
+                onScanSuccess = { code ->
+                    viewModel.pairWithQr(code) { success, msg ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar(msg)
+                        }
                     }
+                    showQrDialog = false
                 },
                 onDismiss = { showQrDialog = false },
             )
         }
 
+        // Manual Connection Dialog
         if (showManualDialog) {
             ManualConnectionDialog(
                 onConnect = { name, ip ->
-                    val parts = ip.split(":")
-                    val host = parts[0]
-                    val port = parts.getOrNull(1)?.toIntOrNull() ?: 7331
-                    viewModel.connectManual(name, host, port)
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Conectando a $name ($host:$port)...")
-                    }
+                    viewModel.connectManual(name, ip)
+                    showManualDialog = false
                 },
                 onDismiss = { showManualDialog = false },
+            )
+        }
+
+        // Device Details Dialog
+        selectedPeerForDetails?.let { peer ->
+            DeviceDetailsDialog(
+                peer = peer,
+                onDismiss = { selectedPeerForDetails = null },
+                onForget = {
+                    viewModel.forgetServer()
+                    selectedPeerForDetails = null
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Dispositivo olvidado")
+                    }
+                },
             )
         }
     }
@@ -343,17 +329,18 @@ private fun DevicesTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 8.dp),
+            .height(56.dp)
+            .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column {
             Text(
-                text = "ECOSISTEMA",
+                text = "MICHI LINK",
                 style = MichiTypography.screenEyebrow,
             )
             Text(
-                text = "Dispositivos",
+                text = "Tus Dispositivos",
                 style = MichiTypography.screenTitle,
             )
         }
@@ -361,32 +348,53 @@ private fun DevicesTopBar(
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(
                 onClick = onRefreshClick,
-                modifier = Modifier.size(MichiSpacing.minTouchTarget),
+                modifier = Modifier
+                    .size(MichiSpacing.minTouchTarget)
+                    .clip(CircleShape)
+                    .background(GlassFillLow)
+                    .testTag("devices_refresh_button"),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Refresh,
-                    contentDescription = "Buscar dispositivos",
+                    contentDescription = "Buscar Dispositivos",
                     tint = if (isSearching) TertiaryCyan else PureWhite,
+                    modifier = Modifier.size(20.dp),
                 )
             }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
             IconButton(
                 onClick = onQrClick,
-                modifier = Modifier.size(MichiSpacing.minTouchTarget),
+                modifier = Modifier
+                    .size(MichiSpacing.minTouchTarget)
+                    .clip(CircleShape)
+                    .background(GlassFillLow)
+                    .testTag("devices_qr_button"),
             ) {
                 Icon(
                     imageVector = Icons.Filled.QrCodeScanner,
                     contentDescription = "Escanear QR",
                     tint = PureWhite,
+                    modifier = Modifier.size(20.dp),
                 )
             }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
             IconButton(
                 onClick = onSettingsClick,
-                modifier = Modifier.size(MichiSpacing.minTouchTarget),
+                modifier = Modifier
+                    .size(MichiSpacing.minTouchTarget)
+                    .clip(CircleShape)
+                    .background(GlassFillLow)
+                    .testTag("devices_settings_button"),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Settings,
                     contentDescription = "Ajustes",
                     tint = PureWhite,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
@@ -396,7 +404,9 @@ private fun DevicesTopBar(
 @Composable
 private fun LocalDeviceCard() {
     GlassCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("local_device_card"),
         backgroundColor = GlassFillLow,
         borderColor = GlassBorderLow,
     ) {
@@ -424,11 +434,11 @@ private fun LocalDeviceCard() {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Este teléfono (${android.os.Build.MODEL})",
+                    text = "Este teléfono",
                     style = MichiTypography.cardTitle,
                 )
                 Text(
-                    text = "Nodo local · Media3 / ExoPlayer",
+                    text = "Reproducción local · ${android.os.Build.MODEL}",
                     style = MichiTypography.metadata,
                 )
             }
@@ -440,10 +450,91 @@ private fun LocalDeviceCard() {
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Text(
-                    text = "Activo",
+                    text = "● Activo",
                     style = MichiTypography.microLabel,
                     color = TertiaryCyan,
                     fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddDeviceShortcutsRow(
+    onScanQr: () -> Unit,
+    onManualIp: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md),
+    ) {
+        GlassCard(
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(color = PrimaryPinkContainer),
+                    onClick = onScanQr,
+                )
+                .testTag("scan_qr_shortcut"),
+            backgroundColor = GlassFillLow,
+            borderColor = GlassBorderLow,
+            shape = MichiShapes.sm,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.QrCodeScanner,
+                    contentDescription = null,
+                    tint = PrimaryPinkContainer,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Escanear QR",
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+
+        GlassCard(
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(color = TertiaryCyan),
+                    onClick = onManualIp,
+                )
+                .testTag("manual_ip_shortcut"),
+            backgroundColor = GlassFillLow,
+            borderColor = GlassBorderLow,
+            shape = MichiShapes.sm,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AddLink,
+                    contentDescription = null,
+                    tint = TertiaryCyan,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Conexión manual",
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }
@@ -455,14 +546,16 @@ private fun DeviceNodeCard(
     peer: DiscoveredPeer,
     isConnected: Boolean,
     isConnecting: Boolean,
-    onConnect: () -> Unit,
-    onDisconnect: () -> Unit,
-    onSync: () -> Unit,
+    actions: List<DeviceAction>,
+    onActionClick: (DeviceAction) -> Unit,
+    onInfoClick: () -> Unit,
 ) {
-    val icon = getNodeIcon(peer.alias, peer.deviceType)
+    val icon = getNodeIcon(peer.deviceType)
 
     GlassCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("device_node_${peer.ip}"),
         backgroundColor = if (isConnected) GlassFillHigh else GlassFillLow,
         borderColor = if (isConnected) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
     ) {
@@ -496,8 +589,20 @@ private fun DeviceNodeCard(
                         style = MichiTypography.cardTitle,
                     )
                     Text(
-                        text = "${peer.ip}:${peer.port} · ${peer.deviceType.ifEmpty { "Michi Link" }}",
+                        text = "${formatDeviceTypeLabel(peer.deviceType)} · ${peer.ip}",
                         style = MichiTypography.metadata,
+                    )
+                }
+
+                IconButton(
+                    onClick = onInfoClick,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = "Detalles",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
 
@@ -521,49 +626,138 @@ private fun DeviceNodeCard(
 
             Spacer(modifier = Modifier.height(MichiSpacing.sm))
 
+            // Action Buttons from Resolver
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (isConnected) {
-                    OutlinedButton(
-                        onClick = onSync,
-                        modifier = Modifier.height(36.dp),
-                        shape = MichiShapes.sm,
-                    ) {
-                        Text("Sincronizar", color = PureWhite, fontSize = 12.sp)
+                actions.forEachIndexed { index, action ->
+                    if (index > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = onDisconnect,
-                        modifier = Modifier.height(36.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ErrorColor.copy(alpha = 0.2f)),
-                        shape = MichiShapes.sm,
-                    ) {
-                        Text("Desconectar", color = ErrorColor, fontSize = 12.sp)
-                    }
-                } else {
-                    Button(
-                        onClick = onConnect,
-                        enabled = !isConnecting,
-                        modifier = Modifier.height(36.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                        shape = MichiShapes.sm,
-                    ) {
-                        if (isConnecting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                color = PureWhite,
-                                strokeWidth = 1.5.dp,
-                            )
-                        } else {
-                            Text("Conectar", color = PureWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                    if (action.isPrimary) {
+                        Button(
+                            onClick = { onActionClick(action) },
+                            enabled = !isConnecting,
+                            modifier = Modifier.height(40.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                            shape = MichiShapes.sm,
+                        ) {
+                            if (isConnecting && action.type == DeviceActionType.CONNECT) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    color = PureWhite,
+                                    strokeWidth = 1.5.dp,
+                                )
+                            } else {
+                                Text(action.label, color = PureWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else if (action.isDestructive) {
+                        Button(
+                            onClick = { onActionClick(action) },
+                            modifier = Modifier.height(40.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ErrorColor.copy(alpha = 0.2f)),
+                            shape = MichiShapes.sm,
+                        ) {
+                            Text(action.label, color = ErrorColor, fontSize = 12.sp)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { onActionClick(action) },
+                            modifier = Modifier.height(40.dp),
+                            shape = MichiShapes.sm,
+                        ) {
+                            Text(action.label, color = PureWhite, fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DeviceDetailsDialog(
+    peer: DiscoveredPeer,
+    onDismiss: () -> Unit,
+    onForget: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Detalles del Dispositivo",
+                        color = PureWhite,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cerrar",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                DetailItem(label = "Alias", value = peer.alias.ifEmpty { "Michi Node" })
+                DetailItem(label = "Tipo de nodo", value = formatDeviceTypeLabel(peer.deviceType))
+                DetailItem(label = "Dirección IP", value = peer.ip)
+                DetailItem(label = "Puerto", value = peer.port.toString())
+                if (peer.deviceId.isNotEmpty()) {
+                    DetailItem(label = "ID de dispositivo", value = peer.deviceId)
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                OutlinedButton(
+                    onClick = onForget,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DeleteOutline,
+                        contentDescription = null,
+                        tint = ErrorColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Olvidar este dispositivo", color = ErrorColor, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailItem(label: String, value: String) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(text = label, color = TextMuted, fontSize = 11.sp)
+        Text(text = value, color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -592,7 +786,7 @@ private fun EmptyDevicesCard(
                 modifier = Modifier.size(40.dp),
             )
             Text(
-                text = if (isSearching) "Buscando nodos Michi en tu red Wi-Fi..." else "No se encontraron otros dispositivos",
+                text = if (isSearching) "Buscando dispositivos en tu red Wi-Fi..." else "No se encontraron otros dispositivos",
                 style = MichiTypography.cardTitle,
                 color = PureWhite,
             )
@@ -607,6 +801,7 @@ private fun EmptyDevicesCard(
                 OutlinedButton(
                     onClick = onSearchAgain,
                     shape = MichiShapes.sm,
+                    modifier = Modifier.height(44.dp),
                 ) {
                     Text("Buscar de nuevo", color = PureWhite, fontSize = 12.sp)
                 }
@@ -614,20 +809,31 @@ private fun EmptyDevicesCard(
                     onClick = onManualConnect,
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = MichiShapes.sm,
+                    modifier = Modifier.height(44.dp),
                 ) {
-                    Text("IP Manual", color = PureWhite, fontSize = 12.sp)
+                    Text("Conexión manual", color = PureWhite, fontSize = 12.sp)
                 }
             }
         }
     }
 }
 
-private fun getNodeIcon(name: String, model: String): ImageVector {
-    val lower = "$name $model".lowercase()
-    return when {
-        lower.contains("desktop") || lower.contains("linux") || lower.contains("windows") || lower.contains("mac") || lower.contains("player") -> Icons.Filled.LaptopMac
-        lower.contains("server") || lower.contains("micro") || lower.contains("big") -> Icons.Filled.Dns
-        lower.contains("stream") || lower.contains("living") || lower.contains("room") || lower.contains("speaker") -> Icons.Filled.Speaker
+private fun getNodeIcon(deviceType: String): ImageVector {
+    return when (deviceType.lowercase()) {
+        "server" -> Icons.Filled.Dns
+        "desktop", "player", "pc" -> Icons.Filled.LaptopMac
+        "stream", "receiver", "speaker" -> Icons.Filled.Speaker
+        "phone", "mobile" -> Icons.Filled.PhoneAndroid
         else -> Icons.Filled.DesktopWindows
+    }
+}
+
+private fun formatDeviceTypeLabel(deviceType: String): String {
+    return when (deviceType.lowercase()) {
+        "server" -> "Micro Server"
+        "desktop", "player" -> "Michi Player"
+        "stream", "receiver" -> "Michi Stream"
+        "phone" -> "Teléfono"
+        else -> "Michi Link"
     }
 }

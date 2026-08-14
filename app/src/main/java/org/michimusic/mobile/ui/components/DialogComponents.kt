@@ -28,8 +28,10 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.LaptopMac
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Usb
@@ -844,15 +846,19 @@ fun CreatePlaylistDialog(
 fun AudioRouteDialog(
     onDismiss: () -> Unit,
 ) {
-    val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching { org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>() }.getOrNull()
+    val sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = runCatching {
+        org.koin.compose.koinInject<org.michimusic.mobile.playback.PlaybackSessionManager>()
+    }.getOrNull()
+    val sessionState by (sessionManager?.sessionState?.collectAsState() ?: remember {
+        mutableStateOf(org.michimusic.mobile.playback.PlaybackSessionState())
+    })
+
+    val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching {
+        org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>()
+    }.getOrNull()
     val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
     val selectedId by (usbDacManager?.selectedDeviceId?.collectAsState() ?: remember { mutableStateOf(null) })
-    val linkDiscovery: org.michimusic.link.LinkDiscovery? = runCatching { org.koin.compose.koinInject<org.michimusic.link.LinkDiscovery>() }.getOrNull()
-    val linkSession: org.michimusic.link.LinkSession? = runCatching { org.koin.compose.koinInject<org.michimusic.link.LinkSession>() }.getOrNull()
-    val peersMap by (linkDiscovery?.peers?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
-    val activePeer by (linkSession?.connectedPeer?.collectAsState() ?: remember { mutableStateOf(null) })
-    val peersList = remember(peersMap) { peersMap.values.toList() }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -896,13 +902,13 @@ fun AudioRouteDialog(
 
                         Column {
                             Text(
-                                text = "Salidas de Audio & DAC",
+                                text = "Enrutamiento de Audio",
                                 color = PureWhite,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = "Selector de Enrutamiento Hi-Res",
+                                text = "Endpoints Michi & Salidas Locales",
                                 color = TextSecondary,
                                 fontSize = 11.sp,
                             )
@@ -921,88 +927,43 @@ fun AudioRouteDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // USB DAC Direct Status Banner
-                if (dacInfo.isConnected) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(TertiaryCyan.copy(alpha = 0.12f))
-                            .border(1.dp, TertiaryCyan.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
-                            .padding(12.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Usb,
-                                contentDescription = null,
-                                tint = TertiaryCyan,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Column {
-                                Text(
-                                    text = "DISPOSITIVO USB DETECTADO",
-                                    color = TertiaryCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp,
-                                )
-                                Text(
-                                    text = dacInfo.deviceName,
-                                    color = PureWhite,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                if (dacInfo.sampleRates.isNotEmpty()) {
-                                    Text(
-                                        text = "Frecuencias reportadas: ${dacInfo.sampleRates.map { "${it / 1000}kHz" }.joinToString(", ")}",
-                                        color = TextMuted,
-                                        fontSize = 10.sp,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                Text(
-                    text = "DISPOSITIVOS DETECTADOS",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.5.sp,
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Local Device List
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(outputDevices) { device ->
-                        val isCurrentSelected = (selectedId == device.id) || (selectedId == null && device.isSelected)
-                        val icon = when {
-                            device.isUsbDac -> Icons.Filled.Usb
-                            device.isBluetooth -> Icons.Filled.Bluetooth
-                            device.isWired -> Icons.Filled.Headphones
-                            else -> Icons.Filled.Speaker
+                    // Section 1: Endpoints Michi
+                    item {
+                        Text(
+                            text = "REPRODUCIR EN",
+                            color = PrimaryPink,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.5.sp,
+                        )
+                    }
+
+                    items(sessionState.availableEndpoints) { endpoint ->
+                        val isCurrent = sessionState.activeEndpoint.id == endpoint.id
+                        val icon = when (endpoint.type) {
+                            org.michimusic.mobile.playback.EndpointType.LOCAL_PHONE -> Icons.Filled.Headphones
+                            org.michimusic.mobile.playback.EndpointType.DESKTOP_PLAYER -> Icons.Filled.LaptopMac
+                            org.michimusic.mobile.playback.EndpointType.SERVER -> Icons.Filled.Dns
+                            org.michimusic.mobile.playback.EndpointType.STREAM_RECEIVER, org.michimusic.mobile.playback.EndpointType.ROOM -> Icons.Filled.Speaker
                         }
 
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(if (isCurrentSelected) TertiaryCyan.copy(alpha = 0.15f) else GlassFillLow)
+                                .background(if (isCurrent) PrimaryPinkContainer.copy(alpha = 0.15f) else GlassFillLow)
                                 .border(
                                     1.dp,
-                                    if (isCurrentSelected) TertiaryCyan else GlassBorderLow,
+                                    if (isCurrent) PrimaryPink else GlassBorderLow,
                                     RoundedCornerShape(14.dp),
                                 )
-                                .clickable { usbDacManager?.selectDevice(device.id) }
+                                .clickable {
+                                    sessionManager?.switchEndpoint(endpoint) { _, _ -> }
+                                }
                                 .padding(12.dp),
                         ) {
                             Row(
@@ -1019,38 +980,38 @@ fun AudioRouteDialog(
                                         modifier = Modifier
                                             .size(36.dp)
                                             .clip(CircleShape)
-                                            .background(if (isCurrentSelected) TertiaryCyan.copy(alpha = 0.25f) else GlassFillHigh),
+                                            .background(if (isCurrent) PrimaryPink.copy(alpha = 0.25f) else GlassFillHigh),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Icon(
                                             imageVector = icon,
                                             contentDescription = null,
-                                            tint = if (isCurrentSelected) TertiaryCyan else PureWhite,
+                                            tint = if (isCurrent) PrimaryPink else PureWhite,
                                             modifier = Modifier.size(20.dp),
                                         )
                                     }
 
                                     Column {
                                         Text(
-                                            text = device.name,
-                                            color = if (isCurrentSelected) TertiaryCyan else PureWhite,
+                                            text = endpoint.name,
+                                            color = if (isCurrent) PrimaryPink else PureWhite,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         Text(
-                                            text = if (device.isUsbDac) "Audio Digital USB" else if (device.isBluetooth) "Inalámbrico Bluetooth" else if (device.isWired) "Auriculares Cableados" else "Altavoz del Dispositivo",
+                                            text = if (endpoint.isLocal) "Reproductor local de este teléfono" else "Nodo remoto en red local",
                                             color = TextMuted,
                                             fontSize = 10.sp,
                                         )
                                     }
                                 }
 
-                                if (isCurrentSelected) {
+                                if (isCurrent) {
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
                                             .clip(CircleShape)
-                                            .background(TertiaryCyan),
+                                            .background(PrimaryPink),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Icon(
@@ -1065,31 +1026,72 @@ fun AudioRouteDialog(
                         }
                     }
 
-                    // Michi Link Ecosystem Nodes Section
-                    if (peersList.isNotEmpty()) {
+                    // Section 2: Salida Física de Audio de Este Teléfono (si está activo localmente)
+                    if (sessionState.activeEndpoint.isLocal) {
                         item {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "NODOS MICHI LINK DISPONIBLES",
-                                color = PrimaryPink,
+                                text = "SALIDA DE AUDIO DE ESTE TELÉFONO",
+                                color = TertiaryCyan,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.5.sp,
                             )
                         }
 
-                        items(peersList) { peer ->
-                            val isConnectedToPeer = activePeer?.ip == peer.ip
+                        if (dacInfo.isConnected) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(TertiaryCyan.copy(alpha = 0.12f))
+                                        .border(1.dp, TertiaryCyan.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                        .padding(10.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Usb,
+                                            contentDescription = null,
+                                            tint = TertiaryCyan,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                        Column {
+                                            Text(
+                                                text = "DAC USB DIRECTO: ${dacInfo.deviceName}",
+                                                color = TertiaryCyan,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        items(outputDevices) { device ->
+                            val isCurrentSelected = (selectedId == device.id) || (selectedId == null && device.isSelected)
+                            val icon = when {
+                                device.isUsbDac -> Icons.Filled.Usb
+                                device.isBluetooth -> Icons.Filled.Bluetooth
+                                device.isWired -> Icons.Filled.Headphones
+                                else -> Icons.Filled.Speaker
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(if (isConnectedToPeer) PrimaryPinkContainer.copy(alpha = 0.18f) else GlassFillLow)
+                                    .background(if (isCurrentSelected) TertiaryCyan.copy(alpha = 0.15f) else GlassFillLow)
                                     .border(
                                         1.dp,
-                                        if (isConnectedToPeer) PrimaryPink else GlassBorderLow,
+                                        if (isCurrentSelected) TertiaryCyan else GlassBorderLow,
                                         RoundedCornerShape(14.dp),
                                     )
+                                    .clickable { usbDacManager?.selectDevice(device.id) }
                                     .padding(12.dp),
                             ) {
                                 Row(
@@ -1104,45 +1106,45 @@ fun AudioRouteDialog(
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(36.dp)
+                                                .size(34.dp)
                                                 .clip(CircleShape)
-                                                .background(if (isConnectedToPeer) PrimaryPink.copy(alpha = 0.25f) else GlassFillHigh),
+                                                .background(if (isCurrentSelected) TertiaryCyan.copy(alpha = 0.25f) else GlassFillHigh),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Filled.Speaker,
+                                                imageVector = icon,
                                                 contentDescription = null,
-                                                tint = if (isConnectedToPeer) PrimaryPink else PureWhite,
-                                                modifier = Modifier.size(20.dp),
+                                                tint = if (isCurrentSelected) TertiaryCyan else PureWhite,
+                                                modifier = Modifier.size(18.dp),
                                             )
                                         }
 
                                         Column {
                                             Text(
-                                                text = peer.alias.ifEmpty { "Nodo Michi" },
-                                                color = if (isConnectedToPeer) PrimaryPink else PureWhite,
+                                                text = device.name,
+                                                color = if (isCurrentSelected) TertiaryCyan else PureWhite,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                             )
                                             Text(
-                                                text = "${peer.deviceType.uppercase()} • ${peer.ip}",
+                                                text = if (device.isUsbDac) "Audio Digital USB" else if (device.isBluetooth) "Bluetooth" else if (device.isWired) "Auriculares" else "Altavoz Integrado",
                                                 color = TextMuted,
                                                 fontSize = 10.sp,
                                             )
                                         }
                                     }
 
-                                    if (isConnectedToPeer) {
+                                    if (isCurrentSelected) {
                                         Box(
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .clip(CircleShape)
-                                                .background(PrimaryPink),
+                                                .background(TertiaryCyan),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Filled.Check,
-                                                contentDescription = "Conectado",
+                                                contentDescription = "Activo",
                                                 tint = SurfaceObsidian,
                                                 modifier = Modifier.size(16.dp),
                                             )

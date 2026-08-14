@@ -21,8 +21,8 @@ import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.MulticastSocket
 
-class LinkDiscovery(
-    private val context: Context,
+open class LinkDiscovery(
+    private val context: Context? = null,
 ) : DefaultLifecycleObserver {
 
     companion object {
@@ -36,7 +36,7 @@ class LinkDiscovery(
     private val peerLastSeen = mutableMapOf<String, Long>()
 
     private val _peers = MutableStateFlow<Map<String, DiscoveredPeer>>(emptyMap())
-    val peers: StateFlow<Map<String, DiscoveredPeer>> = _peers.asStateFlow()
+    open val peers: StateFlow<Map<String, DiscoveredPeer>> = _peers.asStateFlow()
 
     private val _events = MutableSharedFlow<DiscoveryEvent>(extraBufferCapacity = 8)
     val events: SharedFlow<DiscoveryEvent> = _events.asSharedFlow()
@@ -46,7 +46,9 @@ class LinkDiscovery(
     private var isRunning = false
 
     init {
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        runCatching {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        }
     }
 
     override fun onResume(owner: LifecycleOwner) {
@@ -152,7 +154,7 @@ class LinkDiscovery(
     }
 
     private fun acquireMulticastLock() {
-        val wifi = context.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        val wifi = context?.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
         multicastLock = wifi.createMulticastLock("michi-discovery").also {
             it.setReferenceCounted(false)
             it.acquire()

@@ -23,11 +23,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
@@ -35,6 +35,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -43,6 +46,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,9 +57,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.mobile.playback.PlaybackEndpoint
+import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
@@ -73,7 +81,6 @@ import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
-import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.AudioController
 
@@ -88,13 +95,21 @@ fun HomeScreen(
     val allTracks by viewModel.allTracks.collectAsState()
     val recentTracks by viewModel.recentTracks.collectAsState()
     val topTracks by viewModel.topTracks.collectAsState()
+    val playlists by viewModel.playlists.collectAsState()
+
+    val sessionManager: PlaybackSessionManager = koinInject()
+    val sessionState by sessionManager.sessionState.collectAsState()
+    val activeEndpoint = sessionState.activeEndpoint
 
     val audioController: AudioController = koinInject()
     val playerState by audioController.state.collectAsState()
-    val currentTrack = playerState.currentTrack
-    val isPlaying = playerState.isPlaying
+
+    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
+    val isPlaying = sessionState.isPlaying
 
     var showCreatePlaylist by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.loadMedia()
@@ -110,10 +125,8 @@ fun HomeScreen(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            // Top App Bar
+            // Simplified Top App Bar
             HomeTopBar(
-                onSearchClick = onNavigateToSearch,
-                onDevicesClick = onNavigateToDevices,
                 onSettingsClick = onNavigateToSettings,
             )
 
@@ -125,14 +138,21 @@ fun HomeScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                // 1. Continue Listening (Hero section)
+                // 1. Continue Listening (Hero section based on real active session)
                 item {
                     if (currentTrack != null) {
                         ContinueListeningCard(
                             track = currentTrack,
+                            endpoint = activeEndpoint,
                             isPlaying = isPlaying,
+                            isRemote = sessionState.isRemoteActive,
                             onPlayPause = {
-                                if (isPlaying) audioController.pause() else audioController.play()
+                                sessionManager.playPause()
+                            },
+                            onContinueHere = {
+                                sessionManager.switchEndpoint(PlaybackEndpoint.LocalPhone) { success, msg ->
+                                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                                }
                             },
                         )
                     } else {
@@ -172,6 +192,7 @@ fun HomeScreen(
                         totalTracks = allTracks.size,
                         topTracksCount = topTracks.size,
                         recentTracksCount = recentTracks.size,
+                        playlists = playlists,
                         onCreatePlaylist = { showCreatePlaylist = true },
                         onPlaylistClick = { type ->
                             when (type) {
@@ -200,9 +221,21 @@ fun HomeScreen(
             }
         }
 
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 72.dp),
+        )
+
         if (showCreatePlaylist) {
             CreatePlaylistDialog(
-                onCreate = { _ ->
+                onCreate = { name ->
+                    viewModel.createPlaylist(name) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Playlist \"$name\" creada")
+                        }
+                    }
                     showCreatePlaylist = false
                 },
                 onDismiss = { showCreatePlaylist = false },
@@ -213,14 +246,12 @@ fun HomeScreen(
 
 @Composable
 private fun HomeTopBar(
-    onSearchClick: () -> Unit,
-    onDevicesClick: () -> Unit,
     onSettingsClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .height(56.dp)
             .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -236,58 +267,20 @@ private fun HomeTopBar(
             )
         }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onDevicesClick,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(GlassFillLow)
-                    .testTag("home_devices_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Devices,
-                    contentDescription = "Dispositivos",
-                    tint = PureWhite,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            IconButton(
-                onClick = onSearchClick,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(GlassFillLow)
-                    .testTag("home_search_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = "Buscar",
-                    tint = PureWhite,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(GlassFillLow)
-                    .testTag("home_settings_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Ajustes",
-                    tint = PureWhite,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        IconButton(
+            onClick = onSettingsClick,
+            modifier = Modifier
+                .size(MichiSpacing.minTouchTarget)
+                .clip(CircleShape)
+                .background(GlassFillLow)
+                .testTag("home_settings_button"),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Ajustes",
+                tint = PureWhite,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -295,15 +288,18 @@ private fun HomeTopBar(
 @Composable
 private fun ContinueListeningCard(
     track: Track,
+    endpoint: PlaybackEndpoint,
     isPlaying: Boolean,
+    isRemote: Boolean,
     onPlayPause: () -> Unit,
+    onContinueHere: () -> Unit,
 ) {
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("continue_listening_card"),
         backgroundColor = GlassFillHigh,
-        borderColor = PrimaryPinkContainer.copy(alpha = 0.35f),
+        borderColor = if (isRemote) TertiaryCyan.copy(alpha = 0.35f) else PrimaryPinkContainer.copy(alpha = 0.35f),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -314,13 +310,14 @@ private fun ContinueListeningCard(
                 Text(
                     text = "CONTINUAR ESCUCHANDO",
                     style = MichiTypography.microLabel,
-                    color = PrimaryPinkContainer,
+                    color = if (isRemote) TertiaryCyan else PrimaryPinkContainer,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "Este teléfono",
+                    text = "● ${endpoint.name}",
                     style = MichiTypography.microLabel,
-                    color = TertiaryCyan,
+                    color = if (endpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
@@ -335,7 +332,7 @@ private fun ContinueListeningCard(
                     coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
                     imageModel = track.filepath.ifEmpty { track.coverId },
                     modifier = Modifier
-                        .size(60.dp)
+                        .size(56.dp)
                         .clip(MichiShapes.sm),
                 )
 
@@ -354,19 +351,30 @@ private fun ContinueListeningCard(
                     )
                 }
 
-                Button(
-                    onClick = onPlayPause,
-                    modifier = Modifier.size(44.dp),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                    contentPadding = PaddingValues(0.dp),
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                        tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
-                    )
+                if (isRemote) {
+                    OutlinedButton(
+                        onClick = onContinueHere,
+                        modifier = Modifier.height(38.dp),
+                        shape = MichiShapes.sm,
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                    ) {
+                        Text("Continuar aquí", color = PureWhite, fontSize = 12.sp)
+                    }
+                } else {
+                    Button(
+                        onClick = onPlayPause,
+                        modifier = Modifier.size(44.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                            tint = PureWhite,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
             }
         }
@@ -564,14 +572,35 @@ private fun YourPlaylistsSection(
     totalTracks: Int,
     topTracksCount: Int,
     recentTracksCount: Int,
+    playlists: List<Playlist>,
     onCreatePlaylist: () -> Unit,
     onPlaylistClick: (String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Tu Colección",
-            style = MichiTypography.sectionTitle,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Tu Colección",
+                style = MichiTypography.sectionTitle,
+            )
+            IconButton(
+                onClick = onCreatePlaylist,
+                modifier = Modifier
+                    .size(MichiSpacing.minTouchTarget)
+                    .clip(CircleShape)
+                    .background(GlassFillLow),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Crear Playlist",
+                    tint = PureWhite,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 

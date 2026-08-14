@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
+import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GradientProgressBar
@@ -87,12 +88,17 @@ fun NowPlayingScreen(
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val sessionManager: PlaybackSessionManager = koinInject()
+    val sessionState by sessionManager.sessionState.collectAsState()
+    val activeEndpoint = sessionState.activeEndpoint
+
     val audioController: AudioController = koinInject()
     val playerState by audioController.state.collectAsState()
-    val currentTrack = playerState.currentTrack
-    val isPlaying = playerState.isPlaying
-    val positionSeconds = (playerState.position / 1000f).coerceAtLeast(0f)
-    val durationSeconds = (playerState.duration / 1000f).coerceAtLeast(1f)
+
+    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
+    val isPlaying = sessionState.isPlaying
+    val positionSeconds = (sessionState.position / 1000f).coerceAtLeast(0f)
+    val durationSeconds = (sessionState.duration / 1000f).coerceAtLeast(1f)
 
     val isShuffle = playerState.shuffleMode
     val repeatMode = playerState.repeatMode
@@ -264,7 +270,7 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // Endpoint selector capsule
+                    // Real active endpoint selector capsule
                     Box(
                         modifier = Modifier
                             .clip(MichiShapes.pill)
@@ -281,11 +287,11 @@ fun NowPlayingScreen(
                             Icon(
                                 imageVector = Icons.Filled.Headphones,
                                 contentDescription = "Salidas de Audio",
-                                tint = TertiaryCyan,
+                                tint = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = "Este teléfono",
+                                text = activeEndpoint.name,
                                 color = PureWhite,
                                 style = MichiTypography.microLabel,
                                 fontWeight = FontWeight.SemiBold,
@@ -306,7 +312,7 @@ fun NowPlayingScreen(
                         currentValue = positionSeconds,
                         maxValue = durationSeconds,
                         onSeek = { seekSec ->
-                            audioController.seekTo((seekSec * 1000).toLong())
+                            sessionManager.seekTo((seekSec * 1000).toLong())
                         },
                         trackHeight = 5.dp,
                         showThumb = true,
@@ -357,7 +363,7 @@ fun NowPlayingScreen(
 
                     // Skip Previous
                     IconButton(
-                        onClick = { audioController.skipPrevious() },
+                        onClick = { sessionManager.skipPrevious() },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
@@ -382,7 +388,7 @@ fun NowPlayingScreen(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(color = PureWhite),
                                 onClick = {
-                                    if (isPlaying) audioController.pause() else audioController.play()
+                                    sessionManager.playPause()
                                 },
                             )
                             .testTag("now_playing_play_pause"),
@@ -398,7 +404,7 @@ fun NowPlayingScreen(
 
                     // Skip Next
                     IconButton(
-                        onClick = { audioController.skipNext() },
+                        onClick = { sessionManager.skipNext() },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)

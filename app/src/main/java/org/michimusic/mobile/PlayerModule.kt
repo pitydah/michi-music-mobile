@@ -15,4 +15,11 @@ val playerModule = module {
     }
     single { org.michimusic.player.MichiAudioEffects(androidContext()) }
     single { org.michimusic.player.UsbDacManager(androidContext()) }
+    single {
+        org.michimusic.mobile.playback.PlaybackSessionManager(
+            audioController = get(),
+            linkSession = get(),
+            linkDiscovery = get(),
+        )
+    }
 }
