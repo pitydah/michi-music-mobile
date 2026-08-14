@@ -99,7 +99,7 @@ class SyncViewModel(
     }
 
     fun startDiscovery() {
-        if (uiState.value.state != SyncConnectionState.DISCONNECTED) return
+        if (linkSession.connectionState.value != SyncConnectionState.DISCONNECTED) return
         linkSession.updateState(SyncConnectionState.DISCOVERING)
         viewModelScope.launch { linkDiscovery.start() }
     }
@@ -107,14 +107,14 @@ class SyncViewModel(
     fun stopDiscovery() {
         viewModelScope.launch {
             linkDiscovery.stop()
-            if (uiState.value.state == SyncConnectionState.DISCOVERING) {
+            if (linkSession.connectionState.value == SyncConnectionState.DISCOVERING) {
                 linkSession.updateState(SyncConnectionState.DISCONNECTED)
             }
         }
     }
 
     fun selectPeer(peer: DiscoveredPeer) {
-        if (uiState.value.state != SyncConnectionState.DISCOVERING) return
+        if (linkSession.connectionState.value != SyncConnectionState.DISCOVERING) return
 
         stopDiscovery()
         currentClient = LinkClient(

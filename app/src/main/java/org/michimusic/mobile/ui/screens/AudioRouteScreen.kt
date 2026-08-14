@@ -156,7 +156,7 @@ fun AudioRouteScreen() {
             Spacer(Modifier.height(8.dp))
             Text(
                 text = when (route) {
-                    is AudioRoute.UsbDac -> "USB DAC detectado. La reproducción es bit-perfect si tu DAC lo soporta."
+                    is AudioRoute.UsbDac -> "USB DAC detectado. La salida se enruta directamente al hardware de audio USB conectado."
                     is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
                     is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
                     is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."

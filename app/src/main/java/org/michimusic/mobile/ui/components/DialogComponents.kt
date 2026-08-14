@@ -784,6 +784,11 @@ fun AudioRouteDialog(
     val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
     val selectedId by (usbDacManager?.selectedDeviceId?.collectAsState() ?: remember { mutableStateOf(null) })
+    val linkDiscovery: org.michimusic.link.LinkDiscovery? = runCatching { org.koin.compose.koinInject<org.michimusic.link.LinkDiscovery>() }.getOrNull()
+    val linkSession: org.michimusic.link.LinkSession? = runCatching { org.koin.compose.koinInject<org.michimusic.link.LinkSession>() }.getOrNull()
+    val peersMap by (linkDiscovery?.peers?.collectAsState() ?: remember { mutableStateOf(emptyMap()) })
+    val activePeer by (linkSession?.connectedPeer?.collectAsState() ?: remember { mutableStateOf(null) })
+    val peersList = remember(peersMap) { peersMap.values.toList() }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -909,7 +914,7 @@ fun AudioRouteDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Device List
+                // Local Device List
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -990,6 +995,94 @@ fun AudioRouteDialog(
                                             tint = SurfaceObsidian,
                                             modifier = Modifier.size(16.dp),
                                         )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Michi Link Ecosystem Nodes Section
+                    if (peersList.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "NODOS MICHI LINK DISPONIBLES",
+                                color = PrimaryPink,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp,
+                            )
+                        }
+
+                        items(peersList) { peer ->
+                            val isConnectedToPeer = activePeer?.ip == peer.ip
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isConnectedToPeer) PrimaryPinkContainer.copy(alpha = 0.18f) else GlassFillLow)
+                                    .border(
+                                        1.dp,
+                                        if (isConnectedToPeer) PrimaryPink else GlassBorderLow,
+                                        RoundedCornerShape(14.dp),
+                                    )
+                                    .padding(12.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isConnectedToPeer) PrimaryPink.copy(alpha = 0.25f) else GlassFillHigh),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Speaker,
+                                                contentDescription = null,
+                                                tint = if (isConnectedToPeer) PrimaryPink else PureWhite,
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+
+                                        Column {
+                                            Text(
+                                                text = peer.alias.ifEmpty { "Nodo Michi" },
+                                                color = if (isConnectedToPeer) PrimaryPink else PureWhite,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Text(
+                                                text = "${peer.deviceType.uppercase()} • ${peer.ip}",
+                                                color = TextMuted,
+                                                fontSize = 10.sp,
+                                            )
+                                        }
+                                    }
+
+                                    if (isConnectedToPeer) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .clip(CircleShape)
+                                                .background(PrimaryPink),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Check,
+                                                contentDescription = "Conectado",
+                                                tint = SurfaceObsidian,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }
