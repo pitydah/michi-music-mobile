@@ -2,7 +2,6 @@ package org.michimusic.mobile.ui.screens
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,8 +14,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -25,14 +26,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -66,7 +65,6 @@ import org.koin.compose.koinInject
 import org.michimusic.data.cache.AppDao
 import org.michimusic.data.cache.SettingsEntity
 import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.components.PulsingDot
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -105,7 +103,6 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
-    var autoSync by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SYNC, false)) }
     var wifiOnlySync by remember { mutableStateOf(prefs.getBoolean(KEY_WIFI_ONLY_SYNC, true)) }
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
@@ -150,14 +147,17 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
-            // Header
+            // Header Row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -169,6 +169,7 @@ fun SettingsScreen(
                         color = TertiaryCyan,
                         letterSpacing = 2.sp,
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = "Preferencias & Audio",
                         style = MaterialTheme.typography.headlineMedium.copy(
@@ -181,7 +182,7 @@ fun SettingsScreen(
 
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(GlassFillHigh)
                         .border(1.dp, GlassBorderHigh, CircleShape)
@@ -196,68 +197,122 @@ fun SettingsScreen(
                         imageVector = Icons.Default.BugReport,
                         contentDescription = "Diagnóstico",
                         tint = TertiaryCyan,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
             // 1. Audio Engine & ReplayGain Section
             SettingsSectionCard(
                 icon = Icons.Default.GraphicEq,
                 title = "Motor de Audio & ReplayGain",
-                subtitle = "Normalización de volumen y fidelidad sonora",
+                subtitle = "Normalización de volumen y fidelidad",
                 accent = TertiaryCyan,
             ) {
                 Text(
-                    text = "Modo de Ganancia ReplayGain",
+                    text = "Modo de Normalización ReplayGain",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary,
                 )
-                Spacer(Modifier.height(8.dp))
 
-                Row(
+                Spacer(Modifier.height(10.dp))
+
+                // 2x2 Grid for ReplayGain Modes to prevent crowding
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ReplayGainMode.entries.forEach { mode ->
-                        val isSelected = selectedMode == mode
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
-                                .border(
-                                    1.dp,
-                                    if (isSelected) TertiaryCyan else GlassBorderLow,
-                                    RoundedCornerShape(10.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(ReplayGainMode.OFF, ReplayGainMode.TRACK).forEach { mode ->
+                            val isSelected = selectedMode == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) TertiaryCyan else GlassBorderLow,
+                                        RoundedCornerShape(10.dp),
+                                    )
+                                    .clickable {
+                                        selectedMode = mode
+                                        prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = mode.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) TertiaryCyan else TextSecondary,
                                 )
-                                .clickable {
-                                    selectedMode = mode
-                                    prefs.edit { putString(KEY_RG_MODE, mode.name) }
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = mode.name,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) TertiaryCyan else TextSecondary,
-                            )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(ReplayGainMode.ALBUM, ReplayGainMode.DYNAMIC).forEach { mode ->
+                            val isSelected = selectedMode == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) TertiaryCyan else GlassBorderLow,
+                                        RoundedCornerShape(10.dp),
+                                    )
+                                    .clickable {
+                                        selectedMode = mode
+                                        prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = mode.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) TertiaryCyan else TextSecondary,
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(18.dp))
 
-                Text(
-                    text = "Pre-Amplificación con tags (${preAmpWith.floatValue.toInt()} dB)",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                )
+                // Pre-amp with tags
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Pre-Amplificación con tags",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                    )
+                    Text(
+                        text = "${preAmpWith.floatValue.toInt()} dB",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryPink,
+                    )
+                }
+
                 Slider(
                     value = preAmpWith.floatValue,
                     onValueChange = {
@@ -270,13 +325,30 @@ fun SettingsScreen(
                         activeTrackColor = PrimaryPink,
                         inactiveTrackColor = GlassBorderLow,
                     ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
-                Text(
-                    text = "Pre-Amplificación sin tags (${preAmpWithout.floatValue.toInt()} dB)",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                )
+                Spacer(Modifier.height(10.dp))
+
+                // Pre-amp without tags
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Pre-Amplificación sin tags",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                    )
+                    Text(
+                        text = "${preAmpWithout.floatValue.toInt()} dB",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TertiaryCyan,
+                    )
+                }
+
                 Slider(
                     value = preAmpWithout.floatValue,
                     onValueChange = {
@@ -289,6 +361,7 @@ fun SettingsScreen(
                         activeTrackColor = TertiaryCyan,
                         inactiveTrackColor = GlassBorderLow,
                     ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 
@@ -298,7 +371,7 @@ fun SettingsScreen(
             SettingsSectionCard(
                 icon = Icons.Default.Palette,
                 title = "Experiencia Digital Ethereal",
-                subtitle = "Efectos visuales, texturas de vidrio y temas",
+                subtitle = "Efectos visuales y texturas glassmórficas",
                 accent = PrimaryPink,
             ) {
                 SettingsSwitchRow(
@@ -311,11 +384,11 @@ fun SettingsScreen(
                     },
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
 
                 SettingsSwitchRow(
                     title = "Texturas Glassmorphic Avanzadas",
-                    subtitle = "Reflejos especulares y transparencias de obsidiana",
+                    subtitle = "Reflejos especulares y transparencias",
                     checked = glassTextures,
                     onCheckedChange = {
                         glassTextures = it
@@ -323,7 +396,7 @@ fun SettingsScreen(
                     },
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
 
                 SettingsSwitchRow(
                     title = "Modo Compacto en Now Playing",
@@ -355,7 +428,7 @@ fun SettingsScreen(
                     },
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
 
                 SettingsSwitchRow(
                     title = "Descargar Carátulas en Alta Resolución",
@@ -367,7 +440,7 @@ fun SettingsScreen(
                     },
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
 
                 SettingsSwitchRow(
                     title = "Auto-Escaneo de Biblioteca Local",
@@ -391,7 +464,7 @@ fun SettingsScreen(
             ) {
                 SettingsSwitchRow(
                     title = "Historial de Reproducción",
-                    subtitle = "Registrar canciones recientes para el carrusel de inicio",
+                    subtitle = "Registrar canciones recientes para el inicio",
                     checked = listeningHistory,
                     onCheckedChange = { enabled ->
                         listeningHistory = enabled
@@ -410,33 +483,33 @@ fun SettingsScreen(
             Spacer(Modifier.height(16.dp))
 
             // 5. Diagnostics Card Action
-            GlassCard(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(GlassFillHigh)
+                    .border(1.dp, GlassBorderHigh, RoundedCornerShape(16.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = ripple(color = TertiaryCyan),
                         onClick = onNavigateToDiagnostics,
-                    ),
-                backgroundColor = GlassFillHigh,
-                borderColor = GlassBorderHigh,
-                accent = TertiaryCyan,
+                    )
+                    .padding(16.dp),
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.weight(1f),
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(TertiaryCyan.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -444,7 +517,7 @@ fun SettingsScreen(
                                 Icons.Default.BugReport,
                                 contentDescription = null,
                                 tint = TertiaryCyan,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(22.dp),
                             )
                         }
 
@@ -455,6 +528,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = PureWhite,
                             )
+                            Spacer(Modifier.height(2.dp))
                             Text(
                                 text = "Inspeccionar sockets, tokens y telemetría",
                                 fontSize = 12.sp,
@@ -472,7 +546,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(100.dp))
+            Spacer(Modifier.height(120.dp))
         }
     }
 }
@@ -485,15 +559,16 @@ private fun SettingsSectionCard(
     accent: Color,
     content: @Composable () -> Unit,
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(GlassFillLow)
+            .border(1.dp, GlassBorderLow, RoundedCornerShape(16.dp))
+            .padding(16.dp),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -521,6 +596,7 @@ private fun SettingsSectionCard(
                         fontWeight = FontWeight.Bold,
                         color = PureWhite,
                     )
+                    Spacer(Modifier.height(1.dp))
                     Text(
                         text = subtitle,
                         fontSize = 11.sp,
@@ -547,13 +623,18 @@ private fun SettingsSwitchRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+        ) {
             Text(
                 text = title,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 color = PureWhite,
             )
+            Spacer(Modifier.height(2.dp))
             Text(
                 text = subtitle,
                 fontSize = 11.sp,

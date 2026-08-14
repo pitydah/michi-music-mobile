@@ -21,27 +21,24 @@ import org.michimusic.data.repository.SyncedTrackRepository
 
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 
+import org.junit.Rule
+import org.michimusic.mobile.rules.MainDispatcherRule
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncedTracksViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     private lateinit var repository: SyncedTrackRepository
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
         repository = FakeSyncedRepo()
     }
 
-    @After
-    fun tearDown() {
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
-    }
-
     @Test
-    fun toTrack_mapsAllFields() = runTest(testDispatcher) {
+    fun toTrack_mapsAllFields() = runTest {
         val viewModel = SyncedTracksViewModel(repository)
         val cached = CachedTrack(
             id = "s1", title = "Song", artist = "A", album = "X",
@@ -55,14 +52,14 @@ class SyncedTracksViewModelTest {
     }
 
     @Test
-    fun getPlayableTracks_filtersEmptyFilepath() = runTest(testDispatcher) {
+    fun getPlayableTracks_filtersEmptyFilepath() = runTest {
         val viewModel = SyncedTracksViewModel(repository)
         val tracks = viewModel.getPlayableTracks()
         assertTrue(tracks.all { it.filepath.isNotEmpty() })
     }
 
     @Test
-    fun getPlayableTracks_returnsAllValidTracks() = runTest(testDispatcher) {
+    fun getPlayableTracks_returnsAllValidTracks() = runTest {
         val viewModel = SyncedTracksViewModel(repository)
         val tracks = viewModel.getPlayableTracks()
         assertEquals(3, tracks.size)

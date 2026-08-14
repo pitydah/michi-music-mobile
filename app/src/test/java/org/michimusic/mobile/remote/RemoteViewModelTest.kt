@@ -30,17 +30,21 @@ import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkSession
 import org.michimusic.link.dto.PlaybackStateDto
 
+import org.junit.Rule
+import org.michimusic.mobile.rules.MainDispatcherRule
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class RemoteViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    private val testDispatcher get() = mainDispatcherRule.testDispatcher
     private lateinit var session: LinkSession
     private lateinit var viewModel: RemoteViewModel
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
         session = LinkSession()
         val json = Json { ignoreUnknownKeys = true }
         val engine = MockEngine { request ->
@@ -65,8 +69,6 @@ class RemoteViewModelTest {
     @After
     fun tearDown() {
         viewModel.disconnect()
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
     }
 
     @Test

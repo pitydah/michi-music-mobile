@@ -24,18 +24,22 @@ import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.data.repository.LocalMediaRepository
 
+import org.junit.Rule
+import org.michimusic.mobile.rules.MainDispatcherRule
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumsViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    private val testDispatcher get() = mainDispatcherRule.testDispatcher
     private lateinit var repo: LocalMediaRepository
     private lateinit var appDao: AppDao
     private lateinit var viewModel: AlbumsViewModel
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
         repo = FakeAlbumsRepo()
         appDao = FakeAppDao()
         viewModel = AlbumsViewModel(repo, appDao, testDispatcher)
@@ -44,8 +48,6 @@ class AlbumsViewModelTest {
     @After
     fun tearDown() {
         viewModel.cancelLoading()
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
     }
 
     @Test

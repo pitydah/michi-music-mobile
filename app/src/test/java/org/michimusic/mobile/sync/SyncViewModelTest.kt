@@ -29,10 +29,16 @@ import org.michimusic.link.LinkSession
 import org.michimusic.link.errors.LinkException
 import org.michimusic.link.dto.PairingStrategy
 
+import org.junit.Rule
+import org.michimusic.mobile.rules.MainDispatcherRule
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    private val testDispatcher get() = mainDispatcherRule.testDispatcher
 
     @MockK private lateinit var linkDiscovery: LinkDiscovery
     @MockK private lateinit var linkSession: LinkSession
@@ -43,8 +49,6 @@ class SyncViewModelTest {
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
         MockKAnnotations.init(this)
         context = io.mockk.mockk(relaxed = true)
 
@@ -62,8 +66,6 @@ class SyncViewModelTest {
 
     @After
     fun tearDown() {
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
     }
 
     @Test

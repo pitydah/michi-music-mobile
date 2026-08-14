@@ -22,26 +22,36 @@ class SmokeNavigationTest {
         composeTestRule.waitForIdle()
 
         // 2. Bottom navigation exists and shows tabs
-        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists().assertIsDisplayed()
 
         // 3. Navigate to Library (Albums/Tracks)
         composeTestRule.onNodeWithTag("nav_tab_library").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
 
-        // 4. Navigate to Remote tab
+        // 4. Navigate to Now Playing
+        composeTestRule.onNodeWithTag("nav_tab_nowplaying").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
+
+        // 5. Navigate to Remote tab
         composeTestRule.onNodeWithTag("nav_tab_remote").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
 
-        // 5. Navigate to Sync tab
+        // 6. Navigate to Sync tab
         composeTestRule.onNodeWithTag("nav_tab_sync").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
 
-        // 6. Navigate to Settings tab
+        // 7. Navigate to Settings tab
         composeTestRule.onNodeWithTag("nav_tab_settings").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
 
-        // 7. Navigate back to Home
+        // 8. Navigate back to Home
         composeTestRule.onNodeWithTag("nav_tab_home").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("bottom_nav_bar").assertExists()
     }
 }

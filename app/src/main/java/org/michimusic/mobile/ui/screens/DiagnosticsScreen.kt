@@ -203,30 +203,42 @@ fun DiagnosticsScreen() {
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Lan,
                     title = "Host Destino",
-                    value = savedUrl ?: "—",
-                    accent = SecondaryPurple,
+                    value = savedUrl ?: "Sin asignar",
+                    accent = if (savedUrl != null) SecondaryPurple else TextMuted,
                 )
                 TelemetryCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Speed,
                     title = "Protocolo",
-                    value = "HTTP/2 + WS",
-                    accent = TertiaryCyan,
+                    value = if (savedUrl != null) "HTTP/2 + WS" else "Desconectado",
+                    accent = if (savedUrl != null) TertiaryCyan else TextMuted,
                 )
             }
 
             Spacer(Modifier.height(24.dp))
 
             // Run Diagnostic Action Button
+            val isConfigured = !savedUrl.isNullOrEmpty()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(PrimaryPinkContainer, SecondaryPurple, TertiaryCyan),
-                        ),
+                        if (isConfigured) {
+                            Brush.horizontalGradient(
+                                colors = listOf(PrimaryPinkContainer, SecondaryPurple, TertiaryCyan),
+                            )
+                        } else {
+                            Brush.horizontalGradient(
+                                colors = listOf(GlassFillHigh, GlassFillHigh),
+                            )
+                        },
+                    )
+                    .border(
+                        1.dp,
+                        if (isConfigured) Color.Transparent else GlassBorderLow,
+                        RoundedCornerShape(14.dp),
                     )
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -237,7 +249,7 @@ fun DiagnosticsScreen() {
                             report = null
                             scope.launch {
                                 val client = LinkClient(
-                                    baseUrl = savedUrl ?: "",
+                                    baseUrl = savedUrl ?: "http://127.0.0.1:0",
                                     deviceToken = tokenStore.getDeviceToken() ?: "",
                                     clientDeviceId = tokenStore.getClientDeviceId() ?: "",
                                 )

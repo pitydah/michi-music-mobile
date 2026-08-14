@@ -26,18 +26,22 @@ import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
 
+import org.junit.Rule
+import org.michimusic.mobile.rules.MainDispatcherRule
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    private val testDispatcher get() = mainDispatcherRule.testDispatcher
     private lateinit var localRepo: LocalMediaRepository
     private lateinit var syncedRepo: SyncedTrackRepository
     private lateinit var viewModel: SearchViewModel
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
         localRepo = FakeLocalMediaRepository()
         syncedRepo = FakeSyncedTrackRepository()
         viewModel = SearchViewModel(localRepo, syncedRepo, testDispatcher)
@@ -46,8 +50,6 @@ class SearchViewModelTest {
     @After
     fun tearDown() {
         viewModel.clearSearch()
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
     }
 
     @Test

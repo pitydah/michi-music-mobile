@@ -17,25 +17,27 @@ import org.junit.Test
 import org.michimusic.core.models.Playlist
 import org.michimusic.data.repository.PlaylistRepository
 
+import org.junit.Rule
+import org.michimusic.mobile.rules.MainDispatcherRule
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistsViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    private val testDispatcher get() = mainDispatcherRule.testDispatcher
     private lateinit var repo: PlaylistRepository
     private lateinit var viewModel: PlaylistsViewModel
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
         repo = FakePlaylistRepo()
         viewModel = PlaylistsViewModel(repo, testDispatcher)
     }
 
     @After
     fun tearDown() {
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
     }
 
     @Test
