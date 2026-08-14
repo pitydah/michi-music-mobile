@@ -554,19 +554,13 @@ fun EqualizerDialog(
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                Slider(
+                                MichiFineSlider(
                                     value = band.currentGainMilliDb.toFloat(),
                                     onValueChange = { audioEffects?.setBandGain(band.index, it.toInt()) },
                                     valueRange = band.minGainMilliDb.toFloat()..band.maxGainMilliDb.toFloat(),
                                     enabled = effectsState.isEnabled,
+                                    accentColor = TertiaryCyan,
                                     modifier = Modifier.weight(1f),
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = TertiaryCyan,
-                                        activeTrackColor = TertiaryCyan,
-                                        inactiveTrackColor = GlassFillHigh,
-                                        disabledThumbColor = TextMuted,
-                                        disabledActiveTrackColor = TextMuted.copy(alpha = 0.3f),
-                                    ),
                                 )
 
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -609,16 +603,12 @@ fun EqualizerDialog(
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
-                            Slider(
+                            MichiFineSlider(
                                 value = effectsState.preampGainDb,
                                 onValueChange = { audioEffects?.setPreamp(it) },
                                 valueRange = -12f..12f,
                                 enabled = effectsState.isEnabled,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = TertiaryCyan,
-                                    activeTrackColor = TertiaryCyan,
-                                    inactiveTrackColor = GlassFillHigh,
-                                ),
+                                accentColor = TertiaryCyan,
                             )
                         }
 
@@ -647,16 +637,12 @@ fun EqualizerDialog(
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
-                                Slider(
+                                MichiFineSlider(
                                     value = effectsState.bassBoostStrength.toFloat(),
                                     onValueChange = { audioEffects?.setBassBoost(it.toInt()) },
                                     valueRange = 0f..1000f,
                                     enabled = effectsState.isEnabled,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = PrimaryPink,
-                                        activeTrackColor = PrimaryPink,
-                                        inactiveTrackColor = GlassFillHigh,
-                                    ),
+                                    accentColor = PrimaryPink,
                                 )
                             }
 
@@ -680,16 +666,12 @@ fun EqualizerDialog(
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
-                                Slider(
+                                MichiFineSlider(
                                     value = effectsState.virtualizerStrength.toFloat(),
                                     onValueChange = { audioEffects?.setVirtualizer(it.toInt()) },
                                     valueRange = 0f..1000f,
                                     enabled = effectsState.isEnabled,
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = SecondaryPurple,
-                                        activeTrackColor = SecondaryPurple,
-                                        inactiveTrackColor = GlassFillHigh,
-                                    ),
+                                    accentColor = SecondaryPurple,
                                 )
                             }
                         }
@@ -714,16 +696,12 @@ fun EqualizerDialog(
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
-                            Slider(
+                            MichiFineSlider(
                                 value = effectsState.loudnessGainMb.toFloat(),
                                 onValueChange = { audioEffects?.setLoudness(it.toInt()) },
                                 valueRange = 0f..1000f,
                                 enabled = effectsState.isEnabled,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = TertiaryCyan,
-                                    activeTrackColor = TertiaryCyan,
-                                    inactiveTrackColor = GlassFillHigh,
-                                ),
+                                accentColor = TertiaryCyan,
                             )
                         }
                     }

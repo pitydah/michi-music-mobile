@@ -337,7 +337,8 @@ fun SettingsScreen(
                         Text("Pre-amp con tags RG", fontSize = 13.sp, color = TextPrimary)
                         Text(String.format("%.1f dB", preAmpWith.floatValue), fontSize = 13.sp, color = TertiaryCyan, fontWeight = FontWeight.Bold)
                     }
-                    Slider(
+                    Spacer(Modifier.height(4.dp))
+                    org.michimusic.mobile.ui.components.MichiFineSlider(
                         value = preAmpWith.floatValue,
                         onValueChange = {
                             preAmpWith.floatValue = it
@@ -345,11 +346,7 @@ fun SettingsScreen(
                         },
                         valueRange = -15f..15f,
                         steps = 29,
-                        colors = SliderDefaults.colors(
-                            thumbColor = TertiaryCyan,
-                            activeTrackColor = TertiaryCyan,
-                            inactiveTrackColor = GlassFillHigh,
-                        ),
+                        accentColor = TertiaryCyan,
                     )
                 }
 
@@ -364,7 +361,8 @@ fun SettingsScreen(
                         Text("Pre-amp sin tags RG", fontSize = 13.sp, color = TextPrimary)
                         Text(String.format("%.1f dB", preAmpWithout.floatValue), fontSize = 13.sp, color = PrimaryPink, fontWeight = FontWeight.Bold)
                     }
-                    Slider(
+                    Spacer(Modifier.height(4.dp))
+                    org.michimusic.mobile.ui.components.MichiFineSlider(
                         value = preAmpWithout.floatValue,
                         onValueChange = {
                             preAmpWithout.floatValue = it
@@ -372,11 +370,7 @@ fun SettingsScreen(
                         },
                         valueRange = -15f..15f,
                         steps = 29,
-                        colors = SliderDefaults.colors(
-                            thumbColor = PrimaryPink,
-                            activeTrackColor = PrimaryPink,
-                            inactiveTrackColor = GlassFillHigh,
-                        ),
+                        accentColor = PrimaryPink,
                     )
                 }
             }

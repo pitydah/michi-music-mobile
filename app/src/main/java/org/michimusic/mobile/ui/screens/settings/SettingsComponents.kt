@@ -123,17 +123,13 @@ fun SettingsSlider(
             Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
             Text(valueLabel, style = MaterialTheme.typography.bodyMedium, color = accentColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
         }
-        Spacer(Modifier.height(4.dp))
-        Slider(
+        Spacer(Modifier.height(8.dp))
+        org.michimusic.mobile.ui.components.MichiFineSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
             steps = steps,
-            colors = SliderDefaults.colors(
-                thumbColor = accentColor,
-                activeTrackColor = accentColor,
-                inactiveTrackColor = SurfaceElevated,
-            ),
+            accentColor = accentColor,
         )
     }
 }

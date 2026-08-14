@@ -372,16 +372,12 @@ fun RemoteScreen(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
-                                Slider(
+                                org.michimusic.mobile.ui.components.MichiFineSlider(
                                     value = playerState.effectiveVolume.toFloat(),
                                     onValueChange = { viewModel.setVolume(it.toInt()) },
                                     valueRange = 0f..100f,
+                                    accentColor = TertiaryCyan,
                                     modifier = Modifier.weight(1f),
-                                    colors = SliderDefaults.colors(
-                                        thumbColor = TertiaryCyan,
-                                        activeTrackColor = TertiaryCyan,
-                                        inactiveTrackColor = GlassFillHigh,
-                                    ),
                                 )
                                 Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
                                 Text(
