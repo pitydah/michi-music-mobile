@@ -24,15 +24,14 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncedTracksViewModelTest {
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private lateinit var testDispatcher: TestDispatcher
     private lateinit var repository: SyncedTrackRepository
-    private lateinit var viewModel: SyncedTracksViewModel
 
     @Before
     fun setup() {
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         repository = FakeSyncedRepo()
-        viewModel = SyncedTracksViewModel(repository)
     }
 
     @After
@@ -42,6 +41,7 @@ class SyncedTracksViewModelTest {
 
     @Test
     fun toTrack_mapsAllFields() = runTest(testDispatcher) {
+        val viewModel = SyncedTracksViewModel(repository)
         val cached = CachedTrack(
             id = "s1", title = "Song", artist = "A", album = "X",
             duration = 200_000L, filepath = "/music/s1.mp3", format = "flac",
@@ -55,12 +55,14 @@ class SyncedTracksViewModelTest {
 
     @Test
     fun getPlayableTracks_filtersEmptyFilepath() = runTest(testDispatcher) {
+        val viewModel = SyncedTracksViewModel(repository)
         val tracks = viewModel.getPlayableTracks()
         assertTrue(tracks.all { it.filepath.isNotEmpty() })
     }
 
     @Test
     fun getPlayableTracks_returnsAllValidTracks() = runTest(testDispatcher) {
+        val viewModel = SyncedTracksViewModel(repository)
         val tracks = viewModel.getPlayableTracks()
         assertEquals(3, tracks.size)
     }

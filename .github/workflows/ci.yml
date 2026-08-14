@@ -12,6 +12,7 @@ concurrency:
 
 jobs:
   lint:
+    name: "Job A — Lint"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,12 +29,12 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      - name: Lint check
+      - name: Run Lint
         run: ./gradlew lint
 
-  test:
+  unit-tests-normal:
+    name: "Job B — Unit Tests (Normal)"
     runs-on: ubuntu-latest
-    needs: lint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -49,17 +50,12 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      - name: Run unit tests (normal)
-        run: ./gradlew :michi-link-client:testNormalDebugUnitTest
-      - name: Run unit tests (fdroid)
-        run: ./gradlew :michi-link-client:testFdroidDebugUnitTest
+      - name: Run Core & Normal Unit Tests
+        run: ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest :player:testDebugUnitTest :michi-link-client:testDebugUnitTest :app:testNormalDebugUnitTest
 
-  build:
+  unit-tests-fdroid:
+    name: "Job C — Unit Tests (F-Droid)"
     runs-on: ubuntu-latest
-    needs: test
-    strategy:
-      matrix:
-        flavor: [normal, fdroid]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -75,9 +71,63 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      - name: Build ${{ matrix.flavor }}Debug
-        run: ./gradlew assemble${{ matrix.flavor }}Debug
+      - name: Run F-Droid Unit Tests
+        run: ./gradlew :app:testFdroidDebugUnitTest
+
+  build-normal:
+    name: "Job D — Build Normal"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-gradle-
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Assemble Normal Debug
+        run: ./gradlew assembleNormalDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ matrix.flavor }}
-          path: app/build/outputs/apk/${{ matrix.flavor }}/debug/*.apk
+          name: apk-normal-debug
+          path: app/build/outputs/apk/normal/debug/*.apk
+
+  build-fdroid:
+    name: "Job E — Build F-Droid"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts', '**/libs.versions.toml') }}
+          restore-keys: ${{ runner.os }}-gradle-
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      - name: Assemble F-Droid Debug
+        run: ./gradlew assembleFdroidDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-fdroid-debug
+          path: app/build/outputs/apk/fdroid/debug/*.apk
+
+  quality-gate:
+    name: "Quality Gate — Release Candidate Stability"
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests-normal, unit-tests-fdroid, build-normal, build-fdroid]
+    steps:
+      - name: Check All Jobs Succeeded
+        run: echo "Quality Gate Passed! All checks (Lint, Unit Tests Normal & FDroid, Builds) are green."

@@ -86,7 +86,8 @@ fun BottomNavBar(
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
             )
             .navigationBarsPadding()
-            .padding(horizontal = 4.dp, vertical = 6.dp),
+            .padding(horizontal = 4.dp, vertical = 6.dp)
+            .testTag("bottom_nav_bar"),
     ) {
         Row(
             modifier = Modifier

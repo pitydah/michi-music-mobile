@@ -1,11 +1,14 @@
 package org.michimusic.player
 
+import androidx.annotation.OptIn
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import kotlin.math.pow
 import org.michimusic.core.models.Track
 
+@OptIn(UnstableApi::class)
 class ReplayGainAudioProcessor : BaseAudioProcessor() {
 
     private var volume = 1f
@@ -54,7 +57,8 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
         }
 
         val amplified = if (resolved != null) resolved + preAmp.with else preAmp.without
-        volume = 10f.pow(amplified / 20f)
+        val calculated = 10f.pow(amplified / 20f)
+        volume = if (calculated.isNaN() || calculated.isInfinite() || calculated < 0f) 1f else calculated
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {

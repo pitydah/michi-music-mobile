@@ -2,6 +2,8 @@ package org.michimusic.player
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
+import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -9,6 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -16,23 +19,31 @@ import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.repository.LocalMediaRepository
 import java.io.File
 
+private const val TAG = "PlayerController"
+
+@OptIn(UnstableApi::class)
 class PlayerController(
     context: Context,
     audioProcessors: List<AudioProcessor> = emptyList(),
     replayGainDao: ReplayGainDao? = null,
 ) {
+
+    private val controllerJob = SupervisorJob()
+    private val controllerScope = CoroutineScope(controllerJob + Dispatchers.Main.immediate)
 
     private val repository = replayGainDao?.let { LocalMediaRepository(context, it) }
         ?: LocalMediaRepository(context, createNoopReplayGainDao())
@@ -45,7 +56,8 @@ class PlayerController(
         } else {
             DefaultAudioSink.Builder(context).build()
         }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to create custom AudioSink with processors; falling back to default", e)
         DefaultAudioSink.Builder(context).build()
     }
 
@@ -60,7 +72,8 @@ class PlayerController(
                     audioSink,
                 ),
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create MediaCodecAudioRenderer, falling back to empty renderers", e)
             emptyArray()
         }
     }
@@ -73,11 +86,12 @@ class PlayerController(
                 .build(),
             /* handleAudioFocus = */ true,
         )
+        .setHandleAudioBecomingNoisy(true)
         .build()
 
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
-    private var positionJob: kotlinx.coroutines.Job? = null
+    private var positionJob: Job? = null
 
     init {
         player.addListener(object : Player.Listener {
@@ -118,10 +132,10 @@ class PlayerController(
 
     private fun startPositionUpdates() {
         stopPositionUpdates()
-        positionJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+        positionJob = controllerScope.launch {
             while (isActive) {
                 _state.value = _state.value.copy(position = player.currentPosition)
-                kotlinx.coroutines.delay(250)
+                delay(250)
             }
         }
     }
@@ -236,6 +250,7 @@ class PlayerController(
 
     fun release() {
         stopPositionUpdates()
+        controllerJob.cancel()
         player.release()
     }
 

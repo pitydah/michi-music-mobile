@@ -1,6 +1,7 @@
 package org.michimusic.player
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.media3.common.Player
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,7 +26,7 @@ class PlaybackStateStore(private val context: Context) {
             put("repeatMode", state.repeatMode)
             put("shuffleMode", state.shuffleMode)
         }
-        prefs.edit().putString(KEY_STATE, json.toString()).apply()
+        prefs.edit { putString(KEY_STATE, json.toString()) }
     }
 
     fun restore(): SavedState {
@@ -49,7 +50,7 @@ class PlaybackStateStore(private val context: Context) {
     }
 
     fun clear() {
-        prefs.edit().remove(KEY_STATE).apply()
+        prefs.edit { remove(KEY_STATE) }
     }
 
     companion object {

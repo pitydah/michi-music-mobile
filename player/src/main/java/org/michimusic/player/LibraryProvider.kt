@@ -2,6 +2,7 @@ package org.michimusic.player
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import org.michimusic.core.models.Album
@@ -72,7 +73,7 @@ class LibraryProvider(
         }
 
         private fun coverUri(albumId: String): Uri =
-            Uri.parse("content://media/external/audio/albumart/$albumId")
+            "content://media/external/audio/albumart/$albumId".toUri()
     }
 
     private var cachedAlbums: List<LocalMediaRepository.LocalAlbum> = emptyList()
@@ -371,9 +372,9 @@ class LibraryProvider(
     private fun Track.toPlayableSong(contextMediaId: String? = null): MediaItem {
         val uri = when {
             filepath.startsWith("content://") || filepath.startsWith("http://") || filepath.startsWith("https://") ->
-                Uri.parse(filepath)
-            filepath.startsWith("/") -> Uri.parse("file://$filepath")
-            else -> Uri.parse(filepath)
+                filepath.toUri()
+            filepath.startsWith("/") -> "file://$filepath".toUri()
+            else -> filepath.toUri()
         }
         val mediaId = contextMediaId?.let { "$it$SEP$SONG_PREFIX$SEP${this.id}" } ?: "${SONG_PREFIX}$SEP${this.id}"
         return MediaItem.Builder()
