@@ -14,6 +14,18 @@ import kotlinx.coroutines.flow.asStateFlow
 
 private const val TAG = "UsbDacManager"
 
+data class AudioOutputDevice(
+    val id: Int,
+    val name: String,
+    val type: Int,
+    val isSelected: Boolean = false,
+    val isUsbDac: Boolean = false,
+    val isBluetooth: Boolean = false,
+    val isWired: Boolean = false,
+    val isSpeaker: Boolean = false,
+    val sampleRates: List<Int> = emptyList(),
+)
+
 data class UsbDacInfo(
     val isConnected: Boolean = false,
     val deviceName: String = "",
@@ -28,8 +40,15 @@ class UsbDacManager(
     private val context: Context,
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+
     private val _dacState = MutableStateFlow(UsbDacInfo())
     val dacState: StateFlow<UsbDacInfo> = _dacState.asStateFlow()
+
+    private val _outputDevices = MutableStateFlow<List<AudioOutputDevice>>(emptyList())
+    val outputDevices: StateFlow<List<AudioOutputDevice>> = _outputDevices.asStateFlow()
+
+    private val _selectedDeviceId = MutableStateFlow<Int?>(null)
+    val selectedDeviceId: StateFlow<Int?> = _selectedDeviceId.asStateFlow()
 
     private var preferredUsbDevice: AudioDeviceInfo? = null
 
@@ -62,7 +81,7 @@ class UsbDacManager(
             val sampleRates = usbDevice.sampleRates.toList().ifEmpty { listOf(44100, 48000, 96000, 192000) }
             val channels = usbDevice.channelCounts.toList().ifEmpty { listOf(2) }
             val encodings = usbDevice.encodings.toList()
-            val isBitPerfect = sampleRates.any { it >= 96000 } || encodings.any { it == 3 || it == 4 } // ENCODING_PCM_FLOAT / 24BIT / 32BIT
+            val isBitPerfect = sampleRates.any { it >= 96000 } || encodings.any { it == 3 || it == 4 }
 
             _dacState.value = UsbDacInfo(
                 isConnected = true,
@@ -73,11 +92,57 @@ class UsbDacManager(
                 isBitPerfectSupported = isBitPerfect,
                 deviceId = usbDevice.id,
             )
-            Log.i(TAG, "USB DAC detectado: ${_dacState.value.deviceName} (Sample rates: $sampleRates)")
         } else {
             preferredUsbDevice = null
             _dacState.value = UsbDacInfo(isConnected = false)
         }
+
+        val deviceList = devices.map { dev ->
+            val isUsb = isUsbAudioDevice(dev)
+            val isBt = dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || dev.type == AudioDeviceInfo.TYPE_HEARING_AID
+            val isWired = dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || dev.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            val isSpk = dev.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER || dev.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+
+            val name = when {
+                !dev.productName.isNullOrBlank() -> dev.productName.toString()
+                isUsb -> "DAC USB Audio"
+                isBt -> "Auriculares Bluetooth"
+                isWired -> "Auriculares Cableados"
+                isSpk -> "Altavoz del Dispositivo"
+                else -> "Salida de Audio"
+            }
+
+            AudioOutputDevice(
+                id = dev.id,
+                name = name,
+                type = dev.type,
+                isSelected = (_selectedDeviceId.value == dev.id) || (_selectedDeviceId.value == null && (isUsb || isWired || isBt || isSpk)),
+                isUsbDac = isUsb,
+                isBluetooth = isBt,
+                isWired = isWired,
+                isSpeaker = isSpk,
+                sampleRates = dev.sampleRates.toList().ifEmpty { listOf(44100, 48000) },
+            )
+        }
+
+        _outputDevices.value = if (deviceList.isEmpty()) {
+            listOf(
+                AudioOutputDevice(
+                    id = 1,
+                    name = "Altavoz del Dispositivo",
+                    type = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                    isSelected = true,
+                    isSpeaker = true,
+                )
+            )
+        } else {
+            deviceList
+        }
+    }
+
+    fun selectDevice(deviceId: Int) {
+        _selectedDeviceId.value = deviceId
+        scanDevices()
     }
 
     fun getPreferredUsbDevice(): AudioDeviceInfo? = preferredUsbDevice

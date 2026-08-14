@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
@@ -122,6 +123,8 @@ fun SettingsScreen(
     }
     val preAmpWith = remember { mutableFloatStateOf(prefs.getFloat(KEY_RG_PREAMP_WITH, 0f)) }
     val preAmpWithout = remember { mutableFloatStateOf(prefs.getFloat(KEY_RG_PREAMP_WITHOUT, 0f)) }
+    var showAudioRouteDialog by remember { mutableStateOf(false) }
+    var showEqualizerDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         listeningHistory = appDao.getSetting(DB_LISTENING_HISTORY_ENABLED) != "false"
@@ -363,6 +366,116 @@ fun SettingsScreen(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                Spacer(Modifier.height(14.dp))
+
+                // Direct Audio Output / USB DAC Trigger Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GlassFillHigh)
+                        .border(1.dp, TertiaryCyan.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = TertiaryCyan),
+                            onClick = { showAudioRouteDialog = true },
+                        )
+                        .padding(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Headphones,
+                                contentDescription = null,
+                                tint = TertiaryCyan,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Column {
+                                Text(
+                                    text = "Salidas de Audio & DAC USB",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PureWhite,
+                                )
+                                Text(
+                                    text = "Enrutar hacia DAC Hi-Res, Auriculares o Bluetooth",
+                                    fontSize = 10.sp,
+                                    color = TextSecondary,
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = TertiaryCyan,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // Equalizer Trigger Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GlassFillHigh)
+                        .border(1.dp, PrimaryPink.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = ripple(color = PrimaryPink),
+                            onClick = { showEqualizerDialog = true },
+                        )
+                        .padding(12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.GraphicEq,
+                                contentDescription = null,
+                                tint = PrimaryPink,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Column {
+                                Text(
+                                    text = "Ecualizador & DSP 3D",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = PureWhite,
+                                )
+                                Text(
+                                    text = "5 bandas, refuerzo de bajos y espacialización",
+                                    fontSize = 10.sp,
+                                    color = TextSecondary,
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                            contentDescription = null,
+                            tint = PrimaryPink,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -547,6 +660,14 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(120.dp))
+        }
+
+        if (showAudioRouteDialog) {
+            org.michimusic.mobile.ui.components.AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
+        }
+
+        if (showEqualizerDialog) {
+            org.michimusic.mobile.ui.components.EqualizerDialog(onDismiss = { showEqualizerDialog = false })
         }
     }
 }

@@ -27,13 +27,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
@@ -429,25 +430,22 @@ fun NowPlayingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val sleepTimerRemaining = playerState.sleepTimerRemainingMs
-                    val sleepActive = sleepTimerRemaining > 0L
+                    var showAudioRouteDialog by remember { mutableStateOf(false) }
 
-                    // Sleep Timer Button
+                    // Audio Output Route Selector Button (Headphones icon)
                     IconButton(
-                        onClick = {
-                            val next = cycleSleepTimer(sleepTimerRemaining)
-                            if (next <= 0L) audioController.cancelSleepTimer() else audioController.setSleepTimer(next)
-                        },
+                        onClick = { showAudioRouteDialog = true },
                         modifier = Modifier
                             .size(42.dp)
                             .clip(CircleShape)
-                            .background(if (sleepActive) TertiaryCyan.copy(alpha = 0.2f) else GlassFillLow)
-                            .border(1.dp, if (sleepActive) TertiaryCyan else GlassBorderLow, CircleShape),
+                            .background(GlassFillLow)
+                            .border(1.dp, GlassBorderLow, CircleShape)
+                            .testTag("audio_route_button"),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Timer,
-                            contentDescription = "Temporizador",
-                            tint = if (sleepActive) TertiaryCyan else OnSurfaceVariant,
+                            imageVector = Icons.Filled.Headphones,
+                            contentDescription = "Salidas de Audio",
+                            tint = TertiaryCyan,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -469,7 +467,7 @@ fun NowPlayingScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.QueueMusic,
+                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = null,
                                 tint = OnSurfaceVariant,
                                 modifier = Modifier.size(18.dp),
@@ -492,7 +490,8 @@ fun NowPlayingScreen(
                             .size(42.dp)
                             .clip(CircleShape)
                             .background(GlassFillLow)
-                            .border(1.dp, GlassBorderLow, CircleShape),
+                            .border(1.dp, GlassBorderLow, CircleShape)
+                            .testTag("equalizer_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Equalizer,
@@ -500,6 +499,10 @@ fun NowPlayingScreen(
                             tint = OnSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
+                    }
+
+                    if (showAudioRouteDialog) {
+                        org.michimusic.mobile.ui.components.AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
                     }
                 }
             }

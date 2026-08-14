@@ -21,12 +21,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -106,7 +112,7 @@ fun QueueDialog(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Filled.QueueMusic,
+                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
                             tint = TertiaryCyan,
                             modifier = Modifier.size(24.dp),
@@ -769,3 +775,240 @@ fun CreatePlaylistDialog(
         }
     }
 }
+
+@Composable
+fun AudioRouteDialog(
+    onDismiss: () -> Unit,
+) {
+    val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching { org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>() }.getOrNull()
+    val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+    val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
+    val selectedId by (usbDacManager?.selectedDeviceId?.collectAsState() ?: remember { mutableStateOf(null) })
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SurfaceObsidian,
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp)
+                .testTag("audio_route_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(TertiaryCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Headphones,
+                                contentDescription = null,
+                                tint = TertiaryCyan,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Salidas de Audio & DAC",
+                                color = PureWhite,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = "Selector de Enrutamiento Hi-Res",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cerrar",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // USB DAC Direct Status Banner
+                if (dacInfo.isConnected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(TertiaryCyan.copy(alpha = 0.12f))
+                            .border(1.dp, TertiaryCyan.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Usb,
+                                contentDescription = null,
+                                tint = TertiaryCyan,
+                                modifier = Modifier.size(22.dp),
+                            )
+                            Column {
+                                Text(
+                                    text = "DAC USB DIRECT CONECTADO",
+                                    color = TertiaryCyan,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp,
+                                )
+                                Text(
+                                    text = "${dacInfo.deviceName} • PCM Direct Hi-Res",
+                                    color = PureWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                if (dacInfo.sampleRates.isNotEmpty()) {
+                                    Text(
+                                        text = "Frecuencias: ${dacInfo.sampleRates.map { "${it / 1000}kHz" }.joinToString(", ")}",
+                                        color = TextMuted,
+                                        fontSize = 10.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                Text(
+                    text = "DISPOSITIVOS DETECTADOS",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Device List
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(outputDevices) { device ->
+                        val isCurrentSelected = (selectedId == device.id) || (selectedId == null && device.isSelected)
+                        val icon = when {
+                            device.isUsbDac -> Icons.Filled.Usb
+                            device.isBluetooth -> Icons.Filled.Bluetooth
+                            device.isWired -> Icons.Filled.Headphones
+                            else -> Icons.Filled.Speaker
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isCurrentSelected) TertiaryCyan.copy(alpha = 0.15f) else GlassFillLow)
+                                .border(
+                                    1.dp,
+                                    if (isCurrentSelected) TertiaryCyan else GlassBorderLow,
+                                    RoundedCornerShape(14.dp),
+                                )
+                                .clickable { usbDacManager?.selectDevice(device.id) }
+                                .padding(12.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isCurrentSelected) TertiaryCyan.copy(alpha = 0.25f) else GlassFillHigh),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = if (isCurrentSelected) TertiaryCyan else PureWhite,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+
+                                    Column {
+                                        Text(
+                                            text = device.name,
+                                            color = if (isCurrentSelected) TertiaryCyan else PureWhite,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            text = if (device.isUsbDac) "Audio Direct USB / Bit-Perfect" else if (device.isBluetooth) "Inalámbrico A2DP" else if (device.isWired) "Jack Analógico 3.5mm" else "Altavoz Interno AOSP",
+                                            color = TextMuted,
+                                            fontSize = 10.sp,
+                                        )
+                                    }
+                                }
+
+                                if (isCurrentSelected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(TertiaryCyan),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = "Activo",
+                                            tint = SurfaceObsidian,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Listo", color = PureWhite, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+

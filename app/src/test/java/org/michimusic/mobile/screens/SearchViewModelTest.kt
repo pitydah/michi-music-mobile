@@ -53,7 +53,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_shortQuery_returnsEmpty() = runTest(testDispatcher) {
+    fun setQuery_shortQuery_returnsEmpty() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("a")
@@ -62,7 +62,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_matchesLocalTrackTitle() = runTest(testDispatcher) {
+    fun setQuery_matchesLocalTrackTitle() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("Song 1")
@@ -74,7 +74,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_matchesSyncedTrackArtist() = runTest(testDispatcher) {
+    fun setQuery_matchesSyncedTrackArtist() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("Synced Artist")
@@ -85,7 +85,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_matchesLocalTrackAlbum() = runTest(testDispatcher) {
+    fun setQuery_matchesLocalTrackAlbum() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("Test Album")
@@ -96,7 +96,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_noMatch_returnsEmpty() = runTest(testDispatcher) {
+    fun setQuery_noMatch_returnsEmpty() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("ZZZZnotfound")
@@ -105,7 +105,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun clearSearch_resetsQueryAndResults() = runTest(testDispatcher) {
+    fun clearSearch_resetsQueryAndResults() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("Song")
@@ -118,7 +118,7 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun resultsCappedAt50() = runTest(testDispatcher) {
+    fun resultsCappedAt50() = runTest {
         viewModel.loadLocalTracks()
         advanceUntilIdle()
         viewModel.setQuery("Track")
