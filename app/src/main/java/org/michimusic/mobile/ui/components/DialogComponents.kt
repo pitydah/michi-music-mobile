@@ -33,8 +33,12 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LaptopMac
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.SurroundSound
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -67,22 +71,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.collectAsState
-import org.michimusic.mobile.ui.theme.ErrorColor
-import org.michimusic.mobile.ui.theme.GlassBorderHigh
-import org.michimusic.mobile.ui.theme.GlassBorderLow
-import org.michimusic.mobile.ui.theme.GlassFillHigh
-import org.michimusic.mobile.ui.theme.GlassFillLow
-import org.michimusic.mobile.ui.theme.OnSurfaceVariant
-import org.michimusic.mobile.ui.theme.PrimaryPink
-import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
-import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
-import org.michimusic.mobile.ui.theme.SurfaceContainer
-import org.michimusic.mobile.ui.theme.SurfaceObsidian
-import org.michimusic.mobile.ui.theme.TertiaryCyan
-import org.michimusic.mobile.ui.theme.TertiaryCyanContainer
-import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.*
 
 data class EqBand(val frequencyLabel: String, var gainDb: Float)
 
@@ -223,16 +212,30 @@ fun EqualizerDialog(
         mutableStateOf(org.michimusic.player.UsbDacInfo())
     })
 
-    val presets = listOf("Synthwave", "Bass Boost", "Cyberpunk", "Vocal", "Acoustic", "Electronic", "Flat")
+    var selectedTab by remember { mutableStateOf(0) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    val presets = listOf(
+        "Michi Signature",
+        "Flat / Plano",
+        "Bass Punch",
+        "Treble Clarity",
+        "Vocal Presence",
+        "Cyberpunk EDM",
+        "Acoustic Hi-Fi",
+        "Rock & Metal",
+    )
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(4.dp)
+                .fillMaxWidth(0.95f)
+                .padding(vertical = 12.dp)
                 .testTag("equalizer_dialog"),
         ) {
             Column(
@@ -240,7 +243,7 @@ fun EqualizerDialog(
                     .fillMaxWidth()
                     .padding(20.dp),
             ) {
-                // Header
+                // Header Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -248,45 +251,74 @@ fun EqualizerDialog(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(TertiaryCyan.copy(alpha = 0.15f)),
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (effectsState.isEnabled) TertiaryCyan.copy(alpha = 0.2f) else GlassFillLow)
+                                .border(
+                                    1.dp,
+                                    if (effectsState.isEnabled) TertiaryCyan.copy(alpha = 0.6f) else GlassBorderLow,
+                                    RoundedCornerShape(12.dp),
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.GraphicEq,
                                 contentDescription = null,
-                                tint = TertiaryCyan,
-                                modifier = Modifier.size(20.dp),
+                                tint = if (effectsState.isEnabled) TertiaryCyan else TextMuted,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
 
                         Column {
                             Text(
-                                text = "Ecualizador de Audio",
+                                text = "Ecualizador & DSP Studio",
                                 color = PureWhite,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                             )
-                            if (dacInfo.isConnected) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 Text(
-                                    text = "DAC USB: ${dacInfo.deviceName.take(16)}",
-                                    color = TertiaryCyan,
+                                    text = if (effectsState.isEnabled) "DSP ACTIVO" else "BYPASS",
+                                    color = if (effectsState.isEnabled) TertiaryCyan else TextMuted,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                 )
+                                if (dacInfo.isConnected) {
+                                    Text(text = "•", color = TextMuted, fontSize = 10.sp)
+                                    Text(
+                                        text = "DAC: ${dacInfo.deviceName.take(14)}",
+                                        color = PrimaryPink,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
                             }
                         }
                     }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        IconButton(
+                            onClick = { audioEffects?.resetToFlat() },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.RestartAlt,
+                                contentDescription = "Restablecer a Plano",
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
                         Switch(
                             checked = effectsState.isEnabled,
                             onCheckedChange = { audioEffects?.setEnabled(it) },
@@ -300,13 +332,13 @@ fun EqualizerDialog(
 
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(48.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Close,
                                 contentDescription = "Cerrar",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp),
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -314,50 +346,97 @@ fun EqualizerDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Frequency Curve Visualizer Canvas
+                // High-End Frequency Response Curve Visualizer
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(68.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassFillLow)
-                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                        .padding(8.dp),
+                        .height(84.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SurfaceContainerLowest)
+                        .border(1.dp, GlassBorderLow, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
                         val width = size.width
                         val height = size.height
                         val midY = height / 2f
+
+                        val gridColor = Color(0x22FFFFFF)
+                        val centerLineColor = if (effectsState.isEnabled) TertiaryCyan.copy(alpha = 0.35f) else Color(0x33FFFFFF)
+
+                        drawLine(color = gridColor, start = androidx.compose.ui.geometry.Offset(0f, height * 0.15f), end = androidx.compose.ui.geometry.Offset(width, height * 0.15f), strokeWidth = 1f)
+                        drawLine(color = centerLineColor, start = androidx.compose.ui.geometry.Offset(0f, midY), end = androidx.compose.ui.geometry.Offset(width, midY), strokeWidth = 1.5f)
+                        drawLine(color = gridColor, start = androidx.compose.ui.geometry.Offset(0f, height * 0.85f), end = androidx.compose.ui.geometry.Offset(width, height * 0.85f), strokeWidth = 1f)
+
                         val bands = effectsState.bands
                         if (bands.isNotEmpty()) {
                             val path = androidx.compose.ui.graphics.Path()
+                            val fillPath = androidx.compose.ui.graphics.Path()
+
                             val points = bands.mapIndexed { idx, band ->
                                 val x = (idx.toFloat() / (bands.size - 1).coerceAtLeast(1)) * width
-                                val normalizedGain = (band.currentGainMilliDb.toFloat() / (band.maxGainMilliDb.toFloat().coerceAtLeast(1f))).coerceIn(-1f, 1f)
-                                val y = midY - (normalizedGain * (midY * 0.8f))
+                                val rawGain = if (effectsState.isEnabled) band.currentGainMilliDb.toFloat() else 0f
+                                val normalizedGain = (rawGain / (band.maxGainMilliDb.toFloat().coerceAtLeast(1f))).coerceIn(-1f, 1f)
+                                val y = midY - (normalizedGain * (midY * 0.75f))
                                 androidx.compose.ui.geometry.Offset(x, y)
                             }
 
                             path.moveTo(points.first().x, points.first().y)
+                            fillPath.moveTo(points.first().x, midY)
+                            fillPath.lineTo(points.first().x, points.first().y)
+
                             for (i in 1 until points.size) {
                                 val prev = points[i - 1]
                                 val cur = points[i]
                                 val cX = (prev.x + cur.x) / 2f
                                 path.cubicTo(cX, prev.y, cX, cur.y, cur.x, cur.y)
+                                fillPath.cubicTo(cX, prev.y, cX, cur.y, cur.x, cur.y)
+                            }
+
+                            fillPath.lineTo(points.last().x, midY)
+                            fillPath.close()
+
+                            if (effectsState.isEnabled) {
+                                drawPath(
+                                    path = fillPath,
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            PrimaryPink.copy(alpha = 0.25f),
+                                            TertiaryCyan.copy(alpha = 0.08f),
+                                            Color.Transparent,
+                                        ),
+                                    ),
+                                )
+                            }
+
+                            val curveBrush = if (effectsState.isEnabled) {
+                                Brush.horizontalGradient(listOf(TertiaryCyan, PrimaryPink))
+                            } else {
+                                Brush.horizontalGradient(listOf(TextMuted, TextMuted))
                             }
 
                             drawPath(
                                 path = path,
-                                brush = Brush.horizontalGradient(listOf(TertiaryCyan, PrimaryPink)),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round),
+                                brush = curveBrush,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = 2.5.dp.toPx(),
+                                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                ),
                             )
 
                             points.forEach { pt ->
                                 drawCircle(
-                                    color = TertiaryCyan,
-                                    radius = 4.dp.toPx(),
+                                    color = if (effectsState.isEnabled) TertiaryCyan else TextMuted,
+                                    radius = 3.5.dp.toPx(),
                                     center = pt,
                                 )
+                                if (effectsState.isEnabled) {
+                                    drawCircle(
+                                        color = PureWhite,
+                                        radius = 1.8.dp.toPx(),
+                                        center = pt,
+                                    )
+                                }
                             }
                         }
                     }
@@ -365,30 +444,30 @@ fun EqualizerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Presets Horizontal Row
+                // Presets Carousel
                 androidx.compose.foundation.lazy.LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(presets) { preset ->
                         val isSelected = effectsState.selectedPreset == preset
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) TertiaryCyan.copy(alpha = 0.25f) else GlassFillLow)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (isSelected) PrimaryPinkContainer else GlassFillLow)
                                 .border(
                                     1.dp,
-                                    if (isSelected) TertiaryCyan else GlassBorderLow,
-                                    RoundedCornerShape(8.dp),
+                                    if (isSelected) PrimaryPink else GlassBorderLow,
+                                    RoundedCornerShape(20.dp),
                                 )
                                 .clickable { audioEffects?.applyPreset(preset) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = preset,
-                                color = if (isSelected) TertiaryCyan else PureWhite,
+                                color = if (isSelected) PureWhite else OnSurfaceVariant,
                                 fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             )
                         }
                     }
@@ -396,100 +475,277 @@ fun EqualizerDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Equalizer Bands
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                // Tab Selector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceContainerLowest)
+                        .padding(3.dp),
                 ) {
-                    effectsState.bands.forEach { band ->
-                        val freqLabel = if (band.centerFreqHz >= 1000) "${band.centerFreqHz / 1000} kHz" else "${band.centerFreqHz} Hz"
-                        val gainDb = band.currentGainMilliDb / 100f
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (selectedTab == 0) SurfaceContainer else Color.Transparent)
+                            .clickable { selectedTab = 0 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Bandas Paramétricas",
+                            color = if (selectedTab == 0) PureWhite else TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (selectedTab == 1) SurfaceContainer else Color.Transparent)
+                            .clickable { selectedTab = 1 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "DSP & Dinámica",
+                            color = if (selectedTab == 1) PureWhite else TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (selectedTab == 0) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        effectsState.bands.forEach { band ->
+                            val freqLabel = if (band.centerFreqHz >= 1000) "${band.centerFreqHz / 1000} kHz" else "${band.centerFreqHz} Hz"
+                            val gainDb = band.currentGainMilliDb / 100f
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(GlassFillLow)
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(58.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(SurfaceContainerLowest)
+                                        .padding(vertical = 4.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = freqLabel,
+                                        color = PureWhite,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Slider(
+                                    value = band.currentGainMilliDb.toFloat(),
+                                    onValueChange = { audioEffects?.setBandGain(band.index, it.toInt()) },
+                                    valueRange = band.minGainMilliDb.toFloat()..band.maxGainMilliDb.toFloat(),
+                                    enabled = effectsState.isEnabled,
+                                    modifier = Modifier.weight(1f),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = TertiaryCyan,
+                                        activeTrackColor = TertiaryCyan,
+                                        inactiveTrackColor = GlassFillHigh,
+                                        disabledThumbColor = TextMuted,
+                                        disabledActiveTrackColor = TextMuted.copy(alpha = 0.3f),
+                                    ),
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Box(
+                                    modifier = Modifier.width(54.dp),
+                                    contentAlignment = Alignment.CenterEnd,
+                                ) {
+                                    Text(
+                                        text = "${if (gainDb > 0) "+" else ""}${String.format("%.1f", gainDb)} dB",
+                                        color = if (gainDb > 0.05f) TertiaryCyan else if (gainDb < -0.05f) PrimaryPink else TextMuted,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        // Preamp Slider
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(GlassFillLow)
+                                .padding(12.dp),
                         ) {
-                            Text(
-                                text = freqLabel,
-                                color = PureWhite,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.width(52.dp),
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(text = "Preamplificador Hi-Fi", fontSize = 12.sp, color = PureWhite, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "${if (effectsState.preampGainDb > 0) "+" else ""}${String.format("%.1f", effectsState.preampGainDb)} dB",
+                                    fontSize = 12.sp,
+                                    color = if (effectsState.preampGainDb != 0f) TertiaryCyan else TextMuted,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                             Slider(
-                                value = band.currentGainMilliDb.toFloat(),
-                                onValueChange = { audioEffects?.setBandGain(band.index, it.toInt()) },
-                                valueRange = band.minGainMilliDb.toFloat()..band.maxGainMilliDb.toFloat(),
-                                modifier = Modifier.weight(1f),
+                                value = effectsState.preampGainDb,
+                                onValueChange = { audioEffects?.setPreamp(it) },
+                                valueRange = -12f..12f,
+                                enabled = effectsState.isEnabled,
                                 colors = SliderDefaults.colors(
                                     thumbColor = TertiaryCyan,
                                     activeTrackColor = TertiaryCyan,
                                     inactiveTrackColor = GlassFillHigh,
                                 ),
                             )
-                            Text(
-                                text = "${if (gainDb > 0) "+" else ""}${String.format("%.1f", gainDb)} dB",
-                                color = if (gainDb != 0f) TertiaryCyan else TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.width(54.dp),
+                        }
+
+                        // Bass Boost & Virtualizer Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            // Bass Boost
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(GlassFillLow)
+                                    .padding(12.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(text = "Bass Boost", fontSize = 11.sp, color = PureWhite, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = "${effectsState.bassBoostStrength / 10}%",
+                                        fontSize = 11.sp,
+                                        color = PrimaryPink,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                Slider(
+                                    value = effectsState.bassBoostStrength.toFloat(),
+                                    onValueChange = { audioEffects?.setBassBoost(it.toInt()) },
+                                    valueRange = 0f..1000f,
+                                    enabled = effectsState.isEnabled,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = PrimaryPink,
+                                        activeTrackColor = PrimaryPink,
+                                        inactiveTrackColor = GlassFillHigh,
+                                    ),
+                                )
+                            }
+
+                            // Virtualizer 3D
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(GlassFillLow)
+                                    .padding(12.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(text = "Espacio 3D", fontSize = 11.sp, color = PureWhite, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = "${effectsState.virtualizerStrength / 10}%",
+                                        fontSize = 11.sp,
+                                        color = SecondaryPurple,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                Slider(
+                                    value = effectsState.virtualizerStrength.toFloat(),
+                                    onValueChange = { audioEffects?.setVirtualizer(it.toInt()) },
+                                    valueRange = 0f..1000f,
+                                    enabled = effectsState.isEnabled,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = SecondaryPurple,
+                                        activeTrackColor = SecondaryPurple,
+                                        inactiveTrackColor = GlassFillHigh,
+                                    ),
+                                )
+                            }
+                        }
+
+                        // Loudness Enhancer
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(GlassFillLow)
+                                .padding(12.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(text = "Loudness Enhancer (Nivelador Dinámico)", fontSize = 12.sp, color = PureWhite, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = "+${String.format("%.1f", effectsState.loudnessGainMb / 100f)} dB",
+                                    fontSize = 12.sp,
+                                    color = if (effectsState.loudnessGainMb > 0) TertiaryCyan else TextMuted,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            Slider(
+                                value = effectsState.loudnessGainMb.toFloat(),
+                                onValueChange = { audioEffects?.setLoudness(it.toInt()) },
+                                valueRange = 0f..1000f,
+                                enabled = effectsState.isEnabled,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = TertiaryCyan,
+                                    activeTrackColor = TertiaryCyan,
+                                    inactiveTrackColor = GlassFillHigh,
+                                ),
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // BassBoost and 3D Virtualizer Sliders
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Bass Boost (${effectsState.bassBoostStrength / 10}%)",
-                            fontSize = 11.sp,
-                            color = TextSecondary,
-                        )
-                        Slider(
-                            value = effectsState.bassBoostStrength.toFloat(),
-                            onValueChange = { audioEffects?.setBassBoost(it.toInt()) },
-                            valueRange = 0f..1000f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = PrimaryPink,
-                                activeTrackColor = PrimaryPink,
-                                inactiveTrackColor = GlassFillHigh,
-                            ),
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Virtualizer 3D (${effectsState.virtualizerStrength / 10}%)",
-                            fontSize = 11.sp,
-                            color = TextSecondary,
-                        )
-                        Slider(
-                            value = effectsState.virtualizerStrength.toFloat(),
-                            onValueChange = { audioEffects?.setVirtualizer(it.toInt()) },
-                            valueRange = 0f..1000f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = SecondaryPurple,
-                                activeTrackColor = SecondaryPurple,
-                                inactiveTrackColor = GlassFillHigh,
-                            ),
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
+                // Footer Apply Button
                 Button(
                     onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Aplicar & Guardar", color = PureWhite, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Guardar y Cerrar",
+                        color = PureWhite,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,8 @@ private const val EQ_PREFS = "michi_equalizer_prefs"
 private const val KEY_EQ_ENABLED = "eq_enabled"
 private const val KEY_BASS_STRENGTH = "bass_strength"
 private const val KEY_VIRTUALIZER_STRENGTH = "virtualizer_strength"
+private const val KEY_LOUDNESS_GAIN = "loudness_gain"
+private const val KEY_PREAMP_GAIN = "preamp_gain"
 private const val KEY_PRESET_NAME = "selected_preset"
 
 data class EqualizerBandState(
@@ -27,9 +30,11 @@ data class EqualizerBandState(
 
 data class AudioEffectsState(
     val isEnabled: Boolean = true,
-    val selectedPreset: String = "Synthwave",
-    val bassBoostStrength: Int = 350, // 0 to 1000
-    val virtualizerStrength: Int = 200, // 0 to 1000
+    val selectedPreset: String = "Michi Signature",
+    val preampGainDb: Float = 0f, // -12dB to +12dB
+    val bassBoostStrength: Int = 300, // 0 to 1000
+    val virtualizerStrength: Int = 150, // 0 to 1000
+    val loudnessGainMb: Int = 0, // 0 to 1000 mB (0 to +10 dB)
     val bands: List<EqualizerBandState> = emptyList(),
 )
 
@@ -41,6 +46,7 @@ class MichiAudioEffects(
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
     private var currentSessionId: Int = 0
 
     private val _effectsState = MutableStateFlow(AudioEffectsState())
@@ -55,26 +61,36 @@ class MichiAudioEffects(
         currentSessionId = sessionId
         releaseEffects()
 
+        val isMasterEnabled = prefs.getBoolean(KEY_EQ_ENABLED, true)
+
         try {
             equalizer = Equalizer(0, sessionId).apply {
-                enabled = prefs.getBoolean(KEY_EQ_ENABLED, true)
+                enabled = isMasterEnabled
             }
+
             bassBoost = BassBoost(0, sessionId).apply {
-                enabled = prefs.getBoolean(KEY_EQ_ENABLED, true)
-                val str = prefs.getInt(KEY_BASS_STRENGTH, 350).toShort()
+                enabled = isMasterEnabled
+                val str = prefs.getInt(KEY_BASS_STRENGTH, 300).toShort()
                 if (strengthSupported) setStrength(str)
             }
+
             virtualizer = Virtualizer(0, sessionId).apply {
-                enabled = prefs.getBoolean(KEY_EQ_ENABLED, true)
-                val str = prefs.getInt(KEY_VIRTUALIZER_STRENGTH, 200).toShort()
+                enabled = isMasterEnabled
+                val str = prefs.getInt(KEY_VIRTUALIZER_STRENGTH, 150).toShort()
                 if (strengthSupported) setStrength(str)
+            }
+
+            loudnessEnhancer = LoudnessEnhancer(sessionId).apply {
+                enabled = isMasterEnabled
+                val gain = prefs.getInt(KEY_LOUDNESS_GAIN, 0)
+                setTargetGain(gain)
             }
 
             syncBandsFromHardware()
             applySavedBandGains()
-            Log.i(TAG, "AudioEffects vinculados con sesión $sessionId")
+            Log.i(TAG, "AudioEffects vinculados con éxito a sesión $sessionId")
         } catch (e: Exception) {
-            Log.w(TAG, "No se pudieron inicializar AudioEffects en hardware, usando emulación de bandas", e)
+            Log.w(TAG, "Hardware effects initialization fallback", e)
             initFallbackBands()
         }
     }
@@ -105,9 +121,11 @@ class MichiAudioEffects(
             _effectsState.value = _effectsState.value.copy(
                 isEnabled = eq.enabled,
                 bands = bandList,
-                bassBoostStrength = prefs.getInt(KEY_BASS_STRENGTH, 350),
-                virtualizerStrength = prefs.getInt(KEY_VIRTUALIZER_STRENGTH, 200),
-                selectedPreset = prefs.getString(KEY_PRESET_NAME, "Synthwave") ?: "Synthwave",
+                preampGainDb = prefs.getFloat(KEY_PREAMP_GAIN, 0f),
+                bassBoostStrength = prefs.getInt(KEY_BASS_STRENGTH, 300),
+                virtualizerStrength = prefs.getInt(KEY_VIRTUALIZER_STRENGTH, 150),
+                loudnessGainMb = prefs.getInt(KEY_LOUDNESS_GAIN, 0),
+                selectedPreset = prefs.getString(KEY_PRESET_NAME, "Michi Signature") ?: "Michi Signature",
             )
         } catch (e: Exception) {
             Log.w(TAG, "Error leyendo bandas del Equalizer", e)
@@ -130,9 +148,11 @@ class MichiAudioEffects(
         _effectsState.value = _effectsState.value.copy(
             isEnabled = prefs.getBoolean(KEY_EQ_ENABLED, true),
             bands = bandList,
-            bassBoostStrength = prefs.getInt(KEY_BASS_STRENGTH, 350),
-            virtualizerStrength = prefs.getInt(KEY_VIRTUALIZER_STRENGTH, 200),
-            selectedPreset = prefs.getString(KEY_PRESET_NAME, "Synthwave") ?: "Synthwave",
+            preampGainDb = prefs.getFloat(KEY_PREAMP_GAIN, 0f),
+            bassBoostStrength = prefs.getInt(KEY_BASS_STRENGTH, 300),
+            virtualizerStrength = prefs.getInt(KEY_VIRTUALIZER_STRENGTH, 150),
+            loudnessGainMb = prefs.getInt(KEY_LOUDNESS_GAIN, 0),
+            selectedPreset = prefs.getString(KEY_PRESET_NAME, "Michi Signature") ?: "Michi Signature",
         )
     }
 
@@ -153,6 +173,7 @@ class MichiAudioEffects(
             equalizer?.enabled = enabled
             bassBoost?.enabled = enabled
             virtualizer?.enabled = enabled
+            loudnessEnhancer?.enabled = enabled
         } catch (e: Exception) {
             Log.w(TAG, "Error cambiando estado de efectos", e)
         }
@@ -163,12 +184,13 @@ class MichiAudioEffects(
         val currentBands = _effectsState.value.bands.toMutableList()
         val targetIdx = currentBands.indexOfFirst { it.index == bandIndex }
         if (targetIdx != -1) {
-            val updatedBand = currentBands[targetIdx].copy(currentGainMilliDb = milliDb)
+            val clamped = milliDb.coerceIn(currentBands[targetIdx].minGainMilliDb, currentBands[targetIdx].maxGainMilliDb)
+            val updatedBand = currentBands[targetIdx].copy(currentGainMilliDb = clamped)
             currentBands[targetIdx] = updatedBand
 
             try {
-                equalizer?.setBandLevel(bandIndex.toShort(), milliDb.toShort())
-                prefs.edit().putInt("band_$bandIndex", milliDb).apply()
+                equalizer?.setBandLevel(bandIndex.toShort(), clamped.toShort())
+                prefs.edit().putInt("band_$bandIndex", clamped).apply()
             } catch (e: Exception) {
                 Log.w(TAG, "Error asignando nivel a banda $bandIndex", e)
             }
@@ -179,6 +201,12 @@ class MichiAudioEffects(
             )
             prefs.edit().putString(KEY_PRESET_NAME, "Personalizado").apply()
         }
+    }
+
+    fun setPreamp(gainDb: Float) {
+        val clamped = gainDb.coerceIn(-12f, 12f)
+        prefs.edit().putFloat(KEY_PREAMP_GAIN, clamped).apply()
+        _effectsState.value = _effectsState.value.copy(preampGainDb = clamped)
     }
 
     fun setBassBoost(strength: Int) {
@@ -207,15 +235,47 @@ class MichiAudioEffects(
         _effectsState.value = _effectsState.value.copy(virtualizerStrength = clamped)
     }
 
+    fun setLoudness(gainMb: Int) {
+        val clamped = gainMb.coerceIn(0, 1000)
+        prefs.edit().putInt(KEY_LOUDNESS_GAIN, clamped).apply()
+        try {
+            loudnessEnhancer?.setTargetGain(clamped)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error asignando LoudnessEnhancer", e)
+        }
+        _effectsState.value = _effectsState.value.copy(loudnessGainMb = clamped)
+    }
+
+    fun resetToFlat() {
+        val currentBands = _effectsState.value.bands.toMutableList()
+        currentBands.forEachIndexed { i, band ->
+            currentBands[i] = band.copy(currentGainMilliDb = 0)
+            try {
+                equalizer?.setBandLevel(band.index.toShort(), 0)
+                prefs.edit().putInt("band_${band.index}", 0).apply()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error reseteando banda $i", e)
+            }
+        }
+        prefs.edit().putString(KEY_PRESET_NAME, "Flat / Plano").apply()
+        prefs.edit().putFloat(KEY_PREAMP_GAIN, 0f).apply()
+        _effectsState.value = _effectsState.value.copy(
+            bands = currentBands,
+            selectedPreset = "Flat / Plano",
+            preampGainDb = 0f,
+        )
+    }
+
     fun applyPreset(presetName: String) {
         val gains = when (presetName) {
-            "Flat" -> listOf(0, 0, 0, 0, 0)
-            "Synthwave" -> listOf(400, 200, -100, 300, 600)
-            "Bass Boost" -> listOf(700, 500, 100, 0, 0)
-            "Vocal" -> listOf(-200, 100, 400, 300, 100)
-            "Cyberpunk" -> listOf(600, 300, -200, 400, 700)
-            "Acoustic" -> listOf(300, 200, 0, 200, 300)
-            "Electronic" -> listOf(500, 300, 0, 200, 500)
+            "Flat / Plano" -> listOf(0, 0, 0, 0, 0)
+            "Michi Signature" -> listOf(400, 200, -100, 250, 500)
+            "Bass Punch" -> listOf(700, 450, 0, 100, 200)
+            "Treble Clarity" -> listOf(-100, 100, 300, 550, 700)
+            "Vocal Presence" -> listOf(-200, 100, 500, 300, 100)
+            "Cyberpunk EDM" -> listOf(600, 350, -200, 400, 650)
+            "Acoustic Hi-Fi" -> listOf(200, 200, 100, 300, 400)
+            "Rock & Metal" -> listOf(500, 250, -150, 350, 500)
             else -> listOf(0, 0, 0, 0, 0)
         }
 
@@ -247,12 +307,14 @@ class MichiAudioEffects(
             equalizer?.release()
             bassBoost?.release()
             virtualizer?.release()
+            loudnessEnhancer?.release()
         } catch (e: Exception) {
             Log.w(TAG, "Error liberando AudioEffects", e)
         } finally {
             equalizer = null
             bassBoost = null
             virtualizer = null
+            loudnessEnhancer = null
         }
     }
 }

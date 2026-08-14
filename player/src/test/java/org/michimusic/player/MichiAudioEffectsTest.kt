@@ -33,7 +33,7 @@ class MichiAudioEffectsTest {
         val state = audioEffects.effectsState.value
 
         assertTrue(state.isEnabled)
-        assertEquals("Synthwave", state.selectedPreset)
+        assertEquals("Michi Signature", state.selectedPreset)
         assertEquals(5, state.bands.size)
         assertEquals(60, state.bands[0].centerFreqHz)
         assertEquals(14000, state.bands[4].centerFreqHz)
@@ -67,13 +67,35 @@ class MichiAudioEffectsTest {
     @Test
     fun applyPreset_updatesAllBandsCorrectly() {
         val audioEffects = MichiAudioEffects(mockContext)
-        audioEffects.applyPreset("Bass Boost")
+        audioEffects.applyPreset("Bass Punch")
 
         val state = audioEffects.effectsState.value
-        assertEquals("Bass Boost", state.selectedPreset)
+        assertEquals("Bass Punch", state.selectedPreset)
         assertEquals(700, state.bands[0].currentGainMilliDb)
-        assertEquals(500, state.bands[1].currentGainMilliDb)
-        assertEquals("Bass Boost", prefMap["selected_preset"])
+        assertEquals(450, state.bands[1].currentGainMilliDb)
+        assertEquals("Bass Punch", prefMap["selected_preset"])
+    }
+
+    @Test
+    fun resetToFlat_setsAllBandsToZero() {
+        val audioEffects = MichiAudioEffects(mockContext)
+        audioEffects.applyPreset("Bass Punch")
+        audioEffects.setPreamp(4.5f)
+
+        audioEffects.resetToFlat()
+        val state = audioEffects.effectsState.value
+        assertEquals("Flat / Plano", state.selectedPreset)
+        assertEquals(0f, state.preampGainDb)
+        assertTrue(state.bands.all { it.currentGainMilliDb == 0 })
+    }
+
+    @Test
+    fun setPreamp_boundsAndPersists() {
+        val audioEffects = MichiAudioEffects(mockContext)
+        audioEffects.setPreamp(6.0f)
+
+        assertEquals(6.0f, audioEffects.effectsState.value.preampGainDb)
+        assertEquals(6.0f, prefMap["preamp_gain"])
     }
 
     @Test
@@ -94,6 +116,15 @@ class MichiAudioEffectsTest {
         assertEquals(550, prefMap["virtualizer_strength"])
     }
 
+    @Test
+    fun setLoudness_boundsAndPersists() {
+        val audioEffects = MichiAudioEffects(mockContext)
+        audioEffects.setLoudness(400)
+
+        assertEquals(400, audioEffects.effectsState.value.loudnessGainMb)
+        assertEquals(400, prefMap["loudness_gain"])
+    }
+
     private fun createFakeSharedPreferences(store: MutableMap<String, Any>): SharedPreferences {
         lateinit var editorProxy: SharedPreferences.Editor
         editorProxy = Proxy.newProxyInstance(
@@ -107,6 +138,10 @@ class MichiAudioEffectsTest {
                 }
                 "putInt" -> {
                     store[args[0] as String] = args[1] as Int
+                    editorProxy
+                }
+                "putFloat" -> {
+                    store[args[0] as String] = args[1] as Float
                     editorProxy
                 }
                 "putString" -> {
@@ -125,6 +160,7 @@ class MichiAudioEffectsTest {
             when (method.name) {
                 "getBoolean" -> store[args[0] as String] as? Boolean ?: (args.getOrNull(1) as? Boolean ?: false)
                 "getInt" -> store[args[0] as String] as? Int ?: (args.getOrNull(1) as? Int ?: 0)
+                "getFloat" -> store[args[0] as String] as? Float ?: (args.getOrNull(1) as? Float ?: 0f)
                 "getString" -> store[args[0] as String] as? String ?: (args.getOrNull(1) as? String)
                 "edit" -> editorProxy
                 else -> null
