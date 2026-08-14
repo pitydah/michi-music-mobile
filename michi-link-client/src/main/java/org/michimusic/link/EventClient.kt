@@ -6,6 +6,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.utils.io.readUTF8Line
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +38,7 @@ class EventClient(
             socketTimeoutMillis = Long.MAX_VALUE
         }
     },
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val _events = MutableSharedFlow<ServerEvent>(replay = 1, extraBufferCapacity = 64)
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
@@ -48,7 +50,7 @@ class EventClient(
 
     fun connect(scope: CoroutineScope) {
         disconnect()
-        reconnectJob = scope.launch {
+        reconnectJob = scope.launch(ioDispatcher) {
             while (isActive) {
                 try {
                     connectionJob = listen(scope)
@@ -67,7 +69,7 @@ class EventClient(
         connectionJob = null
     }
 
-    private suspend fun listen(scope: CoroutineScope): Job = scope.launch(Dispatchers.IO) {
+    private suspend fun listen(scope: CoroutineScope): Job = scope.launch(ioDispatcher) {
         try {
             client.prepareGet("$baseUrl/api/v1/events/sse") {
                 header("Authorization", "Bearer $token")

@@ -29,10 +29,10 @@ class PlaylistsViewModel(
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     fun loadPlaylists() {
-        viewModelScope.launch {
+        viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             try {
-                val items = withContext(ioDispatcher) { repo.getAllPlaylists() }
+                val items = repo.getAllPlaylists()
                 _playlists.value = items.map {
                     PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount)
                 }

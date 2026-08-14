@@ -2,8 +2,8 @@ package org.michimusic.mobile.screens
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -34,7 +34,7 @@ class AlbumsViewModelTest {
 
     @Before
     fun setup() {
-        testDispatcher = UnconfinedTestDispatcher()
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         repo = FakeAlbumsRepo()
         appDao = FakeAppDao()
@@ -43,6 +43,8 @@ class AlbumsViewModelTest {
 
     @After
     fun tearDown() {
+        viewModel.cancelLoading()
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 

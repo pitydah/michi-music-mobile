@@ -59,12 +59,13 @@ class RemoteViewModelTest {
             },
         )
         session.onConnected(DiscoveredPeer(ip = "192.168.1.100", port = 53318, alias = "Test Server"), client)
-        viewModel = RemoteViewModel(session)
+        viewModel = RemoteViewModel(session, testDispatcher)
     }
 
     @After
     fun tearDown() {
         viewModel.disconnect()
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 

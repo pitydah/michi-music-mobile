@@ -46,6 +46,7 @@ class SearchViewModelTest {
     @After
     fun tearDown() {
         viewModel.clearSearch()
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 

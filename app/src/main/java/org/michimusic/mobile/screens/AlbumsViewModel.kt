@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,21 +39,36 @@ class AlbumsViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private var loadJob: Job? = null
+
+    fun cancelLoading() {
+        loadJob?.cancel()
+        loadJob = null
+    }
+
     fun loadMedia() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             _error.value = null
             try {
-                val result = withContext(ioDispatcher) { repo.loadAlbums() }
+                val result = try {
+                    repo.loadAlbums()
+                } catch (e: Exception) {
+                    _error.value = e.message ?: "Error al cargar la biblioteca"
+                    emptyList()
+                }
                 val tracks = result.flatMap { it.tracks }
                 val trackById = tracks.associateBy { it.id }
-                val smartLists = withContext(ioDispatcher) {
+                val smartLists = try {
                     val top = appDao.getTopTracks(12).mapNotNull { trackById[it.trackId] }
                     val recent = appDao.getRecentHistory(20)
                         .mapNotNull { trackById[it.trackId] }
                         .distinctBy { it.id }
                         .take(12)
                     top to recent
+                } catch (e: Exception) {
+                    emptyList<Track>() to emptyList<Track>()
                 }
                 _albums.value = result
                 _allTracks.value = tracks

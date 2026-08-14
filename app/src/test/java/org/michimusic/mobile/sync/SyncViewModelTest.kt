@@ -10,6 +10,7 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -31,7 +32,7 @@ import org.michimusic.link.dto.PairingStrategy
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncViewModelTest {
 
-    private val testDispatcher = StandardTestDispatcher()
+    private lateinit var testDispatcher: TestDispatcher
 
     @MockK private lateinit var linkDiscovery: LinkDiscovery
     @MockK private lateinit var linkSession: LinkSession
@@ -42,6 +43,7 @@ class SyncViewModelTest {
 
     @Before
     fun setup() {
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         MockKAnnotations.init(this)
         context = io.mockk.mockk(relaxed = true)
@@ -60,22 +62,23 @@ class SyncViewModelTest {
 
     @After
     fun tearDown() {
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 
     @Test
-    fun initialState_isDisconnected() {
+    fun initialState_isDisconnected() = runTest(testDispatcher) {
         assertEquals(SyncConnectionState.DISCONNECTED, viewModel.uiState.value.state)
     }
 
     @Test
-    fun startDiscovery_updatesState() {
+    fun startDiscovery_updatesState() = runTest(testDispatcher) {
         viewModel.startDiscovery()
         verify { linkSession.updateState(SyncConnectionState.DISCOVERING) }
     }
 
     @Test
-    fun startDiscovery_whenConnected_ignores() {
+    fun startDiscovery_whenConnected_ignores() = runTest(testDispatcher) {
         every { linkSession.connectionState } returns MutableStateFlow(SyncConnectionState.PAIRED)
         val vm = SyncViewModel(context, linkDiscovery, linkSession, trackRepository)
         vm.startDiscovery()
@@ -83,7 +86,7 @@ class SyncViewModelTest {
     }
 
     @Test
-    fun clearError_resetsErrorState() {
+    fun clearError_resetsErrorState() = runTest(testDispatcher) {
         val uiState = viewModel.uiState.value
         assertNotNull(uiState)
     }

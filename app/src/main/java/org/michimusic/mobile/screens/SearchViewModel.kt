@@ -43,17 +43,17 @@ class SearchViewModel(
     private var localTracks: List<Track> = emptyList()
     private var syncedTracks: List<org.michimusic.data.cache.CachedTrack> = emptyList()
     private var searchJob: Job? = null
+    private var loadJob: Job? = null
 
     fun loadLocalTracks() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch(ioDispatcher) {
             _isSearching.value = true
             _error.value = null
             try {
-                val albums = withContext(ioDispatcher) { localRepo.loadAlbums() }
+                val albums = localRepo.loadAlbums()
                 localTracks = albums.flatMap { it.tracks }
-                syncedTracks = withContext(ioDispatcher) {
-                    syncedRepo.getAllSynced().first()
-                }
+                syncedTracks = syncedRepo.getAllSynced().first()
             } catch (e: Exception) {
                 _error.value = e.message ?: "Error al cargar canciones"
             } finally {
@@ -67,10 +67,11 @@ class SearchViewModel(
         if (q.length < 2) {
             _results.value = emptyList()
             searchJob?.cancel()
+            searchJob = null
             return
         }
         searchJob?.cancel()
-        searchJob = viewModelScope.launch {
+        searchJob = viewModelScope.launch(ioDispatcher) {
             delay(300)
             _isSearching.value = true
             val lower = q.lowercase()
@@ -113,10 +114,13 @@ class SearchViewModel(
     }
 
     fun clearSearch() {
+        searchJob?.cancel()
+        searchJob = null
+        loadJob?.cancel()
+        loadJob = null
         _query.value = ""
         _results.value = emptyList()
         _error.value = null
-        searchJob?.cancel()
     }
 
     fun clearError() { _error.value = null }

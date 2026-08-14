@@ -2,8 +2,8 @@ package org.michimusic.mobile.screens
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -26,7 +26,7 @@ class PlaylistsViewModelTest {
 
     @Before
     fun setup() {
-        testDispatcher = UnconfinedTestDispatcher()
+        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         repo = FakePlaylistRepo()
         viewModel = PlaylistsViewModel(repo, testDispatcher)
@@ -34,6 +34,7 @@ class PlaylistsViewModelTest {
 
     @After
     fun tearDown() {
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 

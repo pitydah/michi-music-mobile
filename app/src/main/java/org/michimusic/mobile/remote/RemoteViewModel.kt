@@ -2,6 +2,8 @@ package org.michimusic.mobile.remote
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +46,7 @@ data class RemoteUiState(
 
 class RemoteViewModel(
     private val session: LinkSession,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RemoteUiState())
@@ -70,7 +73,7 @@ class RemoteViewModel(
         )
 
         eventClient = linkClient.createEventClient(token).also { ec ->
-            eventJob = viewModelScope.launch {
+            eventJob = viewModelScope.launch(ioDispatcher) {
                 ec.events.collect { event ->
                     when (event.type) {
                         "playback_state_changed" -> refreshState()
@@ -82,7 +85,7 @@ class RemoteViewModel(
         }
 
         refreshJob?.cancel()
-        refreshJob = viewModelScope.launch { refreshState() }
+        refreshJob = viewModelScope.launch(ioDispatcher) { refreshState() }
         startPollingFallback(linkClient)
     }
 
@@ -101,7 +104,7 @@ class RemoteViewModel(
 
     private fun startPollingFallback(client: LinkClient) {
         pollingJob?.cancel()
-        pollingJob = viewModelScope.launch {
+        pollingJob = viewModelScope.launch(ioDispatcher) {
             delay(5_000)
             while (isActive && _uiState.value.connected) {
                 refreshState()

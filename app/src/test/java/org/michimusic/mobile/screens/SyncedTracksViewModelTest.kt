@@ -36,11 +36,12 @@ class SyncedTracksViewModelTest {
 
     @After
     fun tearDown() {
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 
     @Test
-    fun toTrack_mapsAllFields() {
+    fun toTrack_mapsAllFields() = runTest(testDispatcher) {
         val cached = CachedTrack(
             id = "s1", title = "Song", artist = "A", album = "X",
             duration = 200_000L, filepath = "/music/s1.mp3", format = "flac",
