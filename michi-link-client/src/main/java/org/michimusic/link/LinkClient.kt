@@ -34,6 +34,8 @@ import org.michimusic.link.dto.HistoryResponse
 import org.michimusic.link.dto.LibraryResponseDto
 import org.michimusic.link.dto.ListResponse
 import org.michimusic.link.dto.ManifestTrackDto
+import org.michimusic.link.dto.LegacyPairConfirmResponseDto
+import org.michimusic.link.dto.LegacyPairStartResponseDto
 import org.michimusic.link.dto.PairConfirmRequestDto
 import org.michimusic.link.dto.PairConfirmResponseDto
 import org.michimusic.link.dto.PairStartRequestDto
@@ -231,17 +233,34 @@ class LinkClient private constructor(
 
     // --- Pairing ---
 
-    suspend fun pairStart(
+    suspend fun pairStartLegacy(
         alias: String,
         deviceModel: String,
         clientDeviceId: String,
+    ): Result<LegacyPairStartResponseDto> = withContext(Dispatchers.IO) {
+        try {
+            val request = mapOf(
+                "alias" to alias,
+                "device_model" to deviceModel,
+                "client_device_id" to clientDeviceId
+            )
+            val response = client.post("$baseUrl/api/v1/pair/start") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            // Legacy uses PairStartResponseDto but we changed the DTO structure for v1. 
+            // We should use a Map or JsonElement to parse legacy.
+            Result.success(response.body<LegacyPairStartResponseDto>())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pairStart(
+        request: PairStartRequestDto
     ): Result<PairStartResponseDto> = withContext(Dispatchers.IO) {
         try {
-            val request = PairStartRequestDto(
-                alias = alias,
-                deviceModel = deviceModel,
-                clientDeviceId = clientDeviceId,
-            )
             val response = client.post("$baseUrl/api/v1/pair/start") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
@@ -253,7 +272,7 @@ class LinkClient private constructor(
         }
     }
 
-    suspend fun pairConfirm(
+    suspend fun pairConfirmLegacy(
         pairingId: String,
         username: String,
         password: String,
@@ -261,16 +280,16 @@ class LinkClient private constructor(
         alias: String = "",
         deviceModel: String = "",
         pin: String = "",
-    ): Result<PairConfirmResponseDto> = withContext(Dispatchers.IO) {
+    ): Result<LegacyPairConfirmResponseDto> = withContext(Dispatchers.IO) {
         try {
-            val request = PairConfirmRequestDto(
-                pairingId = pairingId,
-                username = username,
-                password = password,
-                clientDeviceId = clientDeviceId,
-                alias = alias,
-                deviceModel = deviceModel,
-                pin = pin,
+            val request = mapOf(
+                "pairing_id" to pairingId,
+                "username" to username,
+                "password" to password,
+                "client_device_id" to clientDeviceId,
+                "alias" to alias,
+                "device_model" to deviceModel,
+                "pin" to pin
             )
             val response = client.post("$baseUrl/api/v1/pair/confirm") {
                 contentType(ContentType.Application.Json)
@@ -279,8 +298,28 @@ class LinkClient private constructor(
             if (response.status == HttpStatusCode.Unauthorized) return@withContext Result.failure(LinkException.InvalidCredentials)
             if (response.status == HttpStatusCode.Forbidden) return@withContext Result.failure(LinkException.Forbidden)
             response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
-            val body = response.body<PairConfirmResponseDto>()
+            val body = response.body<LegacyPairConfirmResponseDto>()
             deviceToken = body.deviceToken.ifEmpty { body.sessionToken }
+            if (deviceToken.isBlank()) return@withContext Result.failure(LinkException.InvalidCredentials)
+            Result.success(body)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun pairConfirm(
+        request: PairConfirmRequestDto
+    ): Result<PairConfirmResponseDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.post("$baseUrl/api/v1/pair/confirm") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+            }
+            if (response.status == HttpStatusCode.Unauthorized) return@withContext Result.failure(LinkException.InvalidCredentials)
+            if (response.status == HttpStatusCode.Forbidden) return@withContext Result.failure(LinkException.Forbidden)
+            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            val body = response.body<PairConfirmResponseDto>()
+            deviceToken = body.token
             if (deviceToken.isBlank()) return@withContext Result.failure(LinkException.InvalidCredentials)
             Result.success(body)
         } catch (e: Exception) {
@@ -904,7 +943,7 @@ class LinkClient private constructor(
         alias: String,
         deviceModel: String = "",
         clientDeviceId: String = "",
-    ): Result<PairConfirmResponseDto> = withContext(Dispatchers.IO) {
+    ): Result<LegacyPairConfirmResponseDto> = withContext(Dispatchers.IO) {
         try {
             val request = org.michimusic.core.models.RegisterRequest(
                 alias = alias,
@@ -920,7 +959,7 @@ class LinkClient private constructor(
             if (response.status == HttpStatusCode.Forbidden) return@withContext Result.failure(LinkException.Forbidden)
             val legacy = response.body<org.michimusic.core.models.RegisterResponse>()
             sessionToken = legacy.sessionToken
-            Result.success(PairConfirmResponseDto(deviceId = legacy.clientDeviceId, sessionToken = legacy.sessionToken))
+            Result.success(LegacyPairConfirmResponseDto(deviceId = legacy.clientDeviceId, sessionToken = legacy.sessionToken, deviceToken = legacy.sessionToken))
         } catch (e: Exception) {
             Result.failure(e)
         }

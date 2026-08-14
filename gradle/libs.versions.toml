@@ -23,6 +23,8 @@ work-manager = "2.10.0"
 paging = "3.3.6"
 security-crypto = "1.1.0-alpha06"
 junit = "4.13.2"
+bouncycastle = "1.77"
+
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -83,6 +85,8 @@ androidx-room-paging = { group = "androidx.room", name = "room-paging", version.
 
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 mockk = { group = "io.mockk", name = "mockk", version = "1.13.14" }

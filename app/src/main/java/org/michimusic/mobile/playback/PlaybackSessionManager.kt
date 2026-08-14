@@ -14,15 +14,17 @@ import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.link.LinkClient
+import org.michimusic.link.ConnectionManager
 import org.michimusic.link.LinkDiscovery
-import org.michimusic.link.LinkSession
+import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.dto.PlaybackStateDto
 import org.michimusic.player.AudioController
 
 class PlaybackSessionManager(
     private val audioController: AudioController? = null,
-    private val linkSession: LinkSession,
+    private val connectionManager: ConnectionManager,
     private val linkDiscovery: LinkDiscovery,
+    private val registry: PairedDeviceRegistry,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
 ) {
     private val _sessionState = MutableStateFlow(PlaybackSessionState())
@@ -50,17 +52,19 @@ class PlaybackSessionManager(
             }
         }
 
-        // Observe connected peer in LinkSession
+        // Observe available peers from ConnectionManager/Registry (active endpoints)
         scope.launch {
-            linkSession.connectedPeer.collect { peer ->
+            connectionManager.connectionStates.collect { states ->
                 updateAvailableEndpoints()
-                if (peer != null) {
-                    startRemoteSync(peer)
-                } else {
+                val activeEndpoint = _sessionState.value.activeEndpoint
+                if (!activeEndpoint.isLocal && states[activeEndpoint.id] != SyncConnectionState.CONNECTED) {
                     stopRemoteSync()
                     if (isRemoteSelected) {
                         selectLocalEndpoint()
                     }
+                } else if (!activeEndpoint.isLocal) {
+                    val peer = linkDiscovery.peers.value.values.find { it.deviceId == activeEndpoint.id }
+                    if (peer != null) startRemoteSync(peer, activeEndpoint.id)
                 }
             }
         }
@@ -74,11 +78,28 @@ class PlaybackSessionManager(
     }
 
     private fun updateAvailableEndpoints() {
-        val discovered = linkDiscovery.peers.value.values.map { peer ->
-            mapPeerToEndpoint(peer, isConnected = peer.ip == linkSession.connectedPeer.value?.ip)
+        val pairedDevices = registry.getAllDevices()
+        val discoveredEndpoints = linkDiscovery.peers.value.values.map { peer ->
+            val isConnected = connectionManager.connectionStates.value[peer.deviceId] == SyncConnectionState.CONNECTED
+            mapPeerToEndpoint(peer, isConnected = isConnected)
         }
         val endpoints = mutableListOf(PlaybackEndpoint.LocalPhone)
-        endpoints.addAll(discovered)
+        endpoints.addAll(discoveredEndpoints)
+        
+        // Add paired devices that might not be discovered via UDP right now
+        pairedDevices.forEach { pd ->
+            if (endpoints.none { it.id == pd.deviceId }) {
+                val isConnected = connectionManager.connectionStates.value[pd.deviceId] == SyncConnectionState.CONNECTED
+                endpoints.add(PlaybackEndpoint(
+                    id = pd.deviceId,
+                    name = pd.deviceName,
+                    type = EndpointType.SERVER,
+                    isLocal = false,
+                    isConnected = isConnected,
+                    capabilities = setOf("PLAYBACK", "REMOTE_CONTROL")
+                ))
+            }
+        }
 
         _sessionState.value = _sessionState.value.copy(
             availableEndpoints = endpoints.distinctBy { it.id },
@@ -102,15 +123,15 @@ class PlaybackSessionManager(
         )
     }
 
-    private fun startRemoteSync(peer: DiscoveredPeer) {
+    private fun startRemoteSync(peer: DiscoveredPeer, deviceId: String) {
         remotePollingJob?.cancel()
         remotePollingJob = scope.launch(Dispatchers.IO) {
-            val client = linkSession.linkClient ?: return@launch
-            while (isActive && linkSession.connectedPeer.value != null) {
+            val client = connectionManager.getClient(deviceId) ?: return@launch
+            while (isActive && connectionManager.connectionStates.value[deviceId] == SyncConnectionState.CONNECTED) {
                 client.getPlaybackState().onSuccess { stateDto ->
                     if (isRemoteSelected || stateDto.playing) {
                         withContext(Dispatchers.Main) {
-                            applyRemoteState(peer, stateDto)
+                            applyRemoteState(peer, stateDto, deviceId)
                         }
                     }
                 }
@@ -124,8 +145,8 @@ class PlaybackSessionManager(
         remotePollingJob = null
     }
 
-    private fun applyRemoteState(peer: DiscoveredPeer, dto: PlaybackStateDto) {
-        val endpoint = mapPeerToEndpoint(peer, isConnected = true)
+    private fun applyRemoteState(peer: DiscoveredPeer, dto: PlaybackStateDto, deviceId: String) {
+        val endpoint = mapPeerToEndpoint(peer, isConnected = true).copy(id = deviceId)
         val remoteTrack = if (dto.effectiveTitle.isNotEmpty()) {
             Track(
                 id = dto.trackId.ifEmpty { "remote_${dto.effectiveTitle}" },
@@ -171,7 +192,7 @@ class PlaybackSessionManager(
             // Handoff Remote -> Local
             val currentRemote = _sessionState.value.currentTrack
             val currentPos = _sessionState.value.position
-            val client = linkSession.linkClient
+            val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
 
             scope.launch {
                 if (client != null && _sessionState.value.isRemoteActive) {
@@ -188,7 +209,7 @@ class PlaybackSessionManager(
         } else {
             // Handoff Local -> Remote
             val local = audioController?.state?.value
-            val client = linkSession.linkClient
+            val client = connectionManager.getClient(target.id)
 
             if (client == null) {
                 onResult(false, "No hay conexión activa con ${target.name}")
@@ -210,7 +231,7 @@ class PlaybackSessionManager(
 
     fun playPause() {
         if (_sessionState.value.isRemoteActive) {
-            val client = linkSession.linkClient
+            val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
             val isPlaying = _sessionState.value.isPlaying
             scope.launch {
                 client?.sendPlaybackCommand(if (isPlaying) "pause" else "play")
@@ -223,7 +244,7 @@ class PlaybackSessionManager(
 
     fun skipNext() {
         if (_sessionState.value.isRemoteActive) {
-            scope.launch { linkSession.linkClient?.sendPlaybackCommand("next") }
+            scope.launch { connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("next") }
         } else {
             audioController?.skipNext()
         }
@@ -231,7 +252,7 @@ class PlaybackSessionManager(
 
     fun skipPrevious() {
         if (_sessionState.value.isRemoteActive) {
-            scope.launch { linkSession.linkClient?.sendPlaybackCommand("previous") }
+            scope.launch { connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("previous") }
         } else {
             audioController?.skipPrevious()
         }
@@ -239,7 +260,7 @@ class PlaybackSessionManager(
 
     fun seekTo(positionMs: Long) {
         if (_sessionState.value.isRemoteActive) {
-            scope.launch { linkSession.linkClient?.sendSeek(positionMs) }
+            scope.launch { connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendSeek(positionMs) }
         } else {
             audioController?.seekTo(positionMs)
         }

@@ -3,6 +3,7 @@ package org.michimusic.mobile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.koin.core.module.dsl.viewModelOf
+import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 import org.michimusic.data.dataModule
 import org.michimusic.link.linkModule
@@ -18,7 +19,16 @@ val appModule = module {
 
     single<CoroutineDispatcher> { Dispatchers.IO }
 
-    viewModelOf(::SyncViewModel)
+    viewModel {
+        SyncViewModel(
+            context = get(),
+            linkDiscovery = get(),
+            registry = get(),
+            connectionManager = get(),
+            identity = get(),
+            trackRepository = get()
+        )
+    }
     viewModelOf(::AlbumsViewModel)
     viewModelOf(::SyncedTracksViewModel)
     viewModelOf(::PlaylistsViewModel)

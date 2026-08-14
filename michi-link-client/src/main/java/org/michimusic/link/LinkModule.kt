@@ -5,9 +5,12 @@ import org.koin.dsl.module
 
 val linkModule = module {
     single { LinkDiscovery(androidContext()) }
-    single { LinkSession() }
+
     single { LinkTransferManager(androidContext()) }
     single { LinkCoverCache(androidContext()) }
     single { TokenStore(androidContext()) }
+    single { org.michimusic.link.identity.MichiIdentity(androidContext()) }
+    single { PairedDeviceRegistry(androidContext(), get()) }
+    single { ConnectionManager(get()) }
     single { LinkPackageImporter(androidContext()) }
 }

@@ -18,8 +18,9 @@ val playerModule = module {
     single {
         org.michimusic.mobile.playback.PlaybackSessionManager(
             audioController = get(),
-            linkSession = get(),
+            connectionManager = get(),
             linkDiscovery = get(),
+            registry = get(),
         )
     }
 }

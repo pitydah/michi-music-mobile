@@ -22,10 +22,10 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkDiscovery
-import org.michimusic.link.LinkSession
+
 import org.michimusic.link.TokenStore
-import org.michimusic.link.dto.PairConfirmResponseDto
-import org.michimusic.link.dto.PairStartResponseDto
+import org.michimusic.link.dto.LegacyPairConfirmResponseDto
+import org.michimusic.link.dto.LegacyPairStartResponseDto
 import org.michimusic.link.dto.PairingStrategy
 import org.michimusic.link.dto.QrClaimRequest
 import org.michimusic.link.dto.ServerInfoDto
@@ -35,8 +35,8 @@ data class SyncUiState(
     val state: SyncConnectionState = SyncConnectionState.DISCONNECTED,
     val peers: List<DiscoveredPeer> = emptyList(),
     val connectedPeer: DiscoveredPeer? = null,
-    val pairingStart: PairStartResponseDto? = null,
-    val pairingConfirm: PairConfirmResponseDto? = null,
+    val pairingStart: LegacyPairStartResponseDto? = null,
+    val pairingConfirm: LegacyPairConfirmResponseDto? = null,
     val pairingStrategy: PairingStrategy = PairingStrategy.LEGACY,
     val error: String? = null,
     val syncProgress: SyncProgress = SyncProgress.Idle,
@@ -45,27 +45,27 @@ data class SyncUiState(
 class SyncViewModel(
     private val context: Context,
     private val linkDiscovery: LinkDiscovery,
-    private val linkSession: LinkSession,
+    private val registry: PairedDeviceRegistry,
+    private val connectionManager: ConnectionManager,
+    private val identity: org.michimusic.link.identity.MichiIdentity,
     private val trackRepository: SyncedTrackRepository,
 ) : ViewModel() {
 
-    private val tokenStore = TokenStore(context)
-
-    private val _error = MutableStateFlow<String?>(null)
-    private val _syncProgress = MutableStateFlow<SyncProgress>(SyncProgress.Idle)
-
-    private val _pairingStrategy = MutableStateFlow(PairingStrategy.LEGACY)
+    private val _connectionState = MutableStateFlow(SyncConnectionState.DISCONNECTED)
+    private val _connectedPeer = MutableStateFlow<DiscoveredPeer?>(null)
+    private val _pairStartResponse = MutableStateFlow<LegacyPairStartResponseDto?>(null)
+    private val _pairConfirmResponse = MutableStateFlow<LegacyPairConfirmResponseDto?>(null)
 
     val uiState: StateFlow<SyncUiState> = combine(
         combine(
             linkDiscovery.peers.map { it.values.toList() },
-            linkSession.connectionState,
+            _connectionState,
         ) { peers, connState ->
             peers to connState
         },
         combine(
-            linkSession.connectedPeer,
-            linkSession.pairStartResponse,
+            _connectedPeer,
+            _pairStartResponse,
             _pairingStrategy,
         ) { peer, pairStart, strategy ->
             Triple(peer, pairStart, strategy)
@@ -78,11 +78,11 @@ class SyncViewModel(
             pairingStart = pairStart,
             pairingStrategy = strategy,
         )
-    }.combine(
+    ).combine(
         combine(_error, _syncProgress) { err, progress -> err to progress }
     ) { state, (err, progress) ->
         state.copy(error = err, syncProgress = progress)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = linkSession.connectionState.value))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = _connectionState.value))
 
     private var clientId: String = ""
     private var pendingPairingId: String = ""
@@ -100,16 +100,16 @@ class SyncViewModel(
     }
 
     fun startDiscovery() {
-        if (linkSession.connectionState.value != SyncConnectionState.DISCONNECTED) return
-        linkSession.updateState(SyncConnectionState.DISCOVERING)
+        if (_connectionState.value != SyncConnectionState.DISCONNECTED) return
+        _connectionState.value = SyncConnectionState.DISCOVERING
         viewModelScope.launch { linkDiscovery.start() }
     }
 
     fun stopDiscovery() {
         viewModelScope.launch {
             linkDiscovery.stop()
-            if (linkSession.connectionState.value == SyncConnectionState.DISCOVERING) {
-                linkSession.updateState(SyncConnectionState.DISCONNECTED)
+            if (_connectionState.value == SyncConnectionState.DISCOVERING) {
+                _connectionState.value = SyncConnectionState.DISCONNECTED
             }
         }
     }
@@ -122,12 +122,12 @@ class SyncViewModel(
             ip = parsedHost.trim(),
             port = parsedPort,
         )
-        linkSession.updateState(SyncConnectionState.DISCOVERING)
+        _connectionState.value = SyncConnectionState.DISCOVERING
         selectPeer(peer)
     }
 
     fun selectPeer(peer: DiscoveredPeer) {
-        if (linkSession.connectionState.value != SyncConnectionState.DISCOVERING) return
+        if (_connectionState.value != SyncConnectionState.DISCOVERING) return
 
         stopDiscovery()
         currentClient = LinkClient(
@@ -145,23 +145,21 @@ class SyncViewModel(
             _pairingStrategy.value = strategy
             if (strategy == PairingStrategy.RECEIVER_BUTTON) {
                 _error.value = "Este dispositivo no es una fuente controlable"
-                linkSession.updateState(SyncConnectionState.DISCONNECTED)
+                _connectionState.value = SyncConnectionState.DISCONNECTED
                 return@launch
             }
 
-            val storedToken = tokenStore.getDeviceToken()
-            val storedServerId = tokenStore.getServerDeviceId()
-            val storedClientId = tokenStore.getClientDeviceId()
-
-            if (storedToken != null && storedServerId == resolvedDeviceId) {
-                connectWithToken(peer, storedToken, storedClientId ?: clientId)
-            } else if (peer.authRequired) {
-                linkSession.onConnected(peer, client)
-                linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
-                // store strategy for UI
-            } else {
-                connectToPeerLegacy(peer)
+            val existingDevice = registry.getDevice(resolvedDeviceId)
+            if (existingDevice != null && existingDevice.deviceToken.isNotEmpty()) {
+                client.deviceToken = existingDevice.deviceToken
+                if (client.checkTokenValid()) {
+                    _connectedPeer.value = peer
+                    _connectionState.value = SyncConnectionState.CONNECTED
+                    return@launch
+                }
             }
+            
+            _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
         }
     }
 
@@ -172,31 +170,8 @@ class SyncViewModel(
         }.getOrNull() ?: ""
     }
 
-    private fun connectWithToken(peer: DiscoveredPeer, token: String, storedClientId: String) {
-        linkSession.updateState(SyncConnectionState.CONNECTING)
-        val baseUrl = "http://${peer.ip}:${peer.port}"
-        val client = LinkClient(
-            baseUrl = baseUrl,
-            deviceToken = token,
-            clientDeviceId = storedClientId,
-        )
-        currentClient = client
-
-        viewModelScope.launch {
-            val pingOk = client.ping()
-            if (pingOk) {
-                linkSession.onConnected(peer, client)
-                linkSession.updateState(SyncConnectionState.PAIRED)
-            } else {
-                tokenStore.clear()
-                linkSession.updateState(SyncConnectionState.DISCONNECTED)
-                _error.value = "No se pudo conectar con el servidor. Vuelve a emparejar."
-            }
-        }
-    }
-
     private fun connectToPeerLegacy(peer: DiscoveredPeer) {
-        linkSession.updateState(SyncConnectionState.CONNECTING)
+        _connectionState.value = SyncConnectionState.CONNECTING
         val baseUrl = "http://${peer.ip}:${peer.port}"
         val client = LinkClient(baseUrl = baseUrl, clientDeviceId = clientId)
         currentClient = client
@@ -207,10 +182,11 @@ class SyncViewModel(
                 deviceModel = android.os.Build.MODEL,
                 clientDeviceId = clientId,
             ).onSuccess { response ->
-                linkSession.onConnected(peer, client)
+                _connectedPeer.value = peer
+                _connectionState.value = SyncConnectionState.CONNECTED
             }.onFailure { e ->
                 _error.value = "Error al conectar: ${e.message}"
-                linkSession.updateState(SyncConnectionState.ERROR)
+                _connectionState.value = SyncConnectionState.ERROR
                 client.close()
             }
         }
@@ -219,7 +195,7 @@ class SyncViewModel(
     fun startPairing(peer: DiscoveredPeer, username: String, password: String = "", pin: String = "") {
         val client = currentClient ?: return
         val strategy = _pairingStrategy.value
-        linkSession.updateState(SyncConnectionState.PAIRING)
+        _connectionState.value = SyncConnectionState.PAIRING
 
         if (strategy == PairingStrategy.SERVER_CODE) {
             startCodePairing(client, pin)
@@ -227,134 +203,205 @@ class SyncViewModel(
         }
 
         viewModelScope.launch {
-            client.pairStart(
-                alias = android.os.Build.MODEL,
-                deviceModel = android.os.Build.MODEL,
-                clientDeviceId = clientId,
-            ).onSuccess { startResp ->
-                pendingPairingId = startResp.pairingId
-                linkSession.onPairingStarted(startResp)
-
-                client.pairConfirm(
-                    pairingId = startResp.pairingId,
-                    username = username,
-                    password = password,
-                    clientDeviceId = clientId,
+            if (strategy == PairingStrategy.LEGACY) {
+                client.pairStartLegacy(
                     alias = android.os.Build.MODEL,
                     deviceModel = android.os.Build.MODEL,
-                ).onSuccess { confirmResp ->
-                    val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
-                    if (effectiveToken.isBlank()) {
-                        _error.value = "El servidor no otorgó un token válido"
-                        linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
-                        return@launch
-                    }
-                    val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
-                        client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
-                    }
-                    val serverInfo = client.getServerInfo().getOrNull()
-                    tokenStore.save(
-                        serverId = resolvedDeviceId,
-                        serverName = confirmResp.serverAlias,
-                        service = serverInfo?.service ?: "",
-                        serverDeviceId = resolvedDeviceId,
-                        serverAlias = confirmResp.serverAlias,
+                    clientDeviceId = clientId,
+                ).onSuccess { startResp ->
+                    pendingPairingId = startResp.pairingId
+                    _pairStartResponse.value = startResp
+                    _connectionState.value = SyncConnectionState.PAIRING
+    
+                    client.pairConfirmLegacy(
+                        pairingId = startResp.pairingId,
+                        username = username,
+                        password = password,
                         clientDeviceId = clientId,
-                        deviceToken = effectiveToken,
-                        refreshToken = confirmResp.refreshToken,
-                        permissions = confirmResp.permissions,
-                        serverUrl = client.baseUrl,
-                        roles = serverInfo?.roles ?: emptyList(),
-                        features = emptyList(),
-                        authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY,
-                        tokenRefreshSupported = client.tokenRefreshSupported ?: false,
-                    )
-                    client.deviceToken = effectiveToken
-                    client.clientDeviceId = clientId
-                    linkSession.onPaired(confirmResp)
+                        alias = android.os.Build.MODEL,
+                        deviceModel = android.os.Build.MODEL,
+                    ).onSuccess { confirmResp ->
+                        val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
+                        if (effectiveToken.isBlank()) {
+                            _error.value = "El servidor no otorgó un token válido"
+                            _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+                            return@launch
+                        }
+                        val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
+                            client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
+                        }
+                        val serverInfo = client.getServerInfo().getOrNull()
+                        val device = org.michimusic.link.PairedDevice(
+                            deviceId = resolvedDeviceId,
+                            deviceName = confirmResp.serverAlias,
+                            serviceType = serverInfo?.service ?: "",
+                            deviceToken = effectiveToken,
+                            refreshToken = confirmResp.refreshToken,
+                            permissions = confirmResp.permissions,
+                            roles = serverInfo?.roles ?: emptyList(),
+                            features = emptyList(),
+                            authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY,
+                            tokenRefreshSupported = client.tokenRefreshSupported ?: false,
+                            pairedAt = System.currentTimeMillis(),
+                            lastUrl = client.baseUrl
+                        )
+                        registry.saveDevice(device)
+                        
+                        client.deviceToken = effectiveToken
+                        client.clientDeviceId = clientId
+                        _pairConfirmResponse.value = confirmResp
+                        _connectedPeer.value = peer
+                        _connectionState.value = SyncConnectionState.PAIRED
+                    }.onFailure { e ->
+                        handlePairingFailure(Result.failure<Any>(e))
+                    }
                 }.onFailure { e ->
-                    handlePairingFailure(e)
+                    _error.value = "Error al iniciar emparejamiento: ${e.message}"
+                    _connectionState.value = SyncConnectionState.ERROR
                 }
-            }.onFailure { e ->
-                _error.value = "Error al iniciar emparejamiento: ${e.message}"
-                linkSession.updateState(SyncConnectionState.ERROR)
+            } else {
+                val nonce = java.util.UUID.randomUUID().toString()
+                val sig = identity.signBase64Url(nonce).getOrNull() ?: ""
+                val request = org.michimusic.link.dto.PairStartRequestDto(
+                    deviceName = android.os.Build.MODEL,
+                    deviceType = "mobile",
+                    roles = listOf("remote"),
+                    authStrategy = "local_network",
+                    michiId = identity.michiId,
+                    publicKey = identity.publicKeyBase64Url,
+                    challengeNonce = nonce,
+                    challengeSignature = sig,
+                )
+                client.pairStart(request).onSuccess { startResp ->
+                    _connectionState.value = SyncConnectionState.PAIRING
+                    
+                    val confirmReq = org.michimusic.link.dto.PairConfirmRequestDto(
+                        sessionId = startResp.sessionId,
+                        pin = pin,
+                        michiId = identity.michiId,
+                        publicKey = identity.publicKeyBase64Url,
+                    )
+                    client.pairConfirm(confirmReq).onSuccess { confirmResp ->
+                        val effectiveToken = confirmResp.token
+                        val resolvedDeviceId = confirmResp.serverId.ifEmpty {
+                            client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
+                        }
+                        val serverInfo = client.getServerInfo().getOrNull()
+                        val device = org.michimusic.link.PairedDevice(
+                            deviceId = resolvedDeviceId,
+                            deviceName = serverInfo?.alias ?: peer.alias,
+                            serviceType = serverInfo?.service ?: "",
+                            deviceToken = effectiveToken,
+                            refreshToken = confirmResp.refreshToken,
+                            permissions = emptyList(),
+                            roles = serverInfo?.roles ?: emptyList(),
+                            features = emptyList(),
+                            authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LOCAL_NETWORK,
+                            tokenRefreshSupported = client.tokenRefreshSupported ?: false,
+                            pairedAt = System.currentTimeMillis(),
+                            lastUrl = client.baseUrl
+                        )
+                        registry.saveDevice(device)
+                        
+                        client.deviceToken = effectiveToken
+                        client.clientDeviceId = identity.michiId
+                        _connectedPeer.value = peer
+                        _connectionState.value = SyncConnectionState.PAIRED
+                    }.onFailure { e ->
+                        handlePairingFailure(Result.failure<Any>(e))
+                    }
+                }.onFailure { e ->
+                    _error.value = "Error al iniciar emparejamiento canónico: ${e.message}"
+                    _connectionState.value = SyncConnectionState.ERROR
+                }
             }
         }
     }
 
     private fun startCodePairing(client: LinkClient, pin: String) {
         viewModelScope.launch {
-            client.pairStart(
-                alias = android.os.Build.MODEL,
-                deviceModel = android.os.Build.MODEL,
-                clientDeviceId = clientId,
-            ).onSuccess { startResp ->
-                linkSession.onPairingStarted(startResp)
-                client.pairConfirm(
-                    pairingId = startResp.pairingId,
-                    username = "",
-                    password = "",
+            val nonce = java.util.UUID.randomUUID().toString()
+            val sig = identity.signBase64Url(nonce).getOrNull() ?: ""
+            val request = org.michimusic.link.dto.PairStartRequestDto(
+                deviceName = android.os.Build.MODEL,
+                deviceType = "mobile",
+                roles = listOf("remote"),
+                authStrategy = "server_code",
+                michiId = identity.michiId,
+                publicKey = identity.publicKeyBase64Url,
+                challengeNonce = nonce,
+                challengeSignature = sig,
+            )
+            client.pairStart(request).onSuccess { startResp ->
+                _pairStartResponse.value = org.michimusic.link.dto.LegacyPairStartResponseDto(
+                    pairingId = startResp.sessionId,
+                    challenge = "",
+                    authStrategy = "server_code"
+                )
+                _connectionState.value = SyncConnectionState.PAIRING
+                
+                val confirmReq = org.michimusic.link.dto.PairConfirmRequestDto(
+                    sessionId = startResp.sessionId,
                     pin = pin,
-                    clientDeviceId = clientId,
-                    alias = android.os.Build.MODEL,
-                    deviceModel = android.os.Build.MODEL,
-                ).onSuccess { confirmResp ->
-                    val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
+                    michiId = identity.michiId,
+                    publicKey = identity.publicKeyBase64Url,
+                )
+                client.pairConfirm(confirmReq).onSuccess { confirmResp ->
+                    val effectiveToken = confirmResp.token
                     if (effectiveToken.isBlank()) {
-                        _error.value = "El servidor no otorgó un token válido"
-                        linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
+                        _error.value = "El código no otorgó un token válido"
+                        _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
                         return@launch
                     }
-                    val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
+                    val resolvedDeviceId = confirmResp.serverId.ifEmpty {
                         client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
                     }
                     val serverInfo = client.getServerInfo().getOrNull()
-                    tokenStore.save(
-                        serverId = resolvedDeviceId,
-                        serverName = confirmResp.serverAlias,
-                        service = serverInfo?.service ?: "",
-                        serverDeviceId = resolvedDeviceId,
-                        serverAlias = confirmResp.serverAlias,
-                        clientDeviceId = clientId,
+                    
+                    val device = org.michimusic.link.PairedDevice(
+                        deviceId = resolvedDeviceId,
+                        deviceName = serverInfo?.alias ?: "Michi Server",
+                        serviceType = serverInfo?.service ?: "",
                         deviceToken = effectiveToken,
                         refreshToken = confirmResp.refreshToken,
-                        permissions = confirmResp.permissions,
-                        serverUrl = client.baseUrl,
+                        permissions = emptyList(),
                         roles = serverInfo?.roles ?: emptyList(),
                         features = emptyList(),
-                        authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY,
+                        authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.SERVER_CODE,
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
+                        pairedAt = System.currentTimeMillis(),
+                        lastUrl = client.baseUrl
                     )
+                    registry.saveDevice(device)
+                    
                     client.deviceToken = effectiveToken
-                    client.clientDeviceId = clientId
-                    linkSession.onPaired(confirmResp)
-                }.onFailure { handlePairingFailure(it) }
+                    client.clientDeviceId = identity.michiId
+                    _connectionState.value = SyncConnectionState.PAIRED
+                }.onFailure { handlePairingFailure(Result.failure<Any>(it)) }
             }.onFailure { e ->
-                _error.value = "Error al iniciar emparejamiento: ${e.message}"
-                linkSession.updateState(SyncConnectionState.ERROR)
+                _error.value = "Error al iniciar emparejamiento por código: ${e.message}"
+                _connectionState.value = SyncConnectionState.ERROR
             }
         }
     }
 
-    private fun handlePairingFailure(e: Throwable) {
-        when (e) {
-            is LinkException.InvalidCredentials -> {
-                _error.value = "Credenciales o código incorrectos"
-                linkSession.updateState(SyncConnectionState.PAIRING_REQUIRED)
-            }
-            is LinkException.Revoked -> {
-                _error.value = "Acceso denegado por el servidor"
-                linkSession.updateState(SyncConnectionState.REVOKED)
-            }
-            else -> {
-                _error.value = "Error de emparejamiento: ${e.message}"
-                linkSession.updateState(SyncConnectionState.ERROR)
-            }
+    private fun handlePairingFailure(result: Result<*>) {
+        val e = result.exceptionOrNull()
+        if (e is LinkException.InvalidCredentials) {
+            _error.value = "Credenciales inválidas"
+            _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+        } else {
+            _error.value = "Error de emparejamiento: ${e?.message}"
+            _connectionState.value = SyncConnectionState.ERROR
         }
     }
 
     fun forgetServer() {
-        tokenStore.clear()
+        val deviceId = registry.getAllDevices().firstOrNull()?.deviceId
+        if (deviceId != null) {
+            registry.removeDevice(deviceId)
+            connectionManager.disconnect(deviceId)
+        }
         disconnect()
     }
 
@@ -362,7 +409,7 @@ class SyncViewModel(
         viewModelScope.launch { linkDiscovery.stop() }
         currentClient?.close()
         currentClient = null
-        linkSession.disconnect()
+        _connectionState.value = SyncConnectionState.DISCONNECTED
         _syncProgress.value = SyncProgress.Idle
     }
 
@@ -450,7 +497,7 @@ class SyncViewModel(
 
                 val targetHost = host
                     ?: currentClient?.baseUrl?.substringAfter("://")?.substringBefore(":")
-                    ?: linkSession.connectedPeer.value?.ip
+                    ?: _connectedPeer.value?.ip
 
                 if (targetHost.isNullOrBlank()) {
                     val firstPeer = linkDiscovery.peers.value.values.firstOrNull()
@@ -506,7 +553,8 @@ class SyncViewModel(
                     )
                     client.deviceToken = response.deviceToken
                     currentClient = client
-                    linkSession.onConnected(peer, client)
+                    _connectedPeer.value = peer
+                    _connectionState.value = SyncConnectionState.CONNECTED
                     onResult(true, "Dispositivo vinculado correctamente")
                 } else {
                     onResult(false, "El código QR es inválido o ha expirado")
@@ -553,7 +601,6 @@ class SyncViewModel(
     override fun onCleared() {
         super.onCleared()
         currentClient?.close()
-        linkSession.disconnect()
     }
 }
 

@@ -16,7 +16,8 @@ import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.link.EventClient
 import org.michimusic.link.LinkClient
-import org.michimusic.link.LinkSession
+import org.michimusic.link.ConnectionManager
+import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.link.dto.PlaybackStateDto
 import org.michimusic.link.dto.QueueDto
 import org.michimusic.link.errors.LinkException
@@ -48,7 +49,8 @@ data class RemoteUiState(
 )
 
 class RemoteViewModel(
-    private val session: LinkSession,
+    private val sessionManager: PlaybackSessionManager,
+    private val connectionManager: ConnectionManager,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
@@ -62,9 +64,15 @@ class RemoteViewModel(
     private var refreshJob: Job? = null
 
     fun connectIfNeeded() {
-        if (_uiState.value.connected) return
-        val peer = session.connectedPeer.value ?: return
-        val linkClient = session.linkClient ?: return
+        val activeEndpoint = sessionManager.sessionState.value.activeEndpoint
+        if (activeEndpoint.isLocal) {
+            disconnect()
+            return
+        }
+        val deviceId = activeEndpoint.id
+        if (_uiState.value.connected && client != null) return
+        
+        val linkClient = connectionManager.getClient(deviceId) ?: return
         val token = linkClient.deviceToken.ifEmpty { linkClient.sessionToken }
 
         client = linkClient
@@ -72,7 +80,7 @@ class RemoteViewModel(
             mode = RemoteSourceMode.REMOTE,
             connState = RemoteConnectionState.CONNECTED,
             connected = true,
-            sourceName = peer.alias,
+            sourceName = activeEndpoint.name,
         )
 
         eventClient = linkClient.createEventClient(token).also { ec ->

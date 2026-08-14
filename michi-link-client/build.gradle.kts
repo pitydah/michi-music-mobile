@@ -42,6 +42,7 @@ dependencies {
 
     implementation(libs.koin.android)
     implementation(libs.security.crypto)
+    implementation(libs.bouncycastle.prov)
 
     testImplementation(libs.junit)
     testImplementation(libs.ktor.client.mock)
