@@ -112,6 +112,7 @@ class SearchViewModelTest {
         advanceUntilIdle()
         assertTrue(viewModel.results.value.isNotEmpty())
         viewModel.clearSearch()
+        advanceUntilIdle()
         assertEquals("", viewModel.query.value)
         assertTrue(viewModel.results.value.isEmpty())
     }

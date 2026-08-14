@@ -13,4 +13,6 @@ val playerModule = module {
         ReplayGainConfig.init(androidContext())
         AudioController(androidContext(), CoroutineScope(Dispatchers.Main + SupervisorJob()))
     }
+    single { org.michimusic.player.MichiAudioEffects(androidContext()) }
+    single { org.michimusic.player.UsbDacManager(androidContext()) }
 }
