@@ -140,23 +140,25 @@ fun SettingsTextField(
     placeholder: String = "",
 ) {
     GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = { Text(placeholder, color = TextMuted) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = AccentCoral,
-                unfocusedBorderColor = SurfaceElevated,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary,
-                cursorColor = AccentCoral,
-            ),
-            shape = RoundedCornerShape(10.dp),
-        )
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                placeholder = { Text(placeholder, color = TextMuted) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = AccentCoral,
+                    unfocusedBorderColor = SurfaceElevated,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = AccentCoral,
+                ),
+                shape = RoundedCornerShape(10.dp),
+            )
+        }
     }
 }
 

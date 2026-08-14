@@ -1,8 +1,14 @@
 package org.michimusic.mobile.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,50 +18,40 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import org.michimusic.mobile.ui.theme.AccentPink
-import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceBorder
-import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.TextDim
-import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextPrimary
-import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.theme.michiAccentFor
+import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
+import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.GlassFillOverlay
+import org.michimusic.mobile.ui.theme.OnSurfaceVariant
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SecondaryPurple
+import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.player.AudioController
-import org.michimusic.player.PlayerState
 
 @Composable
 fun MiniPlayer(
@@ -63,185 +59,150 @@ fun MiniPlayer(
     onClick: () -> Unit = {},
     visible: Boolean = true,
 ) {
-    if (!visible) return
+    val audioController: AudioController = koinInject()
+    val state by audioController.state.collectAsState()
+    val currentTrack = state.currentTrack
 
-    val controller: AudioController = koinInject()
-    val playerState by controller.state.collectAsState()
-    val isReady by controller.isReady.collectAsState()
-
-    val track = playerState.currentTrack
-    val accent = remember(track?.coverId, track?.title) {
-        michiAccentFor(track?.coverId ?: track?.title)
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .navigationBarsPadding()
-            .clickable(onClick = onClick)
-            .shadow(18.dp, RoundedCornerShape(28.dp), clip = false)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.095f),
-                        Color(0xBD101319),
-                        Color(0xD9080A0F),
-                    )
-                ),
-                RoundedCornerShape(28.dp),
-            )
-            .border(
-                0.35.dp,
-                Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.18f),
-                        Color.White.copy(alpha = 0.065f),
-                        accent.copy(alpha = 0.11f),
-                    )
-                ),
-                RoundedCornerShape(28.dp),
-            )
-            .padding(horizontal = 13.dp, vertical = 9.dp),
+    AnimatedVisibility(
+        visible = visible && currentTrack != null,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = modifier,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.72f)
-                .height(1.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.13f),
-                            Color.Transparent,
-                        )
-                    )
-                )
-        )
-        if (playerState.duration > 0 && track != null) {
-            LinearProgressIndicator(
-                progress = { (playerState.position.toFloat() / playerState.duration.toFloat()).coerceIn(0f, 1f) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .align(Alignment.TopCenter)
-                    .padding(top = 0.dp),
-                trackColor = Color.White.copy(alpha = 0.12f),
-                color = accent,
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (track != null) {
-                val coverUri = if (track.coverId.isNotEmpty())
-                    "content://media/external/audio/albumart/${track.coverId}" else null
-                if (coverUri != null) {
-                    AsyncImage(
-                        model = coverUri,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp))
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color(0xFF6EDDBC),
-                                        Color(0xFFD03B58),
-                                        Color(0xFF9F8247),
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.GraphicEq, null, tint = Color(0xF21B0D14), modifier = Modifier.size(19.dp))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = track.artist,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+        if (currentTrack != null) {
+            val isPlaying = state.isPlaying
+            val progressFraction = if (state.duration > 0) {
+                (state.position.toFloat() / state.duration.toFloat()).coerceIn(0f, 1f)
             } else {
-                Text(
-                    text = "Sin reproducción",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextDim,
-                    modifier = Modifier.weight(1f),
-                )
+                0f
             }
+            val shape = RoundedCornerShape(16.dp)
 
-            Spacer(Modifier.width(8.dp))
-
-            IconButton(onClick = { controller.skipPrevious() }, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Rounded.SkipPrevious,
-                    contentDescription = "Anterior",
-                    tint = TextMuted,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
             Box(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(
-                                Color(0xFFF4EFE7),
-                                accent.copy(alpha = 0.28f),
-                            )
-                        ),
-                        CircleShape,
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .drawBehind {
+                        drawCircle(
+                            color = TertiaryCyan.copy(alpha = 0.15f),
+                            radius = size.maxDimension * 0.5f,
+                            center = center,
+                        )
+                    }
+                    .clip(shape)
+                    .background(GlassFillOverlay)
+                    .border(1.dp, GlassBorderHigh, shape)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(color = TertiaryCyan),
+                        onClick = onClick,
                     )
-                    .border(0.5.dp, accent.copy(alpha = 0.35f), CircleShape),
-                contentAlignment = Alignment.Center,
+                    .testTag("mini_player_bar"),
             ) {
-                IconButton(
-                    onClick = {
-                        if (playerState.isPlaying) controller.pause() else controller.play()
-                    },
-                    modifier = Modifier.size(36.dp),
-                ) {
-                    Icon(
-                        imageVector = if (playerState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (playerState.isPlaying) "Pausar" else "Reproducir",
-                        tint = SurfaceDark,
-                        modifier = Modifier.size(20.dp),
-                    )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Top mini progress bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.5.dp)
+                            .background(Color(0x22FFFFFF)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction = progressFraction)
+                                .height(2.5.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(PrimaryPinkContainer, SecondaryPurple, TertiaryCyan),
+                                    ),
+                                ),
+                        )
+                    }
+
+                    // Player row content
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Album artwork thumbnail
+                        AlbumArtView(
+                            coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
+                            imageModel = currentTrack.filepath.ifEmpty { currentTrack.coverId },
+                            modifier = Modifier.size(44.dp),
+                            cornerRadius = 10.dp,
+                        )
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // Title & Artist
+                        Column(
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                text = currentTrack.title,
+                                color = PureWhite,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = currentTrack.artist,
+                                color = TertiaryCyan,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Animated mini equalizer
+                        EqualizerWaveBars(
+                            isPlaying = isPlaying,
+                            barCount = 3,
+                            color = TertiaryCyan,
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Play / Pause Button
+                        IconButton(
+                            onClick = {
+                                if (isPlaying) audioController.pause() else audioController.play()
+                            },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x1FFFFFFF))
+                                .testTag("mini_player_play_pause"),
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = PureWhite,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        // Next Track Button
+                        IconButton(
+                            onClick = { audioController.skipNext() },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .testTag("mini_player_next"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipNext,
+                                contentDescription = "Next Track",
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                 }
-            }
-            IconButton(onClick = { controller.skipNext() }, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    imageVector = Icons.Rounded.SkipNext,
-                    contentDescription = "Siguiente",
-                    tint = TextMuted,
-                    modifier = Modifier.size(20.dp),
-                )
             }
         }
     }

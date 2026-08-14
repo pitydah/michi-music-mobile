@@ -1,402 +1,496 @@
-@file:Suppress("DEPRECATION")
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import org.koin.androidx.compose.koinViewModel
-import org.michimusic.mobile.remote.RemoteSourceMode
+import org.michimusic.mobile.remote.RemoteConnectionState
 import org.michimusic.mobile.remote.RemoteViewModel
+import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceElevated
-import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextPrimary
-import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.components.GlassOverlayCard
+import org.michimusic.mobile.ui.components.GradientProgressBar
+import org.michimusic.mobile.ui.components.PulsingDot
+import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.components.formatRemainingTimeSeconds
+import org.michimusic.mobile.ui.components.formatTimeSeconds
+import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.GlassFillHigh
+import org.michimusic.mobile.ui.theme.OnSurfaceVariant
+import org.michimusic.mobile.ui.theme.PrimaryPink
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
+import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.TertiaryCyanContainer
 
 @Composable
 fun RemoteScreen(
     onNavigateToSync: () -> Unit = {},
-    viewModel: RemoteViewModel = koinViewModel(),
+    modifier: Modifier = Modifier,
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val viewModel: RemoteViewModel = koinViewModel()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.connectIfNeeded()
     }
 
-    Column(
-        modifier = Modifier
+    val playerState = state.playerState
+    val currentTitle = playerState.effectiveTitle.ifEmpty { "Escritorio Inactivo" }
+    val currentArtist = playerState.effectiveArtist.ifEmpty { "Sin pista en reproducción" }
+    val currentAlbum = playerState.album.ifEmpty { "Michi Desktop" }
+    val isPlaying = playerState.effectiveState == "playing"
+    val positionSeconds = (playerState.effectivePosition / 1000f).coerceAtLeast(0f)
+    val durationSeconds = (playerState.effectiveDuration / 1000f).coerceAtLeast(1f)
+    var isShuffle by remember { mutableStateOf(false) }
+    var isRepeat by remember { mutableStateOf(false) }
+    var showEqualizer by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
             .fillMaxSize()
-            .background(SurfaceDark)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .background(SurfaceObsidian),
     ) {
-        // Selector de modo
-        ModeSelector(
-            mode = uiState.mode,
-            sourceName = uiState.sourceName,
-            onConnectToSync = onNavigateToSync,
-        )
-
-        Spacer(Modifier.height(16.dp))
-
-        if (!uiState.connected && uiState.mode == RemoteSourceMode.REMOTE) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Default.Sync, null, tint = AccentCoral, modifier = Modifier.size(56.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Conecta con un servidor desde Sync",
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = onNavigateToSync,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AccentCoral,
-                                contentColor = SurfaceDark,
-                            ),
-                            shape = RoundedCornerShape(8.dp),
-                        ) {
-                            Text("Ir a Sync")
-                        }
-                    }
-                }
-            }
-            return
-        }
-
-        if (uiState.mode == RemoteSourceMode.LOCAL) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Default.PhoneAndroid, null, tint = AccentCoral, modifier = Modifier.size(56.dp))
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Reproduciendo en este teléfono",
-                            color = TextPrimary,
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text("Abre NowPlaying para controlar", color = TextSecondary)
-                    }
-                }
-            }
-            return
-        }
-
-        val state = uiState.playerState
-        val effState = state.effectiveState
-        val effTitle = state.effectiveTitle
-        val effArtist = state.effectiveArtist
-        val effPosition = state.effectivePosition
-        val effDuration = state.effectiveDuration
-
-        // Carátula
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .aspectRatio(1f)
-                .clip(RoundedCornerShape(26.dp))
-                .background(SurfaceElevated.copy(alpha = 0.58f)),
-            contentAlignment = Alignment.Center,
+                .fillMaxSize()
+                .statusBarsPadding(),
         ) {
-            if (state.coverUrl.isNotEmpty()) {
-                AsyncImage(
-                    model = state.coverUrl,
-                    contentDescription = state.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Icon(Icons.Default.CastConnected, null, tint = AccentCoral, modifier = Modifier.size(80.dp))
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Info del tema
-        Text(
-            text = effTitle.ifEmpty { "Sin reproducción" },
-            style = MaterialTheme.typography.titleLarge,
-            color = TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = effArtist.ifEmpty { "" },
-            style = MaterialTheme.typography.bodyMedium,
-            color = TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-
-        Spacer(Modifier.height(8.dp))
-
-        // Salida
-        if (state.outputName.isNotEmpty()) {
-            Text(
-                text = "Sonando en: ${state.outputName}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextMuted,
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        // Progreso
-        val duration = if (effDuration > 0) effDuration else 1L
-        val progress = (effPosition.toFloat() / duration).coerceIn(0f, 1f)
-        var dragProgress by remember { mutableFloatStateOf(progress) }
-
-        Slider(
-            value = dragProgress,
-            onValueChange = { dragProgress = it },
-            onValueChangeFinished = {
-                val seekPos = (dragProgress * effDuration).toLong()
-                viewModel.seek(seekPos)
-            },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(formatTime(effPosition), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-            Text(formatTime(effDuration), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Controles
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = viewModel::previous) {
-                Icon(Icons.Default.SkipPrevious, "Anterior", tint = TextPrimary, modifier = Modifier.size(32.dp))
-            }
-
-            Box(
+            // Top App Bar
+            Row(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xE6F4EFE7)),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = viewModel::togglePlayPause) {
+                IconButton(
+                    onClick = onNavigateToSync,
+                    modifier = Modifier.size(40.dp),
+                ) {
                     Icon(
-                        if (effState == "playing") Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (effState == "playing") "Pausar" else "Reproducir",
-                        tint = SurfaceDark,
-                        modifier = Modifier.size(36.dp),
+                        imageVector = Icons.Filled.Sync,
+                        contentDescription = "Sync",
+                        tint = PrimaryPink,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+
+                Text(
+                    text = "Control Remoto",
+                    color = PrimaryPink,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp,
+                    modifier = Modifier.testTag("remote_title"),
+                )
+
+                IconButton(
+                    onClick = { showEqualizer = true },
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = "Buscar / EQ",
+                        tint = PrimaryPink,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }
 
-            IconButton(onClick = viewModel::next) {
-                Icon(Icons.Default.SkipNext, "Siguiente", tint = TextPrimary, modifier = Modifier.size(32.dp))
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        // Volumen
-        if (state.volume > 0 || uiState.connState == org.michimusic.mobile.remote.RemoteConnectionState.CONNECTED) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(Modifier.height(8.dp))
-                Text("Vol", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
-                Slider(
-                    value = state.effectiveVolume / 100f,
-                    onValueChange = { viewModel.setVolume((it * 100).toInt()) },
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Cola
-        if (uiState.queue.tracks.isNotEmpty()) {
-            Text("Cola", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-            Spacer(Modifier.height(8.dp))
-
             LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("remote_scroll_list"),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                itemsIndexed(uiState.queue.tracks, key = { _, track -> track.trackId }) { index, track ->
-                    val isCurrent = index == uiState.queue.currentIndex
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isCurrent) AccentCoral.copy(alpha = 0.16f) else SurfaceElevated.copy(alpha = 0.48f),
-                        ),
-                        onClick = { viewModel.queueJump(index) },
+                // Connection Status Indicator Pill
+                item {
+                    val isConnected = state.connState == RemoteConnectionState.CONNECTED
+                    val sourceTitle = state.sourceName.ifEmpty { "Servidor Michi Desktop" }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(GlassFillHigh)
+                            .border(
+                                1.dp,
+                                if (isConnected) TertiaryCyan.copy(alpha = 0.5f) else GlassBorderLow,
+                                RoundedCornerShape(20.dp),
+                            )
+                            .clickable { onNavigateToSync() }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .testTag("connection_status_indicator"),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Row(
-                            modifier = Modifier.padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    text = track.title,
-                                    color = if (isCurrent) AccentCoral else TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                                Text(
-                                    text = track.artist,
-                                    color = TextMuted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    style = MaterialTheme.typography.bodySmall,
+                            PulsingDot(
+                                color = if (isConnected) TertiaryCyan else PrimaryPinkContainer,
+                                size = 8.dp,
+                            )
+                            Text(
+                                text = if (isConnected) "CONECTADO A ${sourceTitle.uppercase()}" else "SIN CONEXIÓN REMOTA",
+                                color = if (isConnected) TertiaryCyan else PrimaryPink,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp,
+                            )
+                        }
+                    }
+                }
+
+                // Now Playing Glass Card
+                item {
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("remote_now_playing_card"),
+                        shape = RoundedCornerShape(16.dp),
+                        backgroundColor = GlassFillHigh,
+                        borderColor = GlassBorderHigh,
+                        glowColor = TertiaryCyan,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(96.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(1.dp, GlassBorderHigh, RoundedCornerShape(12.dp)),
+                                ) {
+                                    AlbumArtView(
+                                        coverStyle = coverStyleFor(playerState.effectiveCoverId.ifEmpty { currentTitle }),
+                                        imageModel = playerState.coverUrl.ifEmpty { playerState.effectiveCoverId },
+                                        modifier = Modifier.fillMaxSize(),
+                                        cornerRadius = 12.dp,
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    Text(
+                                        text = currentTitle,
+                                        color = PureWhite,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = currentArtist,
+                                        color = TertiaryCyan,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "$currentAlbum • Remoto",
+                                        color = OnSurfaceVariant.copy(alpha = 0.7f),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        letterSpacing = 1.5.sp,
+                                    )
+                                }
+                            }
+
+                            // Track Progress Bar
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = formatTimeSeconds(positionSeconds),
+                                        color = OnSurfaceVariant,
+                                        fontSize = 11.sp,
+                                    )
+                                    Text(
+                                        text = formatRemainingTimeSeconds(positionSeconds, durationSeconds),
+                                        color = OnSurfaceVariant,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                GradientProgressBar(
+                                    currentValue = positionSeconds,
+                                    maxValue = durationSeconds,
+                                    onSeek = { seekSec ->
+                                        viewModel.seek((seekSec * 1000).toLong())
+                                    },
+                                    trackHeight = 6.dp,
+                                    showThumb = true,
                                 )
                             }
-                            if (isCurrent) {
-                                Icon(Icons.Default.PlayArrow, null, tint = AccentCoral, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+
+                // Main Transport Controls Glass Overlay
+                item {
+                    GlassOverlayCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("remote_transport_overlay"),
+                        shape = RoundedCornerShape(18.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                        ) {
+                            // Primary 3 Transport Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                IconButton(
+                                    onClick = { viewModel.previous() },
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .testTag("remote_skip_prev"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.SkipPrevious,
+                                        contentDescription = "Anterior",
+                                        tint = PureWhite,
+                                        modifier = Modifier.size(44.dp),
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.togglePlayPause() },
+                                    modifier = Modifier
+                                        .size(80.dp)
+                                        .drawBehind {
+                                            drawCircle(
+                                                color = PrimaryPinkContainer.copy(alpha = 0.3f),
+                                                radius = 44.dp.toPx(),
+                                            )
+                                        }
+                                        .clip(CircleShape)
+                                        .background(Color(0x1AFFFFFF))
+                                        .testTag("remote_play_pause"),
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        contentDescription = if (isPlaying) "Pausa" else "Reproducir",
+                                        tint = PureWhite,
+                                        modifier = Modifier.size(54.dp),
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { viewModel.next() },
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .testTag("remote_skip_next"),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.SkipNext,
+                                        contentDescription = "Siguiente",
+                                        tint = PureWhite,
+                                        modifier = Modifier.size(44.dp),
+                                    )
+                                }
+                            }
+
+                            // Volume Slider Control
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.VolumeDown,
+                                    contentDescription = "Bajar Volumen",
+                                    tint = OnSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+
+                                Slider(
+                                    value = state.playerState.volume.toFloat(),
+                                    onValueChange = { viewModel.setVolume(it.toInt()) },
+                                    valueRange = 0f..100f,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("remote_volume_slider"),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = TertiaryCyan,
+                                        activeTrackColor = TertiaryCyanContainer,
+                                        inactiveTrackColor = Color(0x33FFFFFF),
+                                    ),
+                                )
+
+                                Icon(
+                                    imageVector = Icons.Filled.VolumeUp,
+                                    contentDescription = "Subir Volumen",
+                                    tint = OnSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color(0x11FFFFFF)),
+                            )
+
+                            // Secondary Actions
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .clickable { isShuffle = !isShuffle }
+                                        .padding(8.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Shuffle,
+                                        contentDescription = "Aleatorio",
+                                        tint = if (isShuffle) TertiaryCyan else OnSurfaceVariant,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Aleatorio",
+                                        color = if (isShuffle) TertiaryCyan else OnSurfaceVariant,
+                                        fontSize = 10.sp,
+                                    )
+                                }
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .clickable { isRepeat = !isRepeat }
+                                        .padding(8.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Repeat,
+                                        contentDescription = "Repetir",
+                                        tint = if (isRepeat) TertiaryCyan else OnSurfaceVariant,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Repetir",
+                                        color = if (isRepeat) TertiaryCyan else OnSurfaceVariant,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isRepeat) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                }
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .clickable { onNavigateToSync() }
+                                        .padding(8.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.QueueMusic,
+                                        contentDescription = "Dispositivos",
+                                        tint = OnSurfaceVariant,
+                                        modifier = Modifier.size(22.dp),
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Dispositivos",
+                                        color = OnSurfaceVariant,
+                                        fontSize = 10.sp,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-        } else {
-            Spacer(Modifier.weight(1f))
         }
 
-        // Error
-        uiState.error?.let { msg ->
-            Spacer(Modifier.height(8.dp))
-            Text(msg, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        if (showEqualizer) {
+            EqualizerDialog(onDismiss = { showEqualizer = false })
         }
     }
-}
-
-@Composable
-private fun ModeSelector(
-    mode: RemoteSourceMode,
-    sourceName: String,
-    onConnectToSync: () -> Unit,
-) {
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                if (mode == RemoteSourceMode.LOCAL) Icons.Default.PhoneAndroid else Icons.Default.CastConnected,
-                null,
-                tint = AccentCoral,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = if (mode == RemoteSourceMode.LOCAL) "Modo actual" else "Controlando",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextMuted,
-                )
-                Text(
-                    text = if (mode == RemoteSourceMode.LOCAL) "Reproduciendo en este teléfono" else sourceName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            if (mode == RemoteSourceMode.LOCAL) {
-                Button(
-                    onClick = onConnectToSync,
-                    modifier = Modifier.height(32.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentCoral,
-                        contentColor = SurfaceDark,
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text("Sync", style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-    }
-}
-
-private fun formatTime(ms: Long): String {
-    if (ms < 0) return "0:00"
-    val totalSec = ms / 1000
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return "%d:%02d".format(min, sec)
 }

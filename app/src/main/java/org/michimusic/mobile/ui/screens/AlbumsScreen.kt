@@ -1,239 +1,388 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.DownloadDone
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
-import org.michimusic.mobile.screens.AlbumsViewModel
-import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.components.PremiumFilterChips
-import org.michimusic.mobile.ui.components.PremiumButton
-import org.michimusic.mobile.ui.components.PremiumEmptyState
-import org.michimusic.mobile.ui.components.PremiumLoadingState
-import org.michimusic.mobile.ui.components.PremiumScreen
-import org.michimusic.mobile.ui.components.PremiumSectionHeader
-import org.michimusic.mobile.ui.components.ScreenHeader
-import org.michimusic.mobile.ui.components.TrackArtwork
-import org.michimusic.mobile.ui.components.TrackRow
-import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
-import org.michimusic.mobile.ui.theme.AccentCoral
-import org.michimusic.mobile.ui.theme.TextPrimary
-import org.michimusic.mobile.ui.theme.TextSecondary
 import org.koin.compose.koinInject
+import org.michimusic.core.models.Track
+import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.CreatePlaylistDialog
+import org.michimusic.mobile.ui.components.EqualizerWaveBars
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.components.formatTimeMillis
+import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.GlassFillHigh
+import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.OnSurfaceVariant
+import org.michimusic.mobile.ui.theme.PrimaryPink
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
+import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.TertiaryCyanContainer
 import org.michimusic.player.AudioController
 
 @Composable
-fun AlbumsScreen() {
+fun AlbumsScreen(
+    modifier: Modifier = Modifier,
+) {
     val viewModel: AlbumsViewModel = koinViewModel()
+    val allTracks by viewModel.allTracks.collectAsState()
     val albums by viewModel.albums.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+
     val audioController: AudioController = koinInject()
+    val playerState by audioController.state.collectAsState()
+    val currentTrack = playerState.currentTrack
+    val isPlaying = playerState.isPlaying
 
-    LaunchedEffect(Unit) { viewModel.loadMedia() }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("Todo") }
+    var showCreatePlaylist by remember { mutableStateOf(false) }
 
-    if (isLoading) {
-        PremiumLoadingState(
-            text = "Escaneando música local...",
-            modifier = Modifier.fillMaxSize(),
-        )
-        return
+    val filters = listOf("Todo", "Álbumes", "Artistas", "Lossless", "Recientes")
+
+    LaunchedEffect(Unit) {
+        viewModel.loadMedia()
     }
 
-    if (albums.isEmpty()) {
-        PremiumScreen {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                PremiumEmptyState(
-                    icon = Icons.Rounded.Album,
-                    title = "No se encontraron canciones",
-                    subtitle = "Revisa permisos o sincroniza desde Michi KDE",
-                )
+    val filteredTracks = remember(allTracks, searchQuery, selectedFilter) {
+        allTracks.filter { track ->
+            val matchesSearch = searchQuery.isBlank() ||
+                track.title.contains(searchQuery, ignoreCase = true) ||
+                track.artist.contains(searchQuery, ignoreCase = true) ||
+                track.album.contains(searchQuery, ignoreCase = true)
+
+            val matchesFilter = when (selectedFilter) {
+                "Álbumes" -> track.album.isNotBlank()
+                "Artistas" -> track.artist.isNotBlank()
+                "Lossless" -> track.format.contains("flac", ignoreCase = true) || track.bitrate > 320000
+                else -> true
             }
-        }
-        return
-    }
 
-    var selectedIndex by remember { mutableIntStateOf(0) }
-    var selectedFilter by remember { mutableIntStateOf(0) }
-    val albumFilters = listOf("Todos", "Recientes", "Más pistas")
-    val visibleAlbums = remember(albums, selectedFilter) {
-        when (selectedFilter) {
-            1 -> albums.sortedByDescending { it.album.year }
-            2 -> albums.sortedByDescending { it.tracks.size }
-            else -> albums
-        }
-    }
-    LaunchedEffect(visibleAlbums.size, selectedFilter) {
-        if (visibleAlbums.isNotEmpty() && selectedIndex !in visibleAlbums.indices) {
-            selectedIndex = 0
-        }
-    }
-    val selectedAlbum = visibleAlbums.getOrNull(selectedIndex)
-    val coverFlowAlbums = remember(visibleAlbums) {
-        visibleAlbums.map { local ->
-            org.michimusic.mobile.library.coverflow.CoverFlowAlbum(
-                id = local.album.id,
-                title = local.album.title,
-                artist = local.album.artist,
-                year = local.album.year,
-                trackCount = local.tracks.size,
-                hasArt = local.album.coverId.isNotEmpty(),
-                coverUri = if (local.album.coverId.isNotEmpty())
-                    "content://media/external/audio/albumart/${local.album.coverId}"
-                else "",
-            )
+            matchesSearch && matchesFilter
         }
     }
 
-    PremiumScreen {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(SurfaceObsidian),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .statusBarsPadding(),
         ) {
-            Spacer(Modifier.height(16.dp))
-
-            ScreenHeader(
-                title = "Albums",
-                subtitle = "${visibleAlbums.size} colecciones en tu biblioteca",
-            ) {
-                Text(
-                    text = "${selectedIndex + 1}/${visibleAlbums.size}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AccentCoral,
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            PremiumFilterChips(
-                items = albumFilters,
-                selectedIndex = selectedFilter,
-                onSelected = {
-                    selectedFilter = it
-                    selectedIndex = 0
-                },
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            MichiCoverFlowHost(
-                albums = coverFlowAlbums,
-                onCurrentChanged = { index ->
-                    selectedIndex = index.coerceIn(visibleAlbums.indices)
-                },
-                onAlbumClick = { index ->
-                    val album = visibleAlbums.getOrNull(index)
-                    if (album != null && album.tracks.isNotEmpty()) {
-                        selectedIndex = index
-                        audioController.playQueue(album.tracks, 0)
-                    }
-                },
+            // Header
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp),
-            )
+                    .height(64.dp)
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Biblioteca",
+                    color = PrimaryPink,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.testTag("library_title"),
+                )
 
-            Spacer(Modifier.height(16.dp))
+                IconButton(
+                    onClick = { showCreatePlaylist = true },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(GlassFillLow)
+                        .testTag("library_add_playlist_button"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "Nueva Playlist",
+                        tint = PureWhite,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
 
-            if (selectedAlbum != null) {
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Row(
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("library_scroll_list"),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 120.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                // Search Field
+                item {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Filtrar por título, artista o álbum...", color = OnSurfaceVariant) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = null,
+                                tint = OnSurfaceVariant,
+                            )
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = PureWhite,
+                            unfocusedTextColor = PureWhite,
+                            focusedBorderColor = TertiaryCyan,
+                            unfocusedBorderColor = GlassBorderLow,
+                            focusedContainerColor = GlassFillHigh,
+                            unfocusedContainerColor = GlassFillLow,
+                        ),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
+                    )
+                }
+
+                // Filter Chips Row
+                item {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        TrackArtwork(coverId = selectedAlbum.album.coverId, size = 72.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                text = selectedAlbum.album.title,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = TextPrimary,
-                                maxLines = 1,
-                            )
-                            Text(
-                                text = selectedAlbum.album.artist,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondary,
-                            )
-                            Text(
-                                text = "${selectedAlbum.album.year} · ${selectedAlbum.tracks.size} canciones",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
-                            )
+                        items(filters) { filter ->
+                            val isSelected = selectedFilter == filter
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(if (isSelected) TertiaryCyanContainer else GlassFillLow)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) TertiaryCyan else GlassBorderLow,
+                                        RoundedCornerShape(20.dp),
+                                    )
+                                    .clickable { selectedFilter = filter }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    text = filter,
+                                    color = if (isSelected) SurfaceObsidian else PureWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
-
-                PremiumButton(
-                    text = "Reproducir álbum",
-                    icon = Icons.Rounded.PlayArrow,
-                    onClick = { audioController.playQueue(selectedAlbum.tracks, 0) },
-                    enabled = selectedAlbum.tracks.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                PremiumSectionHeader(
-                    title = "Pistas",
-                    subtitle = "${selectedAlbum.tracks.size} canciones del álbum",
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                GlassCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                ) {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(selectedAlbum.tracks, key = { it.id }) { track ->
-                            TrackRow(
-                                title = track.title,
-                                artist = track.artist,
-                                duration = track.duration,
-                                onPlay = {
-                                    val queue = selectedAlbum.tracks
-                                    val startIdx = queue.indexOf(track).coerceAtLeast(0)
-                                    audioController.playQueue(queue, startIdx)
-                                },
+                // Albums Overview
+                if (albums.isNotEmpty() && (selectedFilter == "Todo" || selectedFilter == "Álbumes")) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "ÁLBUMES (${albums.size})",
+                                color = OnSurfaceVariant,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp,
                             )
+
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(albums) { localAlbum ->
+                                    GlassCard(
+                                        modifier = Modifier
+                                            .width(160.dp)
+                                            .height(84.dp),
+                                        backgroundColor = GlassFillHigh,
+                                        borderColor = GlassBorderHigh,
+                                        onClick = {
+                                            if (localAlbum.tracks.isNotEmpty()) {
+                                                audioController.playQueue(localAlbum.tracks, 0)
+                                            }
+                                        },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            AlbumArtView(
+                                                coverStyle = coverStyleFor(localAlbum.album.title),
+                                                modifier = Modifier.size(44.dp),
+                                                cornerRadius = 8.dp,
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = localAlbum.album.title,
+                                                    color = PureWhite,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Text(
+                                                    text = "${localAlbum.tracks.size} pistas",
+                                                    color = OnSurfaceVariant,
+                                                    fontSize = 11.sp,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        item { Spacer(Modifier.height(8.dp)) }
+                    }
+                }
+
+                // Tracks Header
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "CANCIÓNES (${filteredTracks.size})",
+                            color = OnSurfaceVariant,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.5.sp,
+                        )
+
+                        Text(
+                            text = "Audio de Alta Fidelidad",
+                            color = TertiaryCyan,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
+                // Tracks List
+                items(filteredTracks) { track ->
+                    val isCurrent = track.id == currentTrack?.id
+
+                    GlassCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        backgroundColor = if (isCurrent) GlassFillHigh else GlassFillLow,
+                        borderColor = if (isCurrent) TertiaryCyan.copy(alpha = 0.5f) else GlassBorderLow,
+                        onClick = {
+                            val index = allTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                            audioController.playQueue(allTracks, index)
+                        },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AlbumArtView(
+                                coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
+                                imageModel = track.filepath.ifEmpty { track.coverId },
+                                modifier = Modifier.size(42.dp),
+                                cornerRadius = 8.dp,
+                            )
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = track.title,
+                                    color = if (isCurrent) TertiaryCyan else PureWhite,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        text = track.artist,
+                                        color = OnSurfaceVariant,
+                                        fontSize = 11.sp,
+                                    )
+                                    if (track.album.isNotBlank()) {
+                                        Text(
+                                            text = "• ${track.album}",
+                                            color = OnSurfaceVariant.copy(alpha = 0.6f),
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (isCurrent) {
+                                EqualizerWaveBars(isPlaying = isPlaying, barCount = 3, color = TertiaryCyan)
+                            } else {
+                                Text(
+                                    text = formatTimeMillis(track.duration),
+                                    color = OnSurfaceVariant,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        if (showCreatePlaylist) {
+            CreatePlaylistDialog(
+                onCreate = { showCreatePlaylist = false },
+                onDismiss = { showCreatePlaylist = false },
+            )
         }
     }
 }

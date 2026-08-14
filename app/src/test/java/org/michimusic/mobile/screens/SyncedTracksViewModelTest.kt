@@ -19,16 +19,17 @@ import org.michimusic.core.models.ManifestPlaylist
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.SyncedTrackRepository
 
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncedTracksViewModelTest {
 
-    private lateinit var testDispatcher: TestDispatcher
+    private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var repository: SyncedTrackRepository
     private lateinit var viewModel: SyncedTracksViewModel
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
         Dispatchers.setMain(testDispatcher)
         repository = FakeSyncedRepo()
         viewModel = SyncedTracksViewModel(repository)
@@ -36,7 +37,6 @@ class SyncedTracksViewModelTest {
 
     @After
     fun tearDown() {
-        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 
