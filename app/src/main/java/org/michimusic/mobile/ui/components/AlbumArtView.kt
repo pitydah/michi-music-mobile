@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -58,17 +62,20 @@ fun AlbumArtView(
     borderColor: Color = GlassBorderLow,
 ) {
     val shape = RoundedCornerShape(cornerRadius)
+    var isError by androidx.compose.runtime.remember(imageModel) { androidx.compose.runtime.mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .clip(shape)
             .background(SurfaceObsidian)
             .border(borderWidth, borderColor, shape),
     ) {
-        if (imageModel != null && imageModel.toString().isNotBlank()) {
+        if (!isError && imageModel != null && imageModel.toString().isNotBlank()) {
             AsyncImage(
                 model = imageModel,
-                contentDescription = "Album Artwork",
+                contentDescription = "Carátula del Álbum",
                 contentScale = ContentScale.Crop,
+                onError = { isError = true },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {

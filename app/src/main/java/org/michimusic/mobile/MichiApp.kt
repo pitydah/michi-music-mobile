@@ -28,8 +28,11 @@ class MichiApp : Application() {
         try {
             PlayerDependencies.replayGainDao = michiReplayGainDao
             PlayerDependencies.appDao = michiAppDao
+            val koin = org.koin.core.context.GlobalContext.get()
+            PlayerDependencies.audioEffects = koin.getOrNull()
+            PlayerDependencies.usbDacManager = koin.getOrNull()
         } catch (e: Exception) {
-            Log.w("MichiApp", "No se pudieron resolver DAOs para PlayerDependencies: ${e.message}")
+            Log.w("MichiApp", "No se pudieron resolver dependencias para PlayerDependencies: ${e.message}")
         }
         createNotificationChannels()
         configureImageLoader()

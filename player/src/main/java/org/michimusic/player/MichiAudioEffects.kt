@@ -46,6 +46,10 @@ class MichiAudioEffects(
     private val _effectsState = MutableStateFlow(AudioEffectsState())
     val effectsState: StateFlow<AudioEffectsState> = _effectsState.asStateFlow()
 
+    init {
+        initFallbackBands()
+    }
+
     fun bindAudioSession(sessionId: Int) {
         if (sessionId == 0 || sessionId == currentSessionId) return
         currentSessionId = sessionId

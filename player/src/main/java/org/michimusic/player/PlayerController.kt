@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import android.media.AudioDeviceInfo
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
@@ -40,6 +41,8 @@ class PlayerController(
     context: Context,
     audioProcessors: List<AudioProcessor> = emptyList(),
     replayGainDao: ReplayGainDao? = null,
+    private val audioEffects: MichiAudioEffects? = null,
+    private val usbDacManager: UsbDacManager? = null,
 ) {
 
     private val controllerJob = SupervisorJob()
@@ -117,6 +120,15 @@ class PlayerController(
                     _state.value = _state.value.copy(
                         duration = player.duration.coerceAtLeast(0L),
                     )
+                    if (player.audioSessionId != 0) {
+                        audioEffects?.bindAudioSession(player.audioSessionId)
+                    }
+                }
+            }
+
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId != 0) {
+                    audioEffects?.bindAudioSession(audioSessionId)
                 }
             }
 
@@ -128,6 +140,22 @@ class PlayerController(
                 _state.value = _state.value.copy(shuffleMode = shuffleModeEnabled)
             }
         })
+
+        if (player.audioSessionId != 0) {
+            audioEffects?.bindAudioSession(player.audioSessionId)
+        }
+
+        if (usbDacManager != null) {
+            controllerScope.launch {
+                usbDacManager.preferredDeviceFlow.collect { preferredDevice ->
+                    try {
+                        player.setPreferredAudioDevice(preferredDevice)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error aplicando dispositivo de audio en ExoPlayer", e)
+                    }
+                }
+            }
+        }
     }
 
     private fun startPositionUpdates() {

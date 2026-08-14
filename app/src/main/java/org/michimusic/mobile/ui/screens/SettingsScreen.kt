@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -24,16 +22,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -53,10 +53,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +64,8 @@ import androidx.core.content.edit
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.michimusic.data.cache.AppDao
-import org.michimusic.data.cache.SettingsEntity
+import org.michimusic.mobile.ui.components.AudioRouteDialog
+import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -73,8 +74,6 @@ import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
@@ -83,14 +82,9 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.ReplayGainMode
 
 private const val SETTINGS_PREFS = "michi_settings"
-private const val KEY_AUTO_SYNC = "auto_sync"
 private const val KEY_RG_MODE = "replaygain_mode"
 private const val KEY_RG_PREAMP_WITH = "replaygain_preamp_with"
 private const val KEY_RG_PREAMP_WITHOUT = "replaygain_preamp_without"
-private const val KEY_DYNAMIC_ACCENTS = "dynamic_accents"
-private const val KEY_GLASS_TEXTURES = "glass_textures"
-private const val KEY_COMPACT_NOW_PLAYING = "compact_now_playing"
-private const val KEY_WIFI_ONLY_SYNC = "wifi_only_sync"
 private const val KEY_DOWNLOAD_ARTWORK = "download_artwork"
 private const val KEY_AUTO_SCAN_LIBRARY = "auto_scan_library"
 private const val DB_LISTENING_HISTORY_ENABLED = "listening_history_enabled"
@@ -104,12 +98,8 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
-    var wifiOnlySync by remember { mutableStateOf(prefs.getBoolean(KEY_WIFI_ONLY_SYNC, true)) }
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
-    var dynamicAccents by remember { mutableStateOf(prefs.getBoolean(KEY_DYNAMIC_ACCENTS, true)) }
-    var glassTextures by remember { mutableStateOf(prefs.getBoolean(KEY_GLASS_TEXTURES, true)) }
-    var compactNowPlaying by remember { mutableStateOf(prefs.getBoolean(KEY_COMPACT_NOW_PLAYING, false)) }
     var listeningHistory by remember { mutableStateOf(true) }
 
     var selectedMode by remember {
@@ -182,38 +172,71 @@ fun SettingsScreen(
                         ),
                     )
                 }
-
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(GlassFillHigh)
-                        .border(1.dp, GlassBorderHigh, CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = PrimaryPink),
-                            onClick = onNavigateToDiagnostics,
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.BugReport,
-                        contentDescription = "Diagnóstico",
-                        tint = TertiaryCyan,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // 1. Audio Engine & ReplayGain Section
+            // 1. Audio & Salidas
             SettingsSectionCard(
                 icon = Icons.Default.GraphicEq,
-                title = "Motor de Audio & ReplayGain",
-                subtitle = "Normalización de volumen y fidelidad",
+                title = "Audio & Procesamiento",
+                subtitle = "Ecualización, Salidas y ReplayGain",
                 accent = TertiaryCyan,
             ) {
+                // Audio Route & Equalizer Cards
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    GlassCard(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(72.dp),
+                        backgroundColor = GlassFillLow,
+                        borderColor = GlassBorderLow,
+                        onClick = { showEqualizerDialog = true },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = PrimaryPink, modifier = Modifier.size(22.dp))
+                            Column {
+                                Text("Ecualizador", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("5 Bandas & 3D", color = TextMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+
+                    GlassCard(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(72.dp),
+                        backgroundColor = GlassFillLow,
+                        borderColor = GlassBorderLow,
+                        onClick = { showAudioRouteDialog = true },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(Icons.Default.Headphones, contentDescription = null, tint = TertiaryCyan, modifier = Modifier.size(22.dp))
+                            Column {
+                                Text("Salidas de Audio", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text("DAC USB & Enrutamiento", color = TextMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
                 Text(
                     text = "Modo de Normalización ReplayGain",
                     fontSize = 13.sp,
@@ -223,7 +246,7 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(10.dp))
 
-                // 2x2 Grid for ReplayGain Modes to prevent crowding
+                // ReplayGain 2x2 Mode Selection
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -237,14 +260,10 @@ fun SettingsScreen(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(40.dp)
+                                    .height(42.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) TertiaryCyan else GlassBorderLow,
-                                        RoundedCornerShape(10.dp),
-                                    )
+                                    .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
                                     .clickable {
                                         selectedMode = mode
                                         prefs.edit { putString(KEY_RG_MODE, mode.name) }
@@ -252,9 +271,13 @@ fun SettingsScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = mode.name,
+                                    text = when (mode) {
+                                        ReplayGainMode.OFF -> "Desactivado"
+                                        ReplayGainMode.TRACK -> "Pista"
+                                        else -> mode.name
+                                    },
                                     fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                     color = if (isSelected) TertiaryCyan else TextSecondary,
                                 )
                             }
@@ -270,14 +293,10 @@ fun SettingsScreen(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(40.dp)
+                                    .height(42.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) TertiaryCyan else GlassBorderLow,
-                                        RoundedCornerShape(10.dp),
-                                    )
+                                    .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
                                     .clickable {
                                         selectedMode = mode
                                         prefs.edit { putString(KEY_RG_MODE, mode.name) }
@@ -285,307 +304,135 @@ fun SettingsScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = mode.name,
+                                    text = when (mode) {
+                                        ReplayGainMode.ALBUM -> "Álbum"
+                                        ReplayGainMode.DYNAMIC -> "Dinámico"
+                                        else -> mode.name
+                                    },
                                     fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                     color = if (isSelected) TertiaryCyan else TextSecondary,
                                 )
                             }
                         }
                     }
                 }
-
-                Spacer(Modifier.height(18.dp))
-
-                // Pre-amp with tags
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Pre-Amplificación con tags",
-                        fontSize = 12.sp,
-                        color = TextSecondary,
-                    )
-                    Text(
-                        text = "${preAmpWith.floatValue.toInt()} dB",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = PrimaryPink,
-                    )
-                }
-
-                Slider(
-                    value = preAmpWith.floatValue,
-                    onValueChange = {
-                        preAmpWith.floatValue = it
-                        prefs.edit { putFloat(KEY_RG_PREAMP_WITH, it) }
-                    },
-                    valueRange = -15f..15f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = PrimaryPink,
-                        activeTrackColor = PrimaryPink,
-                        inactiveTrackColor = GlassBorderLow,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Spacer(Modifier.height(10.dp))
-
-                // Pre-amp without tags
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Pre-Amplificación sin tags",
-                        fontSize = 12.sp,
-                        color = TextSecondary,
-                    )
-                    Text(
-                        text = "${preAmpWithout.floatValue.toInt()} dB",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TertiaryCyan,
-                    )
-                }
-
-                Slider(
-                    value = preAmpWithout.floatValue,
-                    onValueChange = {
-                        preAmpWithout.floatValue = it
-                        prefs.edit { putFloat(KEY_RG_PREAMP_WITHOUT, it) }
-                    },
-                    valueRange = -15f..15f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = TertiaryCyan,
-                        activeTrackColor = TertiaryCyan,
-                        inactiveTrackColor = GlassBorderLow,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Spacer(Modifier.height(14.dp))
-
-                // Direct Audio Output / USB DAC Trigger Card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassFillHigh)
-                        .border(1.dp, TertiaryCyan.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = TertiaryCyan),
-                            onClick = { showAudioRouteDialog = true },
-                        )
-                        .padding(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Headphones,
-                                contentDescription = null,
-                                tint = TertiaryCyan,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Column {
-                                Text(
-                                    text = "Salidas de Audio & DAC USB",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PureWhite,
-                                )
-                                Text(
-                                    text = "Enrutar hacia DAC Hi-Res, Auriculares o Bluetooth",
-                                    fontSize = 10.sp,
-                                    color = TextSecondary,
-                                )
-                            }
-                        }
-
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                            contentDescription = null,
-                            tint = TertiaryCyan,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                // Equalizer Trigger Card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassFillHigh)
-                        .border(1.dp, PrimaryPink.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = PrimaryPink),
-                            onClick = { showEqualizerDialog = true },
-                        )
-                        .padding(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.GraphicEq,
-                                contentDescription = null,
-                                tint = PrimaryPink,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Column {
-                                Text(
-                                    text = "Ecualizador & DSP 3D",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = PureWhite,
-                                )
-                                Text(
-                                    text = "5 bandas, refuerzo de bajos y espacialización",
-                                    fontSize = 10.sp,
-                                    color = TextSecondary,
-                                )
-                            }
-                        }
-
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                            contentDescription = null,
-                            tint = PrimaryPink,
-                            modifier = Modifier.size(14.dp),
-                        )
-                    }
-                }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // 2. Visual & Glass Experience
+            // 2. Audio Avanzado (Preamp)
             SettingsSectionCard(
-                icon = Icons.Default.Palette,
-                title = "Experiencia Digital Ethereal",
-                subtitle = "Efectos visuales y texturas glassmórficas",
+                icon = Icons.Default.Tune,
+                title = "Pre-amplificación ReplayGain",
+                subtitle = "Ajuste de decibelios con y sin tags RG",
                 accent = PrimaryPink,
             ) {
-                SettingsSwitchRow(
-                    title = "Acentos Dinámicos de Color",
-                    subtitle = "Extraer tonalidades vibrantes de las carátulas",
-                    checked = dynamicAccents,
-                    onCheckedChange = {
-                        dynamicAccents = it
-                        prefs.edit { putBoolean(KEY_DYNAMIC_ACCENTS, it) }
-                    },
-                )
+                // Preamp with Tags
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Pre-amp con tags RG", fontSize = 13.sp, color = TextPrimary)
+                        Text(String.format("%.1f dB", preAmpWith.floatValue), fontSize = 13.sp, color = TertiaryCyan, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = preAmpWith.floatValue,
+                        onValueChange = {
+                            preAmpWith.floatValue = it
+                            prefs.edit { putFloat(KEY_RG_PREAMP_WITH, it) }
+                        },
+                        valueRange = -15f..15f,
+                        steps = 29,
+                        colors = SliderDefaults.colors(
+                            thumbColor = TertiaryCyan,
+                            activeTrackColor = TertiaryCyan,
+                            inactiveTrackColor = GlassFillHigh,
+                        ),
+                    )
+                }
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
 
-                SettingsSwitchRow(
-                    title = "Texturas Glassmorphic Avanzadas",
-                    subtitle = "Reflejos especulares y transparencias",
-                    checked = glassTextures,
-                    onCheckedChange = {
-                        glassTextures = it
-                        prefs.edit { putBoolean(KEY_GLASS_TEXTURES, it) }
-                    },
-                )
-
-                Spacer(Modifier.height(14.dp))
-
-                SettingsSwitchRow(
-                    title = "Modo Compacto en Now Playing",
-                    subtitle = "Minimizar espaciado para pantallas pequeñas",
-                    checked = compactNowPlaying,
-                    onCheckedChange = {
-                        compactNowPlaying = it
-                        prefs.edit { putBoolean(KEY_COMPACT_NOW_PLAYING, it) }
-                    },
-                )
+                // Preamp without Tags
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Pre-amp sin tags RG", fontSize = 13.sp, color = TextPrimary)
+                        Text(String.format("%.1f dB", preAmpWithout.floatValue), fontSize = 13.sp, color = PrimaryPink, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = preAmpWithout.floatValue,
+                        onValueChange = {
+                            preAmpWithout.floatValue = it
+                            prefs.edit { putFloat(KEY_RG_PREAMP_WITHOUT, it) }
+                        },
+                        valueRange = -15f..15f,
+                        steps = 29,
+                        colors = SliderDefaults.colors(
+                            thumbColor = PrimaryPink,
+                            activeTrackColor = PrimaryPink,
+                            inactiveTrackColor = GlassFillHigh,
+                        ),
+                    )
+                }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // 3. Sincronización & Red
+            // 3. Biblioteca & Almacenamiento
             SettingsSectionCard(
-                icon = Icons.Default.Sync,
-                title = "Michi Link & Sincronización",
-                subtitle = "Conexión local y descarga de colecciones",
-                accent = SecondaryPurple,
+                icon = Icons.Default.FolderSpecial,
+                title = "Biblioteca & Almacenamiento",
+                subtitle = "Escaneo y carátulas",
+                accent = TertiaryCyan,
             ) {
-                SettingsSwitchRow(
-                    title = "Sincronizar Solo por Wi-Fi",
-                    subtitle = "Proteger datos móviles durante descargas pesadas",
-                    checked = wifiOnlySync,
-                    onCheckedChange = {
-                        wifiOnlySync = it
-                        prefs.edit { putBoolean(KEY_WIFI_ONLY_SYNC, it) }
-                    },
-                )
-
-                Spacer(Modifier.height(14.dp))
-
-                SettingsSwitchRow(
-                    title = "Descargar Carátulas en Alta Resolución",
-                    subtitle = "Guardar arte de álbum localmente para modo offline",
-                    checked = downloadArtwork,
-                    onCheckedChange = {
-                        downloadArtwork = it
-                        prefs.edit { putBoolean(KEY_DOWNLOAD_ARTWORK, it) }
-                    },
-                )
-
-                Spacer(Modifier.height(14.dp))
-
-                SettingsSwitchRow(
-                    title = "Auto-Escaneo de Biblioteca Local",
-                    subtitle = "Detectar nuevos archivos de audio automáticamente",
+                SettingSwitchRow(
+                    title = "Escanear al iniciar",
+                    subtitle = "Detectar nueva música automáticamente al abrir la app",
                     checked = autoScanLibrary,
                     onCheckedChange = {
                         autoScanLibrary = it
                         prefs.edit { putBoolean(KEY_AUTO_SCAN_LIBRARY, it) }
                     },
                 )
+
+                Spacer(Modifier.height(12.dp))
+
+                SettingSwitchRow(
+                    title = "Descargar carátulas",
+                    subtitle = "Obtener portadas en alta resolución si faltan",
+                    checked = downloadArtwork,
+                    onCheckedChange = {
+                        downloadArtwork = it
+                        prefs.edit { putBoolean(KEY_DOWNLOAD_ARTWORK, it) }
+                    },
+                )
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // 4. Privacidad y Datos Locales
+            // 4. Privacidad
             SettingsSectionCard(
                 icon = Icons.Default.Security,
-                title = "Privacidad & Historial",
-                subtitle = "Gestión de datos Room 100% locales",
-                accent = TertiaryCyan,
+                title = "Privacidad",
+                subtitle = "Historial local y datos del dispositivo",
+                accent = PrimaryPink,
             ) {
-                SettingsSwitchRow(
-                    title = "Historial de Reproducción",
-                    subtitle = "Registrar canciones recientes para el inicio",
+                SettingSwitchRow(
+                    title = "Historial de reproducción",
+                    subtitle = "Registrar canciones reproducidas para listas automáticas",
                     checked = listeningHistory,
-                    onCheckedChange = { enabled ->
-                        listeningHistory = enabled
+                    onCheckedChange = { isChecked ->
+                        listeningHistory = isChecked
                         scope.launch {
                             appDao.setSetting(
-                                SettingsEntity(
+                                org.michimusic.data.cache.SettingsEntity(
                                     key = DB_LISTENING_HISTORY_ENABLED,
-                                    value = enabled.toString(),
+                                    value = if (isChecked) "true" else "false",
                                 ),
                             )
                         }
@@ -595,79 +442,50 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(16.dp))
 
-            // 5. Diagnostics Card Action
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(GlassFillHigh)
-                    .border(1.dp, GlassBorderHigh, RoundedCornerShape(16.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = ripple(color = TertiaryCyan),
-                        onClick = onNavigateToDiagnostics,
-                    )
-                    .padding(16.dp),
+            // 5. Diagnóstico & Sistema
+            SettingsSectionCard(
+                icon = Icons.Default.Info,
+                title = "Sistema & Diagnóstico",
+                subtitle = "Herramientas técnicas y estado del sistema",
+                accent = TertiaryCyan,
             ) {
-                Row(
+                GlassCard(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                    backgroundColor = GlassFillLow,
+                    borderColor = GlassBorderLow,
+                    onClick = onNavigateToDiagnostics,
                 ) {
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(TertiaryCyan.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Icon(
-                                Icons.Default.BugReport,
-                                contentDescription = null,
-                                tint = TertiaryCyan,
-                                modifier = Modifier.size(22.dp),
-                            )
+                            Icon(Icons.Default.BugReport, contentDescription = null, tint = TertiaryCyan, modifier = Modifier.size(24.dp))
+                            Column {
+                                Text("Diagnóstico del Sistema", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Verificar Media3, Koin, Room y Audio HAL", color = TextSecondary, fontSize = 11.sp)
+                            }
                         }
-
-                        Column {
-                            Text(
-                                text = "Panel de Diagnóstico",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = PureWhite,
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = "Inspeccionar sockets, tokens y telemetría",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                            )
-                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
                     }
-
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForwardIos,
-                        contentDescription = null,
-                        tint = TextMuted,
-                        modifier = Modifier.size(16.dp),
-                    )
                 }
             }
 
-            Spacer(Modifier.height(120.dp))
-        }
-
-        if (showAudioRouteDialog) {
-            org.michimusic.mobile.ui.components.AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
+            Spacer(Modifier.height(100.dp))
         }
 
         if (showEqualizerDialog) {
-            org.michimusic.mobile.ui.components.EqualizerDialog(onDismiss = { showEqualizerDialog = false })
+            EqualizerDialog(onDismiss = { showEqualizerDialog = false })
+        }
+
+        if (showAudioRouteDialog) {
+            AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
         }
     }
 }
@@ -680,20 +498,19 @@ private fun SettingsSectionCard(
     accent: Color,
     content: @Composable () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(GlassFillLow)
-            .border(1.dp, GlassBorderLow, RoundedCornerShape(16.dp))
-            .padding(16.dp),
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        backgroundColor = SurfaceObsidian.copy(alpha = 0.7f),
+        borderColor = GlassBorderLow,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Box(
                     modifier = Modifier
@@ -702,38 +519,23 @@ private fun SettingsSectionCard(
                         .background(accent.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 }
-
                 Column {
-                    Text(
-                        text = title,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = PureWhite,
-                    )
-                    Spacer(Modifier.height(1.dp))
-                    Text(
-                        text = subtitle,
-                        fontSize = 11.sp,
-                        color = TextMuted,
-                    )
+                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(subtitle, color = TextSecondary, fontSize = 11.sp)
                 }
             }
 
             Spacer(Modifier.height(16.dp))
+
             content()
         }
     }
 }
 
 @Composable
-private fun SettingsSwitchRow(
+private fun SettingSwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
@@ -744,34 +546,18 @@ private fun SettingsSwitchRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 12.dp),
-        ) {
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = PureWhite,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = TextSecondary,
-            )
+        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+            Text(title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = TextMuted, fontSize = 11.sp)
         }
-
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = PureWhite,
-                checkedTrackColor = PrimaryPinkContainer,
+                checkedTrackColor = TertiaryCyan,
                 uncheckedThumbColor = TextMuted,
                 uncheckedTrackColor = GlassFillHigh,
-                uncheckedBorderColor = GlassBorderLow,
             ),
         )
     }

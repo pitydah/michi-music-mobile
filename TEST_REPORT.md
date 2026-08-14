@@ -18,26 +18,26 @@
 ./gradlew lint
 ```
 * **Exit Code**: `0`
-* **Output**: `BUILD SUCCESSFUL in 31s (187 actionable tasks: 15 executed, 172 up-to-date)`
+* **Output**: `BUILD SUCCESSFUL` (0 errors across all modules).
 * **Reports**:
   * `:core:lintReportDebug` -> `core/build/reports/lint-results-debug.html`
   * `:data:lintReportDebug` -> `data/build/reports/lint-results-debug.html`
-  * `:player:lintReportDebug` -> `player/build/reports/lint-results-debug.html` (0 errors)
+  * `:player:lintReportDebug` -> `player/build/reports/lint-results-debug.html`
   * `:michi-link-client:lintReportDebug` -> `michi-link-client/build/reports/lint-results-debug.html`
   * `:app:lintReportFdroidDebug` -> `app/build/reports/lint-results-fdroidDebug.html`
 
 ---
 
-### 2. Full Unit Test Suite Across All Flavors
+### 2. Full Unit Test Suite Across All Modules
 ```bash
 ./gradlew test
 ```
 * **Exit Code**: `0`
-* **Output**: `BUILD SUCCESSFUL in 37s (279 actionable tasks: 17 executed, 262 up-to-date)`
+* **Output**: `BUILD SUCCESSFUL` (100% test execution pass).
 * **Tasks Executed & Verified**:
   * `:core:testDebugUnitTest` -> **PASS**
   * `:data:testDebugUnitTest` -> **PASS**
-  * `:player:testDebugUnitTest` -> **PASS**
+  * `:player:testDebugUnitTest` -> **PASS** (includes `MichiAudioEffectsTest`, `UsbDacManagerTest`, `ReplayGainAudioProcessorTest`)
   * `:michi-link-client:testDebugUnitTest` -> **PASS**
   * `:app:testNormalDebugUnitTest` -> **PASS**
   * `:app:testNormalReleaseUnitTest` -> **PASS**
@@ -53,12 +53,12 @@
 ./gradlew assembleNormalDebug assembleFdroidDebug assembleNormalRelease assembleFdroidRelease
 ```
 * **Exit Code**: `0`
-* **Output**: `BUILD SUCCESSFUL in 24s (376 actionable tasks: 17 executed, 359 up-to-date)`
+* **Output**: `BUILD SUCCESSFUL` (31 executed, 536 up-to-date).
 * **Generated Artifacts**:
   * `app/build/outputs/apk/normal/debug/app-normal-debug.apk`
   * `app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk`
-  * `app/build/outputs/apk/normal/release/app-normal-release.apk` (Optimized & shrunk with R8)
-  * `app/build/outputs/apk/fdroid/release/app-fdroid-release.apk` (Optimized & shrunk with R8)
+  * `app/build/outputs/apk/normal/release/app-normal-release.apk`
+  * `app/build/outputs/apk/fdroid/release/app-fdroid-release.apk`
 
 ---
 

@@ -8,4 +8,8 @@ object PlayerDependencies {
     var replayGainDao: ReplayGainDao? = null
     @JvmStatic
     var appDao: AppDao? = null
+    @JvmStatic
+    var audioEffects: MichiAudioEffects? = null
+    @JvmStatic
+    var usbDacManager: UsbDacManager? = null
 }

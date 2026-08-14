@@ -19,8 +19,9 @@ class SyncedTracksViewModel(
     private val repository: SyncedTrackRepository,
 ) : ViewModel() {
 
-    val pagedTracks: Flow<PagingData<CachedTrack>> = repository.getPagedTracks()
-        .cachedIn(viewModelScope)
+    val pagedTracks: Flow<PagingData<CachedTrack>> by lazy {
+        repository.getPagedTracks().cachedIn(viewModelScope)
+    }
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()

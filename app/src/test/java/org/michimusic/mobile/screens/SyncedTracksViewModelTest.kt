@@ -1,27 +1,17 @@
 package org.michimusic.mobile.screens
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.TestDispatcher
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
-import org.michimusic.core.models.TrackDto
 import org.michimusic.core.models.ManifestPlaylist
+import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.SyncedTrackRepository
-
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-
-import org.junit.Rule
 import org.michimusic.mobile.rules.MainDispatcherRule
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -30,16 +20,19 @@ class SyncedTracksViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
 
+    private val testDispatcher get() = mainDispatcherRule.testDispatcher
+
     private lateinit var repository: SyncedTrackRepository
+    private lateinit var viewModel: SyncedTracksViewModel
 
     @Before
     fun setup() {
         repository = FakeSyncedRepo()
+        viewModel = SyncedTracksViewModel(repository)
     }
 
     @Test
-    fun toTrack_mapsAllFields() = runTest {
-        val viewModel = SyncedTracksViewModel(repository)
+    fun toTrack_mapsAllFields() = runTest(testDispatcher) {
         val cached = CachedTrack(
             id = "s1", title = "Song", artist = "A", album = "X",
             duration = 200_000L, filepath = "/music/s1.mp3", format = "flac",
@@ -52,15 +45,13 @@ class SyncedTracksViewModelTest {
     }
 
     @Test
-    fun getPlayableTracks_filtersEmptyFilepath() = runTest {
-        val viewModel = SyncedTracksViewModel(repository)
+    fun getPlayableTracks_filtersEmptyFilepath() = runTest(testDispatcher) {
         val tracks = viewModel.getPlayableTracks()
         assertTrue(tracks.all { it.filepath.isNotEmpty() })
     }
 
     @Test
-    fun getPlayableTracks_returnsAllValidTracks() = runTest {
-        val viewModel = SyncedTracksViewModel(repository)
+    fun getPlayableTracks_returnsAllValidTracks() = runTest(testDispatcher) {
         val tracks = viewModel.getPlayableTracks()
         assertEquals(3, tracks.size)
     }

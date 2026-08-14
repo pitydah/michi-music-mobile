@@ -171,7 +171,7 @@ fun QueueDialog(
                                 ) {
                                     AlbumArtView(
                                         coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                                        imageModel = track.filepath.ifEmpty { track.coverId },
+                                        imageModel = track.coverId,
                                         modifier = Modifier.size(40.dp),
                                         cornerRadius = 8.dp,
                                     )
@@ -271,7 +271,7 @@ fun EqualizerDialog(
                             )
                             if (dacInfo.isConnected) {
                                 Text(
-                                    text = "USB DAC DIRECT (${dacInfo.deviceName.take(16)})",
+                                    text = "DAC USB: ${dacInfo.deviceName.take(16)}",
                                     color = TertiaryCyan,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -874,21 +874,21 @@ fun AudioRouteDialog(
                             )
                             Column {
                                 Text(
-                                    text = "DAC USB DIRECT CONECTADO",
+                                    text = "DISPOSITIVO USB DETECTADO",
                                     color = TertiaryCyan,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp,
                                 )
                                 Text(
-                                    text = "${dacInfo.deviceName} • PCM Direct Hi-Res",
+                                    text = dacInfo.deviceName,
                                     color = PureWhite,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 if (dacInfo.sampleRates.isNotEmpty()) {
                                     Text(
-                                        text = "Frecuencias: ${dacInfo.sampleRates.map { "${it / 1000}kHz" }.joinToString(", ")}",
+                                        text = "Frecuencias reportadas: ${dacInfo.sampleRates.map { "${it / 1000}kHz" }.joinToString(", ")}",
                                         color = TextMuted,
                                         fontSize = 10.sp,
                                     )
@@ -969,7 +969,7 @@ fun AudioRouteDialog(
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                         Text(
-                                            text = if (device.isUsbDac) "Audio Direct USB / Bit-Perfect" else if (device.isBluetooth) "Inalámbrico A2DP" else if (device.isWired) "Jack Analógico 3.5mm" else "Altavoz Interno AOSP",
+                                            text = if (device.isUsbDac) "Audio Digital USB" else if (device.isBluetooth) "Inalámbrico Bluetooth" else if (device.isWired) "Auriculares Cableados" else "Altavoz del Dispositivo",
                                             color = TextMuted,
                                             fontSize = 10.sp,
                                         )

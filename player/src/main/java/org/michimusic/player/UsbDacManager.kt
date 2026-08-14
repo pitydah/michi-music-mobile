@@ -4,7 +4,6 @@ import android.content.Context
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -32,7 +31,6 @@ data class UsbDacInfo(
     val sampleRates: List<Int> = emptyList(),
     val channelCounts: List<Int> = emptyList(),
     val encodings: List<Int> = emptyList(),
-    val isBitPerfectSupported: Boolean = false,
     val deviceId: Int = 0,
 )
 
@@ -49,6 +47,9 @@ class UsbDacManager(
 
     private val _selectedDeviceId = MutableStateFlow<Int?>(null)
     val selectedDeviceId: StateFlow<Int?> = _selectedDeviceId.asStateFlow()
+
+    private val _preferredDeviceFlow = MutableStateFlow<AudioDeviceInfo?>(null)
+    val preferredDeviceFlow: StateFlow<AudioDeviceInfo?> = _preferredDeviceFlow.asStateFlow()
 
     private var preferredUsbDevice: AudioDeviceInfo? = null
 
@@ -72,24 +73,34 @@ class UsbDacManager(
     }
 
     fun scanDevices() {
-        val am = audioManager ?: return
+        val am = audioManager
+        if (am == null) {
+            _outputDevices.value = listOf(
+                AudioOutputDevice(
+                    id = 1,
+                    name = "Altavoz del Dispositivo",
+                    type = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                    isSelected = true,
+                    isSpeaker = true,
+                ),
+            )
+            return
+        }
         val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
         val usbDevice = devices.firstOrNull { isUsbAudioDevice(it) }
 
         if (usbDevice != null) {
             preferredUsbDevice = usbDevice
-            val sampleRates = usbDevice.sampleRates.toList().ifEmpty { listOf(44100, 48000, 96000, 192000) }
-            val channels = usbDevice.channelCounts.toList().ifEmpty { listOf(2) }
+            val reportedSampleRates = usbDevice.sampleRates.toList()
+            val channels = usbDevice.channelCounts.toList()
             val encodings = usbDevice.encodings.toList()
-            val isBitPerfect = sampleRates.any { it >= 96000 } || encodings.any { it == 3 || it == 4 }
 
             _dacState.value = UsbDacInfo(
                 isConnected = true,
                 deviceName = usbDevice.productName?.toString().takeIf { !it.isNullOrBlank() } ?: "DAC USB Externo",
-                sampleRates = sampleRates,
+                sampleRates = reportedSampleRates,
                 channelCounts = channels,
                 encodings = encodings,
-                isBitPerfectSupported = isBitPerfect,
                 deviceId = usbDevice.id,
             )
         } else {
@@ -97,11 +108,23 @@ class UsbDacManager(
             _dacState.value = UsbDacInfo(isConnected = false)
         }
 
+        val currentSelectedId = _selectedDeviceId.value
+        val targetPreferredDevice = if (currentSelectedId != null) {
+            devices.firstOrNull { it.id == currentSelectedId }
+        } else {
+            usbDevice
+        }
+        _preferredDeviceFlow.value = targetPreferredDevice
+
         val deviceList = devices.map { dev ->
             val isUsb = isUsbAudioDevice(dev)
-            val isBt = dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || dev.type == AudioDeviceInfo.TYPE_HEARING_AID
-            val isWired = dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || dev.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-            val isSpk = dev.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER || dev.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            val isBt = dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                dev.type == AudioDeviceInfo.TYPE_HEARING_AID
+            val isWired = dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                dev.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            val isSpk = dev.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+                dev.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
 
             val name = when {
                 !dev.productName.isNullOrBlank() -> dev.productName.toString()
@@ -112,16 +135,22 @@ class UsbDacManager(
                 else -> "Salida de Audio"
             }
 
+            val isSelected = when {
+                currentSelectedId != null -> dev.id == currentSelectedId
+                usbDevice != null -> dev.id == usbDevice.id
+                else -> isSpk || isWired || isBt
+            }
+
             AudioOutputDevice(
                 id = dev.id,
                 name = name,
                 type = dev.type,
-                isSelected = (_selectedDeviceId.value == dev.id) || (_selectedDeviceId.value == null && (isUsb || isWired || isBt || isSpk)),
+                isSelected = isSelected,
                 isUsbDac = isUsb,
                 isBluetooth = isBt,
                 isWired = isWired,
                 isSpeaker = isSpk,
-                sampleRates = dev.sampleRates.toList().ifEmpty { listOf(44100, 48000) },
+                sampleRates = dev.sampleRates.toList(),
             )
         }
 
@@ -133,7 +162,7 @@ class UsbDacManager(
                     type = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
                     isSelected = true,
                     isSpeaker = true,
-                )
+                ),
             )
         } else {
             deviceList
@@ -145,9 +174,14 @@ class UsbDacManager(
         scanDevices()
     }
 
+    fun clearDeviceSelection() {
+        _selectedDeviceId.value = null
+        scanDevices()
+    }
+
     fun getPreferredUsbDevice(): AudioDeviceInfo? = preferredUsbDevice
 
-    private fun isUsbAudioDevice(device: AudioDeviceInfo): Boolean {
+    fun isUsbAudioDevice(device: AudioDeviceInfo): Boolean {
         return device.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
             device.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
             device.type == AudioDeviceInfo.TYPE_USB_ACCESSORY

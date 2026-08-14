@@ -41,7 +41,15 @@ class MichiPlaybackService : MediaLibraryService() {
             replayGainProcessor.configure(mode, preAmp)
 
             val replayGainDao = PlayerDependencies.replayGainDao
-            val controller = PlayerController(this, listOf(replayGainProcessor), replayGainDao)
+            val audioEffects = PlayerDependencies.audioEffects
+            val usbDacManager = PlayerDependencies.usbDacManager
+            val controller = PlayerController(
+                this,
+                listOf(replayGainProcessor),
+                replayGainDao,
+                audioEffects,
+                usbDacManager,
+            )
             val exoPlayer = controller.getExoPlayer()
             playerController = controller
             player = exoPlayer

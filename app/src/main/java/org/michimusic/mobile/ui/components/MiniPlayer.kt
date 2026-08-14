@@ -129,7 +129,7 @@ fun MiniPlayer(
                         // Album artwork thumbnail
                         AlbumArtView(
                             coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
-                            imageModel = currentTrack.filepath.ifEmpty { currentTrack.coverId },
+                            imageModel = currentTrack.coverId,
                             modifier = Modifier.size(44.dp),
                             cornerRadius = 10.dp,
                         )
@@ -166,7 +166,7 @@ fun MiniPlayer(
                             color = TertiaryCyan,
                         )
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
 
                         // Play / Pause Button
                         IconButton(
@@ -174,16 +174,16 @@ fun MiniPlayer(
                                 if (isPlaying) audioController.pause() else audioController.play()
                             },
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .background(Color(0x1FFFFFFF))
                                 .testTag("mini_player_play_pause"),
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                                 tint = PureWhite,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(22.dp),
                             )
                         }
 
@@ -191,14 +191,14 @@ fun MiniPlayer(
                         IconButton(
                             onClick = { audioController.skipNext() },
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(48.dp)
                                 .testTag("mini_player_next"),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SkipNext,
-                                contentDescription = "Next Track",
+                                contentDescription = "Siguiente Canción",
                                 tint = OnSurfaceVariant,
-                                modifier = Modifier.size(22.dp),
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                     }

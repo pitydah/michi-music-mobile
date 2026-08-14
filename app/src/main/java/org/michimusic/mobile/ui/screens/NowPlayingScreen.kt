@@ -105,9 +105,8 @@ fun NowPlayingScreen(
     val positionSeconds = (playerState.position / 1000f).coerceAtLeast(0f)
     val durationSeconds = (playerState.duration / 1000f).coerceAtLeast(1f)
 
-    var isFavorite by remember { mutableStateOf(false) }
-    var isShuffle by remember { mutableStateOf(false) }
-    var repeatMode by remember { mutableStateOf(0) } // 0: off, 1: all, 2: one
+    val isShuffle = playerState.shuffleMode
+    val repeatMode = playerState.repeatMode
     var showQueueDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }
 
@@ -193,19 +192,48 @@ fun NowPlayingScreen(
                     )
                 }
 
-                IconButton(
-                    onClick = { showQueueDialog = true },
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(GlassFillLow),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.MoreVert,
-                        contentDescription = "Opciones",
-                        tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
-                    )
+                    val sleepTimerRemaining = playerState.sleepTimerRemainingMs
+                    val sleepActive = sleepTimerRemaining > 0L
+
+                    IconButton(
+                        onClick = {
+                            val next = cycleSleepTimer(sleepTimerRemaining)
+                            if (next <= 0L) audioController.cancelSleepTimer() else audioController.setSleepTimer(next)
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(if (sleepActive) TertiaryCyan.copy(alpha = 0.2f) else GlassFillLow)
+                            .border(1.dp, if (sleepActive) TertiaryCyan else GlassBorderLow, CircleShape)
+                            .testTag("sleep_timer_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Timer,
+                            contentDescription = "Temporizador de Apagado",
+                            tint = if (sleepActive) TertiaryCyan else PureWhite,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showQueueDialog = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(GlassFillLow)
+                            .testTag("now_playing_queue_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                            contentDescription = "Cola de Reproducción",
+                            tint = PureWhite,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
             }
 
@@ -271,20 +299,6 @@ fun NowPlayingScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-
-                    IconButton(
-                        onClick = { isFavorite = !isFavorite },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("now_playing_favorite_button"),
-                    ) {
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = "Favorito",
-                            tint = if (isFavorite) PrimaryPinkContainer else OnSurfaceVariant,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
                 }
 
                 // Progress Bar
@@ -329,8 +343,10 @@ fun NowPlayingScreen(
                 ) {
                     // Shuffle
                     IconButton(
-                        onClick = { isShuffle = !isShuffle },
-                        modifier = Modifier.size(40.dp),
+                        onClick = { audioController.toggleShuffle() },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("now_playing_shuffle"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Shuffle,
@@ -410,11 +426,13 @@ fun NowPlayingScreen(
 
                     // Repeat
                     IconButton(
-                        onClick = { repeatMode = (repeatMode + 1) % 3 },
-                        modifier = Modifier.size(40.dp),
+                        onClick = { audioController.cycleRepeatMode() },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("now_playing_repeat"),
                     ) {
                         Icon(
-                            imageVector = if (repeatMode == 2) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                            imageVector = if (repeatMode == 1) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
                             contentDescription = "Repetir",
                             tint = if (repeatMode != 0) TertiaryCyan else OnSurfaceVariant,
                             modifier = Modifier.size(24.dp),
@@ -436,7 +454,7 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { showAudioRouteDialog = true },
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .border(1.dp, GlassBorderLow, CircleShape)
@@ -446,13 +464,21 @@ fun NowPlayingScreen(
                             imageVector = Icons.Filled.Headphones,
                             contentDescription = "Salidas de Audio",
                             tint = TertiaryCyan,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
 
                     // Up Next Capsule Pill
                     val queue = playerState.queue
-                    val nextTrackTitle = if (queue.isNotEmpty()) queue.first().title else "Michi Music"
+                    val currentIndex = currentTrack?.let { cur -> queue.indexOfFirst { it.id == cur.id } } ?: -1
+                    val nextTrack = if (currentIndex in queue.indices && currentIndex + 1 < queue.size) {
+                        queue[currentIndex + 1]
+                    } else if (playerState.repeatMode == 2 && queue.isNotEmpty()) {
+                        queue.first()
+                    } else {
+                        null
+                    }
+                    val nextTrackTitle = nextTrack?.title ?: if (queue.isNotEmpty()) "Fin de la cola" else "Michi Music"
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
@@ -487,7 +513,7 @@ fun NowPlayingScreen(
                     IconButton(
                         onClick = { showEqualizerDialog = true },
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .border(1.dp, GlassBorderLow, CircleShape)

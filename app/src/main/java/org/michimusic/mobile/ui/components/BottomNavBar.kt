@@ -1,6 +1,5 @@
 package org.michimusic.mobile.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -28,7 +26,6 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.PlayCircle
@@ -39,7 +36,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -54,21 +50,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
-import org.michimusic.mobile.ui.theme.GlassBorderLow
-import org.michimusic.mobile.ui.theme.GlassFillHigh
-import org.michimusic.mobile.ui.theme.GlassFillMid
-import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.player.UsbDacManager
 
 data class NavTabItem(
     val route: String,
@@ -93,62 +80,21 @@ fun BottomNavBar(
     modifier: Modifier = Modifier,
     tabs: List<NavTabItem> = defaultNavTabs,
 ) {
-    val usbDacManager: UsbDacManager? = runCatching { koinInject<UsbDacManager>() }.getOrNull()
-    val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { androidx.compose.runtime.mutableStateOf(org.michimusic.player.UsbDacInfo()) })
-
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 14.dp, vertical = 6.dp)
             .testTag("bottom_nav_bar"),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        contentAlignment = Alignment.Center,
     ) {
-        // USB DAC Floating Status Pill if connected
-        if (dacInfo.isConnected) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(SurfaceObsidian.copy(alpha = 0.92f))
-                    .border(1.dp, TertiaryCyan.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 3.dp)
-                    .drawBehind {
-                        drawCircle(
-                            color = TertiaryCyan.copy(alpha = 0.15f),
-                            radius = size.width * 0.5f,
-                            center = center,
-                        )
-                    },
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Usb,
-                        contentDescription = "USB DAC",
-                        tint = TertiaryCyan,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    Text(
-                        text = "DAC DIRECT: ${dacInfo.deviceName.take(20)}",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TertiaryCyan,
-                        letterSpacing = 0.5.sp,
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-        }
-
-        // Floating Cyber-Dock
+        // Floating Dock
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(64.dp)
                 .clip(RoundedCornerShape(26.dp))
-                .background(SurfaceObsidian.copy(alpha = 0.88f))
+                .background(SurfaceObsidian.copy(alpha = 0.92f))
                 .border(
                     width = 1.2.dp,
                     brush = Brush.horizontalGradient(
@@ -173,7 +119,7 @@ fun BottomNavBar(
                     val isSelected = currentRoute == tab.route
 
                     val scale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.08f else 1.0f,
+                        targetValue = if (isSelected) 1.05f else 1.0f,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioMediumBouncy,
                             stiffness = Spring.StiffnessMedium,
@@ -222,11 +168,11 @@ fun BottomNavBar(
                                 if (isSelected) {
                                     Box(
                                         modifier = Modifier
-                                            .size(32.dp)
+                                            .size(28.dp)
                                             .drawBehind {
                                                 drawCircle(
-                                                    color = TertiaryCyan.copy(alpha = 0.25f),
-                                                    radius = 16.dp.toPx(),
+                                                    color = TertiaryCyan.copy(alpha = 0.22f),
+                                                    radius = 14.dp.toPx(),
                                                 )
                                             },
                                     )

@@ -166,6 +166,16 @@ class AudioController(
         mediaController?.repeatMode = mode
     }
 
+    fun cycleRepeatMode() {
+        val current = _state.value.repeatMode
+        val next = when (current) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        setRepeatMode(next)
+    }
+
     fun toggleShuffle() {
         ensureConnected()
         mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }

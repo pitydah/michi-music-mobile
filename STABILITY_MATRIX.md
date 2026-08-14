@@ -7,8 +7,8 @@
 | **Lint Global** | `./gradlew lint` | **PASS** | `app/build/reports/lint-results-fdroidDebug.html` |
 | **Normal Debug** | `./gradlew assembleNormalDebug` | **PASS** | `app/build/outputs/apk/normal/debug/app-normal-debug.apk` |
 | **F-Droid Debug** | `./gradlew assembleFdroidDebug` | **PASS** | `app/build/outputs/apk/fdroid/debug/app-fdroid-debug.apk` |
-| **Normal Release** | `./gradlew assembleNormalRelease` | **PASS** (R8 + ProGuard) | `app/build/outputs/apk/normal/release/app-normal-release-unsigned.apk` |
-| **F-Droid Release** | `./gradlew assembleFdroidRelease` | **PASS** (R8 + ProGuard) | `app/build/outputs/apk/fdroid/release/app-fdroid-release-unsigned.apk` |
+| **Normal Release** | `./gradlew assembleNormalRelease` | **PASS** (R8 + ProGuard) | `app/build/outputs/apk/normal/release/app-normal-release.apk` |
+| **F-Droid Release** | `./gradlew assembleFdroidRelease` | **PASS** (R8 + ProGuard) | `app/build/outputs/apk/fdroid/release/app-fdroid-release.apk` |
 
 ---
 
@@ -18,7 +18,7 @@
 | :--- | :--- | :--- | :--- |
 | `:core` | `testDebugUnitTest` | **PASS** | All core models & serialization |
 | `:data` | `testDebugUnitTest` | **PASS** | Room DAOs, Repositories, Caches |
-| `:player` | `testDebugUnitTest` | **PASS** | PlayerController, ReplayGain, LibraryProvider |
+| `:player` | `testDebugUnitTest` | **PASS** | PlayerController, ReplayGain, MichiAudioEffects, UsbDacManager, LibraryProvider |
 | `:michi-link-client` | `testDebugUnitTest` | **PASS** | Discovery, Auth, WebSocket, Streaming |
 | `:app` (Normal) | `testNormalDebugUnitTest` | **PASS** | ViewModels, Navigation, Formatters |
 | `:app` (F-Droid) | `testFdroidDebugUnitTest` | **PASS** | ViewModels, Offline-first, Storage |
@@ -32,6 +32,8 @@
 | **Startup** | Cold start & DI initialization (Koin) | Process startup trace & memory cache | **PASS** |
 | **Navigation** | All 6 tabs (`Home`, `Library`, `NowPlaying`, `Remote`, `Sync`, `Settings`) | `SmokeNavigationTest` Compose suite | **PASS** |
 | **Media Playback** | ExoPlayer pipeline & AudioAttributes | `PlayerController` unit & lint checks | **PASS** |
+| **Audio Routing** | Direct routing to USB DAC, Bluetooth, Wired & Speakers | `UsbDacManager` + ExoPlayer `setPreferredAudioDevice` | **PASS** |
+| **DSP & Equalizer** | 5-band hardware Equalizer, BassBoost & Virtualizer | `MichiAudioEffects` bounded tests & Session bindings | **PASS** |
 | **Audio Lifecycle** | Becoming Noisy (Headphone unplug / BT disconnect) | `setHandleAudioBecomingNoisy(true)` | **PASS** |
 | **Audio Focus** | Auto-ducking & transient pause | `AudioAttributes.setUsage(C.USAGE_MEDIA)` | **PASS** |
 | **ReplayGain** | Track, Album, Dynamic mode + NaN/Infinity protection | `ReplayGainAudioProcessor` unit tests | **PASS** |

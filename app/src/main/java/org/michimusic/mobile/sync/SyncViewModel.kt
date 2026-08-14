@@ -81,7 +81,7 @@ class SyncViewModel(
         combine(_error, _syncProgress) { err, progress -> err to progress }
     ) { state, (err, progress) ->
         state.copy(error = err, syncProgress = progress)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, SyncUiState(state = linkSession.connectionState.value))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = linkSession.connectionState.value))
 
     private var clientId: String = ""
     private var pendingPairingId: String = ""

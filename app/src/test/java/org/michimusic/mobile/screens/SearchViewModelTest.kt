@@ -1,20 +1,14 @@
 package org.michimusic.mobile.screens
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.michimusic.core.models.Album
 import org.michimusic.core.models.Artist
@@ -25,8 +19,6 @@ import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
-
-import org.junit.Rule
 import org.michimusic.mobile.rules.MainDispatcherRule
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -36,6 +28,7 @@ class SearchViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     private val testDispatcher get() = mainDispatcherRule.testDispatcher
+
     private lateinit var localRepo: LocalMediaRepository
     private lateinit var syncedRepo: SyncedTrackRepository
     private lateinit var viewModel: SearchViewModel
@@ -53,20 +46,20 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_shortQuery_returnsEmpty() = runTest {
+    fun setQuery_shortQuery_returnsEmpty() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("a")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         assertTrue(viewModel.results.value.isEmpty())
     }
 
     @Test
-    fun setQuery_matchesLocalTrackTitle() = runTest {
+    fun setQuery_matchesLocalTrackTitle() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("Song 1")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         val results = viewModel.results.value
         assertTrue(results.isNotEmpty())
         assertEquals("Song 1", results.first().track.title)
@@ -74,57 +67,83 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun setQuery_matchesSyncedTrackArtist() = runTest {
+    fun setQuery_matchesSyncedTrackArtist() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("Synced Artist")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         val results = viewModel.results.value
         assertTrue(results.isNotEmpty())
         assertTrue(results.any { it.source == "Sincronizada" })
     }
 
     @Test
-    fun setQuery_matchesLocalTrackAlbum() = runTest {
+    fun setQuery_matchesLocalTrackAlbum() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("Test Album")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         val results = viewModel.results.value
         assertTrue(results.isNotEmpty())
         assertEquals("Test Album", results.first().track.album)
     }
 
     @Test
-    fun setQuery_noMatch_returnsEmpty() = runTest {
+    fun setQuery_noMatch_returnsEmpty() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("ZZZZnotfound")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         assertTrue(viewModel.results.value.isEmpty())
     }
 
     @Test
-    fun clearSearch_resetsQueryAndResults() = runTest {
+    fun clearSearch_resetsQueryAndResults() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("Song")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         assertTrue(viewModel.results.value.isNotEmpty())
         viewModel.clearSearch()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         assertEquals("", viewModel.query.value)
         assertTrue(viewModel.results.value.isEmpty())
     }
 
     @Test
-    fun resultsCappedAt50() = runTest {
+    fun resultsCappedAt50() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         viewModel.setQuery("Track")
-        advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
         val count = viewModel.results.value.size
         assertTrue("Expected at most 50 results, got $count", count <= 50)
+    }
+
+    @Test
+    fun setFilter_filtersArtistsCorrectly() = runTest(testDispatcher) {
+        viewModel.loadLocalTracks()
+        testScheduler.advanceUntilIdle()
+        viewModel.setQuery("Artist")
+        testScheduler.advanceUntilIdle()
+        viewModel.setFilter(SearchFilter.ARTISTS)
+        testScheduler.advanceUntilIdle()
+        val results = viewModel.results.value
+        assertTrue(results.isNotEmpty())
+        assertTrue(results.all { it.track.artist.contains("Artist", ignoreCase = true) })
+    }
+
+    @Test
+    fun setFilter_filtersDownloadedCorrectly() = runTest(testDispatcher) {
+        viewModel.loadLocalTracks()
+        testScheduler.advanceUntilIdle()
+        viewModel.setQuery("Synced")
+        testScheduler.advanceUntilIdle()
+        viewModel.setFilter(SearchFilter.DOWNLOADED)
+        testScheduler.advanceUntilIdle()
+        val results = viewModel.results.value
+        assertTrue(results.isNotEmpty())
+        assertTrue(results.all { it.track.filepath.isNotEmpty() })
     }
 }
 
