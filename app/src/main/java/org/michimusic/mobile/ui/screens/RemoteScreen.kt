@@ -396,10 +396,8 @@ fun RemoteScreen(
                         Spacer(Modifier.height(8.dp))
                         Button(
                             onClick = {
-                                audioController?.let { ctrl ->
-                                    viewModel.handoffToLocal(ctrl) { _, msg ->
-                                        handoffMessage = msg
-                                    }
+                                viewModel.handoffToLocal { _, msg ->
+                                    handoffMessage = msg
                                 }
                             },
                             modifier = Modifier

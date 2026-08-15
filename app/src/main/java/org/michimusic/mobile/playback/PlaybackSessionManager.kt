@@ -131,8 +131,14 @@ class PlaybackSessionManager(
             while (isActive && connectionManager.connectionStates.value[deviceId] == SyncConnectionState.CONNECTED) {
                 client.getPlaybackState().onSuccess { stateDto ->
                     if (isRemoteSelected || stateDto.playing) {
-                        withContext(Dispatchers.Main) {
-                            applyRemoteState(peer, stateDto, deviceId)
+                        client.getQueue().onSuccess { queueDto ->
+                            withContext(Dispatchers.Main) {
+                                applyRemoteState(peer, stateDto, queueDto, deviceId)
+                            }
+                        }.onFailure {
+                            withContext(Dispatchers.Main) {
+                                applyRemoteState(peer, stateDto, null, deviceId)
+                            }
                         }
                     }
                 }
@@ -146,7 +152,7 @@ class PlaybackSessionManager(
         remotePollingJob = null
     }
 
-    private fun applyRemoteState(peer: DiscoveredPeer, dto: PlaybackStateDto, deviceId: String) {
+    private fun applyRemoteState(peer: DiscoveredPeer, dto: PlaybackStateDto, queueDto: org.michimusic.link.dto.QueueDto?, deviceId: String) {
         val endpoint = mapPeerToEndpoint(peer, isConnected = true).copy(id = deviceId)
         val remoteTrack = if (dto.effectiveTitle.isNotEmpty()) {
             Track(
@@ -160,6 +166,19 @@ class PlaybackSessionManager(
             )
         } else null
 
+        val baseUrl = connectionManager.getClient(deviceId)?.baseUrl ?: ""
+        val qTracks = queueDto?.tracks?.map { qt ->
+            Track(
+                id = qt.trackId,
+                title = qt.title,
+                artist = qt.artist,
+                album = qt.album,
+                duration = qt.duration,
+                filepath = if (baseUrl.isNotEmpty()) "$baseUrl/api/v1/stream/${qt.trackId}" else "",
+                source = TrackSource.STREAMING,
+            )
+        } ?: _sessionState.value.queue
+
         if (isRemoteSelected || dto.playing) {
             _sessionState.value = _sessionState.value.copy(
                 activeEndpoint = endpoint,
@@ -168,6 +187,8 @@ class PlaybackSessionManager(
                 position = dto.effectivePosition,
                 duration = dto.effectiveDuration,
                 remoteVolume = dto.effectiveVolume,
+                queue = qTracks,
+                queueIndex = queueDto?.currentIndex ?: _sessionState.value.queueIndex,
                 isRemoteActive = true,
             )
         }
@@ -212,25 +233,28 @@ class PlaybackSessionManager(
     fun handoffTo(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
         if (target.isLocal) {
             // Handoff Remote -> Local
-            val currentRemote = _sessionState.value.currentTrack
-            val currentPos = _sessionState.value.position
             val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
 
             scope.launch {
+                val q = _sessionState.value.queue
+                val idx = _sessionState.value.queueIndex
+                val pos = _sessionState.value.position
+                
                 if (client != null && _sessionState.value.isRemoteActive) {
                     client.sendPlaybackCommand("pause")
                 }
                 isRemoteSelected = false
-                if (currentRemote != null) {
-                    audioController?.playQueue(listOf(currentRemote), 0)
-                    if (currentPos > 0) audioController?.seekTo(currentPos)
+                
+                if (q.isNotEmpty()) {
+                    audioController?.playQueue(q, idx.coerceAtLeast(0))
+                    if (pos > 0) audioController?.seekTo(pos)
                 }
+                
                 selectLocalEndpoint()
                 onResult(true, "Reproduciendo en este teléfono")
             }
         } else {
             // Handoff Local -> Remote
-            val local = audioController?.state?.value
             val client = connectionManager.getClient(target.id)
 
             if (client == null) {
@@ -239,24 +263,41 @@ class PlaybackSessionManager(
             }
 
             scope.launch {
-                audioController?.pause()
-                isRemoteSelected = true
-                _sessionState.value = _sessionState.value.copy(
-                    activeEndpoint = target,
-                    isRemoteActive = true,
-                )
-                // Basic handoff: just play the current track on remote
-                val currentTrackId = local?.currentTrack?.id
-                if (currentTrackId != null) {
-                     client.sendPlaybackCommand("play", currentTrackId)
-                     if (local.position > 0) {
-                         delay(500) // Give it a moment to load
-                         client.sendPlaybackCommand("seek", local.position.toString())
-                     }
+                val q = _sessionState.value.queue
+                val idx = _sessionState.value.queueIndex
+                val pos = _sessionState.value.position
+                
+                if (q.isNotEmpty()) {
+                    val req = org.michimusic.link.dto.QueueTransferRequest(
+                        trackIds = q.map { it.id },
+                        currentIndex = idx.coerceAtLeast(0),
+                        positionMs = pos,
+                        source = "local"
+                    )
+                    client.transferQueue(req).onSuccess {
+                        audioController?.pause()
+                        isRemoteSelected = true
+                        _sessionState.value = _sessionState.value.copy(
+                            activeEndpoint = target,
+                            isRemoteActive = true,
+                        )
+                        onResult(true, "Reproduciendo en ${target.name}")
+                    }.onFailure {
+                        onResult(false, "Error al transferir cola a ${target.name}")
+                    }
                 } else {
-                    client.sendPlaybackCommand("play")
+                    client.sendPlaybackCommand("play").onSuccess {
+                        audioController?.pause()
+                        isRemoteSelected = true
+                        _sessionState.value = _sessionState.value.copy(
+                            activeEndpoint = target,
+                            isRemoteActive = true,
+                        )
+                        onResult(true, "Reproduciendo en ${target.name}")
+                    }.onFailure {
+                        onResult(false, "Error al iniciar reproducción en ${target.name}")
+                    }
                 }
-                onResult(true, "Reproduciendo en ${target.name}")
             }
         }
     }

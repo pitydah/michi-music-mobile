@@ -64,7 +64,7 @@ class DeviceActionResolverTest {
             deviceType = "server",
             connectionState = SyncConnectionState.CONNECTED,
             isPaired = true,
-            roles = listOf("server")
+            roles = listOf("music_server", "sync_host")
         )
 
         val actions = DeviceActionResolver.resolveActions(
@@ -88,7 +88,7 @@ class DeviceActionResolverTest {
             deviceType = "desktop",
             connectionState = SyncConnectionState.CONNECTED,
             isPaired = true,
-            roles = listOf("player")
+            roles = listOf("playback_host")
         )
 
         val actions = DeviceActionResolver.resolveActions(

@@ -25,7 +25,11 @@ data class SavedQueueDto(
 
 @Serializable
 data class QueueTransferRequest(
-    @SerialName("target_device_id") val targetDeviceId: String,
+    @SerialName("track_ids") val trackIds: List<String>,
+    @SerialName("current_index") val currentIndex: Int,
+    @SerialName("position_ms") val positionMs: Long,
+    val source: String,
+    @SerialName("queue_id") val queueId: String? = null,
 )
 
 @Serializable
