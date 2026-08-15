@@ -1,17 +1,14 @@
 package org.michimusic.link.rtp
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.link.dto.ReceiverSessionEffectiveDto
 import java.net.DatagramPacket
 import java.net.DatagramSocket
-import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -56,7 +53,7 @@ class RtpAudioSenderTest {
     }
 
     @Test
-    fun `start and transmit packets via local UDP socket`() = runTest {
+    fun `stream multi packet sequence with strict monotonic sequence numbers and timestamps`() = runTest {
         val receiverSocket = DatagramSocket()
         val receiverPort = receiverSocket.localPort
 
@@ -78,23 +75,80 @@ class RtpAudioSenderTest {
         sender.start("127.0.0.1", effective, this)
         assertTrue(sender.isActive)
 
-        // 10ms of 48000Hz 16-bit 2ch is 480 * 2 * 2 = 1920 bytes
-        val testChunk = ByteArray(1920) { (it % 100).toByte() }
+        // 10ms at 48000Hz, 16-bit, stereo = 480 samples * 2 channels * 2 bytes = 1920 bytes per packet.
+        // Send 10 packets worth of audio (19200 bytes) in a single chunk to verify fragmentation.
+        val totalPackets = 10
+        val testChunk = ByteArray(1920 * totalPackets) { (it % 256).toByte() }
         sender.sendPcmChunk(testChunk)
 
         val buffer = ByteArray(2048)
         val receivedPacket = DatagramPacket(buffer, buffer.size)
         receiverSocket.soTimeout = 3000
-        receiverSocket.receive(receivedPacket)
 
-        assertEquals(12 + 1920, receivedPacket.length)
-        val bb = ByteBuffer.wrap(receivedPacket.data, 0, receivedPacket.length).order(ByteOrder.BIG_ENDIAN)
-        val v = (bb.get().toInt() and 0xFF) ushr 6
-        val pt = bb.get().toInt() and 0x7F
-        assertEquals(2, v)
-        assertEquals(97, pt)
+        var lastSeq = -1
+        var lastTs = -1L
+
+        for (i in 0 until totalPackets) {
+            receiverSocket.receive(receivedPacket)
+            assertEquals(12 + 1920, receivedPacket.length)
+
+            val bb = ByteBuffer.wrap(receivedPacket.data, 0, receivedPacket.length).order(ByteOrder.BIG_ENDIAN)
+            val v = (bb.get().toInt() and 0xFF) ushr 6
+            val pt = bb.get().toInt() and 0x7F
+            val seq = bb.short.toInt() and 0xFFFF
+            val ts = bb.int.toLong() and 0xFFFFFFFFL
+            val ssrc = bb.int.toLong() and 0xFFFFFFFFL
+
+            assertEquals(2, v)
+            assertEquals(97, pt)
+            assertEquals(effective.ssrc, ssrc)
+
+            if (lastSeq != -1) {
+                val expectedSeq = (lastSeq + 1) and 0xFFFF
+                assertEquals("Sequence number must increment monotonically", expectedSeq, seq)
+                val expectedTs = (lastTs + 480L) and 0xFFFFFFFFL
+                assertEquals("Timestamp must increment exactly by samplesPerPacket (480)", expectedTs, ts)
+            }
+
+            lastSeq = seq
+            lastTs = ts
+        }
 
         sender.stop()
+        assertFalse(sender.isActive)
+        receiverSocket.close()
+    }
+
+    @Test
+    fun `socket error triggers onError callback`() = runTest {
+        val receiverSocket = DatagramSocket()
+        val receiverPort = receiverSocket.localPort
+
+        val effective = ReceiverSessionEffectiveDto(
+            transport = "rtp_udp",
+            codec = "pcm_s16le",
+            sampleRate = 48000,
+            bitDepth = 16,
+            channels = 2,
+            packetMs = 10,
+            bufferMs = 120,
+            payloadType = 97,
+            ssrc = 11223344L,
+            streamPort = receiverPort,
+            volume = 70
+        )
+
+        var errorReported: Exception? = null
+        val sender = RtpAudioSender()
+        sender.onError = { errorReported = it }
+
+        sender.start("127.0.0.1", effective, this)
+        // Close receiver socket and close sender underlying socket forcefully to simulate network failure
+        sender.stop()
+
+        // Sending when stopped should be a no-op
+        sender.sendPcmChunk(ByteArray(1920))
+        assertFalse(sender.isActive)
         receiverSocket.close()
     }
 }

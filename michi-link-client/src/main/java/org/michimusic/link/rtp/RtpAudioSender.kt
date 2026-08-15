@@ -37,6 +37,8 @@ class RtpAudioSender(
     private val audioChannel = Channel<ByteArray>(capacity = 64)
     private var senderJob: Job? = null
 
+    var onError: ((Exception) -> Unit)? = null
+
     val isActive: Boolean get() = isStreaming
 
     fun start(
@@ -91,6 +93,7 @@ class RtpAudioSender(
                         socket?.send(packet)
                     } catch (e: Exception) {
                         // Socket closed or network error
+                        onError?.invoke(e)
                         break
                     }
 

@@ -21,6 +21,9 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
     var isEnabled: Boolean = false
 
     @Volatile
+    var isPaused: Boolean = false
+
+    @Volatile
     var muteLocalOutput: Boolean = false
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -37,7 +40,7 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
         val remaining = inputBuffer.remaining()
         if (remaining == 0) return
 
-        if (isEnabled && pcmChunkListener != null) {
+        if (isEnabled && !isPaused && pcmChunkListener != null) {
             val pcmBytes = ByteArray(remaining)
             val originalPos = inputBuffer.position()
             inputBuffer.get(pcmBytes)

@@ -26,6 +26,17 @@ object PlayerDependencies {
     fun stopPcmStreaming() {
         val tap = rtpPcmAudioTap ?: return
         tap.isEnabled = false
+        tap.isPaused = false
         tap.pcmChunkListener = null
+    }
+
+    @JvmStatic
+    fun pausePcmStreaming() {
+        rtpPcmAudioTap?.isPaused = true
+    }
+
+    @JvmStatic
+    fun resumePcmStreaming() {
+        rtpPcmAudioTap?.isPaused = false
     }
 }

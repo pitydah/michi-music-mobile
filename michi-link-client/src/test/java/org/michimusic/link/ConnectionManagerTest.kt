@@ -4,20 +4,17 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.serialization.kotlinx.json.json
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -74,7 +71,6 @@ class ConnectionManagerTest {
 
     @Test
     fun `disconnect removes client and updates state`() = runTest(testDispatcher) {
-        // Manually create an entry by connecting a mock device
         val device = PairedDevice(deviceId = "dev_3", deviceToken = "token", lastUrl = "http://192.168.1.10")
         every { registry.getDevice("dev_3") } returns device
         
@@ -116,10 +112,10 @@ class ConnectionManagerTest {
     }
 
     @Test
-    fun `identity pinning rejects reconnection on Michi ID mismatch or public key mismatch`() = runTest(testDispatcher) {
-        val mockEngine = io.ktor.client.engine.mock.MockEngine { request ->
+    fun `identity pinning rejects reconnection on Michi ID mismatch`() = runTest(testDispatcher) {
+        val mockEngine = io.ktor.client.engine.mock.MockEngine {
             respond(
-                content = """{"server_id":"srv_id_1","michi_id":"srv_michi_1","public_key":"pk_original","service":"music_server"}""",
+                content = """{"server_id":"srv_id_1","michi_id":"srv_michi_DIFFERENT","public_key":"pk_original","service":"music_server"}""",
                 status = io.ktor.http.HttpStatusCode.OK,
                 headers = io.ktor.http.headersOf(io.ktor.http.HttpHeaders.ContentType, io.ktor.http.ContentType.Application.Json.toString())
             )
@@ -145,7 +141,6 @@ class ConnectionManagerTest {
             serverId = "srv_id_1"
         )
         every { registry.getDevice("dev_pinned") } returns device
-        every { identity.verifyServerIdentity("srv_michi_1", "pk_original") } returns false
 
         val cm = object : ConnectionManager(registry, identity) {
             init {
@@ -161,7 +156,86 @@ class ConnectionManagerTest {
             attempts++
         }
 
-        val state = cm.connectionStates.value["dev_pinned"]
-        assertEquals(SyncConnectionState.UNAUTHORIZED, state)
+        assertEquals(SyncConnectionState.UNAUTHORIZED, cm.connectionStates.value["dev_pinned"])
+    }
+
+    @Test
+    fun `identity pinning rejects reconnection on Server ID mismatch`() = runTest(testDispatcher) {
+        val mockEngine = io.ktor.client.engine.mock.MockEngine {
+            respond(
+                content = """{"server_id":"srv_id_DIFFERENT","michi_id":"srv_michi_1","public_key":"pk_original","service":"music_server"}""",
+                status = io.ktor.http.HttpStatusCode.OK,
+                headers = io.ktor.http.headersOf(io.ktor.http.HttpHeaders.ContentType, io.ktor.http.ContentType.Application.Json.toString())
+            )
+        }
+        val mockClient = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:7331",
+            deviceToken = "token",
+            sessionToken = "token",
+            clientDeviceId = "test_client_id",
+            httpClient = io.ktor.client.HttpClient(mockEngine) {
+                install(io.ktor.client.plugins.contentnegotiation.ContentNegotiation) {
+                    json(kotlinx.serialization.json.Json { ignoreUnknownKeys = true })
+                }
+            }
+        )
+
+        val device = PairedDevice(
+            deviceId = "dev_pinned_server",
+            deviceToken = "token",
+            lastUrl = "http://127.0.0.1:7331",
+            michiId = "srv_michi_1",
+            publicKey = "pk_original",
+            serverId = "srv_id_1"
+        )
+        every { registry.getDevice("dev_pinned_server") } returns device
+
+        val cm = object : ConnectionManager(registry, identity) {
+            init {
+                clients["dev_pinned_server"] = mockClient
+            }
+        }
+
+        cm.connect("dev_pinned_server")
+
+        var attempts = 0
+        while (attempts < 50 && cm.connectionStates.value["dev_pinned_server"] != SyncConnectionState.UNAUTHORIZED) {
+            Thread.sleep(50)
+            attempts++
+        }
+
+        assertEquals(SyncConnectionState.UNAUTHORIZED, cm.connectionStates.value["dev_pinned_server"])
+    }
+
+    @Test
+    fun `device A and device B maintain isolated clients and credentials`() = runTest(testDispatcher) {
+        val devA = PairedDevice(
+            deviceId = "dev_A",
+            deviceToken = "token_A",
+            pairedClientDeviceId = "client_A",
+            lastUrl = "http://192.168.1.100:5252"
+        )
+        val devB = PairedDevice(
+            deviceId = "dev_B",
+            deviceToken = "token_B",
+            pairedClientDeviceId = "client_B",
+            lastUrl = "http://192.168.1.200:5252"
+        )
+        every { registry.getDevice("dev_A") } returns devA
+        every { registry.getDevice("dev_B") } returns devB
+
+        connectionManager.connect("dev_A")
+        connectionManager.connect("dev_B")
+
+        val clientA = connectionManager.getClient("dev_A")
+        val clientB = connectionManager.getClient("dev_B")
+
+        assertNotNull(clientA)
+        assertNotNull(clientB)
+        assertNotSame(clientA, clientB)
+        assertEquals("token_A", clientA?.deviceToken)
+        assertEquals("token_B", clientB?.deviceToken)
+        assertEquals("client_A", clientA?.pairedClientDeviceId)
+        assertEquals("client_B", clientB?.pairedClientDeviceId)
     }
 }

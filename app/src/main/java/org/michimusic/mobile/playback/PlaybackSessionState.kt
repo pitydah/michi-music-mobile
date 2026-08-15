@@ -8,6 +8,7 @@ enum class EndpointType {
     SERVER,
     STREAM_RECEIVER,
     ROOM,
+    UNKNOWN,
 }
 
 data class PlaybackEndpoint(

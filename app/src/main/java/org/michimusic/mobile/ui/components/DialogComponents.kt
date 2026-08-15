@@ -1185,6 +1185,7 @@ fun AudioRouteDialog(
                             org.michimusic.mobile.playback.EndpointType.DESKTOP_PLAYER -> Icons.Filled.LaptopMac
                             org.michimusic.mobile.playback.EndpointType.SERVER -> Icons.Filled.Dns
                             org.michimusic.mobile.playback.EndpointType.STREAM_RECEIVER, org.michimusic.mobile.playback.EndpointType.ROOM -> Icons.Filled.Speaker
+                            org.michimusic.mobile.playback.EndpointType.UNKNOWN -> Icons.Filled.Speaker
                         }
 
                         Box(

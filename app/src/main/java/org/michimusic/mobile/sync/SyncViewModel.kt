@@ -279,153 +279,182 @@ class SyncViewModel(
         confirmPairing(pin = pin, username = username, password = password, peer = peer)
     }
 
-    fun confirmPairing(pin: String, username: String = "", password: String = "", peer: DiscoveredPeer? = _connectedPeer.value) {
+    fun confirmPairing(pin: String = "", username: String = "", password: String = "", peer: DiscoveredPeer? = _connectedPeer.value) {
         if (peer != null) _connectedPeer.value = peer
         val client = currentClient ?: return
         val strategy = _pairingStrategy.value
         _connectionState.value = SyncConnectionState.PAIRING
 
-        if (strategy == PairingStrategy.SERVER_CODE) {
-            startCodePairing(client, pin)
-            return
+        when (strategy) {
+            PairingStrategy.SERVER_CODE -> {
+                if (pin.isBlank()) {
+                    _error.value = "Se requiere el código PIN para este servidor"
+                    _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+                    return
+                }
+                startCodePairing(client, pin)
+            }
+            PairingStrategy.RECEIVER_BUTTON -> {
+                if (pin.isBlank()) {
+                    _error.value = "Se requiere el PIN de confirmación para Michi Stream"
+                    _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+                    return
+                }
+                startCanonicalChallengePairing(client, strategy, pin, peer)
+            }
+            PairingStrategy.ED25519_CHALLENGE -> {
+                // Cryptographic challenge pairing (no PIN required)
+                startCanonicalChallengePairing(client, strategy, pin = "", peer = peer)
+            }
+            PairingStrategy.PLAYER_PASSWORD, PairingStrategy.LEGACY -> {
+                startLegacyPairing(client, username, password, peer)
+            }
         }
+    }
 
+    private fun startLegacyPairing(client: LinkClient, username: String, password: String, peer: DiscoveredPeer?) {
         viewModelScope.launch {
-            if (strategy == PairingStrategy.LEGACY) {
-                client.pairStartLegacy(
+            client.pairStartLegacy(
+                alias = android.os.Build.MODEL,
+                deviceModel = android.os.Build.MODEL,
+                clientDeviceId = clientId,
+            ).onSuccess { startResp ->
+                pendingPairingId = startResp.pairingId
+                _pairStartResponse.value = startResp
+                _connectionState.value = SyncConnectionState.PAIRING
+
+                client.pairConfirmLegacy(
+                    pairingId = startResp.pairingId,
+                    username = username,
+                    password = password,
+                    clientDeviceId = clientId,
                     alias = android.os.Build.MODEL,
                     deviceModel = android.os.Build.MODEL,
-                    clientDeviceId = clientId,
-                ).onSuccess { startResp ->
-                    pendingPairingId = startResp.pairingId
-                    _pairStartResponse.value = startResp
-                    _connectionState.value = SyncConnectionState.PAIRING
-    
-                    client.pairConfirmLegacy(
-                        pairingId = startResp.pairingId,
-                        username = username,
-                        password = password,
-                        clientDeviceId = clientId,
-                        alias = android.os.Build.MODEL,
-                        deviceModel = android.os.Build.MODEL,
-                    ).onSuccess { confirmResp ->
-                        val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
-                        if (effectiveToken.isBlank()) {
-                            _error.value = "El servidor no otorgó un token válido"
-                            _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
-                            return@launch
-                        }
-                        val resolvedDeviceId = confirmResp.serverDeviceId.ifEmpty {
-                            client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
-                        }
-                        val serverInfo = client.getServerInfo().getOrNull()
-                        val remoteSrvId = serverInfo?.effectiveServerId?.ifEmpty { confirmResp.serverDeviceId } ?: confirmResp.serverDeviceId
-                        val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
-                        val device = org.michimusic.link.PairedDevice(
-                            deviceId = remoteSrvId,
-                            deviceName = confirmResp.serverAlias.ifEmpty { serverInfo?.effectiveName ?: "Michi Server" },
-                            serviceType = serverInfo?.service ?: "",
-                            deviceToken = effectiveToken,
-                            refreshToken = confirmResp.refreshToken,
-                            permissions = confirmResp.permissions,
-                            roles = serverInfo?.roles ?: emptyList(),
-                            features = serverInfo?.effectiveFeatures ?: emptyList(),
-                            authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY,
-                            tokenRefreshSupported = client.tokenRefreshSupported ?: false,
-                            pairedAt = System.currentTimeMillis(),
-                            lastUrl = client.baseUrl,
-                            serverId = remoteSrvId,
-                            michiId = serverInfo?.michiId ?: "",
-                            remoteServerId = remoteSrvId,
-                            remoteMichiId = serverInfo?.michiId ?: "",
-                            remotePublicKey = serverInfo?.publicKey ?: "",
-                            identityScheme = serverInfo?.identityScheme ?: "legacy",
-                            pairedClientDeviceId = assignedClientId,
-                        )
-                        registry.saveDevice(device)
-                        
-                        client.deviceToken = effectiveToken
-                        client.clientDeviceId = assignedClientId
-                        client.pairedClientDeviceId = assignedClientId
-                        _pairConfirmResponse.value = confirmResp
-                        _connectedPeer.value = peer
-                        _connectionState.value = SyncConnectionState.PAIRED
-                    }.onFailure { e ->
-                        handlePairingFailure(Result.failure<Any>(e))
+                ).onSuccess { confirmResp ->
+                    val effectiveToken = confirmResp.deviceToken.ifEmpty { confirmResp.sessionToken }
+                    if (effectiveToken.isBlank()) {
+                        _error.value = "El servidor no otorgó un token válido"
+                        _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+                        return@launch
                     }
+                    val serverInfo = client.getServerInfo().getOrNull()
+                    val remoteSrvId = serverInfo?.effectiveServerId?.ifEmpty { confirmResp.serverDeviceId } ?: confirmResp.serverDeviceId
+                    val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
+                    val device = org.michimusic.link.PairedDevice(
+                        deviceId = remoteSrvId,
+                        deviceName = confirmResp.serverAlias.ifEmpty { serverInfo?.effectiveName ?: "Michi Server" },
+                        serviceType = serverInfo?.service ?: "",
+                        deviceToken = effectiveToken,
+                        refreshToken = confirmResp.refreshToken,
+                        permissions = confirmResp.permissions,
+                        roles = serverInfo?.roles ?: emptyList(),
+                        features = serverInfo?.effectiveFeatures ?: emptyList(),
+                        featuresMap = serverInfo?.features ?: emptyMap(),
+                        authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY,
+                        tokenRefreshSupported = client.tokenRefreshSupported ?: false,
+                        pairedAt = System.currentTimeMillis(),
+                        lastUrl = client.baseUrl,
+                        serverId = remoteSrvId,
+                        michiId = serverInfo?.michiId ?: "",
+                        remoteServerId = remoteSrvId,
+                        remoteMichiId = serverInfo?.michiId ?: "",
+                        remotePublicKey = serverInfo?.publicKey ?: "",
+                        identityScheme = serverInfo?.identityScheme ?: "legacy",
+                        pairedClientDeviceId = assignedClientId,
+                    )
+                    registry.saveDevice(device)
+                    
+                    client.deviceToken = effectiveToken
+                    client.clientDeviceId = assignedClientId
+                    client.pairedClientDeviceId = assignedClientId
+                    _pairConfirmResponse.value = confirmResp
+                    _connectedPeer.value = peer
+                    _connectionState.value = SyncConnectionState.PAIRED
                 }.onFailure { e ->
-                    _error.value = "Error al iniciar emparejamiento: ${e.message}"
-                    _connectionState.value = SyncConnectionState.ERROR
+                    handlePairingFailure(Result.failure<Any>(e))
                 }
-            } else {
-                val nonce = identity.generateNonce()
-                val sig = identity.signChallenge(nonce)
-                val request = org.michimusic.link.dto.PairStartRequestDto(
-                    deviceName = android.os.Build.MODEL,
-                    deviceType = "mobile",
-                    roles = listOf("remote_controller"),
-                    authStrategy = if (strategy == PairingStrategy.RECEIVER_BUTTON) "RECEIVER_BUTTON" else "ED25519_CHALLENGE",
+            }.onFailure { e ->
+                _error.value = "Error al iniciar emparejamiento: ${e.message}"
+                _connectionState.value = SyncConnectionState.ERROR
+            }
+        }
+    }
+
+    private fun startCanonicalChallengePairing(
+        client: LinkClient,
+        strategy: PairingStrategy,
+        pin: String,
+        peer: DiscoveredPeer?
+    ) {
+        viewModelScope.launch {
+            val nonce = identity.generateNonce()
+            val sig = identity.signChallenge(nonce)
+            val request = org.michimusic.link.dto.PairStartRequestDto(
+                deviceName = android.os.Build.MODEL,
+                deviceType = "mobile",
+                roles = listOf("remote_controller"),
+                authStrategy = if (strategy == PairingStrategy.RECEIVER_BUTTON) "RECEIVER_BUTTON" else "ED25519_CHALLENGE",
+                michiId = identity.michiId,
+                publicKey = identity.publicKeyBase64Url,
+                challengeNonce = nonce,
+                challengeSignature = sig,
+            )
+            client.pairStart(request).onSuccess { startResp ->
+                if (!identity.verifyServerIdentity(startResp.serverMichiId, startResp.serverPublicKey)) {
+                    _error.value = "Identity mismatch: La clave pública del servidor no coincide con su Michi ID."
+                    _connectionState.value = SyncConnectionState.ERROR
+                    return@onSuccess
+                }
+                _connectionState.value = SyncConnectionState.PAIRING
+                
+                val confirmReq = org.michimusic.link.dto.PairConfirmRequestDto(
+                    sessionId = startResp.sessionId,
+                    pin = pin,
                     michiId = identity.michiId,
                     publicKey = identity.publicKeyBase64Url,
-                    challengeNonce = nonce,
-                    challengeSignature = sig,
                 )
-                client.pairStart(request).onSuccess { startResp ->
-                    if (!identity.verifyServerIdentity(startResp.serverMichiId, startResp.serverPublicKey)) {
-                        _error.value = "Identity mismatch: La clave pública del servidor no coincide con su Michi ID."
-                        _connectionState.value = SyncConnectionState.ERROR
-                        return@onSuccess
-                    }
-                    _connectionState.value = SyncConnectionState.PAIRING
-                    
-                    val confirmReq = org.michimusic.link.dto.PairConfirmRequestDto(
-                        sessionId = startResp.sessionId,
-                        pin = pin,
-                        michiId = identity.michiId,
-                        publicKey = identity.publicKeyBase64Url,
-                    )
-                    client.pairConfirm(confirmReq).onSuccess { confirmResp ->
-                        val effectiveToken = confirmResp.token
-                        val serverInfo = client.getServerInfo().getOrNull()
-                        val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { startResp.serverMichiId }
-                        val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
+                client.pairConfirm(confirmReq).onSuccess { confirmResp ->
+                    val effectiveToken = confirmResp.token
+                    val serverInfo = client.getServerInfo().getOrNull()
+                    val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { startResp.serverMichiId }
+                    val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
 
-                        val device = org.michimusic.link.PairedDevice(
-                            deviceId = remoteSrvId,
-                            deviceName = serverInfo?.effectiveName ?: peer?.alias.orEmpty().ifEmpty { "Michi Node" },
-                            serviceType = serverInfo?.service ?: "",
-                            deviceToken = effectiveToken,
-                            refreshToken = confirmResp.refreshToken ?: "",
-                            permissions = emptyList(),
-                            roles = serverInfo?.roles ?: emptyList(),
-                            features = serverInfo?.effectiveFeatures ?: emptyList(),
-                            authStrategy = serverInfo?.effectiveAuthStrategy ?: (if (strategy == PairingStrategy.RECEIVER_BUTTON) PairingStrategy.RECEIVER_BUTTON else PairingStrategy.ED25519_CHALLENGE),
-                            tokenRefreshSupported = client.tokenRefreshSupported ?: false,
-                            pairedAt = System.currentTimeMillis(),
-                            lastUrl = client.baseUrl,
-                            serverId = remoteSrvId,
-                            michiId = startResp.serverMichiId,
-                            publicKey = startResp.serverPublicKey,
-                            identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
-                            remoteServerId = remoteSrvId,
-                            remoteMichiId = startResp.serverMichiId,
-                            remotePublicKey = startResp.serverPublicKey,
-                            pairedClientDeviceId = assignedClientId,
-                        )
-                        registry.saveDevice(device)
-                        
-                        client.deviceToken = effectiveToken
-                        client.clientDeviceId = assignedClientId
-                        client.pairedClientDeviceId = assignedClientId
-                        _connectedPeer.value = peer
-                        _connectionState.value = SyncConnectionState.PAIRED
-                    }.onFailure { e ->
-                        handlePairingFailure(Result.failure<Any>(e))
-                    }
+                    val device = org.michimusic.link.PairedDevice(
+                        deviceId = remoteSrvId,
+                        deviceName = serverInfo?.effectiveName ?: peer?.alias.orEmpty().ifEmpty { "Michi Node" },
+                        serviceType = serverInfo?.service ?: "",
+                        deviceToken = effectiveToken,
+                        refreshToken = confirmResp.refreshToken ?: "",
+                        permissions = emptyList(),
+                        roles = serverInfo?.roles ?: emptyList(),
+                        features = serverInfo?.effectiveFeatures ?: emptyList(),
+                        featuresMap = serverInfo?.features ?: emptyMap(),
+                        authStrategy = serverInfo?.effectiveAuthStrategy ?: (if (strategy == PairingStrategy.RECEIVER_BUTTON) PairingStrategy.RECEIVER_BUTTON else PairingStrategy.ED25519_CHALLENGE),
+                        tokenRefreshSupported = client.tokenRefreshSupported ?: false,
+                        pairedAt = System.currentTimeMillis(),
+                        lastUrl = client.baseUrl,
+                        serverId = remoteSrvId,
+                        michiId = startResp.serverMichiId,
+                        publicKey = startResp.serverPublicKey,
+                        identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
+                        remoteServerId = remoteSrvId,
+                        remoteMichiId = startResp.serverMichiId,
+                        remotePublicKey = startResp.serverPublicKey,
+                        pairedClientDeviceId = assignedClientId,
+                    )
+                    registry.saveDevice(device)
+                    
+                    client.deviceToken = effectiveToken
+                    client.clientDeviceId = assignedClientId
+                    client.pairedClientDeviceId = assignedClientId
+                    _connectedPeer.value = peer
+                    _connectionState.value = SyncConnectionState.PAIRED
                 }.onFailure { e ->
-                    _error.value = "Error al iniciar emparejamiento canónico: ${e.message}"
-                    _connectionState.value = SyncConnectionState.ERROR
+                    handlePairingFailure(Result.failure<Any>(e))
                 }
+            }.onFailure { e ->
+                _error.value = "Error al iniciar emparejamiento canónico: ${e.message}"
+                _connectionState.value = SyncConnectionState.ERROR
             }
         }
     }
@@ -482,6 +511,7 @@ class SyncViewModel(
                         permissions = emptyList(),
                         roles = serverInfo?.roles ?: emptyList(),
                         features = serverInfo?.effectiveFeatures ?: emptyList(),
+                        featuresMap = serverInfo?.features ?: emptyMap(),
                         authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.SERVER_CODE,
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                         pairedAt = System.currentTimeMillis(),
@@ -633,6 +663,7 @@ class SyncViewModel(
                         permissions = emptyList(),
                         roles = serverInfo?.roles ?: emptyList(),
                         features = serverInfo?.effectiveFeatures ?: emptyList(),
+                        featuresMap = serverInfo?.features ?: emptyMap(),
                         authStrategy = serverInfo?.effectiveAuthStrategy ?: org.michimusic.link.dto.PairingStrategy.SERVER_CODE,
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                         pairedAt = System.currentTimeMillis(),

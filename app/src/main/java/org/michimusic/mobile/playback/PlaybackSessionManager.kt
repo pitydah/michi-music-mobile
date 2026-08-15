@@ -44,6 +44,12 @@ class PlaybackSessionManager(
     private var isRemoteSelected = false
 
     init {
+        rtpAudioSender.onError = {
+            scope.launch(Dispatchers.Main) {
+                selectLocalEndpoint()
+            }
+        }
+
         // Observe local AudioController state
         scope.launch {
             audioController?.state?.collect { localState ->
@@ -90,8 +96,10 @@ class PlaybackSessionManager(
     }
 
     private fun updateAvailableEndpoints() {
+        val discoveredPeers = linkDiscovery.peers.value.values
         val pairedDevices = registry.getAllDevices()
-        val discoveredEndpoints = linkDiscovery.peers.value.values.map { peer ->
+
+        val discoveredEndpoints = discoveredPeers.map { peer ->
             val isConnected = connectionManager.connectionStates.value[peer.deviceId] == SyncConnectionState.CONNECTED
             mapPeerToEndpoint(peer, isConnected = isConnected)
         }
@@ -103,17 +111,24 @@ class PlaybackSessionManager(
             if (endpoints.none { it.id == pd.deviceId }) {
                 val isConnected = connectionManager.connectionStates.value[pd.deviceId] == SyncConnectionState.CONNECTED
                 val isReceiver = pd.roles.contains("audio_receiver") || pd.serviceType.contains("stream")
-                val caps = if (isReceiver) {
-                    setOf("PLAYBACK", "AUDIO_OUTPUT")
-                } else if (pd.roles.contains("music_server")) {
-                    setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
-                } else {
-                    setOf("PLAYBACK", "REMOTE_CONTROL")
+                val isServer = pd.roles.contains("music_server") || pd.serviceType.contains("server")
+                val isPlayer = pd.roles.contains("playback_host") || pd.serviceType.contains("player")
+                val type = when {
+                    isReceiver -> EndpointType.STREAM_RECEIVER
+                    isServer -> EndpointType.SERVER
+                    isPlayer -> EndpointType.DESKTOP_PLAYER
+                    else -> EndpointType.UNKNOWN
+                }
+                val caps = when (type) {
+                    EndpointType.STREAM_RECEIVER -> setOf("PLAYBACK", "AUDIO_OUTPUT")
+                    EndpointType.SERVER -> setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
+                    EndpointType.DESKTOP_PLAYER -> setOf("PLAYBACK", "REMOTE_CONTROL")
+                    else -> emptySet()
                 }
                 endpoints.add(PlaybackEndpoint(
                     id = pd.deviceId,
                     name = pd.deviceName,
-                    type = if (isReceiver) EndpointType.STREAM_RECEIVER else EndpointType.SERVER,
+                    type = type,
                     isLocal = false,
                     isConnected = isConnected,
                     capabilities = caps
@@ -127,17 +142,21 @@ class PlaybackSessionManager(
     }
 
     private fun mapPeerToEndpoint(peer: DiscoveredPeer, isConnected: Boolean): PlaybackEndpoint {
-        val type = when (peer.deviceType.lowercase()) {
-            "server" -> EndpointType.SERVER
-            "stream", "receiver" -> EndpointType.STREAM_RECEIVER
-            "room" -> EndpointType.ROOM
-            else -> EndpointType.DESKTOP_PLAYER
+        val paired = registry.getDevice(peer.deviceId)
+        val type = when {
+            paired?.roles?.contains("audio_receiver") == true || peer.deviceType.lowercase() in listOf("stream", "receiver") -> EndpointType.STREAM_RECEIVER
+            paired?.roles?.contains("music_server") == true || peer.deviceType.lowercase() == "server" -> EndpointType.SERVER
+            paired?.roles?.contains("room") == true || peer.deviceType.lowercase() == "room" -> EndpointType.ROOM
+            paired?.roles?.contains("playback_host") == true || peer.deviceType.lowercase() in listOf("player", "desktop_player", "desktop") -> EndpointType.DESKTOP_PLAYER
+            else -> EndpointType.UNKNOWN
         }
         val caps = when (type) {
             EndpointType.STREAM_RECEIVER -> setOf("PLAYBACK", "AUDIO_OUTPUT")
             EndpointType.SERVER -> setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
             EndpointType.ROOM -> setOf("PLAYBACK", "GROUP_OUTPUT")
-            else -> setOf("PLAYBACK", "REMOTE_CONTROL")
+            EndpointType.DESKTOP_PLAYER -> setOf("PLAYBACK", "REMOTE_CONTROL")
+            EndpointType.LOCAL_PHONE -> setOf("PLAYBACK", "LOCAL_OUTPUT")
+            EndpointType.UNKNOWN -> emptySet()
         }
         return PlaybackEndpoint(
             id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
@@ -347,6 +366,21 @@ class PlaybackSessionManager(
                 onResult(true, "Reproduciendo en este teléfono")
             }
         } else if (target.type == EndpointType.STREAM_RECEIVER || target.capabilities.contains("AUDIO_OUTPUT")) {
+            // If switching from a previous active receiver to another, destroy the previous receiver session first
+            val prevEp = _sessionState.value.activeEndpoint
+            if (prevEp.id != target.id && (prevEp.type == EndpointType.STREAM_RECEIVER || prevEp.capabilities.contains("AUDIO_OUTPUT"))) {
+                val prevClient = connectionManager.getClient(prevEp.id)
+                val prevTok = activeReceiverSessionToken
+                scope.launch(Dispatchers.IO) {
+                    prevClient?.deleteReceiverLiteSession(prevTok)
+                }
+                rtpAudioSender.stop()
+                activeReceiverSessionId = null
+                activeReceiverSessionToken = null
+                activeReceiverEffective = null
+                receiverHeartbeatJob?.cancel()
+            }
+
             // Canonical ReceiverLite protocol for Michi Stream
             val client = connectionManager.getClient(target.id)
             if (client == null) {
@@ -385,9 +419,10 @@ class PlaybackSessionManager(
                     }
 
                     receiverHeartbeatJob?.cancel()
+                    val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
                     receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
                         while (isActive && isRemoteSelected) {
-                            delay(10_000)
+                            delay(intervalMs)
                             val hbResult = client.sendReceiverLiteHeartbeat(
                                 sessionId = sessionResp.sessionId,
                                 sequence = currentReceiverSequence++,
@@ -397,7 +432,8 @@ class PlaybackSessionManager(
                                 val err = hbResult.exceptionOrNull()
                                 if (err is org.michimusic.link.errors.LinkException.Unauthorized ||
                                     err is org.michimusic.link.errors.LinkException.Revoked ||
-                                    err is org.michimusic.link.errors.LinkException.SessionConflict) {
+                                    err is org.michimusic.link.errors.LinkException.SessionConflict ||
+                                    err is org.michimusic.link.errors.LinkException.ServerError) {
                                     withContext(Dispatchers.Main) {
                                         selectLocalEndpoint()
                                     }
@@ -432,7 +468,7 @@ class PlaybackSessionManager(
                 val pos = _sessionState.value.position
                 
                 if (q.isNotEmpty()) {
-                    // Resolve/map track IDs to server catalog. Must abort if unmapped tracks exist!
+                    // Resolve/map track IDs to server catalog via multi-criteria. Must abort if unmapped tracks exist!
                     var hasUnresolvableLocalTrack = false
                     val resolvedTrackIds = mutableListOf<String>()
 
@@ -441,7 +477,14 @@ class PlaybackSessionManager(
                             resolvedTrackIds.add(track.id)
                         } else {
                             val searchResult = client.search(track.title).getOrNull()
-                            val match = searchResult?.firstOrNull { it.title.equals(track.title, ignoreCase = true) }
+                            val match = searchResult?.firstOrNull { candidate ->
+                                val titleMatches = candidate.title.equals(track.title, ignoreCase = true)
+                                val artistMatches = candidate.artist.isEmpty() || track.artist.isEmpty() ||
+                                        candidate.artist.equals(track.artist, ignoreCase = true)
+                                val durationMatches = candidate.duration <= 0 || track.duration <= 0 ||
+                                        Math.abs(candidate.duration - track.duration) <= 3000
+                                titleMatches && artistMatches && durationMatches
+                            }
                             if (match != null && match.effectiveId.isNotEmpty()) {
                                 resolvedTrackIds.add(match.effectiveId)
                             } else {
@@ -497,11 +540,19 @@ class PlaybackSessionManager(
             val isPlaying = _sessionState.value.isPlaying
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
+                val willPause = isPlaying
                 scope.launch {
                     client?.patchReceiverLiteSession(
-                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = isPlaying),
+                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = willPause),
                         sessionToken = tok
                     )
+                    if (willPause) {
+                        org.michimusic.player.PlayerDependencies.pausePcmStreaming()
+                        audioController?.pause()
+                    } else {
+                        org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+                        audioController?.play()
+                    }
                     _sessionState.value = _sessionState.value.copy(isPlaying = !isPlaying)
                 }
             } else {
