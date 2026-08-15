@@ -43,6 +43,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,6 +109,33 @@ fun HomeScreen(
     val isPlaying = sessionState.isPlaying
 
     var showCreatePlaylist by remember { mutableStateOf(false) }
+    // Loading indicator
+    if (viewModel.isLoading.collectAsState().value) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("loading_indicator"),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(
+                color = PrimaryPinkContainer,
+                strokeWidth = 4.dp
+            )
+        }
+        return@HomeScreen
+    }
+    // Error message
+    viewModel.error.collectAsState().value?.let { errMsg ->
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Red.copy(alpha = 0.1f))
+                .testTag("error_message")
+                .padding(8.dp)
+        ) {
+            Text(text = errMsg, color = Color.Red)
+        }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 

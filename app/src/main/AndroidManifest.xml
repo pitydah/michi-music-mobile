@@ -25,6 +25,9 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="true">
 
+        <!-- ComponentActivity required for Robolectric Compose tests -->
+        <activity android:name="androidx.activity.ComponentActivity" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,5 +48,4 @@
         </service>
 
     </application>
-
 </manifest>
