@@ -10,7 +10,7 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.link.identity.MichiIdentity
 import java.util.concurrent.ConcurrentHashMap
 
-class ConnectionManager(
+open class ConnectionManager(
     private val registry: PairedDeviceRegistry,
     private val identity: MichiIdentity
 ) {
@@ -21,7 +21,7 @@ class ConnectionManager(
     private val clients = ConcurrentHashMap<String, LinkClient>()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    fun getClient(deviceId: String): LinkClient? {
+    open fun getClient(deviceId: String): LinkClient? {
         return clients[deviceId]
     }
 
