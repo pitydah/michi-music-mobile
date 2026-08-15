@@ -9,10 +9,10 @@ import org.michimusic.link.dto.ReceiverSessionCreateRequest
  */
 object AudioProfileNegotiator {
 
-    // Supported client capabilities in order of preference (best quality first)
-    private val CLIENT_CODECS = listOf("pcm_s24le", "pcm_s16le")
-    private val CLIENT_SAMPLE_RATES = listOf(96000, 48000, 44100)
-    private val CLIENT_BIT_DEPTHS = listOf(24, 16)
+    // Supported client capabilities matching current Android pipeline (PCM 16-bit verified)
+    private val CLIENT_CODECS = listOf("pcm_s16le")
+    private val CLIENT_SAMPLE_RATES = listOf(48000, 44100)
+    private val CLIENT_BIT_DEPTHS = listOf(16)
     private val CLIENT_CHANNELS = listOf(2)
     private val CLIENT_PACKET_MS = listOf(10, 20)
 
@@ -37,14 +37,13 @@ object AudioProfileNegotiator {
 
         val negotiatedTransport = capabilities.transports.firstOrNull { it.equals("rtp_udp", ignoreCase = true) } ?: "rtp_udp"
         
-        // Negotiate bit depth & codec
+        // Negotiate bit depth & codec (strictly 16-bit for Phase 3)
         val negotiatedBitDepth = CLIENT_BIT_DEPTHS.firstOrNull { it in capabilities.bitDepths } ?: 16
-        val preferredCodec = if (negotiatedBitDepth == 24) "pcm_s24le" else "pcm_s16le"
-        val negotiatedCodec = capabilities.codecs.firstOrNull { it.equals(preferredCodec, ignoreCase = true) }
+        val negotiatedCodec = capabilities.codecs.firstOrNull { it.equals("pcm_s16le", ignoreCase = true) }
             ?: capabilities.codecs.firstOrNull { it.startsWith("pcm", ignoreCase = true) }
             ?: "pcm_s16le"
 
-        // Negotiate sample rate (e.g. 96000 for Hi-Fi, 48000 for Standard)
+        // Negotiate sample rate (Standard 48000 / 44100 Hz)
         val negotiatedSampleRate = CLIENT_SAMPLE_RATES.firstOrNull { it in capabilities.sampleRates } ?: 48000
 
         // Negotiate channels

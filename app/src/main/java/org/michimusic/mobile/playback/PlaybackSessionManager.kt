@@ -418,10 +418,16 @@ class PlaybackSessionManager(
                         audioController.play()
                     }
 
+                    isRemoteSelected = true
+                    _sessionState.value = _sessionState.value.copy(
+                        activeEndpoint = target,
+                        isRemoteActive = true,
+                    )
+
                     receiverHeartbeatJob?.cancel()
                     val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
                     receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
-                        while (isActive && isRemoteSelected) {
+                        while (isActive && isRemoteSelected && activeReceiverSessionId == sessionResp.sessionId) {
                             delay(intervalMs)
                             val hbResult = client.sendReceiverLiteHeartbeat(
                                 sessionId = sessionResp.sessionId,
@@ -442,11 +448,6 @@ class PlaybackSessionManager(
                             }
                         }
                     }
-                    isRemoteSelected = true
-                    _sessionState.value = _sessionState.value.copy(
-                        activeEndpoint = target,
-                        isRemoteActive = true,
-                    )
                     onResult(true, "Sesión de audio y transmisión RTP activa en ${target.name}")
                 }.onFailure { err ->
                     // Honest UI: Do not report success on real failure

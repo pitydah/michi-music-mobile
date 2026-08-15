@@ -116,6 +116,7 @@ fun DevicesScreen(
     var pendingQrForPin by remember { mutableStateOf<String?>(null) }
     var pendingPeerForPin by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
+    var pendingPeerForPassword by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.core.models.UnifiedDevice?>(null) }
 
     LaunchedEffect(Unit) {
@@ -237,7 +238,10 @@ fun DevicesScreen(
                                                         org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
                                                             pendingPeerForReceiver = peer to serverName
                                                         }
-                                                        else -> {
+                                                        org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> {
+                                                            pendingPeerForPassword = peer to serverName
+                                                        }
+                                                        org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> {
                                                             viewModel.confirmPairing(pin = "", peer = peer)
                                                         }
                                                     }
@@ -351,12 +355,39 @@ fun DevicesScreen(
             )
         }
 
+        if (pendingPeerForPassword != null) {
+            val (peer, serverName) = pendingPeerForPassword!!
+            org.michimusic.mobile.ui.components.PlayerPasswordPairingDialog(
+                deviceName = serverName,
+                onConfirm = { user, pass ->
+                    viewModel.confirmPairing(username = user, password = pass, peer = peer)
+                    pendingPeerForPassword = null
+                },
+                onDismiss = { pendingPeerForPassword = null },
+            )
+        }
+
         // Manual Connection Dialog
         if (showManualDialog) {
             ManualConnectionDialog(
-                onConnect = { _, ip ->
-                    viewModel.connectManual("", ip)
+                onConnect = { name, ipStr ->
                     showManualDialog = false
+                    val parts = ipStr.split(":")
+                    val host = parts[0]
+                    val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 53318 else 53318
+                    val peer = org.michimusic.core.models.DiscoveredPeer(
+                        alias = name.ifBlank { "Michi Node" },
+                        ip = host.trim(),
+                        port = port,
+                    )
+                    viewModel.connectManual(name, ipStr) { strategy, serverName ->
+                        when (strategy) {
+                            org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> pendingPeerForPin = peer to serverName
+                            org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> pendingPeerForReceiver = peer to serverName
+                            org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> pendingPeerForPassword = peer to serverName
+                            org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> viewModel.confirmPairing(pin = "", peer = peer)
+                        }
+                    }
                 },
                 onDismiss = { showManualDialog = false },
             )

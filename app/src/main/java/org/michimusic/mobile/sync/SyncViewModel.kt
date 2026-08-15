@@ -168,7 +168,12 @@ class SyncViewModel(
         }
     }
 
-    fun connectManual(name: String, host: String, port: Int = 53318) {
+    fun connectManual(
+        name: String,
+        host: String,
+        port: Int = 53318,
+        onStrategyResolved: (PairingStrategy, String) -> Unit = { _, _ -> }
+    ) {
         val parsedHost = if (host.contains(":")) host.substringBefore(":") else host
         val parsedPort = if (host.contains(":")) host.substringAfter(":").toIntOrNull() ?: port else port
         val peer = DiscoveredPeer(
@@ -176,8 +181,7 @@ class SyncViewModel(
             ip = parsedHost.trim(),
             port = parsedPort,
         )
-        _connectionState.value = SyncConnectionState.DISCOVERING
-        selectPeer(peer)
+        preparePairing(peer, onStrategyResolved)
     }
 
     fun selectPeer(peer: DiscoveredPeer) {

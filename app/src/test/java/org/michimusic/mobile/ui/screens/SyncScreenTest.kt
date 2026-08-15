@@ -80,7 +80,7 @@ class SyncScreenTest {
 
         // Verificamos que se llamó connectManual
         io.mockk.verify { 
-            mockViewModel.connectManual(name = "Mi Server", host = "192.168.1.100")
+            mockViewModel.connectManual(name = "Mi Server", host = "192.168.1.100", any(), any())
         }
     }
 }

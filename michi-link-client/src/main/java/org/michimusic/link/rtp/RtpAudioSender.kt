@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.michimusic.link.dto.ReceiverSessionEffectiveDto
+import java.io.ByteArrayOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -34,10 +35,13 @@ class RtpAudioSender(
     private var timestamp: Long = 0L
     private var isStreaming = false
 
-    private val audioChannel = Channel<ByteArray>(capacity = 64)
+    private var audioChannel: Channel<ByteArray>? = null
     private var senderJob: Job? = null
 
     var onError: ((Exception) -> Unit)? = null
+
+    var bufferOverflows: Long = 0
+        private set
 
     val isActive: Boolean get() = isStreaming
 
@@ -60,17 +64,26 @@ class RtpAudioSender(
         timestamp = (0L..4294967295L).random()
         socket = socketProvider()
         isStreaming = true
+        bufferOverflows = 0
+
+        val channel = Channel<ByteArray>(capacity = 128)
+        audioChannel = channel
 
         val packetSizeBytes = (sampleRate * packetMs / 1000) * channels * (bitDepth / 8)
         val samplesPerPacket = sampleRate * packetMs / 1000
 
         senderJob = scope.launch(Dispatchers.IO) {
             val buffer = ByteBuffer.allocate(12 + packetSizeBytes).order(ByteOrder.BIG_ENDIAN)
+            val accumulator = ByteArrayOutputStream()
+
             while (isActive && isStreaming) {
-                val pcmChunk = audioChannel.receiveCatching().getOrNull() ?: break
-                
+                val pcmChunk = channel.receiveCatching().getOrNull() ?: break
+                accumulator.write(pcmChunk)
+
+                val currentBytes = accumulator.toByteArray()
                 var offset = 0
-                while (offset + packetSizeBytes <= pcmChunk.size && isStreaming) {
+
+                while (offset + packetSizeBytes <= currentBytes.size && isStreaming) {
                     buffer.clear()
                     // 1. RTP Header (12 bytes)
                     // Byte 0: V=2, P=0, X=0, CC=0 -> 0x80
@@ -85,14 +98,13 @@ class RtpAudioSender(
                     buffer.putInt((ssrc and 0xFFFFFFFFL).toInt())
 
                     // 2. PCM Payload
-                    buffer.put(pcmChunk, offset, packetSizeBytes)
+                    buffer.put(currentBytes, offset, packetSizeBytes)
 
                     val packetData = buffer.array()
                     val packet = DatagramPacket(packetData, packetData.size, targetAddress, targetPort)
                     try {
                         socket?.send(packet)
                     } catch (e: Exception) {
-                        // Socket closed or network error
                         onError?.invoke(e)
                         break
                     }
@@ -100,6 +112,12 @@ class RtpAudioSender(
                     sequenceNumber = (sequenceNumber + 1) and 0xFFFF
                     timestamp = (timestamp + samplesPerPacket) and 0xFFFFFFFFL
                     offset += packetSizeBytes
+                }
+
+                // Preserve remainder in accumulator for next chunk
+                accumulator.reset()
+                if (offset < currentBytes.size) {
+                    accumulator.write(currentBytes, offset, currentBytes.size - offset)
                 }
             }
         }
@@ -110,7 +128,11 @@ class RtpAudioSender(
      */
     fun sendPcmChunk(pcmData: ByteArray) {
         if (!isStreaming) return
-        audioChannel.trySend(pcmData)
+        val ch = audioChannel ?: return
+        val result = ch.trySend(pcmData)
+        if (!result.isSuccess) {
+            bufferOverflows++
+        }
     }
 
     /**
@@ -137,6 +159,8 @@ class RtpAudioSender(
         isStreaming = false
         senderJob?.cancel()
         senderJob = null
+        audioChannel?.close()
+        audioChannel = null
         try {
             socket?.close()
         } catch (_: Exception) {}

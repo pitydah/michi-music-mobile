@@ -1665,4 +1665,158 @@ fun ReceiverButtonPairingDialog(
     }
 }
 
+@Composable
+fun PlayerPasswordPairingDialog(
+    deviceName: String,
+    onConfirm: (username: String, password: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SurfaceObsidian,
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("player_password_pairing_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(TertiaryCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LaptopMac,
+                                contentDescription = null,
+                                tint = TertiaryCyan,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Autenticación",
+                                color = PureWhite,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = deviceName,
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cerrar",
+                            tint = OnSurfaceVariant,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Ingresa las credenciales configuradas en $deviceName:",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = {
+                        username = it
+                        error = null
+                    },
+                    placeholder = { Text("Usuario (opcional)", color = OnSurfaceVariant) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = TertiaryCyan,
+                        unfocusedBorderColor = GlassBorderLow,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("player_username_input_field"),
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = {
+                        password = it
+                        error = null
+                    },
+                    placeholder = { Text("Contraseña", color = OnSurfaceVariant) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = TertiaryCyan,
+                        unfocusedBorderColor = GlassBorderLow,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("player_password_input_field"),
+                )
+
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = error!!, color = ErrorColor, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (password.trim().isEmpty()) {
+                            error = "Ingresa la contraseña del reproductor"
+                            return@Button
+                        }
+                        onConfirm(username.trim(), password.trim())
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("confirm_player_password_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Emparejar", color = PureWhite, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+
 

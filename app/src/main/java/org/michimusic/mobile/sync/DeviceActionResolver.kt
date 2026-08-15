@@ -39,12 +39,13 @@ object DeviceActionResolver {
             return actions
         }
 
-        // Capabilities / Role driven actions for connected device
+        // Capabilities / Role & Feature driven actions for connected device
         val roles = device.roles
-        val isLibrary = roles.contains("library_host") || roles.contains("music_server")
-        val isSync = roles.contains("sync_host")
-        val isPlayback = roles.contains("playback_host")
-        val isReceiver = roles.contains("audio_receiver")
+        val features = device.features
+        val isLibrary = roles.contains("library_host") || roles.contains("music_server") || features.contains("library")
+        val isSync = roles.contains("sync_host") || features.contains("sync")
+        val isPlayback = roles.contains("playback_host") || features.contains("playback") || features.contains("remote_control")
+        val isReceiver = roles.contains("audio_receiver") || features.contains("audio_output") || features.contains("streaming")
 
         if (isLibrary) {
             actions.add(DeviceAction(DeviceActionType.BROWSE_LIBRARY, "Biblioteca", isPrimary = true))
