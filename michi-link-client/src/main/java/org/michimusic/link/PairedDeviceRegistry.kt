@@ -25,7 +25,11 @@ data class PairedDevice(
     val lastUrl: String = "",
 )
 
-class PairedDeviceRegistry(private val context: Context, private val legacyTokenStore: TokenStore) {
+class PairedDeviceRegistry(
+    private val context: Context,
+    private val legacyTokenStore: TokenStore,
+    private val injectedPrefs: SharedPreferences? = null
+) {
 
     companion object {
         private const val REGISTRY_PREFS_NAME = "michi_link_registry_secure"
@@ -36,16 +40,18 @@ class PairedDeviceRegistry(private val context: Context, private val legacyToken
     private val json = Json { ignoreUnknownKeys = true }
     
     private val securePrefs: SharedPreferences by lazy {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            REGISTRY_PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        ).also { migrateFromLegacyIfNeeded(it) }
+        injectedPrefs?.also { migrateFromLegacyIfNeeded(it) } ?: run {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                REGISTRY_PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            ).also { migrateFromLegacyIfNeeded(it) }
+        }
     }
 
     private fun migrateFromLegacyIfNeeded(prefs: SharedPreferences) {
