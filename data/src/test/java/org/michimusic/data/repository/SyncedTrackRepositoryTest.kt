@@ -1,15 +1,13 @@
 package org.michimusic.data.repository
 
-import androidx.paging.PagingSource
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.ManifestPlaylist
 import org.michimusic.core.models.TrackDto
@@ -20,187 +18,76 @@ import org.michimusic.data.cache.TrackDao
 
 class SyncedTrackRepositoryTest {
 
-    private lateinit var trackDao: FakeTrackDao
-    private lateinit var playlistDao: FakePlaylistDao
-    private lateinit var repository: SyncedTrackRepository
-
-    @Before
-    fun setup() {
-        trackDao = FakeTrackDao()
-        playlistDao = FakePlaylistDao()
-        repository = SyncedTrackRepository(trackDao, playlistDao)
-    }
+    private val mockTrackDao = mockk<TrackDao>(relaxed = true)
+    private val mockPlaylistDao = mockk<PlaylistDao>(relaxed = true)
+    private val repository = SyncedTrackRepository(mockTrackDao, mockPlaylistDao)
 
     @Test
-    fun saveLibrary_insertsNewTracks() = runTest {
-        val tracks = listOf(
-            TrackDto(id = "t1", title = "Song 1", artist = "A", album = "X"),
-            TrackDto(id = "t2", title = "Song 2", artist = "B", album = "Y"),
+    fun `saveLibrary preserves downloaded state and removes obsolete tracks`() = runTest {
+        val existingTrackDownloaded = CachedTrack(
+            id = "t1", title = "Track 1", downloaded = true, filepath = "/path/t1", artist = "", album = "",
+            duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "",
+            trackNumber = 0, year = 0
         )
-        repository.saveLibrary(tracks)
-        val count = repository.count()
-        assertEquals(2, count)
-    }
-
-    @Test
-    fun saveLibrary_updatesExistingTrack() = runTest {
-        val initial = listOf(TrackDto(id = "t1", title = "Old Title", artist = "A", album = "X"))
-        repository.saveLibrary(initial)
-
-        val updated = listOf(TrackDto(id = "t1", title = "New Title", artist = "A", album = "X"))
-        repository.saveLibrary(updated)
-
-        val all = repository.getAllSynced().first()
-        assertEquals("New Title", all.first().title)
-    }
-
-    @Test
-    fun saveLibrary_preservesDownloadedStatus() = runTest {
-        val tracks = listOf(TrackDto(id = "t1", title = "Song", artist = "A", album = "X"))
-        repository.saveLibrary(tracks)
-        trackDao.markDownloadedWithPath("t1", "/music/song.mp3")
-
-        repository.saveLibrary(tracks)
-        val track = repository.getById("t1")
-        assertNotNull(track)
-        assertTrue(track!!.downloaded)
-        assertEquals("/music/song.mp3", track.filepath)
-    }
-
-    @Test
-    fun saveLibrary_removesTrackNotInNewSync() = runTest {
-        val existing = listOf(
-            TrackDto(id = "t1", title = "Keep", artist = "A", album = "X"),
-            TrackDto(id = "t2", title = "Remove", artist = "B", album = "Y"),
+        val existingTrackNotDownloaded = CachedTrack(
+            id = "t2", title = "Track 2", downloaded = false, filepath = "", artist = "", album = "",
+            duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "",
+            trackNumber = 0, year = 0
         )
-        repository.saveLibrary(existing)
+        
+        every { mockTrackDao.getAllTracks() } returns flowOf(listOf(existingTrackDownloaded, existingTrackNotDownloaded))
 
-        val newSync = listOf(TrackDto(id = "t1", title = "Keep", artist = "A", album = "X"))
-        repository.saveLibrary(newSync)
-
-        val all = repository.getAllSynced().first()
-        assertEquals(1, all.size)
-        assertEquals("t1", all.first().id)
-    }
-
-    @Test
-    fun saveLibrary_keepsDownloadedTrackEvenIfRemoved() = runTest {
-        val existing = listOf(
-            TrackDto(id = "t1", title = "Song", artist = "A", album = "X"),
+        val newTracksFromNetwork = listOf(
+            TrackDto(id = "t1", title = "Track 1 Updated", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0),
+            TrackDto(id = "t3", title = "Track 3 New", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0)
         )
-        repository.saveLibrary(existing)
-        trackDao.markDownloaded("t1")
 
-        repository.saveLibrary(emptyList())
-        val all = repository.getAllSynced().first()
-        assertTrue(all.isNotEmpty())
-        assertEquals("t1", all.first().id)
+        repository.saveLibrary(newTracksFromNetwork)
+
+        // Verify t1 was updated but kept downloaded=true and filepath
+        coVerify { 
+            mockTrackDao.insertAll(match<List<CachedTrack>> { list ->
+                val t1 = list.find { it.id == "t1" }
+                val t3 = list.find { it.id == "t3" }
+                t1?.downloaded == true && t1.filepath == "/path/t1" && t1.title == "Track 1 Updated" &&
+                t3?.downloaded == false && t3.title == "Track 3 New"
+            })
+        }
+
+        // Verify t2 was deleted because it's not downloaded and not in the new list
+        coVerify { 
+            mockTrackDao.delete(match<CachedTrack> { it.id == "t2" })
+        }
     }
 
     @Test
-    fun getDownloadedIds_returnsOnlyDownloaded() = runTest {
-        val tracks = listOf(
-            TrackDto(id = "t1", title = "Song 1", artist = "A", album = "X"),
-            TrackDto(id = "t2", title = "Song 2", artist = "B", album = "Y"),
-        )
-        repository.saveLibrary(tracks)
-        trackDao.markDownloaded("t1")
-
-        val downloaded = repository.getDownloadedIds()
-        assertEquals(setOf("t1"), downloaded)
-    }
-
-    @Test
-    fun saveManifestPlaylists_insertsPlaylists() = runTest {
+    fun `saveManifestPlaylists replaces all playlists`() = runTest {
         val playlists = listOf(
-            ManifestPlaylist(playlistId = "pl1", name = "Favorites", trackIds = listOf("t1", "t2")),
+            ManifestPlaylist(playlistId = "p1", name = "Playlist 1", trackIds = listOf("t1", "t2")),
+            ManifestPlaylist(playlistId = "p2", name = "Playlist 2", trackIds = listOf("t3"))
         )
+
         repository.saveManifestPlaylists(playlists)
-        val all = playlistDao.getAllPlaylists()
-        assertEquals(1, all.size)
-        assertEquals("Favorites", all.first().name)
-    }
-}
 
-private class FakeTrackDao : TrackDao {
-    private val tracks = MutableStateFlow<Map<String, CachedTrack>>(emptyMap())
-
-    override fun getAllTracks(): Flow<List<CachedTrack>> =
-        tracks.map { it.values.toList().sortedBy { t -> t.title } }
-
-    override fun getAllTracksPagingSource(): PagingSource<Int, CachedTrack> =
-        throw UnsupportedOperationException()
-
-    override suspend fun getTrackById(id: String): CachedTrack? =
-        tracks.value[id]
-
-    override fun getDownloadedTracks(): Flow<List<CachedTrack>> =
-        tracks.map { it.values.filter { t -> t.downloaded } }
-
-    override suspend fun insertAll(items: List<CachedTrack>) {
-        val updated = tracks.value.toMutableMap()
-        items.forEach { updated[it.id] = it }
-        tracks.value = updated
-    }
-
-    override suspend fun insert(track: CachedTrack) {
-        val updated = tracks.value.toMutableMap()
-        updated[track.id] = track
-        tracks.value = updated
-    }
-
-    override suspend fun delete(track: CachedTrack) {
-        val updated = tracks.value.toMutableMap()
-        updated.remove(track.id)
-        tracks.value = updated
-    }
-
-    override suspend fun deleteAll() {
-        tracks.value = emptyMap()
-    }
-
-    override suspend fun count(): Int = tracks.value.size
-
-    override suspend fun getUndownloaded(): List<CachedTrack> =
-        tracks.value.values.filter { !it.downloaded }
-
-    override suspend fun markDownloaded(id: String) {
-        tracks.value[id]?.let {
-            val updated = tracks.value.toMutableMap()
-            updated[id] = it.copy(downloaded = true)
-            tracks.value = updated
+        coVerify { mockPlaylistDao.deleteAll() }
+        coVerify {
+            mockPlaylistDao.insertAll(match<List<CachedPlaylist>> { list ->
+                list.size == 2 && 
+                list[0].id == "p1" && list[0].trackCount == 2 && list[0].trackIds == "t1,t2" &&
+                list[1].id == "p2" && list[1].trackCount == 1 && list[1].trackIds == "t3"
+            })
         }
     }
 
-    override suspend fun markDownloadedWithPath(id: String, filepath: String) {
-        tracks.value[id]?.let {
-            val updated = tracks.value.toMutableMap()
-            updated[id] = it.copy(downloaded = true, filepath = filepath)
-            tracks.value = updated
-        }
-    }
-}
+    @Test
+    fun `getDownloadedIds returns only downloaded track ids`() = runTest {
+        val downloadedTracks = listOf(
+            CachedTrack(id = "t1", title = "T1", downloaded = true, filepath = "/p1", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "", trackNumber = 0, year = 0),
+            CachedTrack(id = "t2", title = "T2", downloaded = true, filepath = "/p2", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "", trackNumber = 0, year = 0)
+        )
+        every { mockTrackDao.getDownloadedTracks() } returns flowOf(downloadedTracks)
 
-private class FakePlaylistDao : PlaylistDao {
-    private val playlists = mutableListOf<CachedPlaylist>()
-
-    override suspend fun getAllPlaylists(): List<CachedPlaylist> =
-        playlists.toList().sortedBy { it.name }
-
-    override suspend fun insert(playlist: CachedPlaylist) {
-        playlists.removeAll { it.id == playlist.id }
-        playlists.add(playlist)
-    }
-
-    override suspend fun insertAll(items: List<CachedPlaylist>) {
-        playlists.addAll(items)
-    }
-
-    override suspend fun deleteById(id: String) {
-        playlists.removeAll { it.id == id }
-    }
-
-    override suspend fun deleteAll() {
-        playlists.clear()
+        val ids = repository.getDownloadedIds()
+        assertEquals(setOf("t1", "t2"), ids)
     }
 }

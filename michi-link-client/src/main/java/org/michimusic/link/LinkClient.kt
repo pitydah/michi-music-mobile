@@ -209,7 +209,9 @@ class LinkClient private constructor(
 
     suspend fun getServerInfo(): Result<ServerInfoDto> = withContext(Dispatchers.IO) {
         try {
-            val info = client.get("$baseUrl/api/v1/server/info").body<ServerInfoDto>()
+            val response = client.get("$baseUrl/api/v1/server/info")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            val info = response.body<ServerInfoDto>()
             updateRefreshSupport(info)
             Result.success(info)
         } catch (e: Exception) {

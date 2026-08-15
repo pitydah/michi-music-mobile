@@ -90,18 +90,18 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToDevices: () -> Unit = {},
     modifier: Modifier = Modifier,
+    viewModel: AlbumsViewModel = koinViewModel(),
+    sessionManager: PlaybackSessionManager = koinInject(),
+    audioController: AudioController = koinInject(),
 ) {
-    val viewModel: AlbumsViewModel = koinViewModel()
     val allTracks by viewModel.allTracks.collectAsState()
     val recentTracks by viewModel.recentTracks.collectAsState()
     val topTracks by viewModel.topTracks.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
 
-    val sessionManager: PlaybackSessionManager = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
     val activeEndpoint = sessionState.activeEndpoint
 
-    val audioController: AudioController = koinInject()
     val playerState by audioController.state.collectAsState()
 
     val currentTrack = sessionState.currentTrack ?: playerState.currentTrack

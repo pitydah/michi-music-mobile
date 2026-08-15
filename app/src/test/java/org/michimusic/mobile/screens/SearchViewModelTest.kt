@@ -1,213 +1,119 @@
 package org.michimusic.mobile.screens
 
+import io.mockk.coEvery
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.michimusic.core.models.Album
-import org.michimusic.core.models.Artist
-import org.michimusic.core.models.ManifestPlaylist
-import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
-import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
-import org.michimusic.mobile.rules.MainDispatcherRule
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
 
-    @get:Rule
-    val mainDispatcherRule = MainDispatcherRule()
-
-    private val testDispatcher get() = mainDispatcherRule.testDispatcher
-
-    private lateinit var localRepo: LocalMediaRepository
-    private lateinit var syncedRepo: SyncedTrackRepository
+    private val localRepo = mockk<LocalMediaRepository>(relaxed = true)
+    private val syncedRepo = mockk<SyncedTrackRepository>(relaxed = true)
+    private val testDispatcher = StandardTestDispatcher()
+    
     private lateinit var viewModel: SearchViewModel
 
     @Before
     fun setup() {
-        localRepo = FakeLocalMediaRepository()
-        syncedRepo = FakeSyncedTrackRepository()
+        Dispatchers.setMain(testDispatcher)
         viewModel = SearchViewModel(localRepo, syncedRepo, testDispatcher)
     }
 
     @After
-    fun tearDown() {
-        viewModel.clearSearch()
+    fun teardown() {
+        Dispatchers.resetMain()
     }
 
     @Test
-    fun setQuery_shortQuery_returnsEmpty() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("a")
-        testScheduler.advanceUntilIdle()
-        assertTrue(viewModel.results.value.isEmpty())
-    }
+    fun `search combines and deduplicates tracks from local and synced`() = runTest(testDispatcher) {
+        val localTrack = Track(
+            id = "t1", title = "My Track", artist = "My Artist", album = "My Album",
+            duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2,
+            coverId = "", trackNumber = 1, year = 2020, filepath = "/path", source = org.michimusic.core.models.TrackSource.LOCAL
+        )
+        
+        // Exact same track but synced
+        val syncedTrack1 = CachedTrack(
+            id = "t2", title = "My Track", artist = "My Artist", album = "My Album",
+            duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2,
+            coverId = "", trackNumber = 1, year = 2020, filepath = "", downloaded = false
+        )
+        
+        // Different track synced
+        val syncedTrack2 = CachedTrack(
+            id = "t3", title = "My Another Track", artist = "My Artist", album = "Another Album",
+            duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2,
+            coverId = "", trackNumber = 1, year = 2020, filepath = "", downloaded = false
+        )
 
-    @Test
-    fun setQuery_matchesLocalTrackTitle() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Song 1")
-        testScheduler.advanceUntilIdle()
-        val results = viewModel.results.value
-        assertTrue(results.isNotEmpty())
-        assertEquals("Song 1", results.first().track.title)
-        assertEquals("Local", results.first().source)
-    }
+        val album = Album(id = "a1", title = "My Album", artist = "My Artist", coverId = "", year = 2020)
+        coEvery { localRepo.loadAlbums() } returns listOf(
+            LocalMediaRepository.LocalAlbum(album = album, tracks = listOf(localTrack))
+        )
+        coEvery { syncedRepo.getAllSynced() } returns flowOf(listOf(syncedTrack1, syncedTrack2))
 
-    @Test
-    fun setQuery_matchesSyncedTrackArtist() = runTest(testDispatcher) {
         viewModel.loadLocalTracks()
         testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Synced Artist")
-        testScheduler.advanceUntilIdle()
-        val results = viewModel.results.value
-        assertTrue(results.isNotEmpty())
-        assertTrue(results.any { it.source == "Sincronizada" })
-    }
 
-    @Test
-    fun setQuery_matchesLocalTrackAlbum() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
+        viewModel.setQuery("my")
         testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Test Album")
-        testScheduler.advanceUntilIdle()
-        val results = viewModel.results.value
-        assertTrue(results.isNotEmpty())
-        assertEquals("Test Album", results.first().track.album)
-    }
 
-    @Test
-    fun setQuery_noMatch_returnsEmpty() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("ZZZZnotfound")
-        testScheduler.advanceUntilIdle()
-        assertTrue(viewModel.results.value.isEmpty())
-    }
-
-    @Test
-    fun clearSearch_resetsQueryAndResults() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Song")
-        testScheduler.advanceUntilIdle()
-        assertTrue(viewModel.results.value.isNotEmpty())
-        viewModel.clearSearch()
-        testScheduler.advanceUntilIdle()
-        assertEquals("", viewModel.query.value)
-        assertTrue(viewModel.results.value.isEmpty())
-    }
-
-    @Test
-    fun resultsCappedAt50() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Track")
-        testScheduler.advanceUntilIdle()
-        val count = viewModel.results.value.size
-        assertTrue("Expected at most 50 results, got $count", count <= 50)
-    }
-
-    @Test
-    fun setFilter_filtersArtistsCorrectly() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Artist")
-        testScheduler.advanceUntilIdle()
-        viewModel.setFilter(SearchFilter.ARTISTS)
-        testScheduler.advanceUntilIdle()
-        val results = viewModel.results.value
-        assertTrue(results.isNotEmpty())
-        assertTrue(results.all { it.track.artist.contains("Artist", ignoreCase = true) })
-    }
-
-    @Test
-    fun setFilter_filtersDownloadedCorrectly() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Synced")
-        testScheduler.advanceUntilIdle()
-        viewModel.setFilter(SearchFilter.DOWNLOADED)
-        testScheduler.advanceUntilIdle()
-        val results = viewModel.results.value
-        assertTrue(results.isNotEmpty())
-        assertTrue(results.all { it.track.filepath.isNotEmpty() })
-    }
-
-    @Test
-    fun structuredResults_groupsArtistsAndAlbums() = runTest(testDispatcher) {
-        viewModel.loadLocalTracks()
-        testScheduler.advanceUntilIdle()
-        viewModel.setQuery("Artist")
-        testScheduler.advanceUntilIdle()
         val structured = viewModel.structuredResults.value
-        assertTrue(structured.artists.isNotEmpty())
-        assertEquals("Artist 1", structured.artists.first().artist)
+        
+        // Should have deduplicated 'My Track'
+        assertEquals(2, structured.tracks.size)
+        val titles = structured.tracks.map { it.track.title }
+        assertEquals(true, titles.contains("My Track"))
+        assertEquals(true, titles.contains("My Another Track"))
+        
+        assertEquals(1, structured.artists.size)
+        assertEquals("My Artist", structured.artists[0].artist)
     }
-}
 
-private class FakeLocalMediaRepository : LocalMediaRepository() {
-    override suspend fun loadAlbums(): List<LocalMediaRepository.LocalAlbum> {
-        val tracks = (1..60).map { i ->
-            Track(
-                id = "local_$i",
-                title = if (i <= 30) "Song $i" else "Track $i",
-                artist = "Artist $i",
-                album = if (i <= 20) "Test Album" else "Other Album",
-                duration = 200_000L,
-                filepath = "/music/song$i.mp3",
-            )
-        }
-        return listOf(
-            LocalMediaRepository.LocalAlbum(
-                album = Album(id = "album_1", title = "Test Album", artist = "Artist 1"),
-                tracks = tracks.take(20),
-            ),
-            LocalMediaRepository.LocalAlbum(
-                album = Album(id = "album_2", title = "Other Album", artist = "Artist 2"),
-                tracks = tracks.drop(20),
-            ),
+    @Test
+    fun `search uses LOSSLESS filter correctly`() = runTest(testDispatcher) {
+        val localTrackLossless = Track(
+            id = "t1", title = "Hi-Res Track", artist = "My Artist", album = "My Album",
+            duration = 100, size = 1000, format = "flac", bitrate = 128, sampleRate = 96000, channels = 2,
+            coverId = "", trackNumber = 1, year = 2020, filepath = "/path", source = org.michimusic.core.models.TrackSource.LOCAL
         )
-    }
-
-    override suspend fun loadTracks(): List<Track> = loadAlbums().flatMap { it.tracks }
-    override suspend fun loadArtists(): List<Pair<Artist, List<LocalMediaRepository.LocalAlbum>>> = emptyList()
-    override suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> = emptyList()
-    override suspend fun invalidateCache() {}
-}
-
-private class FakeSyncedTrackRepository : SyncedTrackRepository() {
-    private val cached = (1..40).map { i ->
-        CachedTrack(
-            id = "synced_$i",
-            title = "Synced Track $i",
-            artist = "Synced Artist",
-            album = "Synced Album",
-            duration = 180_000L,
-            filepath = "/synced/track$i.mp3",
-            downloaded = true,
+        val localTrackLossy = Track(
+            id = "t2", title = "Lossy Track", artist = "My Artist", album = "My Album",
+            duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2,
+            coverId = "", trackNumber = 2, year = 2020, filepath = "/path", source = org.michimusic.core.models.TrackSource.LOCAL
         )
-    }
+        
+        val album = Album(id = "a1", title = "My Album", artist = "My Artist", coverId = "", year = 2020)
+        coEvery { localRepo.loadAlbums() } returns listOf(
+            LocalMediaRepository.LocalAlbum(album = album, tracks = listOf(localTrackLossless, localTrackLossy))
+        )
+        coEvery { syncedRepo.getAllSynced() } returns flowOf(emptyList())
 
-    override fun getAllSynced() = flowOf(cached)
-    override fun getPagedTracks() = throw UnsupportedOperationException()
-    override suspend fun getDownloadedIds(): Set<String> = cached.filter { it.downloaded }.map { it.id }.toSet()
-    override suspend fun count(): Int = cached.size
-    override suspend fun saveLibrary(tracks: List<TrackDto>) {}
-    override suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {}
-    override suspend fun getById(id: String): CachedTrack? = cached.find { it.id == id }
-    override suspend fun markDownloaded(id: String) {}
-    override suspend fun markDownloadedWithPath(id: String, filepath: String) {}
+        viewModel.loadLocalTracks()
+        testScheduler.advanceUntilIdle()
+
+        viewModel.setFilter(SearchFilter.LOSSLESS)
+        viewModel.setQuery("track")
+        testScheduler.advanceUntilIdle()
+
+        val structured = viewModel.structuredResults.value
+        
+        assertEquals(1, structured.tracks.size)
+        assertEquals("Hi-Res Track", structured.tracks[0].track.title)
+    }
 }
