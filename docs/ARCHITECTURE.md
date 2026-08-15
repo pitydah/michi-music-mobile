@@ -97,12 +97,13 @@ The client implements an exhaustive pairing state machine:
 ### 4. Michi Stream Protocol (`ReceiverLite`)
 Official lightweight protocol for streaming to embedded receivers (ESP32-S3 + DAC):
 - **Audio Negotiation**: `AudioProfileNegotiator` strictly intersects real local PCM format against receiver capabilities (`pcm_s16le`, 48 kHz / 44.1 kHz, 10ms packets), strictly returning `null` if unsupported (zero fictional fallbacks).
-- **Session Lifecycle**:
+- **Session Lifecycle & Dynamic Format Transitions**:
   - `POST /api/v1/receiver-lite/session`: Creates session, returns `session_id`, `session_token`, `lease_seconds`, and `effective` audio parameters.
   - `POST /api/v1/receiver-lite/heartbeat`: Periodic heartbeat (`lease_seconds / 3`) sending `X-Michi-Session` header.
   - `PATCH /api/v1/receiver-lite/session`: Dynamic volume adjustment and pause/resume control.
   - `DELETE /api/v1/receiver-lite/session`: Graceful teardown. Switching between streams automatically tears down previous session before establishing a new one.
-- **RTP Audio Transmission**: `RtpAudioSender` packages PCM chunks into RFC 3550 packets (Payload Type 97, 12-byte header, monotonically increasing sequence numbers and sample timestamps) and sends via UDP with persistent chunk accumulation, session buffer isolation, and metrics tracking for sustained backpressure detection.
+  - **Dynamic Renegotiation**: When track format changes (e.g. 44.1 kHz $\leftrightarrow$ 48 kHz), the audio pipeline enforces an atomic lock (`RtpPcmAudioTap.isRenegotiating`), pauses playback, tears down the old session, renegotiates the new profile with the receiver, starts the new RTP sender, and re-enables PCM playback. (Note: currently uses a safe pause/resume window; future phases can upgrade to a 250-500ms ring buffer for gapless playback).
+- **RTP Audio Transmission**: `RtpAudioSender` packages PCM chunks into RFC 3550 packets (Payload Type 97, 12-byte header, monotonically increasing sequence numbers and sample timestamps) and sends via UDP with persistent chunk accumulation, session buffer isolation, and metrics tracking for sustained consecutive backpressure detection.
 
 ### 5. Real-time Events & Token Refresh
 - **Server-Sent Events (`EventClient`)**: Connects to `/api/v1/events` for real-time playback state synchronization.
@@ -110,7 +111,17 @@ Official lightweight protocol for streaming to embedded receivers (ESP32-S3 + DA
 
 ---
 
-## 5. Offline Synchronization (`:data` + `:app`)
+## 5. Verification Status & Evidence Hierarchy
+
+To maintain complete engineering truthfulness, features are tracked against four distinct evidence levels:
+1. **Implemented**: Code and data contracts fully written.
+2. **Unit Tested**: 100% covered by deterministic unit/mock tests.
+3. **Network E2E**: Verified against real network protocols and simulated endpoints.
+4. **Hardware E2E**: Physical verification on ESP32-S3 + DAC hardware over local LAN (Final gate for Phase 3).
+
+---
+
+## 6. Offline Synchronization (`:data` + `:app`)
 
 - `SyncedTrackRepository`: Stores synchronized tracks and manifest metadata in SQLite via Room (`CachedTrack`).
 - `SyncWorker`: Executes background transfers using `WorkManager` with network constraint policies and automatic resumption.
@@ -118,7 +129,7 @@ Official lightweight protocol for streaming to embedded receivers (ESP32-S3 + DA
 
 ---
 
-## 6. Design System: Digital Ethereal
+## 7. Design System: Digital Ethereal
 
 - **Color Palette**: Obsidian Base (`#090B11`), Smoked Glass (`0x1FFFFFFF`), Emotional Pink (`#FF6B9D`), Cyan Feedback (`#4DEEEA`).
 - **Typography & Geometry**: Clean sans-serif hierarchy, 14–26dp corner radii, responsive layout adaptation.

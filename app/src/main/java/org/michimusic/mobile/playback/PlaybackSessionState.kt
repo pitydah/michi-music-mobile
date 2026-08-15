@@ -11,6 +11,14 @@ enum class EndpointType {
     UNKNOWN,
 }
 
+enum class StreamErrorReason {
+    FORMAT_UNSUPPORTED,
+    RECEIVER_NEGOTIATION_FAILED,
+    RTP_START_FAILED,
+    SESSION_EXPIRED,
+    NETWORK_LOST,
+}
+
 data class PlaybackEndpoint(
     val id: String,
     val name: String,
@@ -45,4 +53,5 @@ data class PlaybackSessionState(
     val isRemoteActive: Boolean = false,
     val remoteVolume: Int = 50,
     val statusMessage: String? = null,
+    val lastSessionError: StreamErrorReason? = null,
 )

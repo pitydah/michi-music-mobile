@@ -288,7 +288,11 @@ class PlaybackSessionManager(
         }
     }
 
-    fun selectLocalEndpoint() {
+    fun selectLocalEndpoint(
+        reason: StreamErrorReason? = null,
+        message: String? = null
+    ) {
+        val wasRemote = isRemoteSelected
         isRemoteSelected = false
         stopRemoteSync()
         formatObserverJob?.cancel()
@@ -299,8 +303,10 @@ class PlaybackSessionManager(
         if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
             val client = connectionManager.getClient(activeEp.id)
             val sTok = activeReceiverSessionToken
-            scope.launch(Dispatchers.IO) {
-                client?.deleteReceiverLiteSession(sTok)
+            if (sTok != null) {
+                scope.launch(Dispatchers.IO) {
+                    runCatching { client?.deleteReceiverLiteSession(sTok) }
+                }
             }
         }
         activeReceiverSessionId = null
@@ -319,6 +325,8 @@ class PlaybackSessionManager(
             repeatMode = local?.repeatMode ?: 0,
             shuffleMode = if (local?.shuffleMode == true) 1 else 0,
             isRemoteActive = false,
+            lastSessionError = reason,
+            statusMessage = message ?: if (wasRemote) "Reproduciendo en este teléfono" else null
         )
     }
 
@@ -771,7 +779,10 @@ class PlaybackSessionManager(
         )
 
         if (newReq == null) {
-            selectLocalEndpoint()
+            selectLocalEndpoint(
+                reason = StreamErrorReason.FORMAT_UNSUPPORTED,
+                message = "Esta pista no es compatible con Michi Stream; la reproducción continúa en este teléfono"
+            )
             return
         }
 
@@ -784,7 +795,10 @@ class PlaybackSessionManager(
                 if (sessionResp.sessionToken.isNotEmpty()) {
                     runCatching { client.deleteReceiverLiteSession(sessionResp.sessionToken) }
                 }
-                selectLocalEndpoint()
+                selectLocalEndpoint(
+                    reason = StreamErrorReason.FORMAT_UNSUPPORTED,
+                    message = "Esta pista no es compatible con Michi Stream; la reproducción continúa en este teléfono"
+                )
                 return@onSuccess
             }
 
@@ -818,17 +832,26 @@ class PlaybackSessionManager(
                         )
                         if (hbResult.isFailure) {
                             withContext(Dispatchers.Main) {
-                                selectLocalEndpoint()
+                                selectLocalEndpoint(
+                                    reason = StreamErrorReason.SESSION_EXPIRED,
+                                    message = "Se perdió la sesión con Michi Stream; la reproducción continúa en este teléfono"
+                                )
                             }
                             break
                         }
                     }
                 }
             } else {
-                selectLocalEndpoint()
+                selectLocalEndpoint(
+                    reason = StreamErrorReason.RTP_START_FAILED,
+                    message = "No se pudo iniciar la transmisión de audio; la reproducción continúa en este teléfono"
+                )
             }
         }.onFailure {
-            selectLocalEndpoint()
+            selectLocalEndpoint(
+                reason = StreamErrorReason.RECEIVER_NEGOTIATION_FAILED,
+                message = "No se pudo renegociar la sesión con Michi Stream; la reproducción continúa en este teléfono"
+            )
         }
     }
 }

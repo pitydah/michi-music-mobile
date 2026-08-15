@@ -77,6 +77,48 @@ class RtpPcmAudioTapTest {
     }
 
     @Test
+    fun `changing channels or bit depth locks emission atomically via isRenegotiating until resumed`() {
+        val tap = RtpPcmAudioTap()
+        val format16Stereo = AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format16Stereo)
+
+        var emissionCount = 0
+        tap.pcmChunkListener = { emissionCount++ }
+        tap.isEnabled = true
+
+        val inputData16 = byteArrayOf(1, 2, 3, 4)
+        val buf1 = ByteBuffer.allocateDirect(inputData16.size).order(ByteOrder.nativeOrder())
+        buf1.put(inputData16)
+        buf1.flip()
+        tap.queueInput(buf1)
+
+        assertEquals(1, emissionCount)
+
+        // Change to 24-bit PCM
+        val format24Stereo = AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_24BIT)
+        tap.configure(format24Stereo)
+
+        assertTrue("isRenegotiating must be true on bit-depth change", tap.isRenegotiating)
+        assertEquals(24, tap.activeFormat?.bitDepth)
+
+        val inputData24 = byteArrayOf(1, 2, 3, 4, 5, 6)
+        val buf2 = ByteBuffer.allocateDirect(inputData24.size).order(ByteOrder.nativeOrder())
+        buf2.put(inputData24)
+        buf2.flip()
+        tap.queueInput(buf2)
+
+        assertEquals("No 24-bit data should reach 16-bit listener during renegotiation", 1, emissionCount)
+
+        tap.isRenegotiating = false
+        val buf3 = ByteBuffer.allocateDirect(inputData24.size).order(ByteOrder.nativeOrder())
+        buf3.put(inputData24)
+        buf3.flip()
+        tap.queueInput(buf3)
+
+        assertEquals(2, emissionCount)
+    }
+
+    @Test
     fun `tap forwards pcm chunks to listener when enabled`() {
         val tap = RtpPcmAudioTap()
         val format = AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT)

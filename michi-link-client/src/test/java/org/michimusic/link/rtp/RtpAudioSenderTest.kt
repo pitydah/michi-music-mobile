@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.link.dto.ReceiverSessionEffectiveDto
@@ -317,5 +318,38 @@ class RtpAudioSenderTest {
 
         sender.stop()
         assertFalse(sender.getMetrics().isActive)
+    }
+
+    @Test
+    fun `burst sending induces buffer overflow and tracks metrics cleanly`() = runTest {
+        var errorTriggered: Exception? = null
+        val effective = ReceiverSessionEffectiveDto(
+            transport = "rtp_udp",
+            codec = "pcm_s16le",
+            sampleRate = 48000,
+            bitDepth = 16,
+            channels = 2,
+            packetMs = 10,
+            bufferMs = 120,
+            payloadType = 97,
+            ssrc = 777L,
+            streamPort = 5004,
+            volume = 70
+        )
+
+        val sender = RtpAudioSender()
+        sender.onError = { errorTriggered = it }
+        sender.start("127.0.0.1", effective, this)
+
+        // Send a massive burst of chunks in a tight loop to overflow channel capacity
+        for (i in 0 until 500) {
+            sender.sendPcmChunk(ByteArray(1920))
+        }
+
+        val metrics = sender.getMetrics()
+        assertTrue("Burst must record received bytes", metrics.pcmBytesReceived > 0)
+        assertTrue("Burst must record total overflows", metrics.bufferOverflowsTotal > 0)
+
+        sender.stop()
     }
 }

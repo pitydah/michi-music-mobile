@@ -370,6 +370,173 @@ class PlaybackSessionManagerTest {
     }
 
     @Test
+    fun dynamicFormatChange_toIncompatibleFormat_fallsBackToLocalCleanlyWithReason() {
+        val formatFlow = MutableStateFlow<PcmFormat?>(PcmFormat(sampleRate = 44100, channels = 2, bitDepth = 16, codec = "pcm_s16le"))
+        PlayerDependencies.mockPcmFormatFlow = formatFlow
+        PlayerDependencies.mockPcmFormatForTesting = formatFlow.value
+
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        every { linkClient.baseUrl } returns "http://192.168.1.50:8400"
+        coEvery { linkClient.getServerInfo() } returns Result.success(
+            ServerInfoDto(
+                server = "stream_1",
+                audio = AudioCapabilitiesDto(
+                    transports = listOf("rtp_udp"),
+                    codecs = listOf("pcm_s16le"),
+                    sampleRates = listOf(44100, 48000),
+                    bitDepths = listOf(16),
+                    channels = listOf(2),
+                    packetMs = listOf(10),
+                    payloadTypes = listOf(97)
+                )
+            )
+        )
+        coEvery { linkClient.createReceiverLiteSession(any()) } returns Result.success(
+            ReceiverSessionCreateResponse(
+                sessionId = "s_44100",
+                sessionToken = "tok_44100",
+                leaseSeconds = 30,
+                effective = ReceiverSessionEffectiveDto(
+                    transport = "rtp_udp",
+                    codec = "pcm_s16le",
+                    sampleRate = 44100,
+                    bitDepth = 16,
+                    channels = 2,
+                    packetMs = 10,
+                    bufferMs = 120,
+                    payloadType = 97,
+                    ssrc = 1000L,
+                    streamPort = 5004,
+                    volume = 70
+                )
+            )
+        )
+        coEvery { linkClient.deleteReceiverLiteSession(any()) } returns Result.success(Unit)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "stream_1") linkClient else null
+        }
+        connectionManager.updateState("stream_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+        
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+        
+        val receiverEndpoint = PlaybackEndpoint("stream_1", "Michi Stream Receiver", EndpointType.STREAM_RECEIVER, isLocal = false, capabilities = setOf("PLAYBACK", "AUDIO_OUTPUT"))
+        manager.handoffTo(receiverEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(EndpointType.STREAM_RECEIVER, manager.sessionState.value.activeEndpoint.type)
+
+        // Switch to incompatible 96 kHz track
+        formatFlow.value = PcmFormat(sampleRate = 96000, channels = 2, bitDepth = 16, codec = "pcm_s16le")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Verify fallback to local phone with structured error reason
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+        assertFalse(manager.sessionState.value.isRemoteActive)
+        assertEquals(StreamErrorReason.FORMAT_UNSUPPORTED, manager.sessionState.value.lastSessionError)
+        assertTrue(manager.sessionState.value.statusMessage?.contains("no es compatible") == true)
+        coVerify(atLeast = 1) { linkClient.deleteReceiverLiteSession("tok_44100") }
+    }
+
+    @Test
+    fun dynamicFormatChange_createSessionFailure_tearsDownCleanlyWithReason() {
+        val formatFlow = MutableStateFlow<PcmFormat?>(PcmFormat(sampleRate = 44100, channels = 2, bitDepth = 16, codec = "pcm_s16le"))
+        PlayerDependencies.mockPcmFormatFlow = formatFlow
+        PlayerDependencies.mockPcmFormatForTesting = formatFlow.value
+
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        every { linkClient.baseUrl } returns "http://192.168.1.50:8400"
+        coEvery { linkClient.getServerInfo() } returns Result.success(
+            ServerInfoDto(
+                server = "stream_1",
+                audio = AudioCapabilitiesDto(
+                    transports = listOf("rtp_udp"),
+                    codecs = listOf("pcm_s16le"),
+                    sampleRates = listOf(44100, 48000),
+                    bitDepths = listOf(16),
+                    channels = listOf(2),
+                    packetMs = listOf(10),
+                    payloadTypes = listOf(97)
+                )
+            )
+        )
+        // First session succeeds, subsequent renegotiation call fails
+        coEvery { linkClient.createReceiverLiteSession(match { it.sampleRate == 44100 }) } returns Result.success(
+            ReceiverSessionCreateResponse(
+                sessionId = "s_44100",
+                sessionToken = "tok_44100",
+                leaseSeconds = 30,
+                effective = ReceiverSessionEffectiveDto(
+                    transport = "rtp_udp",
+                    codec = "pcm_s16le",
+                    sampleRate = 44100,
+                    bitDepth = 16,
+                    channels = 2,
+                    packetMs = 10,
+                    bufferMs = 120,
+                    payloadType = 97,
+                    ssrc = 1000L,
+                    streamPort = 5004,
+                    volume = 70
+                )
+            )
+        )
+        coEvery { linkClient.createReceiverLiteSession(match { it.sampleRate == 48000 }) } returns Result.failure(
+            Exception("Receiver overloaded")
+        )
+        coEvery { linkClient.deleteReceiverLiteSession(any()) } returns Result.success(Unit)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "stream_1") linkClient else null
+        }
+        connectionManager.updateState("stream_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+        
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+        
+        val receiverEndpoint = PlaybackEndpoint("stream_1", "Michi Stream Receiver", EndpointType.STREAM_RECEIVER, isLocal = false, capabilities = setOf("PLAYBACK", "AUDIO_OUTPUT"))
+        manager.handoffTo(receiverEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(EndpointType.STREAM_RECEIVER, manager.sessionState.value.activeEndpoint.type)
+
+        // Switch to 48 kHz track which fails at receiver creation
+        formatFlow.value = PcmFormat(sampleRate = 48000, channels = 2, bitDepth = 16, codec = "pcm_s16le")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Verify fallback to local phone with structured error reason
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+        assertFalse(manager.sessionState.value.isRemoteActive)
+        assertEquals(StreamErrorReason.RECEIVER_NEGOTIATION_FAILED, manager.sessionState.value.lastSessionError)
+        coVerify(atLeast = 1) { linkClient.deleteReceiverLiteSession("tok_44100") }
+    }
+
+    @Test
     fun authoritativeControls_localMode() {
         val audioController = mockk<AudioController>(relaxed = true)
         val dummyStateFlow = MutableStateFlow(PlayerState())
