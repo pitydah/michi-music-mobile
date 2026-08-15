@@ -15,6 +15,19 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
+ * Diagnostic metrics snapshot for RTP audio streaming.
+ */
+data class RtpMetrics(
+    val packetsSent: Long,
+    val pcmBytesReceived: Long,
+    val pcmBytesDropped: Long,
+    val bufferOverflowsTotal: Long,
+    val consecutiveOverflows: Int,
+    val socketErrors: Long,
+    val isActive: Boolean,
+)
+
+/**
  * Encapsulates PCM audio into RFC 3550 RTP packets and transmits them via UDP
  * to a Michi Stream receiver device.
  */
@@ -50,12 +63,24 @@ class RtpAudioSender(
         private set
     var pcmBytesDropped: Long = 0
         private set
-    var bufferOverflows: Long = 0
+    var bufferOverflowsTotal: Long = 0
+        private set
+    var consecutiveOverflows: Int = 0
         private set
     var socketErrors: Long = 0
         private set
 
     val isActive: Boolean get() = isStreaming
+
+    fun getMetrics(): RtpMetrics = RtpMetrics(
+        packetsSent = packetsSent,
+        pcmBytesReceived = pcmBytesReceived,
+        pcmBytesDropped = pcmBytesDropped,
+        bufferOverflowsTotal = bufferOverflowsTotal,
+        consecutiveOverflows = consecutiveOverflows,
+        socketErrors = socketErrors,
+        isActive = isStreaming,
+    )
 
     fun start(
         targetHost: String,
@@ -80,7 +105,8 @@ class RtpAudioSender(
         packetsSent = 0
         pcmBytesReceived = 0
         pcmBytesDropped = 0
-        bufferOverflows = 0
+        bufferOverflowsTotal = 0
+        consecutiveOverflows = 0
         socketErrors = 0
 
         val channel = Channel<ByteArray>(capacity = 128)
@@ -151,12 +177,15 @@ class RtpAudioSender(
         pcmBytesReceived += pcmData.size
 
         val result = ch.trySend(pcmData)
-        if (!result.isSuccess) {
-            bufferOverflows++
+        if (result.isSuccess) {
+            consecutiveOverflows = 0
+        } else {
+            bufferOverflowsTotal++
+            consecutiveOverflows++
             pcmBytesDropped += pcmData.size
 
-            if (bufferOverflows >= MAX_SUSTAINED_OVERFLOWS) {
-                onError?.invoke(IllegalStateException("Sustained RTP buffer overflow: network socket clogged"))
+            if (consecutiveOverflows >= MAX_SUSTAINED_OVERFLOWS) {
+                onError?.invoke(IllegalStateException("Sustained RTP buffer overflow ($consecutiveOverflows consecutive drops): network socket clogged"))
             }
         }
     }

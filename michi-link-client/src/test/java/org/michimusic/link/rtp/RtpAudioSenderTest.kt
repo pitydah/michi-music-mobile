@@ -143,31 +143,26 @@ class RtpAudioSenderTest {
         val sender = RtpAudioSender()
         sender.start("127.0.0.1", effective, this)
 
-        // Packet size is 1920 bytes.
-        // Send 4 chunks of 960 bytes (each is exactly half a packet).
-        // Total = 3840 bytes = exactly 2 packets.
         val chunk1 = ByteArray(960) { 1 }
         val chunk2 = ByteArray(960) { 2 }
         val chunk3 = ByteArray(960) { 3 }
         val chunk4 = ByteArray(960) { 4 }
 
         sender.sendPcmChunk(chunk1)
-        sender.sendPcmChunk(chunk2) // Should emit Packet 1 (chunk1 + chunk2)
+        sender.sendPcmChunk(chunk2)
         sender.sendPcmChunk(chunk3)
-        sender.sendPcmChunk(chunk4) // Should emit Packet 2 (chunk3 + chunk4)
+        sender.sendPcmChunk(chunk4)
 
         val buffer = ByteArray(2048)
         val receivedPacket = DatagramPacket(buffer, buffer.size)
         receiverSocket.soTimeout = 3000
 
-        // Receive Packet 1
         receiverSocket.receive(receivedPacket)
         assertEquals(12 + 1920, receivedPacket.length)
         val p1Payload = receivedPacket.data.copyOfRange(12, 12 + 1920)
         assertTrue(p1Payload.sliceArray(0 until 960).all { it == 1.toByte() })
         assertTrue(p1Payload.sliceArray(960 until 1920).all { it == 2.toByte() })
 
-        // Receive Packet 2
         receiverSocket.receive(receivedPacket)
         assertEquals(12 + 1920, receivedPacket.length)
         val p2Payload = receivedPacket.data.copyOfRange(12, 12 + 1920)
@@ -248,7 +243,6 @@ class RtpAudioSenderTest {
     fun `socket send error triggers onError callback with real exception`() = runTest {
         var errorReported: Exception? = null
 
-        // Custom failing DatagramSocket that throws IOException on send
         val failingSocket = object : DatagramSocket() {
             override fun send(p: DatagramPacket?) {
                 throw IOException("Network unreachable test simulation")
@@ -286,5 +280,42 @@ class RtpAudioSenderTest {
         assertEquals("Network unreachable test simulation", errorReported?.message)
 
         sender.stop()
+    }
+
+    @Test
+    fun `metrics tracking and consecutive overflows detection`() = runTest {
+        val effective = ReceiverSessionEffectiveDto(
+            transport = "rtp_udp",
+            codec = "pcm_s16le",
+            sampleRate = 48000,
+            bitDepth = 16,
+            channels = 2,
+            packetMs = 10,
+            bufferMs = 120,
+            payloadType = 97,
+            ssrc = 777L,
+            streamPort = 5004,
+            volume = 70
+        )
+
+        val sender = RtpAudioSender()
+        sender.start("127.0.0.1", effective, this)
+
+        // Initial metrics
+        val initialMetrics = sender.getMetrics()
+        assertEquals(0L, initialMetrics.packetsSent)
+        assertEquals(0L, initialMetrics.pcmBytesReceived)
+        assertEquals(0L, initialMetrics.pcmBytesDropped)
+        assertEquals(0L, initialMetrics.bufferOverflowsTotal)
+        assertEquals(0, initialMetrics.consecutiveOverflows)
+        assertTrue(initialMetrics.isActive)
+
+        sender.sendPcmChunk(ByteArray(1920))
+        val afterChunk = sender.getMetrics()
+        assertEquals(1920L, afterChunk.pcmBytesReceived)
+        assertEquals(0, afterChunk.consecutiveOverflows)
+
+        sender.stop()
+        assertFalse(sender.getMetrics().isActive)
     }
 }

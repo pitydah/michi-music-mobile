@@ -85,13 +85,14 @@ Michi Link is the official interoperability contract across all ecosystem compon
 - **Identity Pinning**: On reconnection, `ConnectionManager` verifies that the remote node's `michi_id`, `server_id`, and `public_key` strictly match the pinned credentials saved during pairing. If mismatch is detected, connection is rejected with `SyncConnectionState.UNAUTHORIZED`.
 - **Header Isolation**: Requests send `X-Michi-Device-Id: <pairedClientDeviceId>` and `Authorization: Bearer <deviceToken>`. Connecting to Device A never leaks or reuses credentials of Device B.
 
-### 3. Canonical Pairing Strategies
-The client implements an exhaustive pairing state machine across 5 strategies:
-1. `SERVER_CODE`: Server displays numeric PIN; mobile confirms with cryptographic signature + PIN.
-2. `RECEIVER_BUTTON`: Physical button on Michi Stream initiates pairing; mobile confirms with challenge signature + PIN.
-3. `PLAYER_PASSWORD`: Direct username/password authentication for desktop players.
-4. `ED25519_CHALLENGE`: Cryptographic challenge signature without manual PIN input.
-5. `LEGACY`: Fallback credentials for legacy servers.
+### 3. Canonical Pairing Strategies & Legacy Profiles
+The client implements an exhaustive pairing state machine:
+- **Canonical v1 Cryptographic Handshake**:
+  1. `ED25519_CHALLENGE`: Cryptographic challenge-response authorization without manual PIN (`pin = null`).
+  2. `SERVER_CODE`: Server displays numeric PIN; mobile confirms with cryptographic signature + PIN string.
+  3. `RECEIVER_BUTTON`: Physical button press on Michi Stream initiates pairing; mobile confirms with challenge signature + PIN.
+- **Legacy Compatibility Profile**:
+  4. `PLAYER_PASSWORD` / `LEGACY`: Explicit legacy compatibility profile for username/password authentication with desktop players, isolated from canonical v1 cryptographic pairing.
 
 ### 4. Michi Stream Protocol (`ReceiverLite`)
 Official lightweight protocol for streaming to embedded receivers (ESP32-S3 + DAC):
