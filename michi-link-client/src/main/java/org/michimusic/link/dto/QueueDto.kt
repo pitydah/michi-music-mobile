@@ -26,3 +26,23 @@ data class QueueTrackDto(
 data class QueueJumpRequestDto(
     val index: Int,
 )
+
+@Serializable
+data class QueueRepeatRequestDto(
+    val mode: String, // "off", "one", "all"
+)
+
+@Serializable
+data class QueueRepeatResponseDto(
+    @SerialName("repeat_mode") val repeatMode: String,
+)
+
+@Serializable
+data class QueueShuffleRequestDto(
+    val enabled: Boolean,
+)
+
+@Serializable
+data class QueueShuffleResponseDto(
+    @SerialName("shuffle_enabled") val shuffleEnabled: Boolean,
+)

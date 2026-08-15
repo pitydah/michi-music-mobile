@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,6 +35,8 @@ class PlaybackSessionManager(
     private var eventClient: org.michimusic.link.EventClient? = null
     private var eventJob: Job? = null
     private var remotePollingJob: Job? = null
+    private var receiverHeartbeatJob: Job? = null
+    private var currentReceiverSequence = 1L
     private var isRemoteSelected = false
 
     init {
@@ -161,13 +164,18 @@ class PlaybackSessionManager(
         }
         ec.connect(scope)
 
-        // 2. Initial fetch & Fallback polling (when SSE disconnected or periodic sync)
+        // 2. Initial fetch & Fallback polling (strictly fallback when SSE disconnected)
         remotePollingJob = scope.launch(Dispatchers.IO) {
             refreshRemotePlayback(client, peer, deviceId)
             while (isActive && connectionManager.connectionStates.value[deviceId] == SyncConnectionState.CONNECTED) {
-                delay(if (ec.connectionState.value == org.michimusic.link.EventConnectionState.CONNECTED) 15_000 else 3_000)
-                if (isRemoteSelected) {
-                    refreshRemotePlayback(client, peer, deviceId)
+                if (ec.connectionState.value == org.michimusic.link.EventConnectionState.CONNECTED) {
+                    // Polling is completely OFF while SSE is connected. Wait until SSE state changes away from CONNECTED.
+                    ec.connectionState.first { it != org.michimusic.link.EventConnectionState.CONNECTED }
+                } else {
+                    delay(3_000)
+                    if (isRemoteSelected) {
+                        refreshRemotePlayback(client, peer, deviceId)
+                    }
                 }
             }
         }
@@ -208,6 +216,8 @@ class PlaybackSessionManager(
         eventClient = null
         remotePollingJob?.cancel()
         remotePollingJob = null
+        receiverHeartbeatJob?.cancel()
+        receiverHeartbeatJob = null
     }
 
     private fun applyRemoteState(peer: DiscoveredPeer, dto: PlaybackStateDto, queueDto: org.michimusic.link.dto.QueueDto?, deviceId: String) {
@@ -256,6 +266,14 @@ class PlaybackSessionManager(
 
     fun selectLocalEndpoint() {
         isRemoteSelected = false
+        stopRemoteSync()
+        val activeEp = _sessionState.value.activeEndpoint
+        if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
+            val client = connectionManager.getClient(activeEp.id)
+            scope.launch(Dispatchers.IO) {
+                client?.deleteReceiverLiteSession()
+            }
+        }
         val local = audioController?.state?.value
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = PlaybackEndpoint.LocalPhone,
@@ -318,7 +336,7 @@ class PlaybackSessionManager(
                 onResult(true, "Reproduciendo en este teléfono")
             }
         } else if (target.type == EndpointType.STREAM_RECEIVER || target.capabilities.contains("AUDIO_OUTPUT")) {
-            // Specific Audio Receiver Semantics: Target is an audio sink (Michi Stream receiver), not a playback host
+            // Canonical ReceiverLite protocol for Michi Stream
             val client = connectionManager.getClient(target.id)
             if (client == null) {
                 onResult(false, "No hay conexión activa con ${target.name}")
@@ -326,21 +344,24 @@ class PlaybackSessionManager(
             }
 
             scope.launch {
-                client.sendPlaybackCommand("play").onSuccess {
+                client.createReceiverLiteSession().onSuccess { sessionResp ->
+                    currentReceiverSequence = 1L
+                    receiverHeartbeatJob?.cancel()
+                    receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
+                        while (isActive && isRemoteSelected) {
+                            delay(10_000)
+                            client.sendReceiverLiteHeartbeat(currentReceiverSequence++)
+                        }
+                    }
                     isRemoteSelected = true
                     _sessionState.value = _sessionState.value.copy(
                         activeEndpoint = target,
                         isRemoteActive = true,
                     )
-                    onResult(true, "Enviando audio a ${target.name}")
-                }.onFailure {
-                    // Fallback to attaching endpoint directly
-                    isRemoteSelected = true
-                    _sessionState.value = _sessionState.value.copy(
-                        activeEndpoint = target,
-                        isRemoteActive = true,
-                    )
-                    onResult(true, "Conectado a receptor ${target.name}")
+                    onResult(true, "Sesión de audio activa en ${target.name}")
+                }.onFailure { err ->
+                    // Honest UI: Do not report success on real failure
+                    onResult(false, "Error al iniciar sesión en receptor ${target.name}: ${err.message}")
                 }
             }
         } else {
@@ -358,8 +379,19 @@ class PlaybackSessionManager(
                 val pos = _sessionState.value.position
                 
                 if (q.isNotEmpty()) {
+                    // Resolve/map track IDs to server catalog where possible
+                    val resolvedTrackIds = q.map { track ->
+                        if (track.source == TrackSource.STREAMING && track.id.isNotEmpty()) {
+                            track.id
+                        } else {
+                            val searchResult = client.search(track.title).getOrNull()
+                            val match = searchResult?.firstOrNull { it.title.equals(track.title, ignoreCase = true) }
+                            match?.effectiveId ?: track.id
+                        }
+                    }
+
                     val req = org.michimusic.link.dto.QueueTransferRequest(
-                        trackIds = q.map { it.id },
+                        trackIds = resolvedTrackIds,
                         currentIndex = idx.coerceAtLeast(0),
                         positionMs = pos,
                         source = "local"
@@ -472,7 +504,7 @@ class PlaybackSessionManager(
         if (_sessionState.value.isRemoteActive) {
             val repeatStr = when (mode) { 1 -> "one"; 2 -> "all"; else -> "off" }
             scope.launch {
-                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("repeat", repeatStr)
+                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.setQueueRepeatMode(repeatStr)
             }
         } else {
             audioController?.setRepeatMode(mode)
@@ -493,7 +525,7 @@ class PlaybackSessionManager(
         _sessionState.value = _sessionState.value.copy(shuffleMode = mode)
         if (_sessionState.value.isRemoteActive) {
             scope.launch {
-                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("shuffle", if (mode == 1) "true" else "false")
+                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.setQueueShuffle(mode == 1)
             }
         } else {
             audioController?.setShuffleMode(mode == 1)

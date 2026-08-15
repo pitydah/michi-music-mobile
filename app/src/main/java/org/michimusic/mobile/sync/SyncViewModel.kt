@@ -241,7 +241,45 @@ class SyncViewModel(
         }
     }
 
+    fun preparePairing(peer: DiscoveredPeer, onStrategyResolved: (PairingStrategy, String) -> Unit) {
+        stopDiscovery()
+        val client = LinkClient(
+            baseUrl = "http://${peer.ip}:${peer.port}",
+            clientDeviceId = identity.michiId,
+        )
+        currentClient = client
+        _connectedPeer.value = peer
+
+        viewModelScope.launch {
+            val serverInfo = client.getServerInfo().getOrNull()
+            val resolvedDeviceId = resolveServerDeviceId(client, peer)
+            val strategy = serverInfo?.effectiveAuthStrategy ?: (
+                if (peer.deviceType.lowercase() in listOf("receiver", "stream")) PairingStrategy.RECEIVER_BUTTON
+                else if (peer.authRequired) PairingStrategy.SERVER_CODE
+                else PairingStrategy.ED25519_CHALLENGE
+            )
+            _pairingStrategy.value = strategy
+
+            val existingDevice = registry.getDevice(resolvedDeviceId)
+            if (existingDevice != null && existingDevice.deviceToken.isNotEmpty()) {
+                client.deviceToken = existingDevice.deviceToken
+                if (client.getServerInfo().isSuccess) {
+                    _connectionState.value = SyncConnectionState.CONNECTED
+                    return@launch
+                }
+            }
+
+            _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
+            val serverName = serverInfo?.effectiveName ?: peer.alias.ifEmpty { "Michi Node" }
+            onStrategyResolved(strategy, serverName)
+        }
+    }
+
     fun startPairing(peer: DiscoveredPeer? = _connectedPeer.value, username: String = "", password: String = "", pin: String = "") {
+        confirmPairing(pin = pin, username = username, password = password, peer = peer)
+    }
+
+    fun confirmPairing(pin: String, username: String = "", password: String = "", peer: DiscoveredPeer? = _connectedPeer.value) {
         if (peer != null) _connectedPeer.value = peer
         val client = currentClient ?: return
         val strategy = _pairingStrategy.value
@@ -340,8 +378,10 @@ class SyncViewModel(
                     )
                     client.pairConfirm(confirmReq).onSuccess { confirmResp ->
                         val effectiveToken = confirmResp.token
-                        val resolvedDeviceId = confirmResp.serverId.ifEmpty {
-                            client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
+                        val resolvedDeviceId = confirmResp.deviceId.ifEmpty {
+                            confirmResp.serverId.ifEmpty {
+                                client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
+                            }
                         }
                         val serverInfo = client.getServerInfo().getOrNull()
                         val device = org.michimusic.link.PairedDevice(
@@ -360,7 +400,7 @@ class SyncViewModel(
                             serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
                             michiId = startResp.serverMichiId,
                             publicKey = startResp.serverPublicKey,
-                            identityScheme = "ed25519",
+                            identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
                         )
                         registry.saveDevice(device)
                         
@@ -539,7 +579,7 @@ class SyncViewModel(
         }
     }
 
-    fun pairWithQr(qrData: String, pin: String = "000000", onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+    fun pairWithQr(qrData: String, pin: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val parser = org.michimusic.link.identity.QrPairingParser(identity)
         val result = parser.parseAndValidate(qrData)
         if (result.isFailure) {
@@ -551,11 +591,7 @@ class SyncViewModel(
 
         viewModelScope.launch {
             try {
-                val url = if (canonicalQr.endpoint.startsWith("http://") || canonicalQr.endpoint.startsWith("https://")) {
-                    canonicalQr.endpoint
-                } else {
-                    "http://${canonicalQr.endpoint}"
-                }
+                val url = canonicalQr.endpoint
                 val client = LinkClient(
                     baseUrl = url,
                     clientDeviceId = identity.michiId
@@ -570,8 +606,11 @@ class SyncViewModel(
                 
                 client.pairConfirm(req).onSuccess { confirmResp ->
                     val serverInfo = client.getServerInfoWithFallback().getOrNull()
+                    val resolvedDeviceId = confirmResp.deviceId.ifEmpty {
+                        confirmResp.serverId.ifEmpty { canonicalQr.serverMichiId }
+                    }
                     val device = org.michimusic.link.PairedDevice(
-                        deviceId = confirmResp.serverId.ifEmpty { canonicalQr.serverMichiId },
+                        deviceId = resolvedDeviceId,
                         deviceName = serverInfo?.effectiveName ?: "Servidor Michi",
                         serviceType = serverInfo?.service ?: "",
                         deviceToken = confirmResp.token,
@@ -586,7 +625,7 @@ class SyncViewModel(
                         serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
                         michiId = canonicalQr.serverMichiId,
                         publicKey = canonicalQr.serverPublicKey,
-                        identityScheme = "ed25519",
+                        identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
                     )
                     registry.saveDevice(device)
                     _connectionState.value = SyncConnectionState.PAIRED

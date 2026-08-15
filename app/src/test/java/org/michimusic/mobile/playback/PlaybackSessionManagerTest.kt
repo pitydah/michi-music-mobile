@@ -55,6 +55,7 @@ class PlaybackSessionManagerTest {
         val registry = mockk<org.michimusic.link.PairedDeviceRegistry>(relaxed = true)
         every { registry.getAllDevices() } returns emptyList()
         
+        coEvery { linkClient.search(any()) } returns Result.success(listOf(org.michimusic.link.dto.TrackResponseDto(id = "srv_t1", title = "Test")))
         coEvery { linkClient.transferQueue(any()) } returns Result.success(org.michimusic.link.dto.QueueTransferResponse(success = true, sessionId = "s1"))
 
         val manager = PlaybackSessionManager(
@@ -130,8 +131,14 @@ class PlaybackSessionManagerTest {
     @Test
     fun handoffToReceiver_doesNotTransferQueue() {
         val linkClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
-        coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
-        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        coEvery { linkClient.createReceiverLiteSession(any()) } returns Result.success(
+            org.michimusic.link.dto.ReceiverSessionCreateResponse(
+                sessionId = "s1",
+                sessionToken = "tok",
+                leaseSeconds = 30,
+                effective = org.michimusic.link.dto.ReceiverSessionEffectiveDto(streamPort = 5004)
+            )
+        )
         val connectionManager = object : org.michimusic.link.ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): org.michimusic.link.LinkClient? = if (deviceId == "stream_1") linkClient else null
         }

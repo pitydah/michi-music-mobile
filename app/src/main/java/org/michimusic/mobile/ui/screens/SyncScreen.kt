@@ -90,8 +90,9 @@ fun SyncScreen(
 
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
-    var pendingPeerForPin by remember { mutableStateOf<DiscoveredPeer?>(null) }
-    var pendingPeerForReceiver by remember { mutableStateOf<DiscoveredPeer?>(null) }
+    var pendingPeerForPin by remember { mutableStateOf<Pair<DiscoveredPeer, String>?>(null) }
+    var pendingPeerForReceiver by remember { mutableStateOf<Pair<DiscoveredPeer, String>?>(null) }
+    var pendingQrForPin by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         if (uiState.state == SyncConnectionState.DISCONNECTED) {
@@ -309,13 +310,18 @@ fun SyncScreen(
                         DiscoveredPeerViewItem(
                             peer = peer,
                             onConnect = {
-                                val isReceiver = peer.deviceType.lowercase() in listOf("receiver", "stream")
-                                if (isReceiver) {
-                                    pendingPeerForReceiver = peer
-                                } else if (peer.authRequired) {
-                                    pendingPeerForPin = peer
-                                } else {
-                                    viewModel.selectPeer(peer)
+                                viewModel.preparePairing(peer) { strategy, serverName ->
+                                    when (strategy) {
+                                        org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> {
+                                            pendingPeerForPin = peer to serverName
+                                        }
+                                        org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
+                                            pendingPeerForReceiver = peer to serverName
+                                        }
+                                        else -> {
+                                            viewModel.confirmPairing(pin = "", peer = peer)
+                                        }
+                                    }
                                 }
                             },
                         )
@@ -371,9 +377,7 @@ fun SyncScreen(
             QrScannerDialog(
                 onScanSuccess = { code ->
                     showQrDialog = false
-                    viewModel.pairWithQr(code) { success, msg ->
-                        // Status updated via viewModel.uiState
-                    }
+                    pendingQrForPin = code
                 },
                 onDismiss = { showQrDialog = false },
             )
@@ -398,13 +402,26 @@ fun SyncScreen(
             )
         }
 
-        if (pendingPeerForPin != null) {
-            val peer = pendingPeerForPin!!
+        if (pendingQrForPin != null) {
+            val qrCode = pendingQrForPin!!
             PinPairingDialog(
-                deviceName = peer.alias.ifEmpty { "Michi Server" },
+                deviceName = "Dispositivo QR",
                 onConfirm = { pin ->
-                    viewModel.selectPeer(peer)
-                    viewModel.startPairing(pin = pin)
+                    viewModel.pairWithQr(qrCode, pin) { success, msg ->
+                        // Status updated via viewModel.uiState
+                    }
+                    pendingQrForPin = null
+                },
+                onDismiss = { pendingQrForPin = null },
+            )
+        }
+
+        if (pendingPeerForPin != null) {
+            val (peer, serverName) = pendingPeerForPin!!
+            PinPairingDialog(
+                deviceName = serverName,
+                onConfirm = { pin ->
+                    viewModel.confirmPairing(pin = pin, peer = peer)
                     pendingPeerForPin = null
                 },
                 onDismiss = { pendingPeerForPin = null },
@@ -412,12 +429,11 @@ fun SyncScreen(
         }
 
         if (pendingPeerForReceiver != null) {
-            val peer = pendingPeerForReceiver!!
+            val (peer, serverName) = pendingPeerForReceiver!!
             ReceiverButtonPairingDialog(
-                deviceName = peer.alias.ifEmpty { "Michi Stream" },
-                onConfirm = {
-                    viewModel.selectPeer(peer)
-                    viewModel.startPairing()
+                deviceName = serverName,
+                onConfirm = { pin ->
+                    viewModel.confirmPairing(pin = pin, peer = peer)
                     pendingPeerForReceiver = null
                 },
                 onDismiss = { pendingPeerForReceiver = null },

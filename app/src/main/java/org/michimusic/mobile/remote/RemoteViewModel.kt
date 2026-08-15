@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.link.EventClient
@@ -57,216 +58,104 @@ class RemoteViewModel(
     private val _uiState = MutableStateFlow(RemoteUiState())
     val uiState: StateFlow<RemoteUiState> = _uiState.asStateFlow()
 
-    private var client: LinkClient? = null
-    private var eventClient: EventClient? = null
-    private var pollingJob: Job? = null
-    private var eventJob: Job? = null
-    private var refreshJob: Job? = null
-
-    fun connectIfNeeded() {
-        val activeEndpoint = sessionManager.sessionState.value.activeEndpoint
-        if (activeEndpoint.isLocal) {
-            disconnect()
-            return
-        }
-        val deviceId = activeEndpoint.id
-        if (_uiState.value.connected && client != null) return
-        
-        val linkClient = connectionManager.getClient(deviceId) ?: return
-        val token = linkClient.deviceToken.ifEmpty { linkClient.sessionToken }
-
-        client = linkClient
-        _uiState.value = _uiState.value.copy(
-            mode = RemoteSourceMode.REMOTE,
-            connState = RemoteConnectionState.CONNECTED,
-            connected = true,
-            sourceName = activeEndpoint.name,
-        )
-
-        eventClient = linkClient.createEventClient(token).also { ec ->
-            eventJob = viewModelScope.launch(ioDispatcher) {
-                ec.events.collect { event ->
-                    when (event.type) {
-                        "playback_state_changed" -> refreshState()
-                        "queue_changed" -> refreshQueue()
+    init {
+        // Observe authoritative PlaybackSessionManager state
+        viewModelScope.launch {
+            sessionManager.sessionState.collect { sState ->
+                val ep = sState.activeEndpoint
+                if (ep.isLocal) {
+                    _uiState.value = RemoteUiState(
+                        mode = RemoteSourceMode.LOCAL,
+                        connState = RemoteConnectionState.DISCONNECTED,
+                        connected = false,
+                        sourceName = "Reproductor local",
+                    )
+                } else {
+                    val connState = when (connectionManager.connectionStates.value[ep.id]) {
+                        SyncConnectionState.CONNECTED -> RemoteConnectionState.CONNECTED
+                        SyncConnectionState.UNAUTHORIZED -> RemoteConnectionState.UNAUTHORIZED
+                        SyncConnectionState.OFFLINE -> RemoteConnectionState.OFFLINE
+                        else -> RemoteConnectionState.CONNECTED
                     }
+                    _uiState.value = _uiState.value.copy(
+                        mode = RemoteSourceMode.REMOTE,
+                        connState = connState,
+                        connected = true,
+                        sourceName = ep.name,
+                        playerState = PlaybackStateDto(
+                            state = if (sState.isPlaying) "playing" else "paused",
+                            positionMs = sState.position,
+                            durationMs = sState.duration,
+                            volume = sState.remoteVolume,
+                            trackId = sState.currentTrack?.id ?: "",
+                            title = sState.currentTrack?.title ?: "",
+                            artist = sState.currentTrack?.artist ?: "",
+                            album = sState.currentTrack?.album ?: "",
+                            repeat = when (sState.repeatMode) { 1 -> "one"; 2 -> "all"; else -> "off" },
+                            shuffle = sState.shuffleMode == 1,
+                        ),
+                        queue = QueueDto(
+                            tracks = sState.queue.map { t ->
+                                org.michimusic.link.dto.QueueTrackDto(
+                                    trackId = t.id,
+                                    title = t.title,
+                                    artist = t.artist,
+                                    album = t.album,
+                                    duration = t.duration,
+                                    coverId = t.coverId ?: "",
+                                )
+                            },
+                            currentIndex = sState.queueIndex,
+                        ),
+                        error = null,
+                    )
                 }
             }
-            ec.connect(viewModelScope)
         }
+    }
 
-        refreshJob?.cancel()
-        refreshJob = viewModelScope.launch(ioDispatcher) { refreshState() }
-        startPollingFallback(linkClient)
+    fun connectIfNeeded() {
+        // No-op: PlaybackSessionManager manages endpoint attachment and lifecycle
     }
 
     fun disconnect() {
-        refreshJob?.cancel()
-        refreshJob = null
-        eventClient?.disconnect()
-        eventClient = null
-        eventJob?.cancel()
-        eventJob = null
-        pollingJob?.cancel()
-        pollingJob = null
-        client = null
-        _uiState.value = RemoteUiState()
-    }
-
-    private fun startPollingFallback(client: LinkClient) {
-        pollingJob?.cancel()
-        pollingJob = viewModelScope.launch(ioDispatcher) {
-            delay(5_000)
-            while (isActive && _uiState.value.connected) {
-                refreshState()
-                refreshQueue()
-                delay(5_000)
-            }
-        }
-    }
-
-    private suspend fun refreshState() {
-        client?.getPlaybackState()?.onSuccess { state ->
-            _uiState.value = _uiState.value.copy(
-                playerState = state,
-                connState = RemoteConnectionState.CONNECTED,
-                error = null,
-            )
-        }?.onFailure { e ->
-            when (e) {
-                is LinkException.Unauthorized -> {
-                    _uiState.value = _uiState.value.copy(
-                        connState = RemoteConnectionState.UNAUTHORIZED,
-                        error = "Sesión expirada. Reconecta desde Sync.",
-                        connected = false,
-                    )
-                    pollingJob?.cancel(); return
-                }
-                is LinkException.Revoked -> {
-                    _uiState.value = _uiState.value.copy(
-                        connState = RemoteConnectionState.FORBIDDEN,
-                        error = "Acceso denegado por el servidor.",
-                    )
-                    pollingJob?.cancel(); return
-                }
-                is LinkException.Incompatible -> {
-                    _uiState.value = _uiState.value.copy(
-                        connState = RemoteConnectionState.INCOMPATIBLE,
-                        error = "Versión incompatible del servidor.",
-                    )
-                    pollingJob?.cancel(); return
-                }
-                is LinkException.NotImplemented -> {
-                    _uiState.value = _uiState.value.copy(
-                        connState = RemoteConnectionState.ENDPOINT_MISSING,
-                        error = "Endpoint no disponible en este servidor.",
-                    )
-                }
-                else -> {
-                    val msg = e.message ?: ""
-                    if (msg.contains("timeout") || msg.contains("Network") || msg.contains("Unreachable")) {
-                        _uiState.value = _uiState.value.copy(
-                            connState = RemoteConnectionState.OFFLINE,
-                            error = "Servidor fuera de línea.",
-                            connected = false,
-                        )
-                        pollingJob?.cancel(); return
-                    }
-                    _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
-                }
-            }
-        }
-    }
-
-    private suspend fun refreshQueue() {
-        client?.getQueue()?.onSuccess { queue ->
-            _uiState.value = _uiState.value.copy(queue = queue)
-        }
+        sessionManager.selectLocalEndpoint()
     }
 
     fun clearError() { _uiState.value = _uiState.value.copy(error = null) }
 
     fun retry() {
-        _uiState.value = _uiState.value.copy(connState = RemoteConnectionState.CONNECTED, connected = true)
-        client?.let { startPollingFallback(it) } ?: connectIfNeeded()
-    }
-
-    private fun sendCommand(command: String, value: String = "") {
-        viewModelScope.launch {
-            client?.sendPlaybackCommand(command, value)?.onFailure { e ->
-                handleCmdError(e)
-            }
+        val activeEndpoint = sessionManager.sessionState.value.activeEndpoint
+        if (!activeEndpoint.isLocal) {
+            connectionManager.connect(activeEndpoint.id)
         }
     }
 
-    private fun handleCmdError(e: Throwable) {
-        when (e) {
-            is LinkException.Unauthorized -> {
-                _uiState.value = _uiState.value.copy(
-                    connState = RemoteConnectionState.UNAUTHORIZED,
-                    error = "Sesión expirada.",
-                    connected = false,
-                )
-                pollingJob?.cancel()
-            }
-            is LinkException.Revoked -> {
-                _uiState.value = _uiState.value.copy(
-                    connState = RemoteConnectionState.FORBIDDEN,
-                    error = "Acceso denegado.",
-                )
-                pollingJob?.cancel()
-            }
-            is LinkException.NotImplemented -> {
-                _uiState.value = _uiState.value.copy(
-                    connState = RemoteConnectionState.ENDPOINT_MISSING,
-                    error = "Comando no soportado por este servidor.",
-                )
-            }
-            else -> {
-                _uiState.value = _uiState.value.copy(error = "Error: ${e.message}")
-            }
-        }
-    }
-
-    fun play() { sendCommand("play") }
-    fun pause() { sendCommand("pause") }
-    fun togglePlayPause() {
-        val ps = _uiState.value.playerState
-        if (ps.effectiveState == "playing") pause() else play()
-    }
-    fun next() { sendCommand("next") }
-    fun previous() { sendCommand("previous") }
-    fun stop() { sendCommand("stop") }
-    fun seek(positionMs: Long) {
-        viewModelScope.launch {
-            client?.sendSeek(positionMs)?.onFailure { e -> handleCmdError(e) }
-        }
-    }
+    fun play() { sessionManager.playPause() }
+    fun pause() { sessionManager.playPause() }
+    fun togglePlayPause() { sessionManager.playPause() }
+    fun next() { sessionManager.skipNext() }
+    fun previous() { sessionManager.skipPrevious() }
+    fun stop() { sessionManager.playPause() }
+    fun seek(positionMs: Long) { sessionManager.seekTo(positionMs) }
+    
     fun setVolume(volume: Int) {
-        _uiState.value = _uiState.value.copy(
-            playerState = _uiState.value.playerState.copy(volume = volume.coerceIn(0, 100))
-        )
-        viewModelScope.launch {
-            client?.sendSetVolume(volume.coerceIn(0, 100))?.onFailure { e -> handleCmdError(e) }
+        val activeEndpoint = sessionManager.sessionState.value.activeEndpoint
+        if (!activeEndpoint.isLocal) {
+            viewModelScope.launch(ioDispatcher) {
+                connectionManager.getClient(activeEndpoint.id)?.sendSetVolume(volume.coerceIn(0, 100))
+            }
         }
     }
-    fun mute() { sendCommand("mute") }
-    fun unmute() { sendCommand("unmute") }
+
+    fun mute() { setVolume(0) }
+    fun unmute() { setVolume(70) }
+
     fun handoffToLocal(onResult: (Boolean, String) -> Unit) {
         sessionManager.handoffTo(org.michimusic.mobile.playback.PlaybackEndpoint.LocalPhone, onResult)
     }
 
     fun queueJump(index: Int) {
-        viewModelScope.launch {
-            client?.queueJump(index)?.onFailure { e -> handleCmdError(e) }
-        }
-    }
-
-
-
-    override fun onCleared() {
-        super.onCleared()
-        eventClient?.disconnect()
-        pollingJob?.cancel()
+        sessionManager.skipToQueueIndex(index)
     }
 }

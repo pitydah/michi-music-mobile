@@ -44,7 +44,6 @@ data class PairConfirmResponseDto(
 @Serializable
 data class TokenRefreshRequestDto(
     @SerialName("refresh_token") val refreshToken: String,
-    @SerialName("client_device_id") val clientDeviceId: String,
 )
 
 @Serializable

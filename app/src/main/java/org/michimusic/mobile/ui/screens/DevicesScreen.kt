@@ -78,6 +78,7 @@ import org.michimusic.mobile.sync.DeviceActionType
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
+import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.QrScannerDialog
 import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
@@ -111,6 +112,7 @@ fun DevicesScreen(
 
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
+    var pendingQrForPin by remember { mutableStateOf<String?>(null) }
     var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.core.models.UnifiedDevice?>(null) }
 
     LaunchedEffect(Unit) {
@@ -228,7 +230,7 @@ fun DevicesScreen(
                                             }
                                         }
                                     }
-                                    org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnect()
+                                    org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnectDevice(device.id)
                                     org.michimusic.mobile.sync.DeviceActionType.SYNC_LIBRARY -> {
                                         viewModel.syncLibrary()
                                         scope.launch {
@@ -287,14 +289,26 @@ fun DevicesScreen(
         if (showQrDialog) {
             QrScannerDialog(
                 onScanSuccess = { code ->
-                    viewModel.pairWithQr(code) { success, msg ->
+                    showQrDialog = false
+                    pendingQrForPin = code
+                },
+                onDismiss = { showQrDialog = false },
+            )
+        }
+
+        if (pendingQrForPin != null) {
+            val qrCode = pendingQrForPin!!
+            PinPairingDialog(
+                deviceName = "Dispositivo QR",
+                onConfirm = { pin ->
+                    viewModel.pairWithQr(qrCode, pin) { success, msg ->
                         scope.launch {
                             snackbarHostState.showSnackbar(msg)
                         }
                     }
-                    showQrDialog = false
+                    pendingQrForPin = null
                 },
-                onDismiss = { showQrDialog = false },
+                onDismiss = { pendingQrForPin = null },
             )
         }
 

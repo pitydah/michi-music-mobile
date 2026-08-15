@@ -52,9 +52,17 @@ open class ConnectionManager(
                 if (info != null) {
                     val pinnedMichiId = device.michiId
                     val pinnedServerId = device.serverId
+                    val pinnedPublicKey = device.publicKey
                     val remoteMichiId = info.michiId.orEmpty()
                     val remoteServerId = info.effectiveServerId
-                    if (pinnedMichiId.isNotEmpty() && remoteMichiId.isNotEmpty() && pinnedMichiId != remoteMichiId) {
+                    val remotePublicKey = info.publicKey.orEmpty()
+
+                    // If device was paired with canonical identity, omitting it on reconnect is a violation
+                    if (pinnedMichiId.isNotEmpty() && remoteMichiId.isEmpty()) {
+                        updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
+                        return@launch
+                    }
+                    if (pinnedMichiId.isNotEmpty() && pinnedMichiId != remoteMichiId) {
                         updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
                         return@launch
                     }
@@ -62,10 +70,23 @@ open class ConnectionManager(
                         updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
                         return@launch
                     }
+                    if (pinnedPublicKey.isNotEmpty() && remotePublicKey.isNotEmpty() && pinnedPublicKey != remotePublicKey) {
+                        updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
+                        return@launch
+                    }
+                    if (remoteMichiId.isNotEmpty() && remotePublicKey.isNotEmpty()) {
+                        if (!identity.verifyServerIdentity(remoteMichiId, remotePublicKey)) {
+                            updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
+                            return@launch
+                        }
+                    }
+
                     // Update fresh metadata while preserving pinned tokens
                     val updated = device.copy(
                         michiId = if (device.michiId.isEmpty()) remoteMichiId else device.michiId,
                         serverId = if (device.serverId.isEmpty()) remoteServerId else device.serverId,
+                        publicKey = if (device.publicKey.isEmpty()) remotePublicKey else device.publicKey,
+                        identityScheme = info.identityScheme ?: device.identityScheme.ifEmpty { "ed25519-blake3-v1" },
                         features = info.effectiveFeatures.ifEmpty { device.features },
                         roles = info.roles.ifEmpty { device.roles },
                     )

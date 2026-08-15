@@ -12,8 +12,17 @@ data class CanonicalQrPairing(
 
 class QrPairingParser(private val identity: MichiIdentity) {
 
+    companion object {
+        const val MAX_QR_URI_LENGTH = 1024
+        private val UUID_REGEX = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+    }
+
     fun parseAndValidate(qrContent: String): Result<CanonicalQrPairing> {
         try {
+            if (qrContent.length > MAX_QR_URI_LENGTH) {
+                return Result.failure(IllegalArgumentException("El código QR excede la longitud máxima permitida ($MAX_QR_URI_LENGTH bytes)."))
+            }
+
             val uri = Uri.parse(qrContent)
             
             if (uri.scheme != "michi" || uri.host != "pair") {
@@ -33,6 +42,19 @@ class QrPairingParser(private val identity: MichiIdentity) {
             val sessionId = uri.getQueryParameter("session_id") ?: return Result.failure(IllegalArgumentException("Falta session_id"))
             val expiresAtStr = uri.getQueryParameter("expires_at") ?: return Result.failure(IllegalArgumentException("Falta expires_at"))
             val endpoint = uri.getQueryParameter("endpoint") ?: return Result.failure(IllegalArgumentException("Falta endpoint"))
+
+            if (!UUID_REGEX.matches(sessionId)) {
+                return Result.failure(IllegalArgumentException("session_id inválido en QR: debe ser un UUID estándar."))
+            }
+
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                return Result.failure(IllegalArgumentException("endpoint inválido en QR: debe ser una URI HTTP o HTTPS válida."))
+            }
+
+            val endpointUri = Uri.parse(endpoint)
+            if (endpointUri.host.isNullOrBlank()) {
+                return Result.failure(IllegalArgumentException("endpoint inválido en QR: host ausente."))
+            }
 
             val expiresAt = try {
                 java.time.Instant.parse(expiresAtStr).toEpochMilli() / 1000

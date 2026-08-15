@@ -1543,9 +1543,12 @@ fun PinPairingDialog(
 @Composable
 fun ReceiverButtonPairingDialog(
     deviceName: String,
-    onConfirm: () -> Unit,
+    onConfirm: (pin: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -1589,17 +1592,45 @@ fun ReceiverButtonPairingDialog(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Presiona el botón físico en $deviceName para autorizar la conexión. Tienes una ventana activa de 120 segundos.",
+                    text = "Presiona el botón físico en $deviceName para autorizar la conexión. Si el dispositivo muestra un código PIN, ingrésalo a continuación:",
                     color = TextSecondary,
                     fontSize = 13.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = {
+                        if (it.length <= 8) {
+                            pin = it
+                            error = null
+                        }
+                    },
+                    placeholder = { Text("PIN de seguridad (opcional)", color = OnSurfaceVariant) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = TertiaryCyan,
+                        unfocusedBorderColor = GlassBorderLow,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("receiver_pin_input_field"),
+                )
+
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = error!!, color = ErrorColor, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
                     onClick = {
-                        onConfirm()
+                        onConfirm(pin.trim())
                         onDismiss()
                     },
                     modifier = Modifier
@@ -1609,7 +1640,7 @@ fun ReceiverButtonPairingDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Presioné el botón / Confirmar", color = PureWhite, fontWeight = FontWeight.Bold)
+                    Text("Confirmar Emparejamiento", color = PureWhite, fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

@@ -7,6 +7,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -52,14 +53,24 @@ import org.michimusic.link.dto.QrPairingRequest
 import org.michimusic.link.dto.QrPairingResponse
 import org.michimusic.link.dto.QueueDto
 import org.michimusic.link.dto.QueueJumpRequestDto
+import org.michimusic.link.dto.QueueRepeatRequestDto
+import org.michimusic.link.dto.QueueRepeatResponseDto
 import org.michimusic.link.dto.QueueReorderRequest
 import org.michimusic.link.dto.QueueSaveRequest
+import org.michimusic.link.dto.QueueShuffleRequestDto
+import org.michimusic.link.dto.QueueShuffleResponseDto
 import org.michimusic.link.dto.QueueTransferRequest
 import org.michimusic.link.dto.QueueTransferResponse
 import org.michimusic.link.dto.RateRequest
 import org.michimusic.link.dto.RateResponse
 import org.michimusic.link.dto.ReceiverDto
+import org.michimusic.link.dto.ReceiverHeartbeatRequest
+import org.michimusic.link.dto.ReceiverHeartbeatResponse
+import org.michimusic.link.dto.ReceiverSessionCreateRequest
+import org.michimusic.link.dto.ReceiverSessionCreateResponse
+import org.michimusic.link.dto.ReceiverSessionPatchRequest
 import org.michimusic.link.dto.ReceiverSessionRequest
+import org.michimusic.link.dto.ReceiverSessionStateDto
 import org.michimusic.link.dto.ReceiverVolumeRequest
 import org.michimusic.link.dto.RoomCreateRequest
 import org.michimusic.link.dto.RoomDto
@@ -342,7 +353,6 @@ class LinkClient(
         try {
             val request = TokenRefreshRequestDto(
                 refreshToken = refreshToken,
-                clientDeviceId = clientDeviceId,
             )
             var response = client.post("$baseUrl/api/v1/token/refresh") {
                 contentType(ContentType.Application.Json)
@@ -733,6 +743,38 @@ class LinkClient(
         }
     }
 
+    suspend fun setQueueRepeatMode(mode: String): Result<QueueRepeatResponseDto> = withContext(Dispatchers.IO) {
+        try {
+            val request = QueueRepeatRequestDto(mode = mode)
+            val response = client.post("$baseUrl/api/v1/queue/repeat") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(request)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun setQueueShuffle(enabled: Boolean): Result<QueueShuffleResponseDto> = withContext(Dispatchers.IO) {
+        try {
+            val request = QueueShuffleRequestDto(enabled = enabled)
+            val response = client.post("$baseUrl/api/v1/queue/shuffle") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(request)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // --- Queue (extended) ---
 
     suspend fun reorderQueue(request: QueueReorderRequest): Result<Unit> = withContext(Dispatchers.IO) {
@@ -900,6 +942,83 @@ class LinkClient(
 
     suspend fun setReceiverVolume(id: String, volume: Int): Result<Unit> =
         httpPost("$baseUrl/api/v1/receivers/${encodePathSegment(id)}/volume", ReceiverVolumeRequest(volume = volume))
+
+    // --- Canonical Receiver Lite (v1-lite) ---
+
+    suspend fun createReceiverLiteSession(
+        request: ReceiverSessionCreateRequest = ReceiverSessionCreateRequest()
+    ): Result<ReceiverSessionCreateResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.post("$baseUrl/api/v1/receiver-lite/session") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(request)
+            }
+            response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getReceiverLiteSession(): Result<ReceiverSessionStateDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = httpGet("$baseUrl/api/v1/receiver-lite/session")
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun patchReceiverLiteSession(
+        request: ReceiverSessionPatchRequest
+    ): Result<ReceiverSessionStateDto> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.patch("$baseUrl/api/v1/receiver-lite/session") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(request)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteReceiverLiteSession(): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val response = client.delete("$baseUrl/api/v1/receiver-lite/session") {
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun sendReceiverLiteHeartbeat(
+        sequence: Long
+    ): Result<ReceiverHeartbeatResponse> = withContext(Dispatchers.IO) {
+        try {
+            val request = ReceiverHeartbeatRequest(sequence = sequence)
+            val response = client.post("$baseUrl/api/v1/receiver-lite/heartbeat") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", authHeader())
+                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                setBody(request)
+            }
+            response.status.checkError()?.let { return@withContext Result.failure(it) }
+            Result.success(response.body())
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     // --- Rooms ---
 
