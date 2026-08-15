@@ -84,6 +84,20 @@ class ConnectionManagerTest {
     }
 
     @Test
+    fun `disconnectDevice behaves identically to disconnect`() = runTest(testDispatcher) {
+        val device = PairedDevice(deviceId = "dev_5", deviceToken = "token", lastUrl = "http://192.168.1.12")
+        every { registry.getDevice("dev_5") } returns device
+        
+        connectionManager.connect("dev_5")
+        assertNotNull(connectionManager.getClient("dev_5"))
+        
+        connectionManager.disconnectDevice("dev_5")
+        
+        assertNull(connectionManager.getClient("dev_5"))
+        assertEquals(SyncConnectionState.DISCONNECTED, connectionManager.connectionStates.value["dev_5"])
+    }
+
+    @Test
     fun `disconnectAll clears all clients`() = runTest(testDispatcher) {
         val device = PairedDevice(deviceId = "dev_4", deviceToken = "token", lastUrl = "http://192.168.1.11")
         every { registry.getDevice("dev_4") } returns device

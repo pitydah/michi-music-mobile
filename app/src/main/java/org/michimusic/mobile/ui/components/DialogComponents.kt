@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LaptopMac
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.RestartAlt
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SurroundSound
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -1404,4 +1406,227 @@ fun AudioRouteDialog(
         }
     }
 }
+
+@Composable
+fun PinPairingDialog(
+    deviceName: String,
+    onConfirm: (pin: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SurfaceObsidian,
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("pin_pairing_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(TertiaryCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Key,
+                                contentDescription = null,
+                                tint = TertiaryCyan,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Código PIN",
+                                color = PureWhite,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = deviceName,
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cerrar",
+                            tint = OnSurfaceVariant,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Ingresa el código PIN de 6 dígitos mostrado en la pantalla de $deviceName",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = {
+                        if (it.length <= 8) {
+                            pin = it
+                            error = null
+                        }
+                    },
+                    placeholder = { Text("000000", color = OnSurfaceVariant) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = TertiaryCyan,
+                        unfocusedBorderColor = GlassBorderLow,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("pin_input_field"),
+                )
+
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = error!!, color = ErrorColor, fontSize = 12.sp)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (pin.trim().isNotEmpty()) {
+                            onConfirm(pin.trim())
+                            onDismiss()
+                        } else {
+                            error = "Ingresa el código PIN"
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("confirm_pin_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Vincular", color = PureWhite, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ReceiverButtonPairingDialog(
+    deviceName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = SurfaceObsidian,
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("receiver_button_pairing_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(TertiaryCyan.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Speaker,
+                        contentDescription = null,
+                        tint = TertiaryCyan,
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Emparejamiento Físico",
+                    color = PureWhite,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = "Presiona el botón físico en $deviceName para autorizar la conexión. Tienes una ventana activa de 120 segundos.",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = {
+                        onConfirm()
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("confirm_receiver_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Presioné el botón / Confirmar", color = PureWhite, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text("Cancelar", color = PureWhite)
+                }
+            }
+        }
+    }
+}
+
 

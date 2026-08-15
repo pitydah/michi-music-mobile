@@ -126,4 +126,76 @@ class PlaybackSessionManagerTest {
         
         verify(exactly = 0) { audioController.pause() }
     }
+
+    @Test
+    fun handoffToReceiver_doesNotTransferQueue() {
+        val linkClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
+        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        val connectionManager = object : org.michimusic.link.ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): org.michimusic.link.LinkClient? = if (deviceId == "stream_1") linkClient else null
+        }
+        connectionManager.updateState("stream_1", org.michimusic.core.models.SyncConnectionState.CONNECTED)
+        val audioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        val dummyStateFlow = kotlinx.coroutines.flow.MutableStateFlow(org.michimusic.player.PlayerState())
+        every { audioController.state } returns dummyStateFlow
+        
+        val linkDiscovery = mockk<org.michimusic.link.LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns kotlinx.coroutines.flow.MutableStateFlow(emptyMap())
+        
+        val registry = mockk<org.michimusic.link.PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+        
+        val receiverEndpoint = PlaybackEndpoint("stream_1", "Michi Stream Receiver", EndpointType.STREAM_RECEIVER, isLocal = false, capabilities = setOf("PLAYBACK", "AUDIO_OUTPUT"))
+        
+        var successResult = false
+        manager.handoffTo(receiverEndpoint) { success, _ ->
+            successResult = success
+        }
+        
+        testDispatcher.scheduler.advanceUntilIdle()
+        
+        coVerify(exactly = 0) { linkClient.transferQueue(any()) }
+        assertTrue("Handoff a receiver debe ser exitoso", successResult)
+        assertEquals(receiverEndpoint, manager.sessionState.value.activeEndpoint)
+    }
+
+    @Test
+    fun authoritativeControls_localMode() {
+        val audioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        val dummyStateFlow = kotlinx.coroutines.flow.MutableStateFlow(org.michimusic.player.PlayerState())
+        every { audioController.state } returns dummyStateFlow
+        
+        val connectionManager = mockk<org.michimusic.link.ConnectionManager>(relaxed = true)
+        val linkDiscovery = mockk<org.michimusic.link.LinkDiscovery>(relaxed = true)
+        val registry = mockk<org.michimusic.link.PairedDeviceRegistry>(relaxed = true)
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+        
+        manager.setRepeatMode(1)
+        assertEquals(1, manager.sessionState.value.repeatMode)
+        verify { audioController.setRepeatMode(1) }
+        
+        manager.setShuffleMode(1)
+        assertEquals(1, manager.sessionState.value.shuffleMode)
+        verify { audioController.setShuffleMode(true) }
+        
+        manager.skipToQueueIndex(3)
+        verify { audioController.skipToQueueIndex(3) }
+        
+        manager.clearQueue()
+        verify { audioController.clearQueue() }
+    }
 }

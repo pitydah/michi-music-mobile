@@ -63,8 +63,10 @@ import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
+import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.PulsingRadarRing
 import org.michimusic.mobile.ui.components.QrScannerDialog
+import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -88,6 +90,8 @@ fun SyncScreen(
 
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
+    var pendingPeerForPin by remember { mutableStateOf<DiscoveredPeer?>(null) }
+    var pendingPeerForReceiver by remember { mutableStateOf<DiscoveredPeer?>(null) }
 
     LaunchedEffect(Unit) {
         if (uiState.state == SyncConnectionState.DISCONNECTED) {
@@ -304,7 +308,16 @@ fun SyncScreen(
                     items(uiState.peers) { peer ->
                         DiscoveredPeerViewItem(
                             peer = peer,
-                            onConnect = { viewModel.selectPeer(peer) },
+                            onConnect = {
+                                val isReceiver = peer.deviceType.lowercase() in listOf("receiver", "stream")
+                                if (isReceiver) {
+                                    pendingPeerForReceiver = peer
+                                } else if (peer.authRequired) {
+                                    pendingPeerForPin = peer
+                                } else {
+                                    viewModel.selectPeer(peer)
+                                }
+                            },
                         )
                     }
                 }
@@ -382,6 +395,32 @@ fun SyncScreen(
                     viewModel.selectPeer(manualPeer)
                 },
                 onDismiss = { showManualDialog = false },
+            )
+        }
+
+        if (pendingPeerForPin != null) {
+            val peer = pendingPeerForPin!!
+            PinPairingDialog(
+                deviceName = peer.alias.ifEmpty { "Michi Server" },
+                onConfirm = { pin ->
+                    viewModel.selectPeer(peer)
+                    viewModel.startPairing(pin = pin)
+                    pendingPeerForPin = null
+                },
+                onDismiss = { pendingPeerForPin = null },
+            )
+        }
+
+        if (pendingPeerForReceiver != null) {
+            val peer = pendingPeerForReceiver!!
+            ReceiverButtonPairingDialog(
+                deviceName = peer.alias.ifEmpty { "Michi Stream" },
+                onConfirm = {
+                    viewModel.selectPeer(peer)
+                    viewModel.startPairing()
+                    pendingPeerForReceiver = null
+                },
+                onDismiss = { pendingPeerForReceiver = null },
             )
         }
     }

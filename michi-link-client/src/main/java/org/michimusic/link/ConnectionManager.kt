@@ -47,6 +47,30 @@ open class ConnectionManager(
         scope.launch {
             val result = client.getServerInfo()
             if (result.isSuccess) {
+                val info = result.getOrNull()
+                // Validate pinned identity on reconnect
+                if (info != null) {
+                    val pinnedMichiId = device.michiId
+                    val pinnedServerId = device.serverId
+                    val remoteMichiId = info.michiId.orEmpty()
+                    val remoteServerId = info.effectiveServerId
+                    if (pinnedMichiId.isNotEmpty() && remoteMichiId.isNotEmpty() && pinnedMichiId != remoteMichiId) {
+                        updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
+                        return@launch
+                    }
+                    if (pinnedServerId.isNotEmpty() && remoteServerId.isNotEmpty() && pinnedServerId != remoteServerId) {
+                        updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
+                        return@launch
+                    }
+                    // Update fresh metadata while preserving pinned tokens
+                    val updated = device.copy(
+                        michiId = if (device.michiId.isEmpty()) remoteMichiId else device.michiId,
+                        serverId = if (device.serverId.isEmpty()) remoteServerId else device.serverId,
+                        features = info.effectiveFeatures.ifEmpty { device.features },
+                        roles = info.roles.ifEmpty { device.roles },
+                    )
+                    registry.saveDevice(updated)
+                }
                 updateState(deviceId, SyncConnectionState.CONNECTED)
             } else {
                 val errorMsg = result.exceptionOrNull()?.message ?: ""
@@ -70,6 +94,10 @@ open class ConnectionManager(
         clients[deviceId]?.close()
         clients.remove(deviceId)
         updateState(deviceId, SyncConnectionState.DISCONNECTED)
+    }
+
+    fun disconnectDevice(deviceId: String) {
+        disconnect(deviceId)
     }
 
     fun disconnectAll() {

@@ -49,7 +49,13 @@ data class TokenRefreshRequestDto(
 
 @Serializable
 data class TokenRefreshResponseDto(
+    @SerialName("access_token") val accessToken: String = "",
     @SerialName("device_token") val deviceToken: String = "",
+    @SerialName("token") val token: String = "",
     @SerialName("refresh_token") val refreshToken: String = "",
     @SerialName("expires_in") val expiresIn: Long = 3600L,
-)
+    @SerialName("token_type") val tokenType: String = "Bearer",
+) {
+    val effectiveToken: String
+        get() = accessToken.ifEmpty { deviceToken.ifEmpty { token } }
+}
