@@ -271,6 +271,7 @@ class PlaybackSessionManager(
     fun selectLocalEndpoint() {
         isRemoteSelected = false
         stopRemoteSync()
+        org.michimusic.player.PlayerDependencies.stopPcmStreaming()
         rtpAudioSender.stop()
         val activeEp = _sessionState.value.activeEndpoint
         if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
@@ -355,16 +356,10 @@ class PlaybackSessionManager(
 
             scope.launch {
                 val targetHost = client.baseUrl.substringAfter("://").substringBefore(":")
-                val req = org.michimusic.link.dto.ReceiverSessionCreateRequest(
-                    transport = "rtp_udp",
-                    codec = "pcm_s16le",
-                    sampleRate = 48000,
-                    bitDepth = 16,
-                    channels = 2,
-                    packetMs = 10,
-                    bufferMs = 120,
-                    payloadType = 97,
-                    volume = _sessionState.value.remoteVolume,
+                val sInfo = runCatching { client.getServerInfo().getOrNull() }.getOrNull()
+                val req = org.michimusic.link.audio.AudioProfileNegotiator.negotiate(
+                    capabilities = sInfo?.audio,
+                    preferredVolume = _sessionState.value.remoteVolume
                 )
 
                 client.createReceiverLiteSession(req).onSuccess { sessionResp ->
@@ -373,11 +368,21 @@ class PlaybackSessionManager(
                     activeReceiverEffective = sessionResp.effective
                     currentReceiverSequence = 1L
 
+                    // Connect decoded PCM audio tap directly to the RTP sender
+                    org.michimusic.player.PlayerDependencies.startPcmStreaming { pcmChunk ->
+                        rtpAudioSender.sendPcmChunk(pcmChunk)
+                    }
+
                     rtpAudioSender.start(
                         targetHost = targetHost,
                         effective = sessionResp.effective,
                         scope = scope
                     )
+
+                    // If queue is populated and not playing, start local playback pipeline so PCM flows
+                    if (audioController?.state?.value?.isPlaying == false && _sessionState.value.queue.isNotEmpty()) {
+                        audioController.play()
+                    }
 
                     receiverHeartbeatJob?.cancel()
                     receiverHeartbeatJob = scope.launch(Dispatchers.IO) {

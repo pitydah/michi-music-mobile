@@ -43,9 +43,12 @@ class MichiPlaybackService : MediaLibraryService() {
             val replayGainDao = PlayerDependencies.replayGainDao
             val audioEffects = PlayerDependencies.audioEffects
             val usbDacManager = PlayerDependencies.usbDacManager
+            val rtpTap = RtpPcmAudioTap()
+            PlayerDependencies.rtpPcmAudioTap = rtpTap
+
             val controller = PlayerController(
                 this,
-                listOf(replayGainProcessor),
+                listOf(replayGainProcessor, rtpTap),
                 replayGainDao,
                 audioEffects,
                 usbDacManager,

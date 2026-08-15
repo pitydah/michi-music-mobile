@@ -155,10 +155,13 @@ class LinkClient(
     private fun encodePathSegment(value: String): String =
         encodeQueryValue(value).replace("+", "%20")
 
+    private fun effectiveDeviceId(): String = pairedClientDeviceId.ifEmpty { clientDeviceId }
+
     private suspend fun httpGet(url: String): HttpResponse = withContext(Dispatchers.IO) {
         client.get(url) {
             if (isAuthenticated) header("Authorization", authHeader())
-            if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+            val devId = effectiveDeviceId()
+            if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
         }
     }
 
@@ -195,7 +198,8 @@ class LinkClient(
             val response = client.post(url) {
                 contentType(ContentType.Application.Json)
                 if (isAuthenticated) header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(json.encodeToString(body))
             }
             response.status.checkError(response.bodyOrNull())?.let { return@withContext Result.failure(it) }
@@ -517,7 +521,8 @@ class LinkClient(
         try {
             val response = client.delete("$baseUrl/api/v1/playlists/${encodePathSegment(id)}") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
@@ -550,7 +555,8 @@ class LinkClient(
         try {
             val response = client.get("$baseUrl/api/v1/stream/${encodePathSegment(trackId)}") {
                 if (isAuthenticated) header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 if (startBytes > 0) header("Range", "bytes=$startBytes-")
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -628,7 +634,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/sync/state") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(json.encodeToString(body))
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -657,7 +664,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/playback/control") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -676,7 +684,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/playback/control") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -695,7 +704,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/playback/control") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -734,7 +744,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/queue/jump") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -750,7 +761,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/queue/repeat") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -766,7 +778,8 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/queue/shuffle") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -783,7 +796,8 @@ class LinkClient(
             val response = client.put("$baseUrl/api/v1/queue/reorder") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -797,7 +811,8 @@ class LinkClient(
         try {
             val response = client.delete("$baseUrl/api/v1/queue/items/${encodePathSegment(queueItemId)}") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
@@ -841,7 +856,8 @@ class LinkClient(
         try {
             val response = client.delete("$baseUrl/api/v1/star/${encodePathSegment(id)}") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(response.body<StarResponse>())
@@ -867,7 +883,8 @@ class LinkClient(
         try {
             val response = client.delete("$baseUrl/api/v1/history") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
@@ -894,7 +911,8 @@ class LinkClient(
         try {
             val response = client.delete("$baseUrl/api/v1/bookmarks/${encodePathSegment(trackId)}") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)
@@ -932,7 +950,8 @@ class LinkClient(
         try {
             val response = client.post("$baseUrl/api/v1/receivers/${encodePathSegment(id)}/session/stop") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(Unit)

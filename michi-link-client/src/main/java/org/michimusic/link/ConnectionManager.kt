@@ -39,7 +39,8 @@ open class ConnectionManager(
             baseUrl = device.lastUrl,
             deviceToken = device.deviceToken,
             sessionToken = device.deviceToken,
-            clientDeviceId = identity.michiId
+            clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
+            pairedClientDeviceId = device.pairedClientDeviceId,
         ).also { 
             it.tokenRefreshSupported = device.tokenRefreshSupported
             clients[deviceId] = it 

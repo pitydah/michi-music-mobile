@@ -12,4 +12,20 @@ object PlayerDependencies {
     var audioEffects: MichiAudioEffects? = null
     @JvmStatic
     var usbDacManager: UsbDacManager? = null
+    @JvmStatic
+    var rtpPcmAudioTap: RtpPcmAudioTap? = null
+
+    @JvmStatic
+    fun startPcmStreaming(listener: (ByteArray) -> Unit) {
+        val tap = rtpPcmAudioTap ?: return
+        tap.pcmChunkListener = listener
+        tap.isEnabled = true
+    }
+
+    @JvmStatic
+    fun stopPcmStreaming() {
+        val tap = rtpPcmAudioTap ?: return
+        tap.isEnabled = false
+        tap.pcmChunkListener = null
+    }
 }

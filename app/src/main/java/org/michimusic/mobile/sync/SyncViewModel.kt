@@ -319,9 +319,11 @@ class SyncViewModel(
                             client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
                         }
                         val serverInfo = client.getServerInfo().getOrNull()
+                        val remoteSrvId = serverInfo?.effectiveServerId?.ifEmpty { confirmResp.serverDeviceId } ?: confirmResp.serverDeviceId
+                        val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
                         val device = org.michimusic.link.PairedDevice(
-                            deviceId = resolvedDeviceId,
-                            deviceName = confirmResp.serverAlias,
+                            deviceId = remoteSrvId,
+                            deviceName = confirmResp.serverAlias.ifEmpty { serverInfo?.effectiveName ?: "Michi Server" },
                             serviceType = serverInfo?.service ?: "",
                             deviceToken = effectiveToken,
                             refreshToken = confirmResp.refreshToken,
@@ -332,13 +334,19 @@ class SyncViewModel(
                             tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                             pairedAt = System.currentTimeMillis(),
                             lastUrl = client.baseUrl,
-                            serverId = serverInfo?.effectiveServerId ?: "",
+                            serverId = remoteSrvId,
                             michiId = serverInfo?.michiId ?: "",
+                            remoteServerId = remoteSrvId,
+                            remoteMichiId = serverInfo?.michiId ?: "",
+                            remotePublicKey = serverInfo?.publicKey ?: "",
+                            identityScheme = serverInfo?.identityScheme ?: "legacy",
+                            pairedClientDeviceId = assignedClientId,
                         )
                         registry.saveDevice(device)
                         
                         client.deviceToken = effectiveToken
-                        client.clientDeviceId = clientId
+                        client.clientDeviceId = assignedClientId
+                        client.pairedClientDeviceId = assignedClientId
                         _pairConfirmResponse.value = confirmResp
                         _connectedPeer.value = peer
                         _connectionState.value = SyncConnectionState.PAIRED
@@ -378,14 +386,12 @@ class SyncViewModel(
                     )
                     client.pairConfirm(confirmReq).onSuccess { confirmResp ->
                         val effectiveToken = confirmResp.token
-                        val resolvedDeviceId = confirmResp.deviceId.ifEmpty {
-                            confirmResp.serverId.ifEmpty {
-                                client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
-                            }
-                        }
                         val serverInfo = client.getServerInfo().getOrNull()
+                        val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { startResp.serverMichiId }
+                        val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
+
                         val device = org.michimusic.link.PairedDevice(
-                            deviceId = resolvedDeviceId,
+                            deviceId = remoteSrvId,
                             deviceName = serverInfo?.effectiveName ?: peer?.alias.orEmpty().ifEmpty { "Michi Node" },
                             serviceType = serverInfo?.service ?: "",
                             deviceToken = effectiveToken,
@@ -397,15 +403,20 @@ class SyncViewModel(
                             tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                             pairedAt = System.currentTimeMillis(),
                             lastUrl = client.baseUrl,
-                            serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
+                            serverId = remoteSrvId,
                             michiId = startResp.serverMichiId,
                             publicKey = startResp.serverPublicKey,
                             identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
+                            remoteServerId = remoteSrvId,
+                            remoteMichiId = startResp.serverMichiId,
+                            remotePublicKey = startResp.serverPublicKey,
+                            pairedClientDeviceId = assignedClientId,
                         )
                         registry.saveDevice(device)
                         
                         client.deviceToken = effectiveToken
-                        client.clientDeviceId = identity.michiId
+                        client.clientDeviceId = assignedClientId
+                        client.pairedClientDeviceId = assignedClientId
                         _connectedPeer.value = peer
                         _connectionState.value = SyncConnectionState.PAIRED
                     }.onFailure { e ->
@@ -458,13 +469,12 @@ class SyncViewModel(
                         _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
                         return@launch
                     }
-                    val resolvedDeviceId = confirmResp.serverId.ifEmpty {
-                        client.getServerInfoWithFallback().getOrNull()?.serverDeviceId.orEmpty()
-                    }
                     val serverInfo = client.getServerInfo().getOrNull()
+                    val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { startResp.serverMichiId }
+                    val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
                     
                     val device = PairedDevice(
-                        deviceId = resolvedDeviceId,
+                        deviceId = remoteSrvId,
                         deviceName = serverInfo?.effectiveName ?: "Michi Server",
                         serviceType = serverInfo?.service ?: "",
                         deviceToken = effectiveToken,
@@ -476,15 +486,20 @@ class SyncViewModel(
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                         pairedAt = System.currentTimeMillis(),
                         lastUrl = client.baseUrl,
-                        serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
+                        serverId = remoteSrvId,
                         michiId = startResp.serverMichiId,
                         publicKey = startResp.serverPublicKey,
-                        identityScheme = "ed25519",
+                        identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
+                        remoteServerId = remoteSrvId,
+                        remoteMichiId = startResp.serverMichiId,
+                        remotePublicKey = startResp.serverPublicKey,
+                        pairedClientDeviceId = assignedClientId,
                     )
                     registry.saveDevice(device)
                     
                     client.deviceToken = effectiveToken
-                    client.clientDeviceId = identity.michiId
+                    client.clientDeviceId = assignedClientId
+                    client.pairedClientDeviceId = assignedClientId
                     _connectionState.value = SyncConnectionState.PAIRED
                 }.onFailure { handlePairingFailure(Result.failure<Any>(it)) }
             }.onFailure { e ->
@@ -606,11 +621,11 @@ class SyncViewModel(
                 
                 client.pairConfirm(req).onSuccess { confirmResp ->
                     val serverInfo = client.getServerInfoWithFallback().getOrNull()
-                    val resolvedDeviceId = confirmResp.deviceId.ifEmpty {
-                        confirmResp.serverId.ifEmpty { canonicalQr.serverMichiId }
-                    }
+                    val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { canonicalQr.serverMichiId }
+                    val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
+
                     val device = org.michimusic.link.PairedDevice(
-                        deviceId = resolvedDeviceId,
+                        deviceId = remoteSrvId,
                         deviceName = serverInfo?.effectiveName ?: "Servidor Michi",
                         serviceType = serverInfo?.service ?: "",
                         deviceToken = confirmResp.token,
@@ -622,12 +637,19 @@ class SyncViewModel(
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                         pairedAt = System.currentTimeMillis(),
                         lastUrl = url,
-                        serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
+                        serverId = remoteSrvId,
                         michiId = canonicalQr.serverMichiId,
                         publicKey = canonicalQr.serverPublicKey,
                         identityScheme = serverInfo?.identityScheme ?: "ed25519-blake3-v1",
+                        remoteServerId = remoteSrvId,
+                        remoteMichiId = canonicalQr.serverMichiId,
+                        remotePublicKey = canonicalQr.serverPublicKey,
+                        pairedClientDeviceId = assignedClientId,
                     )
                     registry.saveDevice(device)
+                    client.deviceToken = confirmResp.token
+                    client.clientDeviceId = assignedClientId
+                    client.pairedClientDeviceId = assignedClientId
                     _connectionState.value = SyncConnectionState.PAIRED
                     onResult(true, "Dispositivo vinculado correctamente")
                 }.onFailure { err ->

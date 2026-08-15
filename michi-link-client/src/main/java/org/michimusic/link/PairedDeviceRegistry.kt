@@ -113,17 +113,24 @@ class PairedDeviceRegistry(
     }
 
     fun getDevice(deviceId: String): PairedDevice? {
-        return getAllDevices().find { it.deviceId == deviceId }
+        return getAllDevices().find { 
+            it.effectiveServerId == deviceId || it.deviceId == deviceId || (it.remoteMichiId.isNotEmpty() && it.remoteMichiId == deviceId)
+        }
     }
 
     fun saveDevice(device: PairedDevice, prefs: SharedPreferences = securePrefs) {
-        val current = readDevices(prefs).filter { it.deviceId != device.deviceId }.toMutableList()
+        val targetKey = device.effectiveServerId
+        val current = readDevices(prefs).filter { 
+            it.effectiveServerId != targetKey && it.deviceId != device.deviceId 
+        }.toMutableList()
         current.add(device)
         writeDevices(current, prefs)
     }
 
     fun removeDevice(deviceId: String) {
-        val current = getAllDevices().filter { it.deviceId != deviceId }
+        val current = getAllDevices().filter { 
+            it.effectiveServerId != deviceId && it.deviceId != deviceId && (it.remoteMichiId.isEmpty() || it.remoteMichiId != deviceId)
+        }
         writeDevices(current, securePrefs)
     }
 

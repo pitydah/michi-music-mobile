@@ -131,6 +131,8 @@ class PlaybackSessionManagerTest {
     @Test
     fun handoffToReceiver_doesNotTransferQueue() {
         val linkClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        every { linkClient.baseUrl } returns "http://192.168.1.50:5252"
+        coEvery { linkClient.getServerInfo() } returns Result.success(org.michimusic.link.dto.ServerInfoDto(server = "stream_1"))
         coEvery { linkClient.createReceiverLiteSession(any()) } returns Result.success(
             org.michimusic.link.dto.ReceiverSessionCreateResponse(
                 sessionId = "s1",
