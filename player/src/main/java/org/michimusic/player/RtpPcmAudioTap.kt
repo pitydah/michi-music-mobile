@@ -16,6 +16,8 @@ import java.nio.ByteBuffer
  * and passes raw PCM chunks to a registered listener (such as RtpAudioSender).
  *
  * Exposes the active PCM format via [currentFormat] (starts as null / UNKNOWN until Media3 configures it).
+ * Enforces atomic format transitions via [isRenegotiating] to guarantee zero bytes of a new format
+ * reach a sender configured for a previous format.
  */
 @OptIn(UnstableApi::class)
 class RtpPcmAudioTap : BaseAudioProcessor() {
@@ -28,6 +30,9 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
 
     @Volatile
     var isPaused: Boolean = false
+
+    @Volatile
+    var isRenegotiating: Boolean = false
 
     @Volatile
     var muteLocalOutput: Boolean = false
@@ -58,12 +63,20 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
                 else -> "pcm_s16le"
             }
 
-            _currentFormat.value = PcmFormat(
+            val newFormat = PcmFormat(
                 sampleRate = inputAudioFormat.sampleRate,
                 channels = inputAudioFormat.channelCount,
                 bitDepth = bitDepth,
                 codec = codec,
             )
+
+            val oldFormat = _currentFormat.value
+            if (oldFormat != null && oldFormat != newFormat) {
+                // Atomic transition lock: immediately prevent delivery of new format chunks to old sender
+                isRenegotiating = true
+            }
+
+            _currentFormat.value = newFormat
             return inputAudioFormat
         }
         throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
@@ -73,7 +86,7 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
         val remaining = inputBuffer.remaining()
         if (remaining == 0) return
 
-        if (isEnabled && !isPaused && pcmChunkListener != null) {
+        if (isEnabled && !isPaused && !isRenegotiating && pcmChunkListener != null) {
             val pcmBytes = ByteArray(remaining)
             val originalPos = inputBuffer.position()
             inputBuffer.get(pcmBytes)
@@ -96,6 +109,7 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
 
     override fun onReset() {
         super.onReset()
+        isRenegotiating = false
         _currentFormat.value = null
     }
 

@@ -8,22 +8,96 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import org.michimusic.link.dto.*
-import org.michimusic.link.errors.LinkException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.michimusic.link.dto.PairConfirmRequestDto
+import org.michimusic.link.dto.PlaylistCreateRequest
+import org.michimusic.link.dto.QueueReorderRequest
+import org.michimusic.link.errors.LinkException
 
 class LinkClientTest {
     private fun jsonClient(engine: MockEngine) = HttpClient(engine) {
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            json(Json { 
+                ignoreUnknownKeys = true 
+                explicitNulls = false
+            })
         }
+    }
+
+    @Test
+    fun pairConfirm_withChallengeStrategyOmitsPinOrSendsNull() = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = """
+                    {
+                      "token":"ed25519-token",
+                      "expires_in":3600,
+                      "device_id":"client-1",
+                      "server_id":"server-1"
+                    }
+                """.trimIndent(),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://host:8400",
+            httpClient = jsonClient(engine),
+        )
+
+        val confirmReq = PairConfirmRequestDto(
+            sessionId = "sess-1",
+            pin = null, // PIN-less challenge authorization
+            michiId = "michi-id-123",
+            publicKey = "pk-abc"
+        )
+        val resp = client.pairConfirm(confirmReq).getOrThrow()
+        assertEquals("ed25519-token", resp.token)
+        assertTrue(requestBody.contains("sess-1"))
+        assertTrue(requestBody.contains("michi-id-123"))
+    }
+
+    @Test
+    fun pairConfirm_withServerCodeSendsActualPin() = runBlocking {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = """
+                    {
+                      "token":"code-token",
+                      "expires_in":3600,
+                      "device_id":"client-1",
+                      "server_id":"server-1"
+                    }
+                """.trimIndent(),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://host:8400",
+            httpClient = jsonClient(engine),
+        )
+
+        val confirmReq = PairConfirmRequestDto(
+            sessionId = "sess-2",
+            pin = "4819",
+            michiId = "michi-id-456",
+            publicKey = "pk-def"
+        )
+        val resp = client.pairConfirm(confirmReq).getOrThrow()
+        assertEquals("code-token", resp.token)
+        assertTrue(requestBody.contains("\"pin\":\"4819\""))
     }
 
     @Test

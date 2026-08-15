@@ -51,6 +51,7 @@ object PlayerDependencies {
         val tap = rtpPcmAudioTap ?: return
         tap.isEnabled = false
         tap.isPaused = false
+        tap.isRenegotiating = false
         tap.muteLocalOutput = false
         tap.pcmChunkListener = null
     }
@@ -62,7 +63,9 @@ object PlayerDependencies {
 
     @JvmStatic
     fun resumePcmStreaming() {
-        rtpPcmAudioTap?.isPaused = false
+        val tap = rtpPcmAudioTap ?: return
+        tap.isPaused = false
+        tap.isRenegotiating = false
     }
 
     @JvmStatic

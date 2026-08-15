@@ -731,6 +731,12 @@ class PlaybackSessionManager(
         targetHost: String,
         newFormat: org.michimusic.core.models.PcmFormat
     ) {
+        // 0. Temporarily pause playback clock so ExoPlayer doesn't advance and drop audio frames during ReceiverLite renegotiation
+        val wasPlaying = audioController?.state?.value?.isPlaying == true
+        if (wasPlaying) {
+            audioController?.pause()
+        }
+
         // 1. Temporarily pause PCM tap feeding
         org.michimusic.player.PlayerDependencies.pausePcmStreaming()
 
@@ -784,6 +790,11 @@ class PlaybackSessionManager(
 
             if (rtpAudioSender.isActive) {
                 org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+
+                // 4. Resume playback clock now that RTP transmission is running
+                if (wasPlaying) {
+                    audioController?.play()
+                }
 
                 val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
                 receiverHeartbeatJob = scope.launch(Dispatchers.IO) {

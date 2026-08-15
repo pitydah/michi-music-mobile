@@ -34,6 +34,49 @@ class RtpPcmAudioTapTest {
     }
 
     @Test
+    fun `changing format locks emission atomically via isRenegotiating until resumed`() {
+        val tap = RtpPcmAudioTap()
+        val format44 = AudioProcessor.AudioFormat(44100, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format44)
+
+        var emissionCount = 0
+        tap.pcmChunkListener = { emissionCount++ }
+        tap.isEnabled = true
+
+        val inputData = byteArrayOf(1, 2, 3, 4)
+        val buf1 = ByteBuffer.allocateDirect(inputData.size).order(ByteOrder.nativeOrder())
+        buf1.put(inputData)
+        buf1.flip()
+        tap.queueInput(buf1)
+
+        assertEquals("First chunk under 44.1kHz must be delivered", 1, emissionCount)
+        assertFalse(tap.isRenegotiating)
+
+        // Change format to 48kHz (simulating track change in Media3)
+        val format48 = AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format48)
+
+        assertTrue("isRenegotiating must be true immediately on format change", tap.isRenegotiating)
+
+        // Queue input buffer while isRenegotiating is true
+        val buf2 = ByteBuffer.allocateDirect(inputData.size).order(ByteOrder.nativeOrder())
+        buf2.put(inputData)
+        buf2.flip()
+        tap.queueInput(buf2)
+
+        assertEquals("Zero bytes of new 48kHz format must reach old listener while isRenegotiating is true", 1, emissionCount)
+
+        // Resume streaming (simulating new RTP sender is ready)
+        tap.isRenegotiating = false
+        val buf3 = ByteBuffer.allocateDirect(inputData.size).order(ByteOrder.nativeOrder())
+        buf3.put(inputData)
+        buf3.flip()
+        tap.queueInput(buf3)
+
+        assertEquals("Delivery must resume after isRenegotiating is cleared", 2, emissionCount)
+    }
+
+    @Test
     fun `tap forwards pcm chunks to listener when enabled`() {
         val tap = RtpPcmAudioTap()
         val format = AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT)

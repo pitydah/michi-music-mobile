@@ -413,7 +413,7 @@ class SyncViewModel(
                 
                 val confirmReq = org.michimusic.link.dto.PairConfirmRequestDto(
                     sessionId = startResp.sessionId,
-                    pin = pin,
+                    pin = if (strategy == PairingStrategy.ED25519_CHALLENGE) null else pin,
                     michiId = identity.michiId,
                     publicKey = identity.publicKeyBase64Url,
                 )
