@@ -536,6 +536,17 @@ class PlaybackSessionManager(
                         } else {
                             val searchResult = client.search(track.title).getOrNull()
                             val match = searchResult?.firstOrNull { candidate ->
+                                // 1. Match by content hash if available
+                                val hashMatch = track.contentHash.isNotEmpty() &&
+                                    candidate.contentHash.isNotEmpty() &&
+                                    track.contentHash.equals(candidate.contentHash, ignoreCase = true)
+                                if (hashMatch) return@firstOrNull true
+
+                                // 2. Match by stable canonical content identity signature
+                                val idMatch = track.stableContentIdentity.equals(candidate.stableContentIdentity, ignoreCase = true)
+                                if (idMatch) return@firstOrNull true
+
+                                // 3. Multi-criteria fallback (title + artist + duration within 3s)
                                 val titleMatches = candidate.title.equals(track.title, ignoreCase = true)
                                 val artistMatches = candidate.artist.isEmpty() || track.artist.isEmpty() ||
                                         candidate.artist.equals(track.artist, ignoreCase = true)

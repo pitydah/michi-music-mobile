@@ -23,7 +23,19 @@ data class Track(
     val source: TrackSource = TrackSource.LOCAL,
     val replayGainTrack: Float = Float.NaN,
     val replayGainAlbum: Float = Float.NaN,
-)
+    val contentHash: String = "",
+) {
+    /**
+     * Stable content identity signature. Uses contentHash if available,
+     * or normalized canonical metadata signature: "title|artist|album|duration_secs".
+     */
+    val stableContentIdentity: String
+        get() = if (contentHash.isNotEmpty()) {
+            contentHash
+        } else {
+            "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
+        }
+}
 
 enum class TrackSource {
     LOCAL,

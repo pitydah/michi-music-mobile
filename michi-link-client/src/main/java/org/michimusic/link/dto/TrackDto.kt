@@ -19,8 +19,20 @@ data class TrackResponseDto(
     @SerialName("cover_id") val coverId: String = "",
     @SerialName("track_number") val trackNumber: Int = 0,
     val year: Int = 0,
+    @SerialName("content_hash") val contentHash: String = "",
 ) {
     val effectiveId: String get() = id.ifEmpty { trackId }
+
+    /**
+     * Stable content identity signature. Uses contentHash if present,
+     * or normalized canonical metadata signature: "title|artist|album|duration_secs".
+     */
+    val stableContentIdentity: String
+        get() = if (contentHash.isNotEmpty()) {
+            contentHash
+        } else {
+            "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
+        }
 
     fun normalized(): TrackResponseDto =
         if (id.isNotEmpty() || trackId.isEmpty()) this else copy(id = trackId)

@@ -85,13 +85,15 @@ class SyncViewModel(
         
         // Add all registered devices first
         registered.forEach { reg ->
-            val dPeer = peers.find { it.deviceId == reg.deviceId || it.ip == reg.lastUrl.substringAfter("://").substringBefore(":") }
+            val hostFromUrl = reg.lastUrl.substringAfter("://").substringBefore("/").substringBefore(":")
+            val portFromUrl = reg.lastUrl.substringAfter("://").substringBefore("/").substringAfter(":", "").toIntOrNull() ?: 8400
+            val dPeer = peers.find { it.deviceId == reg.deviceId || (it.ip.isNotEmpty() && it.ip == hostFromUrl) }
             unified.add(
                 org.michimusic.core.models.UnifiedDevice(
                     id = reg.deviceId,
                     name = dPeer?.alias ?: reg.deviceName,
-                    ip = dPeer?.ip ?: reg.lastUrl.substringAfter("://").substringBefore(":"),
-                    port = dPeer?.port ?: 53318,
+                    ip = dPeer?.ip ?: hostFromUrl,
+                    port = dPeer?.port ?: portFromUrl,
                     connectionState = connStates[reg.deviceId] ?: (if (dPeer != null) SyncConnectionState.DISCONNECTED else SyncConnectionState.OFFLINE),
                     isPaired = true,
                     deviceType = reg.serviceType.ifEmpty { "server" },
@@ -101,14 +103,8 @@ class SyncViewModel(
             )
         }
         
-        // Add discovered devices that are not registered
+        // Add discovered devices that are not registered (roles remain empty/UNKNOWN until ServerInfo is queried)
         peers.filter { p -> registered.none { it.deviceId == p.deviceId || it.lastUrl.contains(p.ip) } }.forEach { p ->
-            val inferredRoles = when (p.deviceType.lowercase()) {
-                "receiver", "stream" -> listOf("audio_receiver")
-                "server" -> listOf("music_server", "library_host", "playback_host")
-                "player", "desktop_player" -> listOf("playback_host")
-                else -> emptyList()
-            }
             unified.add(
                 org.michimusic.core.models.UnifiedDevice(
                     id = p.deviceId.ifEmpty { p.ip },
@@ -118,7 +114,7 @@ class SyncViewModel(
                     connectionState = SyncConnectionState.DISCONNECTED,
                     isPaired = false,
                     deviceType = p.deviceType,
-                    roles = inferredRoles,
+                    roles = emptyList(), // Strict: No functional roles granted prior to ServerInfo resolution
                     features = emptyList()
                 )
             )
