@@ -41,25 +41,28 @@ object DeviceActionResolver {
 
         // Capabilities / Role driven actions for connected device
         val roles = device.roles
-        val isServer = roles.contains("server")
-        val isPlayer = roles.contains("player")
-        val isReceiver = roles.contains("audio_receiver") || roles.contains("video_receiver") || roles.contains("cast_receiver")
+        val isLibrary = roles.contains("library_host") || roles.contains("music_server")
+        val isSync = roles.contains("sync_host")
+        val isPlayback = roles.contains("playback_host")
+        val isReceiver = roles.contains("audio_receiver")
 
-        if (isServer) {
+        if (isLibrary) {
             actions.add(DeviceAction(DeviceActionType.BROWSE_LIBRARY, "Biblioteca", isPrimary = true))
+        }
+        if (isSync) {
             actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar"))
         }
-        
-        if (isPlayer) {
-            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = !isServer))
+        if (isPlayback) {
+            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = !isLibrary))
             actions.add(DeviceAction(DeviceActionType.CONTINUE_PLAYBACK_HERE, "Continuar aquí"))
-        } else if (isReceiver) {
-            actions.add(DeviceAction(DeviceActionType.PLAY_ON_DEVICE, "Reproducir aquí", isPrimary = !isServer))
+        }
+        if (isReceiver) {
+            actions.add(DeviceAction(DeviceActionType.PLAY_ON_DEVICE, "Reproducir aquí", isPrimary = !isLibrary && !isPlayback))
         }
 
-        // Fallback if no roles matched but connected
+        // Fallback if no specific actions were resolved
         if (actions.isEmpty()) {
-            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = true))
+            actions.add(DeviceAction(DeviceActionType.VIEW_DETAILS, "Detalles", isPrimary = true))
         }
 
         actions.add(DeviceAction(DeviceActionType.DISCONNECT, "Desconectar", isDestructive = true))
