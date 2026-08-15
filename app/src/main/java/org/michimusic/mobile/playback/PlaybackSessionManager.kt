@@ -391,12 +391,39 @@ class PlaybackSessionManager(
             scope.launch {
                 val targetHost = client.baseUrl.substringAfter("://").substringBefore(":")
                 val sInfo = runCatching { client.getServerInfo().getOrNull() }.getOrNull()
+                
+                val sourceFormat = org.michimusic.link.audio.SourcePcmFormat(
+                    sampleRate = org.michimusic.player.PlayerDependencies.getActiveSampleRate(),
+                    channels = org.michimusic.player.PlayerDependencies.getActiveChannels(),
+                    bitDepth = org.michimusic.player.PlayerDependencies.getActiveBitDepth(),
+                    codec = org.michimusic.player.PlayerDependencies.getActiveCodec(),
+                )
+
                 val req = org.michimusic.link.audio.AudioProfileNegotiator.negotiate(
                     capabilities = sInfo?.audio,
+                    sourceFormat = sourceFormat,
                     preferredVolume = _sessionState.value.remoteVolume
                 )
 
+                if (req == null) {
+                    onResult(false, "Formato de audio (${sourceFormat.codec} ${sourceFormat.sampleRate}Hz/${sourceFormat.bitDepth}bit/${sourceFormat.channels}ch) no soportado por el receptor")
+                    return@launch
+                }
+
                 client.createReceiverLiteSession(req).onSuccess { sessionResp ->
+                    val eff = sessionResp.effective
+                    // Strict verification: effective parameters must match real audio source format
+                    if (eff.sampleRate != sourceFormat.sampleRate ||
+                        eff.bitDepth != sourceFormat.bitDepth ||
+                        eff.channels != sourceFormat.channels ||
+                        !eff.codec.equals(sourceFormat.codec, ignoreCase = true)) {
+                        scope.launch(Dispatchers.IO) {
+                            client.deleteReceiverLiteSession(sessionResp.sessionToken)
+                        }
+                        onResult(false, "Incompatibilidad de formato: receptor requiere ${eff.codec} ${eff.sampleRate}Hz/${eff.bitDepth}bit")
+                        return@onSuccess
+                    }
+
                     activeReceiverSessionId = sessionResp.sessionId
                     activeReceiverSessionToken = sessionResp.sessionToken
                     activeReceiverEffective = sessionResp.effective

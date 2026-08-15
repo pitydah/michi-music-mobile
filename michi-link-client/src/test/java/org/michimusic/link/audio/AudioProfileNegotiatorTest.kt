@@ -2,6 +2,7 @@ package org.michimusic.link.audio
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.michimusic.link.dto.AudioCapabilitiesDto
 
@@ -9,8 +10,9 @@ class AudioProfileNegotiatorTest {
 
     @Test
     fun `negotiate falls back to standard 16_48 when capabilities is null`() {
-        val req = AudioProfileNegotiator.negotiate(null)
-        assertEquals("rtp_udp", req.transport)
+        val req = AudioProfileNegotiator.negotiate(null, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16, channels = 2))
+        assertNotNull(req)
+        assertEquals("rtp_udp", req!!.transport)
         assertEquals("pcm_s16le", req.codec)
         assertEquals(48000, req.sampleRate)
         assertEquals(16, req.bitDepth)
@@ -35,8 +37,9 @@ class AudioProfileNegotiatorTest {
             bufferMsMax = 200
         )
 
-        val req = AudioProfileNegotiator.negotiate(capabilities, preferredVolume = 85)
-        assertEquals("rtp_udp", req.transport)
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16), preferredVolume = 85)
+        assertNotNull(req)
+        assertEquals("rtp_udp", req!!.transport)
         assertEquals("pcm_s16le", req.codec)
         assertEquals(48000, req.sampleRate)
         assertEquals(16, req.bitDepth)
@@ -48,22 +51,68 @@ class AudioProfileNegotiatorTest {
     }
 
     @Test
-    fun `negotiate selects 16_48 profile even if receiver offers 24-bit to match verified Android pipeline`() {
-        val hifiCapabilities = AudioCapabilitiesDto(
+    fun `negotiate matches real 44_1kHz source format when receiver supports it`() {
+        val capabilities = AudioCapabilitiesDto(
             transports = listOf("rtp_udp"),
-            codecs = listOf("pcm_s24le", "pcm_s16le"),
-            sampleRates = listOf(96000, 48000, 44100),
-            bitDepths = listOf(24, 16),
+            codecs = listOf("pcm_s16le"),
+            sampleRates = listOf(48000, 44100),
+            bitDepths = listOf(16),
             channels = listOf(2),
             packetMs = listOf(10, 20),
             payloadTypes = listOf(97)
         )
 
-        val req = AudioProfileNegotiator.negotiate(hifiCapabilities)
-        assertEquals("rtp_udp", req.transport)
-        assertEquals("pcm_s16le", req.codec)
-        assertEquals(48000, req.sampleRate)
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 44100, bitDepth = 16))
+        assertNotNull(req)
+        assertEquals(44100, req!!.sampleRate)
         assertEquals(16, req.bitDepth)
-        assertEquals(2, req.channels)
+    }
+
+    @Test
+    fun `negotiate returns null when receiver only supports 24-bit and source is 16-bit`() {
+        val incompatibleCapabilities = AudioCapabilitiesDto(
+            transports = listOf("rtp_udp"),
+            codecs = listOf("pcm_s24le"),
+            sampleRates = listOf(96000),
+            bitDepths = listOf(24),
+            channels = listOf(2),
+            packetMs = listOf(10),
+            payloadTypes = listOf(97)
+        )
+
+        val req = AudioProfileNegotiator.negotiate(incompatibleCapabilities, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16))
+        assertNull("Must return null on incompatible bit depth / sample rate / codec", req)
+    }
+
+    @Test
+    fun `negotiate returns null when sample rate is not supported by receiver`() {
+        val capabilities = AudioCapabilitiesDto(
+            transports = listOf("rtp_udp"),
+            codecs = listOf("pcm_s16le"),
+            sampleRates = listOf(48000), // Receiver only supports 48000
+            bitDepths = listOf(16),
+            channels = listOf(2),
+            packetMs = listOf(10),
+            payloadTypes = listOf(97)
+        )
+
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 44100, bitDepth = 16))
+        assertNull("Must return null when source is 44100Hz but receiver only supports 48000Hz", req)
+    }
+
+    @Test
+    fun `negotiate returns null when transport rtp_udp is not supported`() {
+        val capabilities = AudioCapabilitiesDto(
+            transports = listOf("http_stream"),
+            codecs = listOf("pcm_s16le"),
+            sampleRates = listOf(48000),
+            bitDepths = listOf(16),
+            channels = listOf(2),
+            packetMs = listOf(10),
+            payloadTypes = listOf(97)
+        )
+
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16))
+        assertNull("Must return null when rtp_udp is not supported", req)
     }
 }

@@ -3,31 +3,38 @@ package org.michimusic.link.audio
 import org.michimusic.link.dto.AudioCapabilitiesDto
 import org.michimusic.link.dto.ReceiverSessionCreateRequest
 
+data class SourcePcmFormat(
+    val sampleRate: Int = 48000,
+    val channels: Int = 2,
+    val bitDepth: Int = 16,
+    val codec: String = "pcm_s16le",
+)
+
 /**
- * Negotiates an optimal audio streaming profile by intersecting the client's supported
- * capabilities with the remote receiver's advertised audio capabilities.
+ * Negotiates an optimal audio streaming profile by strictly intersecting the client's
+ * real decoded PCM format with the remote receiver's advertised audio capabilities.
+ *
+ * Returns null if no compatible profile can be strictly matched.
  */
 object AudioProfileNegotiator {
 
-    // Supported client capabilities matching current Android pipeline (PCM 16-bit verified)
-    private val CLIENT_CODECS = listOf("pcm_s16le")
-    private val CLIENT_SAMPLE_RATES = listOf(48000, 44100)
-    private val CLIENT_BIT_DEPTHS = listOf(16)
-    private val CLIENT_CHANNELS = listOf(2)
-    private val CLIENT_PACKET_MS = listOf(10, 20)
+    private val SUPPORTED_PACKET_MS = listOf(10, 20)
 
     fun negotiate(
         capabilities: AudioCapabilitiesDto?,
-        preferredVolume: Int = 70
-    ): ReceiverSessionCreateRequest {
+        sourceFormat: SourcePcmFormat = SourcePcmFormat(),
+        preferredVolume: Int = 70,
+    ): ReceiverSessionCreateRequest? {
         if (capabilities == null) {
-            // Default fallback profile (Standard 16/48)
+            // Null capabilities fallback: only allow if source format is verified 16-bit stereo PCM (48kHz or 44.1kHz)
+            if (sourceFormat.bitDepth != 16 || sourceFormat.channels != 2) return null
+            if (sourceFormat.sampleRate != 48000 && sourceFormat.sampleRate != 44100) return null
             return ReceiverSessionCreateRequest(
                 transport = "rtp_udp",
-                codec = "pcm_s16le",
-                sampleRate = 48000,
-                bitDepth = 16,
-                channels = 2,
+                codec = sourceFormat.codec,
+                sampleRate = sourceFormat.sampleRate,
+                bitDepth = sourceFormat.bitDepth,
+                channels = sourceFormat.channels,
                 packetMs = 10,
                 bufferMs = 120,
                 payloadType = 97,
@@ -35,37 +42,42 @@ object AudioProfileNegotiator {
             )
         }
 
-        val negotiatedTransport = capabilities.transports.firstOrNull { it.equals("rtp_udp", ignoreCase = true) } ?: "rtp_udp"
-        
-        // Negotiate bit depth & codec (strictly 16-bit for Phase 3)
-        val negotiatedBitDepth = CLIENT_BIT_DEPTHS.firstOrNull { it in capabilities.bitDepths } ?: 16
-        val negotiatedCodec = capabilities.codecs.firstOrNull { it.equals("pcm_s16le", ignoreCase = true) }
-            ?: capabilities.codecs.firstOrNull { it.startsWith("pcm", ignoreCase = true) }
-            ?: "pcm_s16le"
+        // 1. Strict transport check
+        val supportsRtpUdp = capabilities.transports.any { it.equals("rtp_udp", ignoreCase = true) }
+        if (!supportsRtpUdp) return null
 
-        // Negotiate sample rate (Standard 48000 / 44100 Hz)
-        val negotiatedSampleRate = CLIENT_SAMPLE_RATES.firstOrNull { it in capabilities.sampleRates } ?: 48000
+        // 2. Strict codec check
+        val matchingCodec = capabilities.codecs.firstOrNull { it.equals(sourceFormat.codec, ignoreCase = true) }
+            ?: return null
 
-        // Negotiate channels
-        val negotiatedChannels = CLIENT_CHANNELS.firstOrNull { it in capabilities.channels } ?: 2
+        // 3. Strict bit depth check
+        if (sourceFormat.bitDepth !in capabilities.bitDepths) return null
 
-        // Negotiate packet duration (ms)
-        val negotiatedPacketMs = CLIENT_PACKET_MS.firstOrNull { it in capabilities.packetMs } ?: 10
+        // 4. Strict sample rate check
+        if (sourceFormat.sampleRate !in capabilities.sampleRates) return null
 
-        // Negotiate buffer duration (ms)
+        // 5. Strict channels check
+        if (sourceFormat.channels !in capabilities.channels) return null
+
+        // 6. Packet duration
+        val negotiatedPacketMs = SUPPORTED_PACKET_MS.firstOrNull { it in capabilities.packetMs }
+            ?: capabilities.packetMs.firstOrNull()
+            ?: 10
+
+        // 7. Buffer duration
         var bufferMs = 120
         capabilities.bufferMsMin?.let { min -> bufferMs = bufferMs.coerceAtLeast(min) }
         capabilities.bufferMsMax?.let { max -> bufferMs = bufferMs.coerceAtMost(max) }
 
-        // Negotiate payload type
+        // 8. Payload type
         val negotiatedPayloadType = capabilities.payloadTypes.firstOrNull() ?: 97
 
         return ReceiverSessionCreateRequest(
-            transport = negotiatedTransport,
-            codec = negotiatedCodec,
-            sampleRate = negotiatedSampleRate,
-            bitDepth = negotiatedBitDepth,
-            channels = negotiatedChannels,
+            transport = "rtp_udp",
+            codec = matchingCodec,
+            sampleRate = sourceFormat.sampleRate,
+            bitDepth = sourceFormat.bitDepth,
+            channels = sourceFormat.channels,
             packetMs = negotiatedPacketMs,
             bufferMs = bufferMs,
             payloadType = negotiatedPayloadType,

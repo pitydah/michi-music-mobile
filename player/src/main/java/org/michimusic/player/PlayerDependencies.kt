@@ -46,4 +46,16 @@ object PlayerDependencies {
     fun setMuteLocalOutput(muted: Boolean) {
         rtpPcmAudioTap?.muteLocalOutput = muted
     }
+
+    @JvmStatic
+    fun getActiveSampleRate(): Int = rtpPcmAudioTap?.currentSampleRate ?: 48000
+
+    @JvmStatic
+    fun getActiveChannels(): Int = rtpPcmAudioTap?.currentChannelCount ?: 2
+
+    @JvmStatic
+    fun getActiveBitDepth(): Int = rtpPcmAudioTap?.bitDepth ?: 16
+
+    @JvmStatic
+    fun getActiveCodec(): String = rtpPcmAudioTap?.codec ?: "pcm_s16le"
 }
