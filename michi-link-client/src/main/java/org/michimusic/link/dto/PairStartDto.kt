@@ -27,7 +27,7 @@ data class PairStartResponseDto(
 @Serializable
 data class PairConfirmRequestDto(
     @SerialName("session_id") val sessionId: String,
-    val pin: String,
+    val pin: String = "",
     @SerialName("michi_id") val michiId: String,
     @SerialName("public_key") val publicKey: String,
 )

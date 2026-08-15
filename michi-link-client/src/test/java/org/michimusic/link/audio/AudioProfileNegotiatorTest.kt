@@ -4,23 +4,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.michimusic.core.models.PcmFormat
 import org.michimusic.link.dto.AudioCapabilitiesDto
 
 class AudioProfileNegotiatorTest {
 
     @Test
-    fun `negotiate falls back to standard 16_48 when capabilities is null`() {
-        val req = AudioProfileNegotiator.negotiate(null, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16, channels = 2))
-        assertNotNull(req)
-        assertEquals("rtp_udp", req!!.transport)
-        assertEquals("pcm_s16le", req.codec)
-        assertEquals(48000, req.sampleRate)
-        assertEquals(16, req.bitDepth)
-        assertEquals(2, req.channels)
-        assertEquals(10, req.packetMs)
-        assertEquals(120, req.bufferMs)
-        assertEquals(97, req.payloadType)
-        assertEquals(70, req.volume)
+    fun `negotiate returns null when capabilities is null to enforce strict protocol conformance`() {
+        val req = AudioProfileNegotiator.negotiate(null, sourceFormat = PcmFormat(sampleRate = 48000, bitDepth = 16, channels = 2))
+        assertNull("Strict ReceiverLite negotiation must reject missing audio capabilities", req)
     }
 
     @Test
@@ -37,7 +29,7 @@ class AudioProfileNegotiatorTest {
             bufferMsMax = 200
         )
 
-        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16), preferredVolume = 85)
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = PcmFormat(sampleRate = 48000, bitDepth = 16, channels = 2), preferredVolume = 85)
         assertNotNull(req)
         assertEquals("rtp_udp", req!!.transport)
         assertEquals("pcm_s16le", req.codec)
@@ -62,7 +54,7 @@ class AudioProfileNegotiatorTest {
             payloadTypes = listOf(97)
         )
 
-        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 44100, bitDepth = 16))
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = PcmFormat(sampleRate = 44100, bitDepth = 16, channels = 2))
         assertNotNull(req)
         assertEquals(44100, req!!.sampleRate)
         assertEquals(16, req.bitDepth)
@@ -80,7 +72,7 @@ class AudioProfileNegotiatorTest {
             payloadTypes = listOf(97)
         )
 
-        val req = AudioProfileNegotiator.negotiate(incompatibleCapabilities, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16))
+        val req = AudioProfileNegotiator.negotiate(incompatibleCapabilities, sourceFormat = PcmFormat(sampleRate = 48000, bitDepth = 16, channels = 2))
         assertNull("Must return null on incompatible bit depth / sample rate / codec", req)
     }
 
@@ -96,7 +88,7 @@ class AudioProfileNegotiatorTest {
             payloadTypes = listOf(97)
         )
 
-        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 44100, bitDepth = 16))
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = PcmFormat(sampleRate = 44100, bitDepth = 16, channels = 2))
         assertNull("Must return null when source is 44100Hz but receiver only supports 48000Hz", req)
     }
 
@@ -112,7 +104,7 @@ class AudioProfileNegotiatorTest {
             payloadTypes = listOf(97)
         )
 
-        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = SourcePcmFormat(sampleRate = 48000, bitDepth = 16))
+        val req = AudioProfileNegotiator.negotiate(capabilities, sourceFormat = PcmFormat(sampleRate = 48000, bitDepth = 16, channels = 2))
         assertNull("Must return null when rtp_udp is not supported", req)
     }
 }

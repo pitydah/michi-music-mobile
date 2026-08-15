@@ -21,6 +21,10 @@ import java.nio.ByteOrder
 class RtpAudioSender(
     private val socketProvider: () -> DatagramSocket = { DatagramSocket() }
 ) {
+    companion object {
+        const val MAX_SUSTAINED_OVERFLOWS = 50
+    }
+
     private var socket: DatagramSocket? = null
     private var targetAddress: InetAddress? = null
     private var targetPort: Int = 0
@@ -40,7 +44,15 @@ class RtpAudioSender(
 
     var onError: ((Exception) -> Unit)? = null
 
+    var packetsSent: Long = 0
+        private set
+    var pcmBytesReceived: Long = 0
+        private set
+    var pcmBytesDropped: Long = 0
+        private set
     var bufferOverflows: Long = 0
+        private set
+    var socketErrors: Long = 0
         private set
 
     val isActive: Boolean get() = isStreaming
@@ -64,7 +76,12 @@ class RtpAudioSender(
         timestamp = (0L..4294967295L).random()
         socket = socketProvider()
         isStreaming = true
+
+        packetsSent = 0
+        pcmBytesReceived = 0
+        pcmBytesDropped = 0
         bufferOverflows = 0
+        socketErrors = 0
 
         val channel = Channel<ByteArray>(capacity = 128)
         audioChannel = channel
@@ -104,7 +121,9 @@ class RtpAudioSender(
                     val packet = DatagramPacket(packetData, packetData.size, targetAddress, targetPort)
                     try {
                         socket?.send(packet)
+                        packetsSent++
                     } catch (e: Exception) {
+                        socketErrors++
                         onError?.invoke(e)
                         break
                     }
@@ -129,9 +148,16 @@ class RtpAudioSender(
     fun sendPcmChunk(pcmData: ByteArray) {
         if (!isStreaming) return
         val ch = audioChannel ?: return
+        pcmBytesReceived += pcmData.size
+
         val result = ch.trySend(pcmData)
         if (!result.isSuccess) {
             bufferOverflows++
+            pcmBytesDropped += pcmData.size
+
+            if (bufferOverflows >= MAX_SUSTAINED_OVERFLOWS) {
+                onError?.invoke(IllegalStateException("Sustained RTP buffer overflow: network socket clogged"))
+            }
         }
     }
 

@@ -6,7 +6,7 @@ Michi Music Mobile is the **portable node** of the [Michi Music Ecosystem](https
 
 Its core responsibilities are:
 - **PLAY**: High-fidelity local audio playback via AndroidX Media3 (ExoPlayer + PCM16 ReplayGain + Audio Effects HAL + USB DAC). *(Implemented & Unit Tested)*
-- **STREAM**: Decoded PCM audio streaming to physical Michi Stream receivers (ESP32-S3 + DAC) via standard RTP (RFC 3550) over UDP with dynamic 16-bit audio negotiation. *(Implemented & Network E2E Tested)*
+- **STREAM**: Decoded PCM audio streaming to physical Michi Stream receivers (ESP32-S3 + DAC) via standard RTP (RFC 3550) over UDP with dynamic 16-bit audio negotiation and runtime format renegotiation. *(Implemented & Unit Tested)*
 - **ACCESS**: Continuous remote access, catalog search, and audio streaming from Michi Micro Server / Big Server. *(Implemented & Tested)*
 - **CONTROL**: Remote playback and queue control of Desktop Player, Servers, and physical Michi Stream nodes. *(Implemented & Tested)*
 - **CONTINUE**: Coordinated handoff of logical playback sessions between devices (Mobile $\leftrightarrow$ Server $\leftrightarrow$ Michi Stream). *(Implemented & Tested)*
@@ -45,7 +45,7 @@ Its core responsibilities are:
 ├─────────────────────────────┴─────────────────────────────┤
 │                           :core                           │
 │  Canonical Domain Models: Track, Album, Artist, Playlist  │
-│  DiscoveredPeer, SyncConnectionState, Enums               │
+│  AudioModels (PcmFormat), DiscoveredPeer, SyncStates      │
 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -58,8 +58,9 @@ Its core responsibilities are:
 - Unifies local playback and remote targets into a single state stream (`sessionState`).
 - Manages endpoint selection (`LOCAL_PHONE`, `DESKTOP_PLAYER`, `SERVER`, `STREAM_RECEIVER`, `ROOM`, `UNKNOWN`).
 - Coordinates session handoff:
-  - **Local $\rightarrow$ Server / Player (`/queue/transfer`)**: Resolves track identity via canonical multi-criteria matcher (`title`, `artist`, `durationMs` $\pm 3\text{ s}$) and safely aborts if local tracks cannot be resolved in the server catalog.
-  - **Local $\rightarrow$ Michi Stream (`ReceiverLite`)**: Negotiates audio profile (Standard PCM16 / 48 kHz or 44.1 kHz), establishes session, intercepts decoded PCM from ExoPlayer via `RtpPcmAudioTap`, and sends continuous RFC 3550 RTP packets over UDP.
+  - **Local $\rightarrow$ Server / Player (`/queue/transfer`)**: Resolves track identity via multi-criteria fallback resolver (`title`, `artist`, `durationMs` $\pm 3\text{ s}$) and safely aborts if local tracks cannot be resolved in the server catalog.
+  - **Local $\rightarrow$ Michi Stream (`ReceiverLite`)**: Negotiates audio profile (Standard PCM16 / 48 kHz or 44.1 kHz), establishes session, verifies RTP socket activation before intercepting PCM, and sends continuous RFC 3550 RTP packets over UDP.
+  - **Dynamic Format Renegotiation**: Listens to `PlayerDependencies.pcmFormatFlow`. When a song transition changes the underlying audio clock (e.g. 44.1 kHz $\leftrightarrow$ 48 kHz), it pauses PCM tap feeding, tears down the previous ReceiverLite session, renegotiates the new profile, starts the new RTP sender, and resumes streaming cleanly without pitch/speed drift.
 
 ### Audio Pipeline & HAL
 1. **Audio Attributes**: `AudioAttributes.DEFAULT` with automatic audio focus handling.
@@ -76,7 +77,7 @@ Michi Link is the official interoperability contract across all ecosystem compon
 
 ### 1. Unified Discovery & Network Ports
 - **Discovery**: UDP multicast on `224.0.0.167:53318` (`LinkDiscovery`). Nodes announce themselves with alias, IP, port, device type, version, and auth requirement.
-- **REST Port**: Explicit port from discovery announcement or manual entry (`53318` default for desktop/servers).
+- **REST Port**: Explicit port from discovery announcement or manual entry (`8400` general default in Michi Link specification; `8500` for Micro Server).
 - **RTP Audio Stream Ports**: Dynamic UDP port in the ephemeral range `49152..65535` negotiated via `POST /api/v1/receiver-lite/session`.
 
 ### 2. Cryptographic Identity & Pinning
@@ -94,13 +95,13 @@ The client implements an exhaustive pairing state machine across 5 strategies:
 
 ### 4. Michi Stream Protocol (`ReceiverLite`)
 Official lightweight protocol for streaming to embedded receivers (ESP32-S3 + DAC):
-- **Audio Negotiation**: `AudioProfileNegotiator` negotiates verified 16-bit stereo PCM (`pcm_s16le`, 48 kHz / 44.1 kHz, 10ms packets).
+- **Audio Negotiation**: `AudioProfileNegotiator` strictly intersects real local PCM format against receiver capabilities (`pcm_s16le`, 48 kHz / 44.1 kHz, 10ms packets), strictly returning `null` if unsupported (zero fictional fallbacks).
 - **Session Lifecycle**:
   - `POST /api/v1/receiver-lite/session`: Creates session, returns `session_id`, `session_token`, `lease_seconds`, and `effective` audio parameters.
   - `POST /api/v1/receiver-lite/heartbeat`: Periodic heartbeat (`lease_seconds / 3`) sending `X-Michi-Session` header.
   - `PATCH /api/v1/receiver-lite/session`: Dynamic volume adjustment and pause/resume control.
   - `DELETE /api/v1/receiver-lite/session`: Graceful teardown. Switching between streams automatically tears down previous session before establishing a new one.
-- **RTP Audio Transmission**: `RtpAudioSender` packages PCM chunks into RFC 3550 packets (Payload Type 97, 12-byte header, monotonically increasing sequence numbers and sample timestamps) and sends via UDP with persistent chunk accumulation and session buffer isolation.
+- **RTP Audio Transmission**: `RtpAudioSender` packages PCM chunks into RFC 3550 packets (Payload Type 97, 12-byte header, monotonically increasing sequence numbers and sample timestamps) and sends via UDP with persistent chunk accumulation, session buffer isolation, and metrics tracking for sustained backpressure detection.
 
 ### 5. Real-time Events & Token Refresh
 - **Server-Sent Events (`EventClient`)**: Connects to `/api/v1/events` for real-time playback state synchronization.

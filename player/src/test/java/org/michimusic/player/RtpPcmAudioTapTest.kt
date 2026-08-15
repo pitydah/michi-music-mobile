@@ -4,12 +4,34 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class RtpPcmAudioTapTest {
+
+    @Test
+    fun `initial currentFormat is null (UNKNOWN state) and resets cleanly`() {
+        val tap = RtpPcmAudioTap()
+        assertNull("Tap initial format must be null/UNKNOWN until onConfigure is called", tap.activeFormat)
+        assertNull("Tap currentFormat StateFlow value must be null initially", tap.currentFormat.value)
+
+        val format = AudioProcessor.AudioFormat(44100, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format)
+
+        val active = tap.activeFormat
+        assertNotNull("Tap format must be configured", active)
+        assertEquals(44100, active!!.sampleRate)
+        assertEquals(2, active.channels)
+        assertEquals(16, active.bitDepth)
+        assertEquals("pcm_s16le", active.codec)
+
+        tap.reset()
+        assertNull("Tap format must reset to null on reset()", tap.activeFormat)
+    }
 
     @Test
     fun `tap forwards pcm chunks to listener when enabled`() {

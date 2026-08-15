@@ -42,6 +42,7 @@ class PlaybackSessionManager(
     private var activeReceiverSessionToken: String? = null
     private var activeReceiverEffective: org.michimusic.link.dto.ReceiverSessionEffectiveDto? = null
     private var isRemoteSelected = false
+    private var formatObserverJob: Job? = null
 
     init {
         rtpAudioSender.onError = {
@@ -290,6 +291,8 @@ class PlaybackSessionManager(
     fun selectLocalEndpoint() {
         isRemoteSelected = false
         stopRemoteSync()
+        formatObserverJob?.cancel()
+        formatObserverJob = null
         org.michimusic.player.PlayerDependencies.stopPcmStreaming()
         rtpAudioSender.stop()
         val activeEp = _sessionState.value.activeEndpoint
@@ -363,10 +366,10 @@ class PlaybackSessionManager(
                 }
                 
                 selectLocalEndpoint()
-                onResult(true, "Reproduciendo en este teléfono")
+                onResult(true, "Reproducción transferida al teléfono")
             }
         } else if (target.type == EndpointType.STREAM_RECEIVER || target.capabilities.contains("AUDIO_OUTPUT")) {
-            // If switching from a previous active receiver to another, destroy the previous receiver session first
+            // Handoff Local -> Remote
             val prevEp = _sessionState.value.activeEndpoint
             if (prevEp.id != target.id && (prevEp.type == EndpointType.STREAM_RECEIVER || prevEp.capabilities.contains("AUDIO_OUTPUT"))) {
                 val prevClient = connectionManager.getClient(prevEp.id)
@@ -379,6 +382,8 @@ class PlaybackSessionManager(
                 activeReceiverSessionToken = null
                 activeReceiverEffective = null
                 receiverHeartbeatJob?.cancel()
+                formatObserverJob?.cancel()
+                formatObserverJob = null
             }
 
             // Canonical ReceiverLite protocol for Michi Stream
@@ -392,12 +397,11 @@ class PlaybackSessionManager(
                 val targetHost = client.baseUrl.substringAfter("://").substringBefore(":")
                 val sInfo = runCatching { client.getServerInfo().getOrNull() }.getOrNull()
                 
-                val sourceFormat = org.michimusic.link.audio.SourcePcmFormat(
-                    sampleRate = org.michimusic.player.PlayerDependencies.getActiveSampleRate(),
-                    channels = org.michimusic.player.PlayerDependencies.getActiveChannels(),
-                    bitDepth = org.michimusic.player.PlayerDependencies.getActiveBitDepth(),
-                    codec = org.michimusic.player.PlayerDependencies.getActiveCodec(),
-                )
+                val sourceFormat = org.michimusic.player.PlayerDependencies.getActivePcmFormat()
+                if (sourceFormat == null) {
+                    onResult(false, "Esperando formato de audio del reproductor local")
+                    return@launch
+                }
 
                 val req = org.michimusic.link.audio.AudioProfileNegotiator.negotiate(
                     capabilities = sInfo?.audio,
@@ -424,21 +428,30 @@ class PlaybackSessionManager(
                         return@onSuccess
                     }
 
-                    activeReceiverSessionId = sessionResp.sessionId
-                    activeReceiverSessionToken = sessionResp.sessionToken
-                    activeReceiverEffective = sessionResp.effective
-                    currentReceiverSequence = 1L
-
-                    // Connect decoded PCM audio tap directly to the RTP sender
-                    org.michimusic.player.PlayerDependencies.startPcmStreaming { pcmChunk ->
-                        rtpAudioSender.sendPcmChunk(pcmChunk)
-                    }
-
+                    // 1. Start and verify RTP sender before activating PCM tap
                     rtpAudioSender.start(
                         targetHost = targetHost,
                         effective = sessionResp.effective,
                         scope = scope
                     )
+
+                    if (!rtpAudioSender.isActive) {
+                        scope.launch(Dispatchers.IO) {
+                            client.deleteReceiverLiteSession(sessionResp.sessionToken)
+                        }
+                        onResult(false, "No se pudo inicializar la transmisión RTP hacia $targetHost:${eff.streamPort}")
+                        return@onSuccess
+                    }
+
+                    // 2. Only once RTP is active, start PCM tap
+                    org.michimusic.player.PlayerDependencies.startPcmStreaming { pcmChunk ->
+                        rtpAudioSender.sendPcmChunk(pcmChunk)
+                    }
+
+                    activeReceiverSessionId = sessionResp.sessionId
+                    activeReceiverSessionToken = sessionResp.sessionToken
+                    activeReceiverEffective = sessionResp.effective
+                    currentReceiverSequence = 1L
 
                     // If queue is populated and not playing, start local playback pipeline so PCM flows
                     if (audioController?.state?.value?.isPlaying == false && _sessionState.value.queue.isNotEmpty()) {
@@ -475,10 +488,27 @@ class PlaybackSessionManager(
                             }
                         }
                     }
+
+                    // 3. Observe runtime PCM format changes during live session
+                    formatObserverJob?.cancel()
+                    formatObserverJob = scope.launch {
+                        org.michimusic.player.PlayerDependencies.pcmFormatFlow.collect { newFormat ->
+                            if (newFormat == null || !isRemoteSelected) return@collect
+                            val currentEffective = activeReceiverEffective ?: return@collect
+                            val matches = newFormat.sampleRate == currentEffective.sampleRate &&
+                                newFormat.bitDepth == currentEffective.bitDepth &&
+                                newFormat.channels == currentEffective.channels &&
+                                newFormat.codec.equals(currentEffective.codec, ignoreCase = true)
+                            if (!matches) {
+                                handleDynamicReceiverFormatChange(target, client, targetHost, newFormat)
+                            }
+                        }
+                    }
+
                     onResult(true, "Sesión de audio y transmisión RTP activa en ${target.name}")
                 }.onFailure { err ->
                     // Honest UI: Do not report success on real failure
-                    onResult(false, "Error al iniciar sesión en receptor ${target.name}: ${err.message}")
+                    onResult(false, "Fallo al crear sesión ReceiverLite en ${target.name}: ${err.message}")
                 }
             }
         } else {
@@ -693,5 +723,90 @@ class PlaybackSessionManager(
         val current = _sessionState.value.shuffleMode
         val next = if (current == 1) 0 else 1
         setShuffleMode(next)
+    }
+
+    private suspend fun handleDynamicReceiverFormatChange(
+        target: PlaybackEndpoint,
+        client: LinkClient,
+        targetHost: String,
+        newFormat: org.michimusic.core.models.PcmFormat
+    ) {
+        // 1. Temporarily pause PCM tap feeding
+        org.michimusic.player.PlayerDependencies.pausePcmStreaming()
+
+        // 2. Teardown previous ReceiverLite session and stop RTP sender
+        val oldToken = activeReceiverSessionToken
+        if (oldToken != null) {
+            runCatching { client.deleteReceiverLiteSession(oldToken) }
+        }
+        rtpAudioSender.stop()
+        activeReceiverSessionId = null
+        activeReceiverSessionToken = null
+        activeReceiverEffective = null
+        receiverHeartbeatJob?.cancel()
+
+        // 3. Negotiate new session with new PCM format
+        val sInfo = client.getServerInfo().getOrNull()
+        val newReq = org.michimusic.link.audio.AudioProfileNegotiator.negotiate(
+            capabilities = sInfo?.audio,
+            sourceFormat = newFormat,
+            preferredVolume = _sessionState.value.remoteVolume,
+        )
+
+        if (newReq == null) {
+            selectLocalEndpoint()
+            return
+        }
+
+        client.createReceiverLiteSession(newReq).onSuccess { sessionResp ->
+            val eff = sessionResp.effective
+            if (eff.sampleRate != newFormat.sampleRate ||
+                eff.bitDepth != newFormat.bitDepth ||
+                eff.channels != newFormat.channels ||
+                !eff.codec.equals(newFormat.codec, ignoreCase = true)) {
+                if (sessionResp.sessionToken.isNotEmpty()) {
+                    runCatching { client.deleteReceiverLiteSession(sessionResp.sessionToken) }
+                }
+                selectLocalEndpoint()
+                return@onSuccess
+            }
+
+            activeReceiverSessionId = sessionResp.sessionId
+            activeReceiverSessionToken = sessionResp.sessionToken
+            activeReceiverEffective = sessionResp.effective
+            currentReceiverSequence = 1L
+
+            rtpAudioSender.start(
+                targetHost = targetHost,
+                effective = sessionResp.effective,
+                scope = scope
+            )
+
+            if (rtpAudioSender.isActive) {
+                org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+
+                val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
+                receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
+                    while (isActive && isRemoteSelected && activeReceiverSessionId == sessionResp.sessionId) {
+                        delay(intervalMs)
+                        val hbResult = client.sendReceiverLiteHeartbeat(
+                            sessionId = sessionResp.sessionId,
+                            sequence = currentReceiverSequence++,
+                            sessionToken = sessionResp.sessionToken
+                        )
+                        if (hbResult.isFailure) {
+                            withContext(Dispatchers.Main) {
+                                selectLocalEndpoint()
+                            }
+                            break
+                        }
+                    }
+                }
+            } else {
+                selectLocalEndpoint()
+            }
+        }.onFailure {
+            selectLocalEndpoint()
+        }
     }
 }

@@ -171,7 +171,7 @@ class SyncViewModel(
     fun connectManual(
         name: String,
         host: String,
-        port: Int = 53318,
+        port: Int = 8400,
         onStrategyResolved: (PairingStrategy, String) -> Unit = { _, _ -> }
     ) {
         val parsedHost = if (host.contains(":")) host.substringBefore(":") else host

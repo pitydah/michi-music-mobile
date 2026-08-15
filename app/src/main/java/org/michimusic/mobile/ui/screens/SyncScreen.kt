@@ -393,7 +393,7 @@ fun SyncScreen(
                     showManualDialog = false
                     val parts = ipStr.split(":")
                     val host = parts[0]
-                    val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 53318 else 53318
+                    val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 8400 else 8400
                     val peer = DiscoveredPeer(
                         alias = name.ifBlank { "Michi Node" },
                         ip = host.trim(),
