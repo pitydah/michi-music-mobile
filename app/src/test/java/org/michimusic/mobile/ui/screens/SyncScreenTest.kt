@@ -78,9 +78,9 @@ class SyncScreenTest {
         composeTestRule.onNodeWithText("Nombre del Dispositivo").performTextInput("Mi Server")
         composeTestRule.onNodeWithText("Conectar", useUnmergedTree = true).performClick()
 
-        // Verificamos que se seleccionó el peer
+        // Verificamos que se llamó connectManual
         io.mockk.verify { 
-            mockViewModel.selectPeer(match { it.ip == "192.168.1.100" && it.alias == "Mi Server" })
+            mockViewModel.connectManual(name = "Mi Server", host = "192.168.1.100")
         }
     }
 }
