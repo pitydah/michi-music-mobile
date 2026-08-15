@@ -529,7 +529,7 @@ class SyncViewModel(
         }
     }
 
-    fun pairWithQr(qrContent: String, onResult: (Boolean, String) -> Unit) {
+    fun pairWithQr(qrContent: String, pin: String = "", onResult: (Boolean, String) -> Unit) {
         if (qrContent.isBlank()) {
             onResult(false, "El código QR está vacío")
             return
@@ -558,7 +558,7 @@ class SyncViewModel(
                 
                 val req = org.michimusic.link.dto.PairConfirmRequestDto(
                     sessionId = canonicalQr.sessionId,
-                    pin = "",
+                    pin = pin,
                     michiId = identity.michiId,
                     publicKey = identity.publicKeyBase64Url
                 )

@@ -34,7 +34,11 @@ class QrPairingParser(private val identity: MichiIdentity) {
             val expiresAtStr = uri.getQueryParameter("expires_at") ?: return Result.failure(IllegalArgumentException("Falta expires_at"))
             val endpoint = uri.getQueryParameter("endpoint") ?: return Result.failure(IllegalArgumentException("Falta endpoint"))
 
-            val expiresAt = expiresAtStr.toLongOrNull() ?: return Result.failure(IllegalArgumentException("expires_at inválido"))
+            val expiresAt = try {
+                java.time.Instant.parse(expiresAtStr).toEpochMilli() / 1000
+            } catch (e: Exception) {
+                return Result.failure(IllegalArgumentException("expires_at inválido (debe ser RFC 3339)"))
+            }
             
             if (System.currentTimeMillis() / 1000 > expiresAt) {
                 return Result.failure(IllegalArgumentException("El QR ha expirado."))
