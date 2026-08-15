@@ -241,7 +241,8 @@ class SyncViewModel(
         }
     }
 
-    fun startPairing(peer: DiscoveredPeer, username: String, password: String = "", pin: String = "") {
+    fun startPairing(peer: DiscoveredPeer? = _connectedPeer.value, username: String = "", password: String = "", pin: String = "") {
+        if (peer != null) _connectedPeer.value = peer
         val client = currentClient ?: return
         val strategy = _pairingStrategy.value
         _connectionState.value = SyncConnectionState.PAIRING
@@ -345,7 +346,7 @@ class SyncViewModel(
                         val serverInfo = client.getServerInfo().getOrNull()
                         val device = org.michimusic.link.PairedDevice(
                             deviceId = resolvedDeviceId,
-                            deviceName = serverInfo?.effectiveName ?: peer.alias,
+                            deviceName = serverInfo?.effectiveName ?: peer?.alias.orEmpty().ifEmpty { "Michi Node" },
                             serviceType = serverInfo?.service ?: "",
                             deviceToken = effectiveToken,
                             refreshToken = confirmResp.refreshToken ?: "",
@@ -358,6 +359,8 @@ class SyncViewModel(
                             lastUrl = client.baseUrl,
                             serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
                             michiId = startResp.serverMichiId,
+                            publicKey = startResp.serverPublicKey,
+                            identityScheme = "ed25519",
                         )
                         registry.saveDevice(device)
                         
@@ -435,6 +438,8 @@ class SyncViewModel(
                         lastUrl = client.baseUrl,
                         serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
                         michiId = startResp.serverMichiId,
+                        publicKey = startResp.serverPublicKey,
+                        identityScheme = "ed25519",
                     )
                     registry.saveDevice(device)
                     
@@ -462,6 +467,14 @@ class SyncViewModel(
 
     fun connectToDevice(deviceId: String) {
         connectionManager.connect(deviceId)
+    }
+
+    fun disconnectDevice(deviceId: String) {
+        connectionManager.disconnectDevice(deviceId)
+        if (_connectedPeer.value?.deviceId == deviceId) {
+            _connectedPeer.value = null
+            _connectionState.value = SyncConnectionState.DISCONNECTED
+        }
     }
 
     fun forgetDevice(deviceId: String) {
@@ -518,17 +531,7 @@ class SyncViewModel(
                     val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
                     val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
                     if (info.state.isFinished) {
-                        val downloaded = info.outputData.getInt(SyncWorker.RESULT_DOWNLOADED, 0)
-                        val errors = info.outputData.getInt(SyncWorker.RESULT_ERROR, 0)
-                        if (downloaded > 0 || errors == 0) {
-                            _syncProgress.value = SyncProgress.Complete(
-                                tracks = trackRepository.count(),
-                                downloaded = downloaded,
-                                errors = errors,
-                            )
-                        } else {
-                            _syncProgress.value = SyncProgress.Error("Error en sincronización")
-                        }
+                        _syncProgress.value = SyncProgress.Complete(total, current)
                     } else {
                         _syncProgress.value = SyncProgress.Downloading(current, total)
                     }
@@ -536,32 +539,27 @@ class SyncViewModel(
         }
     }
 
-    fun pairWithQr(qrContent: String, pin: String = "", onResult: (Boolean, String) -> Unit) {
-        if (qrContent.isBlank()) {
-            onResult(false, "El código QR está vacío")
+    fun pairWithQr(qrData: String, pin: String = "000000", onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val parser = org.michimusic.link.identity.QrPairingParser(identity)
+        val result = parser.parseAndValidate(qrData)
+        if (result.isFailure) {
+            onResult(false, result.exceptionOrNull()?.message ?: "El código QR no es válido")
             return
         }
 
-        val parser = org.michimusic.link.identity.QrPairingParser(identity)
-        val result = parser.parseAndValidate(qrContent)
-        
-        result.onFailure {
-            onResult(false, it.message ?: "QR inválido")
-            return
-        }
-        
         val canonicalQr = result.getOrThrow()
 
         viewModelScope.launch {
             try {
-                // Ensure endpoint is an absolute URL
-                val url = if (!canonicalQr.endpoint.startsWith("http")) {
-                    "http://${canonicalQr.endpoint}"
-                } else {
+                val url = if (canonicalQr.endpoint.startsWith("http://") || canonicalQr.endpoint.startsWith("https://")) {
                     canonicalQr.endpoint
+                } else {
+                    "http://${canonicalQr.endpoint}"
                 }
-                
-                val client = org.michimusic.link.LinkClient(baseUrl = url, clientDeviceId = identity.michiId)
+                val client = LinkClient(
+                    baseUrl = url,
+                    clientDeviceId = identity.michiId
+                )
                 
                 val req = org.michimusic.link.dto.PairConfirmRequestDto(
                     sessionId = canonicalQr.sessionId,
@@ -587,6 +585,8 @@ class SyncViewModel(
                         lastUrl = url,
                         serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
                         michiId = canonicalQr.serverMichiId,
+                        publicKey = canonicalQr.serverPublicKey,
+                        identityScheme = "ed25519",
                     )
                     registry.saveDevice(device)
                     _connectionState.value = SyncConnectionState.PAIRED

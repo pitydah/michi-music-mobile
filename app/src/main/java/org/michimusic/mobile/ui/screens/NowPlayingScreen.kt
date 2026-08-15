@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Equalizer
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -100,8 +102,8 @@ fun NowPlayingScreen(
     val positionSeconds = (sessionState.position / 1000f).coerceAtLeast(0f)
     val durationSeconds = (sessionState.duration / 1000f).coerceAtLeast(1f)
 
-    val isShuffle = playerState.shuffleMode
-    val repeatMode = playerState.repeatMode
+    val isShuffle = if (sessionState.isRemoteActive) sessionState.shuffleMode == 1 else playerState.shuffleMode
+    val repeatMode = if (sessionState.isRemoteActive) sessionState.repeatMode else playerState.repeatMode
     var showQueueDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showAudioRouteDialog by remember { mutableStateOf(false) }
@@ -348,7 +350,7 @@ fun NowPlayingScreen(
                 ) {
                     // Shuffle
                     IconButton(
-                        onClick = { audioController.toggleShuffle() },
+                        onClick = { sessionManager.toggleShuffle() },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
                             .testTag("now_playing_shuffle"),
@@ -421,7 +423,7 @@ fun NowPlayingScreen(
 
                     // Repeat
                     IconButton(
-                        onClick = { audioController.cycleRepeatMode() },
+                        onClick = { sessionManager.cycleRepeatMode() },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
                             .testTag("now_playing_repeat"),
@@ -444,49 +446,39 @@ fun NowPlayingScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // Up Next Capsule Pill
-                    val queue = playerState.queue
+                    val queue = if (sessionState.isRemoteActive) sessionState.queue else playerState.queue
                     val currentIndex = currentTrack?.let { cur -> queue.indexOfFirst { it.id == cur.id } } ?: -1
                     val nextTrack = if (currentIndex in queue.indices && currentIndex + 1 < queue.size) {
                         queue[currentIndex + 1]
-                    } else if (playerState.repeatMode == 2 && queue.isNotEmpty()) {
-                        queue.first()
-                    } else {
-                        null
-                    }
-                    val nextTrackTitle = nextTrack?.title ?: if (queue.isNotEmpty()) "Fin de la cola" else "Michi Music"
+                    } else null
 
-                    Box(
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = GlassFillLow,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                         modifier = Modifier
-                            .weight(1f)
-                            .clip(MichiShapes.pill)
-                            .background(GlassFillLow)
-                            .border(1.dp, GlassBorderLow, MichiShapes.pill)
-                            .clickable { showQueueDialog = true }
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                            .testTag("up_next_pill"),
+                            .height(40.dp)
+                            .clickable { showQueueDialog = true },
                     ) {
                         Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                                 contentDescription = null,
-                                tint = OnSurfaceVariant,
+                                tint = TertiaryCyan,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = "Siguiente: $nextTrackTitle",
-                                color = PureWhite,
+                                text = if (nextTrack != null) "Siguiente: ${nextTrack.title}" else if (queue.isNotEmpty()) "${queue.size} en cola" else "Cola vacía",
                                 style = MichiTypography.microLabel,
-                                fontWeight = FontWeight.SemiBold,
+                                color = PureWhite,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.width(12.dp))
 
                     // Equalizer Button
                     IconButton(
@@ -515,12 +507,13 @@ fun NowPlayingScreen(
         }
 
         if (showQueueDialog) {
+            val q = if (sessionState.isRemoteActive) sessionState.queue else playerState.queue
             QueueDialog(
-                queue = playerState.queue,
+                queue = q,
                 currentTrack = currentTrack,
                 onTrackSelect = { selected ->
-                    val idx = playerState.queue.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
-                    audioController.playQueue(playerState.queue, idx)
+                    val idx = q.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
+                    sessionManager.skipToQueueIndex(idx)
                 },
                 onDismiss = { showQueueDialog = false },
             )

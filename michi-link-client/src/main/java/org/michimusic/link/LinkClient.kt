@@ -83,27 +83,31 @@ import java.io.OutputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-class LinkClient private constructor(
+class LinkClient(
     baseUrl: String,
-    @Volatile var sessionToken: String,
-    @Volatile var deviceToken: String,
-    @Volatile var clientDeviceId: String,
-    httpClient: HttpClient? = null,
+    @Volatile var sessionToken: String = "",
+    @Volatile var deviceToken: String = "",
+    @Volatile var clientDeviceId: String = "",
 ) {
-    constructor(
+    internal constructor(
         baseUrl: String,
         sessionToken: String = "",
         deviceToken: String = "",
         clientDeviceId: String = "",
-    ) : this(baseUrl, sessionToken, deviceToken, clientDeviceId, null)
+        httpClient: HttpClient? = null,
+    ) : this(baseUrl, sessionToken, deviceToken, clientDeviceId) {
+        if (httpClient != null) {
+            this.client = httpClient
+            this.ownsClient = false
+        }
+    }
 
     val baseUrl: String = LinkClientConfig.normalizeBaseUrl(baseUrl)
     @Volatile var tokenRefreshSupported: Boolean? = null
     private val json = Json { ignoreUnknownKeys = true }
-    private val ownsClient = httpClient == null
+    private var ownsClient = true
 
-    val httpClient: HttpClient get() = client
-    private val client = httpClient ?: HttpClient {
+    private var client: HttpClient = HttpClient {
         install(HttpTimeout) {
             connectTimeoutMillis = 8_000
             requestTimeoutMillis = 30_000
@@ -340,9 +344,16 @@ class LinkClient private constructor(
                 refreshToken = refreshToken,
                 clientDeviceId = clientDeviceId,
             )
-            val response = client.post("$baseUrl/api/v1/token/refresh") {
+            var response = client.post("$baseUrl/api/v1/token/refresh") {
                 contentType(ContentType.Application.Json)
                 setBody(request)
+            }
+            if (response.status == HttpStatusCode.NotFound) {
+                // Fallback to /api/v1/auth/refresh if /token/refresh is 404
+                response = client.post("$baseUrl/api/v1/auth/refresh") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
+                }
             }
             if (response.status == HttpStatusCode.NotImplemented) {
                 tokenRefreshSupported = false
@@ -350,7 +361,9 @@ class LinkClient private constructor(
             }
             if (response.status == HttpStatusCode.Unauthorized) return@withContext Result.failure(LinkException.TokenExpired)
             val body = response.body<TokenRefreshResponseDto>()
-            deviceToken = body.deviceToken
+            if (body.effectiveToken.isNotEmpty()) {
+                deviceToken = body.effectiveToken
+            }
             Result.success(body)
         } catch (e: Exception) {
             Result.failure(e)

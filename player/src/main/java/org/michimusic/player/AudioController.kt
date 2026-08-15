@@ -161,9 +161,26 @@ class AudioController(
         mediaController?.seekToPreviousMediaItem()
     }
 
+    fun skipToQueueIndex(index: Int) {
+        ensureConnected()
+        if (index in _state.value.queue.indices) {
+            mediaController?.seekTo(index, 0L)
+            _state.value = _state.value.copy(
+                currentTrack = _state.value.queue[index],
+                queueIndex = index,
+                position = 0L,
+            )
+        }
+    }
+
     fun setRepeatMode(mode: Int) {
         ensureConnected()
         mediaController?.repeatMode = mode
+    }
+
+    fun setShuffleMode(enabled: Boolean) {
+        ensureConnected()
+        mediaController?.shuffleModeEnabled = enabled
     }
 
     fun cycleRepeatMode() {

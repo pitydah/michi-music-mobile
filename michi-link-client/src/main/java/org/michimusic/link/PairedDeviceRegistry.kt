@@ -25,6 +25,8 @@ data class PairedDevice(
     val lastUrl: String = "",
     val serverId: String = "",
     val michiId: String = "",
+    val publicKey: String = "",
+    val identityScheme: String = "",
 )
 
 class PairedDeviceRegistry(
