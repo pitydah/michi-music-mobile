@@ -21,7 +21,11 @@ data class ServerInfoDto(
     @SerialName("api_version") val apiVersion: String = "",
     val roles: List<String> = emptyList(),
     val features: Map<String, JsonElement>? = null,
+    @SerialName("identity_scheme") val identityScheme: String? = null,
+    @SerialName("michi_id") val michiId: String? = null,
+    @SerialName("public_key") val publicKey: String? = null,
     val auth: AuthInfoDto? = null,
+    val audio: AudioCapabilitiesDto? = null,
 ) {
     val effectiveServerId: String get() = serverId.ifEmpty { serverDeviceId.ifEmpty { server } }
     val effectiveName: String get() = name.ifEmpty { serverAlias.ifEmpty { server } }
@@ -31,6 +35,7 @@ data class ServerInfoDto(
             "PLAYER_PASSWORD", "PASSWORD" -> PairingStrategy.PLAYER_PASSWORD
             "SERVER_CODE", "CODE", "PIN" -> PairingStrategy.SERVER_CODE
             "RECEIVER_BUTTON" -> PairingStrategy.RECEIVER_BUTTON
+            "ED25519_CHALLENGE" -> PairingStrategy.ED25519_CHALLENGE
             else -> PairingStrategy.LEGACY
         }
     }
@@ -57,3 +62,16 @@ private fun parseBool(el: JsonElement): Boolean {
         else -> true
     }
 }
+
+@Serializable
+data class AudioCapabilitiesDto(
+    val transports: List<String> = emptyList(),
+    val codecs: List<String> = emptyList(),
+    @SerialName("sample_rates") val sampleRates: List<Int> = emptyList(),
+    @SerialName("bit_depths") val bitDepths: List<Int> = emptyList(),
+    val channels: List<Int> = emptyList(),
+    @SerialName("packet_ms") val packetMs: List<Int> = emptyList(),
+    @SerialName("payload_types") val payloadTypes: List<Int> = emptyList(),
+    @SerialName("buffer_ms_min") val bufferMsMin: Int? = null,
+    @SerialName("buffer_ms_max") val bufferMsMax: Int? = null,
+)
