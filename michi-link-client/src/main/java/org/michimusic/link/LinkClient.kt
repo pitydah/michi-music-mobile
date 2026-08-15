@@ -99,22 +99,22 @@ class LinkClient(
     @Volatile var sessionToken: String = "",
     @Volatile var deviceToken: String = "",
     @Volatile var clientDeviceId: String = "",
+    @Volatile var pairedClientDeviceId: String = "",
 ) {
     internal constructor(
         baseUrl: String,
-        sessionToken: String = "",
-        deviceToken: String = "",
-        clientDeviceId: String = "",
-        httpClient: HttpClient? = null,
-    ) : this(baseUrl, sessionToken, deviceToken, clientDeviceId) {
-        if (httpClient != null) {
-            this.client = httpClient
-            this.ownsClient = false
-        }
+        sessionToken: String,
+        deviceToken: String,
+        clientDeviceId: String,
+        httpClient: HttpClient,
+    ) : this(baseUrl, sessionToken, deviceToken, clientDeviceId, "") {
+        this.client = httpClient
+        this.ownsClient = false
     }
 
     val baseUrl: String = LinkClientConfig.normalizeBaseUrl(baseUrl)
     @Volatile var tokenRefreshSupported: Boolean? = null
+    @Volatile var currentReceiverSessionToken: String? = null
     private val json = Json { ignoreUnknownKeys = true }
     private var ownsClient = true
 
@@ -181,6 +181,7 @@ class LinkClient(
     private fun HttpStatusCode.checkError(body: String? = null): LinkException? = when {
         this == HttpStatusCode.Unauthorized -> LinkException.Unauthorized
         this == HttpStatusCode.Forbidden -> LinkException.Revoked
+        this == HttpStatusCode.Conflict -> LinkException.SessionConflict
         this == HttpStatusCode.NotImplemented -> LinkException.NotImplemented
         value >= 400 -> body?.let { parseError(it) } ?: LinkException.ServerError("$value", "HTTP $value")
         else -> null
@@ -952,19 +953,30 @@ class LinkClient(
             val response = client.post("$baseUrl/api/v1/receiver-lite/session") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = pairedClientDeviceId.ifEmpty { clientDeviceId }
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 setBody(request)
             }
             response.status.checkError(response.body())?.let { return@withContext Result.failure(it) }
-            Result.success(response.body())
+            val resp: ReceiverSessionCreateResponse = response.body()
+            currentReceiverSessionToken = resp.sessionToken
+            Result.success(resp)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    suspend fun getReceiverLiteSession(): Result<ReceiverSessionStateDto> = withContext(Dispatchers.IO) {
+    suspend fun getReceiverLiteSession(
+        sessionToken: String? = currentReceiverSessionToken
+    ): Result<ReceiverSessionStateDto> = withContext(Dispatchers.IO) {
         try {
-            val response = httpGet("$baseUrl/api/v1/receiver-lite/session")
+            val response = client.get("$baseUrl/api/v1/receiver-lite/session") {
+                header("Authorization", authHeader())
+                val devId = pairedClientDeviceId.ifEmpty { clientDeviceId }
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+                val sTok = sessionToken ?: currentReceiverSessionToken
+                if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
+            }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             Result.success(response.body())
         } catch (e: Exception) {
@@ -973,13 +985,17 @@ class LinkClient(
     }
 
     suspend fun patchReceiverLiteSession(
-        request: ReceiverSessionPatchRequest
+        request: ReceiverSessionPatchRequest,
+        sessionToken: String? = currentReceiverSessionToken
     ): Result<ReceiverSessionStateDto> = withContext(Dispatchers.IO) {
         try {
             val response = client.patch("$baseUrl/api/v1/receiver-lite/session") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = pairedClientDeviceId.ifEmpty { clientDeviceId }
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+                val sTok = sessionToken ?: currentReceiverSessionToken
+                if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
@@ -989,13 +1005,19 @@ class LinkClient(
         }
     }
 
-    suspend fun deleteReceiverLiteSession(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteReceiverLiteSession(
+        sessionToken: String? = currentReceiverSessionToken
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val response = client.delete("$baseUrl/api/v1/receiver-lite/session") {
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = pairedClientDeviceId.ifEmpty { clientDeviceId }
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+                val sTok = sessionToken ?: currentReceiverSessionToken
+                if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
+            currentReceiverSessionToken = null
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -1003,14 +1025,23 @@ class LinkClient(
     }
 
     suspend fun sendReceiverLiteHeartbeat(
-        sequence: Long
+        sessionId: String,
+        sequence: Long,
+        sessionToken: String? = currentReceiverSessionToken
     ): Result<ReceiverHeartbeatResponse> = withContext(Dispatchers.IO) {
         try {
-            val request = ReceiverHeartbeatRequest(sequence = sequence)
+            val request = ReceiverHeartbeatRequest(
+                sessionId = sessionId,
+                sequence = sequence,
+                sentAtMs = System.currentTimeMillis(),
+            )
             val response = client.post("$baseUrl/api/v1/receiver-lite/heartbeat") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", authHeader())
-                if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
+                val devId = pairedClientDeviceId.ifEmpty { clientDeviceId }
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+                val sTok = sessionToken ?: currentReceiverSessionToken
+                if (!sTok.isNullOrEmpty()) header("X-Michi-Session", sTok)
                 setBody(request)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }

@@ -57,8 +57,9 @@ data class ReceiverSessionPatchRequest(
 
 @Serializable
 data class ReceiverHeartbeatRequest(
+    @SerialName("session_id") val sessionId: String,
     val sequence: Long,
-    val timestamp: Long = System.currentTimeMillis() / 1000,
+    @SerialName("sent_at_ms") val sentAtMs: Long = System.currentTimeMillis(),
 )
 
 @Serializable

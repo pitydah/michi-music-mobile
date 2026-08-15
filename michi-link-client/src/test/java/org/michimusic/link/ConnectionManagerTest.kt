@@ -1,11 +1,15 @@
 package org.michimusic.link
 
+import io.ktor.client.engine.mock.respond
+import io.ktor.serialization.kotlinx.json.json
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -109,5 +113,55 @@ class ConnectionManagerTest {
         
         assertNull(connectionManager.getClient("dev_4"))
         assertEquals(0, connectionManager.connectionStates.value.size)
+    }
+
+    @Test
+    fun `identity pinning rejects reconnection on Michi ID mismatch or public key mismatch`() = runTest(testDispatcher) {
+        val mockEngine = io.ktor.client.engine.mock.MockEngine { request ->
+            respond(
+                content = """{"server_id":"srv_id_1","michi_id":"srv_michi_1","public_key":"pk_original","service":"music_server"}""",
+                status = io.ktor.http.HttpStatusCode.OK,
+                headers = io.ktor.http.headersOf(io.ktor.http.HttpHeaders.ContentType, io.ktor.http.ContentType.Application.Json.toString())
+            )
+        }
+        val mockClient = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:7331",
+            deviceToken = "token",
+            sessionToken = "token",
+            clientDeviceId = "test_client_id",
+            httpClient = io.ktor.client.HttpClient(mockEngine) {
+                install(io.ktor.client.plugins.contentnegotiation.ContentNegotiation) {
+                    json(kotlinx.serialization.json.Json { ignoreUnknownKeys = true })
+                }
+            }
+        )
+
+        val device = PairedDevice(
+            deviceId = "dev_pinned",
+            deviceToken = "token",
+            lastUrl = "http://127.0.0.1:7331",
+            michiId = "srv_michi_1",
+            publicKey = "pk_original",
+            serverId = "srv_id_1"
+        )
+        every { registry.getDevice("dev_pinned") } returns device
+        every { identity.verifyServerIdentity("srv_michi_1", "pk_original") } returns false
+
+        val cm = object : ConnectionManager(registry, identity) {
+            init {
+                clients["dev_pinned"] = mockClient
+            }
+        }
+
+        cm.connect("dev_pinned")
+
+        var attempts = 0
+        while (attempts < 50 && cm.connectionStates.value["dev_pinned"] != SyncConnectionState.UNAUTHORIZED) {
+            Thread.sleep(50)
+            attempts++
+        }
+
+        val state = cm.connectionStates.value["dev_pinned"]
+        assertEquals(SyncConnectionState.UNAUTHORIZED, state)
     }
 }

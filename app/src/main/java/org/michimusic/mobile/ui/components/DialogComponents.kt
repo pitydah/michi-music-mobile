@@ -1592,7 +1592,7 @@ fun ReceiverButtonPairingDialog(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Presiona el botón físico en $deviceName para autorizar la conexión. Si el dispositivo muestra un código PIN, ingrésalo a continuación:",
+                    text = "Presiona el botón físico en $deviceName e ingresa el código PIN mostrado en el dispositivo para autorizar la conexión:",
                     color = TextSecondary,
                     fontSize = 13.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1608,7 +1608,7 @@ fun ReceiverButtonPairingDialog(
                             error = null
                         }
                     },
-                    placeholder = { Text("PIN de seguridad (opcional)", color = OnSurfaceVariant) },
+                    placeholder = { Text("Código PIN (ej. 123456)", color = OnSurfaceVariant) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = PureWhite,
@@ -1630,6 +1630,10 @@ fun ReceiverButtonPairingDialog(
 
                 Button(
                     onClick = {
+                        if (pin.trim().isEmpty()) {
+                            error = "Debes ingresar el código PIN mostrado por el dispositivo"
+                            return@Button
+                        }
                         onConfirm(pin.trim())
                         onDismiss()
                     },

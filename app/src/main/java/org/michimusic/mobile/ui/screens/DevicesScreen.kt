@@ -80,6 +80,7 @@ import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.QrScannerDialog
+import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
 import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -113,6 +114,8 @@ fun DevicesScreen(
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
     var pendingQrForPin by remember { mutableStateOf<String?>(null) }
+    var pendingPeerForPin by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
+    var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.core.models.UnifiedDevice?>(null) }
 
     LaunchedEffect(Unit) {
@@ -226,7 +229,19 @@ fun DevicesScreen(
                                         } else {
                                             val peer = uiState.peers.find { it.ip == device.ip }
                                             if (peer != null) {
-                                                viewModel.selectPeer(peer)
+                                                viewModel.preparePairing(peer) { strategy, serverName ->
+                                                    when (strategy) {
+                                                        org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> {
+                                                            pendingPeerForPin = peer to serverName
+                                                        }
+                                                        org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
+                                                            pendingPeerForReceiver = peer to serverName
+                                                        }
+                                                        else -> {
+                                                            viewModel.confirmPairing(pin = "", peer = peer)
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -309,6 +324,30 @@ fun DevicesScreen(
                     pendingQrForPin = null
                 },
                 onDismiss = { pendingQrForPin = null },
+            )
+        }
+
+        if (pendingPeerForPin != null) {
+            val (peer, serverName) = pendingPeerForPin!!
+            PinPairingDialog(
+                deviceName = serverName,
+                onConfirm = { pin ->
+                    viewModel.confirmPairing(pin = pin, peer = peer)
+                    pendingPeerForPin = null
+                },
+                onDismiss = { pendingPeerForPin = null },
+            )
+        }
+
+        if (pendingPeerForReceiver != null) {
+            val (peer, serverName) = pendingPeerForReceiver!!
+            ReceiverButtonPairingDialog(
+                deviceName = serverName,
+                onConfirm = { pin ->
+                    viewModel.confirmPairing(pin = pin, peer = peer)
+                    pendingPeerForReceiver = null
+                },
+                onDismiss = { pendingPeerForReceiver = null },
             )
         }
 

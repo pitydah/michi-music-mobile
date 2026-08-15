@@ -37,6 +37,10 @@ class PlaybackSessionManager(
     private var remotePollingJob: Job? = null
     private var receiverHeartbeatJob: Job? = null
     private var currentReceiverSequence = 1L
+    private val rtpAudioSender = org.michimusic.link.rtp.RtpAudioSender()
+    private var activeReceiverSessionId: String? = null
+    private var activeReceiverSessionToken: String? = null
+    private var activeReceiverEffective: org.michimusic.link.dto.ReceiverSessionEffectiveDto? = null
     private var isRemoteSelected = false
 
     init {
@@ -267,13 +271,19 @@ class PlaybackSessionManager(
     fun selectLocalEndpoint() {
         isRemoteSelected = false
         stopRemoteSync()
+        rtpAudioSender.stop()
         val activeEp = _sessionState.value.activeEndpoint
         if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
             val client = connectionManager.getClient(activeEp.id)
+            val sTok = activeReceiverSessionToken
             scope.launch(Dispatchers.IO) {
-                client?.deleteReceiverLiteSession()
+                client?.deleteReceiverLiteSession(sTok)
             }
         }
+        activeReceiverSessionId = null
+        activeReceiverSessionToken = null
+        activeReceiverEffective = null
+
         val local = audioController?.state?.value
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = PlaybackEndpoint.LocalPhone,
@@ -344,13 +354,51 @@ class PlaybackSessionManager(
             }
 
             scope.launch {
-                client.createReceiverLiteSession().onSuccess { sessionResp ->
+                val targetHost = client.baseUrl.substringAfter("://").substringBefore(":")
+                val req = org.michimusic.link.dto.ReceiverSessionCreateRequest(
+                    transport = "rtp_udp",
+                    codec = "pcm_s16le",
+                    sampleRate = 48000,
+                    bitDepth = 16,
+                    channels = 2,
+                    packetMs = 10,
+                    bufferMs = 120,
+                    payloadType = 97,
+                    volume = _sessionState.value.remoteVolume,
+                )
+
+                client.createReceiverLiteSession(req).onSuccess { sessionResp ->
+                    activeReceiverSessionId = sessionResp.sessionId
+                    activeReceiverSessionToken = sessionResp.sessionToken
+                    activeReceiverEffective = sessionResp.effective
                     currentReceiverSequence = 1L
+
+                    rtpAudioSender.start(
+                        targetHost = targetHost,
+                        effective = sessionResp.effective,
+                        scope = scope
+                    )
+
                     receiverHeartbeatJob?.cancel()
                     receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
                         while (isActive && isRemoteSelected) {
                             delay(10_000)
-                            client.sendReceiverLiteHeartbeat(currentReceiverSequence++)
+                            val hbResult = client.sendReceiverLiteHeartbeat(
+                                sessionId = sessionResp.sessionId,
+                                sequence = currentReceiverSequence++,
+                                sessionToken = sessionResp.sessionToken
+                            )
+                            if (hbResult.isFailure) {
+                                val err = hbResult.exceptionOrNull()
+                                if (err is org.michimusic.link.errors.LinkException.Unauthorized ||
+                                    err is org.michimusic.link.errors.LinkException.Revoked ||
+                                    err is org.michimusic.link.errors.LinkException.SessionConflict) {
+                                    withContext(Dispatchers.Main) {
+                                        selectLocalEndpoint()
+                                    }
+                                    break
+                                }
+                            }
                         }
                     }
                     isRemoteSelected = true
@@ -358,7 +406,7 @@ class PlaybackSessionManager(
                         activeEndpoint = target,
                         isRemoteActive = true,
                     )
-                    onResult(true, "Sesión de audio activa en ${target.name}")
+                    onResult(true, "Sesión de audio y transmisión RTP activa en ${target.name}")
                 }.onFailure { err ->
                     // Honest UI: Do not report success on real failure
                     onResult(false, "Error al iniciar sesión en receptor ${target.name}: ${err.message}")
@@ -379,15 +427,28 @@ class PlaybackSessionManager(
                 val pos = _sessionState.value.position
                 
                 if (q.isNotEmpty()) {
-                    // Resolve/map track IDs to server catalog where possible
-                    val resolvedTrackIds = q.map { track ->
+                    // Resolve/map track IDs to server catalog. Must abort if unmapped tracks exist!
+                    var hasUnresolvableLocalTrack = false
+                    val resolvedTrackIds = mutableListOf<String>()
+
+                    for (track in q) {
                         if (track.source == TrackSource.STREAMING && track.id.isNotEmpty()) {
-                            track.id
+                            resolvedTrackIds.add(track.id)
                         } else {
                             val searchResult = client.search(track.title).getOrNull()
                             val match = searchResult?.firstOrNull { it.title.equals(track.title, ignoreCase = true) }
-                            match?.effectiveId ?: track.id
+                            if (match != null && match.effectiveId.isNotEmpty()) {
+                                resolvedTrackIds.add(match.effectiveId)
+                            } else {
+                                hasUnresolvableLocalTrack = true
+                                break
+                            }
                         }
+                    }
+
+                    if (hasUnresolvableLocalTrack) {
+                        onResult(false, "No se pudo transferir: algunas pistas locales no existen en el servidor ${target.name}")
+                        return@launch
                     }
 
                     val req = org.michimusic.link.dto.QueueTransferRequest(
@@ -425,12 +486,24 @@ class PlaybackSessionManager(
     }
 
     fun playPause() {
+        val activeEp = _sessionState.value.activeEndpoint
         if (_sessionState.value.isRemoteActive) {
-            val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
+            val client = connectionManager.getClient(activeEp.id)
             val isPlaying = _sessionState.value.isPlaying
-            scope.launch {
-                client?.sendPlaybackCommand(if (isPlaying) "pause" else "play")
-                _sessionState.value = _sessionState.value.copy(isPlaying = !isPlaying)
+            if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
+                val tok = activeReceiverSessionToken
+                scope.launch {
+                    client?.patchReceiverLiteSession(
+                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = isPlaying),
+                        sessionToken = tok
+                    )
+                    _sessionState.value = _sessionState.value.copy(isPlaying = !isPlaying)
+                }
+            } else {
+                scope.launch {
+                    client?.sendPlaybackCommand(if (isPlaying) "pause" else "play")
+                    _sessionState.value = _sessionState.value.copy(isPlaying = !isPlaying)
+                }
             }
         } else {
             if (audioController?.state?.value?.isPlaying == true) audioController.pause() else audioController?.play()

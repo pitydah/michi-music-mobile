@@ -11,7 +11,7 @@ import org.michimusic.link.dto.PairingStrategy
 
 @Serializable
 data class PairedDevice(
-    val deviceId: String,
+    val deviceId: String = "",
     val deviceName: String = "",
     val serviceType: String = "",
     val deviceToken: String,
@@ -26,8 +26,17 @@ data class PairedDevice(
     val serverId: String = "",
     val michiId: String = "",
     val publicKey: String = "",
-    val identityScheme: String = "",
-)
+    val identityScheme: String = "ed25519-blake3-v1",
+    val remoteServerId: String = "",
+    val remoteMichiId: String = "",
+    val remotePublicKey: String = "",
+    val pairedClientDeviceId: String = "",
+) {
+    val effectiveServerId: String get() = remoteServerId.ifEmpty { serverId.ifEmpty { deviceId } }
+    val effectiveMichiId: String get() = remoteMichiId.ifEmpty { michiId }
+    val effectivePublicKey: String get() = remotePublicKey.ifEmpty { publicKey }
+    val effectiveClientDeviceId: String get() = pairedClientDeviceId
+}
 
 class PairedDeviceRegistry(
     private val context: Context,

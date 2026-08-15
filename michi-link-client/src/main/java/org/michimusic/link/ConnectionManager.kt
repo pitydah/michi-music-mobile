@@ -12,14 +12,15 @@ import java.util.concurrent.ConcurrentHashMap
 
 open class ConnectionManager(
     private val registry: PairedDeviceRegistry,
-    private val identity: MichiIdentity
+    private val identity: MichiIdentity,
+    coroutineContext: kotlin.coroutines.CoroutineContext = Dispatchers.IO
 ) {
 
     private val _connectionStates = MutableStateFlow<Map<String, SyncConnectionState>>(emptyMap())
     val connectionStates: StateFlow<Map<String, SyncConnectionState>> = _connectionStates.asStateFlow()
 
-    private val clients = ConcurrentHashMap<String, LinkClient>()
-    private val scope = CoroutineScope(Dispatchers.IO)
+    protected val clients = ConcurrentHashMap<String, LinkClient>()
+    private val scope = CoroutineScope(coroutineContext)
 
     open fun getClient(deviceId: String): LinkClient? {
         return clients[deviceId]
