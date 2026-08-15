@@ -70,24 +70,29 @@ class LinkContractDtoTest {
     fun pairStartAndConfirm_deserializeProperly() {
         val startPayload = """
             {
-                "pairing_id": "pair-12345",
+                "session_id": "pair-12345",
                 "expires_at": "2026-08-14T23:59:59Z",
-                "strategy": "pin"
+                "strategy": "pin",
+                "attempts_remaining": 3,
+                "server_michi_id": "dummy_id",
+                "server_public_key": "dummy_key"
             }
         """.trimIndent()
 
         val startDto = json.decodeFromString<PairStartResponseDto>(startPayload)
-        assertEquals("pair-12345", startDto.pairingId)
+        assertEquals("pair-12345", startDto.sessionId)
 
         val confirmPayload = """
             {
-                "device_token": "michi_token_secure_9988",
-                "device_id": "phone-alpha"
+                "token": "michi_token_secure_9988",
+                "expires_in": 3600,
+                "device_id": "phone-alpha",
+                "server_id": "server-beta"
             }
         """.trimIndent()
 
         val confirmDto = json.decodeFromString<PairConfirmResponseDto>(confirmPayload)
-        assertEquals("michi_token_secure_9988", confirmDto.deviceToken)
+        assertEquals("michi_token_secure_9988", confirmDto.token)
         assertEquals("phone-alpha", confirmDto.deviceId)
     }
 

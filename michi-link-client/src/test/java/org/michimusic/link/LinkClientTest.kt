@@ -114,7 +114,7 @@ class LinkClientTest {
             httpClient = jsonClient(engine),
         )
 
-        val result = client.pairConfirm(
+        val result = client.pairConfirmLegacy(
             pairingId = "pair-1",
             username = "michi",
             password = "secret",
