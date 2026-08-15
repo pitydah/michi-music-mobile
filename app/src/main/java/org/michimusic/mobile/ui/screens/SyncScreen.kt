@@ -358,7 +358,9 @@ fun SyncScreen(
             QrScannerDialog(
                 onScanSuccess = { code ->
                     showQrDialog = false
-                    // QR pairing handled via viewmodel if supported
+                    viewModel.pairWithQr(code) { success, msg ->
+                        // Status updated via viewModel.uiState
+                    }
                 },
                 onDismiss = { showQrDialog = false },
             )

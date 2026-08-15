@@ -91,13 +91,21 @@ class PlaybackSessionManager(
         pairedDevices.forEach { pd ->
             if (endpoints.none { it.id == pd.deviceId }) {
                 val isConnected = connectionManager.connectionStates.value[pd.deviceId] == SyncConnectionState.CONNECTED
+                val isReceiver = pd.roles.contains("audio_receiver") || pd.serviceType.contains("stream")
+                val caps = if (isReceiver) {
+                    setOf("PLAYBACK", "AUDIO_OUTPUT")
+                } else if (pd.roles.contains("music_server")) {
+                    setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
+                } else {
+                    setOf("PLAYBACK", "REMOTE_CONTROL")
+                }
                 endpoints.add(PlaybackEndpoint(
                     id = pd.deviceId,
                     name = pd.deviceName,
-                    type = EndpointType.SERVER,
+                    type = if (isReceiver) EndpointType.STREAM_RECEIVER else EndpointType.SERVER,
                     isLocal = false,
                     isConnected = isConnected,
-                    capabilities = setOf("PLAYBACK", "REMOTE_CONTROL")
+                    capabilities = caps
                 ))
             }
         }
@@ -114,13 +122,19 @@ class PlaybackSessionManager(
             "room" -> EndpointType.ROOM
             else -> EndpointType.DESKTOP_PLAYER
         }
+        val caps = when (type) {
+            EndpointType.STREAM_RECEIVER -> setOf("PLAYBACK", "AUDIO_OUTPUT")
+            EndpointType.SERVER -> setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
+            EndpointType.ROOM -> setOf("PLAYBACK", "GROUP_OUTPUT")
+            else -> setOf("PLAYBACK", "REMOTE_CONTROL")
+        }
         return PlaybackEndpoint(
             id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
             name = peer.alias.ifEmpty { "Michi Node" },
             type = type,
             isLocal = false,
             isConnected = isConnected,
-            capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"),
+            capabilities = caps,
         )
     }
 
@@ -130,7 +144,7 @@ class PlaybackSessionManager(
             val client = connectionManager.getClient(deviceId) ?: return@launch
             while (isActive && connectionManager.connectionStates.value[deviceId] == SyncConnectionState.CONNECTED) {
                 client.getPlaybackState().onSuccess { stateDto ->
-                    if (isRemoteSelected || stateDto.playing) {
+                    if (isRemoteSelected) {
                         client.getQueue().onSuccess { queueDto ->
                             withContext(Dispatchers.Main) {
                                 applyRemoteState(peer, stateDto, queueDto, deviceId)
@@ -177,9 +191,9 @@ class PlaybackSessionManager(
                 filepath = if (baseUrl.isNotEmpty()) "$baseUrl/api/v1/stream/${qt.trackId}" else "",
                 source = TrackSource.STREAMING,
             )
-        } ?: _sessionState.value.queue
+        } ?: emptyList()
 
-        if (isRemoteSelected || dto.playing) {
+        if (isRemoteSelected) {
             _sessionState.value = _sessionState.value.copy(
                 activeEndpoint = endpoint,
                 currentTrack = remoteTrack ?: _sessionState.value.currentTrack,
@@ -187,7 +201,7 @@ class PlaybackSessionManager(
                 position = dto.effectivePosition,
                 duration = dto.effectiveDuration,
                 remoteVolume = dto.effectiveVolume,
-                queue = qTracks,
+                queue = if (qTracks.isNotEmpty()) qTracks else _sessionState.value.queue,
                 queueIndex = queueDto?.currentIndex ?: _sessionState.value.queueIndex,
                 isRemoteActive = true,
             )
@@ -240,14 +254,16 @@ class PlaybackSessionManager(
                 val idx = _sessionState.value.queueIndex
                 val pos = _sessionState.value.position
                 
-                if (client != null && _sessionState.value.isRemoteActive) {
-                    client.sendPlaybackCommand("pause")
-                }
                 isRemoteSelected = false
                 
                 if (q.isNotEmpty()) {
                     audioController?.playQueue(q, idx.coerceAtLeast(0))
                     if (pos > 0) audioController?.seekTo(pos)
+                }
+                
+                // Pause remote only after starting local playback
+                if (client != null && _sessionState.value.isRemoteActive) {
+                    client.sendPlaybackCommand("pause")
                 }
                 
                 selectLocalEndpoint()

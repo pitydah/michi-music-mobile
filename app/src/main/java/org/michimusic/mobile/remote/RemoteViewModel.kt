@@ -268,6 +268,5 @@ class RemoteViewModel(
         super.onCleared()
         eventClient?.disconnect()
         pollingJob?.cancel()
-        client?.close()
     }
 }

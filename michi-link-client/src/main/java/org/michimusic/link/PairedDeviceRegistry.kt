@@ -23,6 +23,8 @@ data class PairedDevice(
     val tokenRefreshSupported: Boolean = false,
     val pairedAt: Long = System.currentTimeMillis(),
     val lastUrl: String = "",
+    val serverId: String = "",
+    val michiId: String = "",
 )
 
 class PairedDeviceRegistry(

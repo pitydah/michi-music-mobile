@@ -3,7 +3,7 @@ package org.michimusic.mobile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import org.koin.core.module.dsl.viewModelOf
-import org.koin.androidx.viewmodel.dsl.viewModel
+import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 import org.michimusic.data.dataModule
 import org.michimusic.link.linkModule

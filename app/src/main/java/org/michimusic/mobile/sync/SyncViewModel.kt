@@ -103,6 +103,12 @@ class SyncViewModel(
         
         // Add discovered devices that are not registered
         peers.filter { p -> registered.none { it.deviceId == p.deviceId || it.lastUrl.contains(p.ip) } }.forEach { p ->
+            val inferredRoles = when (p.deviceType.lowercase()) {
+                "receiver", "stream" -> listOf("audio_receiver")
+                "server" -> listOf("music_server", "library_host", "playback_host")
+                "player", "desktop_player" -> listOf("playback_host")
+                else -> emptyList()
+            }
             unified.add(
                 org.michimusic.core.models.UnifiedDevice(
                     id = p.deviceId.ifEmpty { p.ip },
@@ -112,7 +118,7 @@ class SyncViewModel(
                     connectionState = SyncConnectionState.DISCONNECTED,
                     isPaired = false,
                     deviceType = p.deviceType,
-                    roles = emptyList(),
+                    roles = inferredRoles,
                     features = emptyList()
                 )
             )
@@ -191,11 +197,6 @@ class SyncViewModel(
             val serverInfo = client.getServerInfo().getOrNull()
             val strategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY
             _pairingStrategy.value = strategy
-            if (strategy == PairingStrategy.RECEIVER_BUTTON) {
-                _error.value = "Este dispositivo no es una fuente controlable"
-                _connectionState.value = SyncConnectionState.DISCONNECTED
-                return@launch
-            }
 
             val existingDevice = registry.getDevice(resolvedDeviceId)
             if (existingDevice != null && existingDevice.deviceToken.isNotEmpty()) {
@@ -287,11 +288,13 @@ class SyncViewModel(
                             refreshToken = confirmResp.refreshToken,
                             permissions = confirmResp.permissions,
                             roles = serverInfo?.roles ?: emptyList(),
-                            features = emptyList(),
+                            features = serverInfo?.effectiveFeatures ?: emptyList(),
                             authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY,
                             tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                             pairedAt = System.currentTimeMillis(),
-                            lastUrl = client.baseUrl
+                            lastUrl = client.baseUrl,
+                            serverId = serverInfo?.effectiveServerId ?: "",
+                            michiId = serverInfo?.michiId ?: "",
                         )
                         registry.saveDevice(device)
                         
@@ -314,7 +317,7 @@ class SyncViewModel(
                     deviceName = android.os.Build.MODEL,
                     deviceType = "mobile",
                     roles = listOf("remote_controller"),
-                    authStrategy = "ED25519_CHALLENGE",
+                    authStrategy = if (strategy == PairingStrategy.RECEIVER_BUTTON) "RECEIVER_BUTTON" else "ED25519_CHALLENGE",
                     michiId = identity.michiId,
                     publicKey = identity.publicKeyBase64Url,
                     challengeNonce = nonce,
@@ -348,11 +351,13 @@ class SyncViewModel(
                             refreshToken = confirmResp.refreshToken ?: "",
                             permissions = emptyList(),
                             roles = serverInfo?.roles ?: emptyList(),
-                            features = emptyList(),
-                            authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.ED25519_CHALLENGE,
+                            features = serverInfo?.effectiveFeatures ?: emptyList(),
+                            authStrategy = serverInfo?.effectiveAuthStrategy ?: (if (strategy == PairingStrategy.RECEIVER_BUTTON) PairingStrategy.RECEIVER_BUTTON else PairingStrategy.ED25519_CHALLENGE),
                             tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                             pairedAt = System.currentTimeMillis(),
-                            lastUrl = client.baseUrl
+                            lastUrl = client.baseUrl,
+                            serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
+                            michiId = startResp.serverMichiId,
                         )
                         registry.saveDevice(device)
                         
@@ -423,11 +428,13 @@ class SyncViewModel(
                         refreshToken = confirmResp.refreshToken ?: "",
                         permissions = emptyList(),
                         roles = serverInfo?.roles ?: emptyList(),
-                        features = emptyList(),
+                        features = serverInfo?.effectiveFeatures ?: emptyList(),
                         authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.SERVER_CODE,
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                         pairedAt = System.currentTimeMillis(),
-                        lastUrl = client.baseUrl
+                        lastUrl = client.baseUrl,
+                        serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
+                        michiId = startResp.serverMichiId,
                     )
                     registry.saveDevice(device)
                     
@@ -573,11 +580,13 @@ class SyncViewModel(
                         refreshToken = confirmResp.refreshToken ?: "",
                         permissions = emptyList(),
                         roles = serverInfo?.roles ?: emptyList(),
-                        features = emptyList(),
+                        features = serverInfo?.effectiveFeatures ?: emptyList(),
                         authStrategy = serverInfo?.effectiveAuthStrategy ?: org.michimusic.link.dto.PairingStrategy.SERVER_CODE,
                         tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                         pairedAt = System.currentTimeMillis(),
-                        lastUrl = url
+                        lastUrl = url,
+                        serverId = serverInfo?.effectiveServerId ?: confirmResp.serverId,
+                        michiId = canonicalQr.serverMichiId,
                     )
                     registry.saveDevice(device)
                     _connectionState.value = SyncConnectionState.PAIRED

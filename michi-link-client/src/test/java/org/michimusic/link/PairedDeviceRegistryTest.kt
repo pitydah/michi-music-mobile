@@ -33,13 +33,25 @@ class PairedDeviceRegistryTest {
 
     @Test
     fun `saveDevice saves a device correctly`() {
-        val device = PairedDevice(deviceId = "dev_1", deviceName = "My Device", deviceToken = "token_abc")
+        val device = PairedDevice(
+            deviceId = "dev_1",
+            deviceName = "My Device",
+            deviceToken = "token_abc",
+            serverId = "srv_uuid_123",
+            michiId = "michi_id_xyz",
+            roles = listOf("audio_receiver"),
+            features = listOf("session", "heartbeat")
+        )
         registry.saveDevice(device)
         
         val retrieved = registry.getDevice("dev_1")
         assertNotNull(retrieved)
         assertEquals("My Device", retrieved?.deviceName)
         assertEquals("token_abc", retrieved?.deviceToken)
+        assertEquals("srv_uuid_123", retrieved?.serverId)
+        assertEquals("michi_id_xyz", retrieved?.michiId)
+        assertEquals(listOf("audio_receiver"), retrieved?.roles)
+        assertEquals(listOf("session", "heartbeat"), retrieved?.features)
     }
 
     @Test

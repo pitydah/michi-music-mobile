@@ -45,6 +45,7 @@ data class ServerInfoDto(
         val tr = f["token_refresh"]
         return tr?.let { parseBool(it) } ?: false
     }
+    val effectiveFeatures: List<String> get() = features?.filter { parseBool(it.value) }?.keys?.toList() ?: emptyList()
 }
 
 @Serializable
