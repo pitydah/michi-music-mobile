@@ -1,4 +1,0 @@
-repositories { mavenCentral() }
-configurations { testDeps }
-dependencies { testDeps 'org.bouncycastle:bcprov-jdk18on:1.77' }
-task resolveDeps { doLast { configurations.testDeps.resolve() } }

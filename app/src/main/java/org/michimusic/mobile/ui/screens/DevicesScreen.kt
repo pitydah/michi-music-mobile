@@ -69,6 +69,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
+import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.mobile.playback.PlaybackEndpoint
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.sync.DeviceAction
@@ -110,7 +111,7 @@ fun DevicesScreen(
 
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
-    var selectedPeerForDetails by remember { mutableStateOf<DiscoveredPeer?>(null) }
+    var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.core.models.UnifiedDevice?>(null) }
 
     LaunchedEffect(Unit) {
         if (uiState.state == SyncConnectionState.DISCONNECTED) {
@@ -192,7 +193,7 @@ fun DevicesScreen(
                     }
                 }
 
-                if (uiState.peers.isEmpty()) {
+                if (uiState.unifiedDevices.isEmpty()) {
                     item {
                         EmptyDevicesCard(
                             isSearching = isSearching,
@@ -201,69 +202,75 @@ fun DevicesScreen(
                         )
                     }
                 } else {
-                    items(uiState.peers) { peer ->
-                        val isConnected = uiState.connectedPeer?.ip == peer.ip &&
-                            (uiState.state == SyncConnectionState.PAIRED || uiState.state == SyncConnectionState.CONNECTED)
-                        val isConnecting = uiState.connectedPeer?.ip == peer.ip &&
-                            (uiState.state == SyncConnectionState.CONNECTING || uiState.state == SyncConnectionState.PAIRING)
-
-                        val actions = DeviceActionResolver.resolveActions(
-                            peer = peer,
-                            connectionState = uiState.state,
-                            isPeerConnected = isConnected,
+                    items(uiState.unifiedDevices) { device ->
+                        val isConnected = device.connectionState == SyncConnectionState.CONNECTED
+                        val isConnecting = device.connectionState == SyncConnectionState.CONNECTING || device.connectionState == SyncConnectionState.DISCOVERING
+                        
+                        val actions = org.michimusic.mobile.sync.DeviceActionResolver.resolveActions(
+                            device = device,
                             isConnecting = isConnecting,
                         )
-
+                        
                         DeviceNodeCard(
-                            peer = peer,
+                            device = device,
                             isConnected = isConnected,
                             isConnecting = isConnecting,
                             actions = actions,
                             onActionClick = { action ->
                                 when (action.type) {
-                                    DeviceActionType.CONNECT -> viewModel.selectPeer(peer)
-                                    DeviceActionType.DISCONNECT -> viewModel.disconnect()
-                                    DeviceActionType.SYNC_LIBRARY -> {
-                                        viewModel.syncLibrary()
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Sincronización iniciada con ${peer.alias}")
+                                    org.michimusic.mobile.sync.DeviceActionType.CONNECT -> {
+                                        if (device.isPaired) {
+                                            viewModel.connectToDevice(device.id)
+                                        } else {
+                                            val peer = uiState.peers.find { it.ip == device.ip }
+                                            if (peer != null) {
+                                                viewModel.selectPeer(peer)
+                                            }
                                         }
                                     }
-                                    DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
-                                    DeviceActionType.CONTROL_PLAYBACK -> {
-                                        val endpoint = PlaybackEndpoint(
-                                            id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
-                                            name = peer.alias.ifEmpty { "Michi Node" },
+                                    org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnect()
+                                    org.michimusic.mobile.sync.DeviceActionType.SYNC_LIBRARY -> {
+                                        viewModel.syncLibrary()
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Sincronización iniciada con ${device.name}")
+                                        }
+                                    }
+                                    org.michimusic.mobile.sync.DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
+                                    org.michimusic.mobile.sync.DeviceActionType.CONTROL_PLAYBACK -> {
+                                        val endpoint = org.michimusic.mobile.playback.PlaybackEndpoint(
+                                            id = device.id.ifEmpty { "${device.ip}:${device.port}" },
+                                            name = device.name.ifEmpty { "Michi Node" },
                                             type = org.michimusic.mobile.playback.EndpointType.DESKTOP_PLAYER,
                                             isLocal = false,
                                             isConnected = true,
                                         )
-                                        sessionManager.switchEndpoint(endpoint) { success, msg ->
+                                        sessionManager.attachRemote(endpoint) { success, msg ->
                                             scope.launch { snackbarHostState.showSnackbar(msg) }
                                         }
                                     }
-                                    DeviceActionType.CONTINUE_PLAYBACK_HERE -> {
-                                        sessionManager.switchEndpoint(PlaybackEndpoint.LocalPhone) { success, msg ->
+                                    org.michimusic.mobile.sync.DeviceActionType.CONTINUE_PLAYBACK_HERE -> {
+                                        sessionManager.handoffTo(org.michimusic.mobile.playback.PlaybackEndpoint.LocalPhone) { success, msg ->
                                             scope.launch { snackbarHostState.showSnackbar(msg) }
                                         }
                                     }
-                                    DeviceActionType.PLAY_ON_DEVICE -> {
-                                        val endpoint = PlaybackEndpoint(
-                                            id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
-                                            name = peer.alias.ifEmpty { "Michi Stream" },
+                                    org.michimusic.mobile.sync.DeviceActionType.PLAY_ON_DEVICE -> {
+                                        val endpoint = org.michimusic.mobile.playback.PlaybackEndpoint(
+                                            id = device.id.ifEmpty { "${device.ip}:${device.port}" },
+                                            name = device.name.ifEmpty { "Michi Stream" },
                                             type = org.michimusic.mobile.playback.EndpointType.STREAM_RECEIVER,
                                             isLocal = false,
                                             isConnected = true,
                                         )
-                                        sessionManager.switchEndpoint(endpoint) { success, msg ->
+                                        sessionManager.handoffTo(endpoint) { success, msg ->
                                             scope.launch { snackbarHostState.showSnackbar(msg) }
                                         }
                                     }
-                                    DeviceActionType.VIEW_DETAILS -> selectedPeerForDetails = peer
+                                    org.michimusic.mobile.sync.DeviceActionType.VIEW_DETAILS -> selectedDeviceForDetails = device
                                 }
                             },
-                            onInfoClick = { selectedPeerForDetails = peer },
+                            onInfoClick = { selectedDeviceForDetails = device },
                         )
+                        Spacer(modifier = Modifier.height(MichiSpacing.sm))
                     }
                 }
             }
@@ -294,8 +301,8 @@ fun DevicesScreen(
         // Manual Connection Dialog
         if (showManualDialog) {
             ManualConnectionDialog(
-                onConnect = { name, ip ->
-                    viewModel.connectManual(name, ip)
+                onConnect = { _, ip ->
+                    viewModel.connectManual("", ip)
                     showManualDialog = false
                 },
                 onDismiss = { showManualDialog = false },
@@ -303,13 +310,13 @@ fun DevicesScreen(
         }
 
         // Device Details Dialog
-        selectedPeerForDetails?.let { peer ->
+        selectedDeviceForDetails?.let { device ->
             DeviceDetailsDialog(
-                peer = peer,
-                onDismiss = { selectedPeerForDetails = null },
+                device = device,
+                onDismiss = { selectedDeviceForDetails = null },
                 onForget = {
-                    viewModel.forgetServer()
-                    selectedPeerForDetails = null
+                    viewModel.forgetDevice(device.id)
+                    selectedDeviceForDetails = null
                     scope.launch {
                         snackbarHostState.showSnackbar("Dispositivo olvidado")
                     }
@@ -543,19 +550,19 @@ private fun AddDeviceShortcutsRow(
 
 @Composable
 private fun DeviceNodeCard(
-    peer: DiscoveredPeer,
+    device: UnifiedDevice,
     isConnected: Boolean,
     isConnecting: Boolean,
     actions: List<DeviceAction>,
     onActionClick: (DeviceAction) -> Unit,
     onInfoClick: () -> Unit,
 ) {
-    val icon = getNodeIcon(peer.deviceType)
+    val icon = getNodeIcon(device.deviceType)
 
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("device_node_${peer.ip}"),
+            .testTag("device_node_${device.ip}"),
         backgroundColor = if (isConnected) GlassFillHigh else GlassFillLow,
         borderColor = if (isConnected) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
     ) {
@@ -585,12 +592,13 @@ private fun DeviceNodeCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = peer.alias.ifEmpty { "Michi Node" },
+                        text = device.name.ifEmpty { "Michi Node" },
                         style = MichiTypography.cardTitle,
                     )
                     Text(
-                        text = "${formatDeviceTypeLabel(peer.deviceType)} · ${peer.ip}",
+                        text = "${formatDeviceTypeLabel(device.deviceType)} · ${device.ip}",
                         style = MichiTypography.metadata,
+                        color = if (device.connectionState == SyncConnectionState.OFFLINE) GlassBorderLow else TextSecondary,
                     )
                 }
 
@@ -626,7 +634,7 @@ private fun DeviceNodeCard(
 
             Spacer(modifier = Modifier.height(MichiSpacing.sm))
 
-            // Action Buttons from Resolver
+            // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -637,41 +645,12 @@ private fun DeviceNodeCard(
                         Spacer(modifier = Modifier.width(8.dp))
                     }
 
-                    if (action.isPrimary) {
-                        Button(
-                            onClick = { onActionClick(action) },
-                            enabled = !isConnecting,
-                            modifier = Modifier.height(40.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                            shape = MichiShapes.sm,
-                        ) {
-                            if (isConnecting && action.type == DeviceActionType.CONNECT) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    color = PureWhite,
-                                    strokeWidth = 1.5.dp,
-                                )
-                            } else {
-                                Text(action.label, color = PureWhite, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    } else if (action.isDestructive) {
-                        Button(
-                            onClick = { onActionClick(action) },
-                            modifier = Modifier.height(40.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = ErrorColor.copy(alpha = 0.2f)),
-                            shape = MichiShapes.sm,
-                        ) {
-                            Text(action.label, color = ErrorColor, fontSize = 12.sp)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = { onActionClick(action) },
-                            modifier = Modifier.height(40.dp),
-                            shape = MichiShapes.sm,
-                        ) {
-                            Text(action.label, color = PureWhite, fontSize = 12.sp)
-                        }
+                    OutlinedButton(
+                        onClick = { onActionClick(action) },
+                        modifier = Modifier.height(40.dp),
+                        shape = MichiShapes.sm,
+                    ) {
+                        Text(action.label, fontSize = 12.sp)
                     }
                 }
             }
@@ -681,18 +660,17 @@ private fun DeviceNodeCard(
 
 @Composable
 private fun DeviceDetailsDialog(
-    peer: DiscoveredPeer,
+    device: UnifiedDevice,
     onDismiss: () -> Unit,
     onForget: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+        GlassCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp),
+            backgroundColor = SurfaceContainer,
+            borderColor = GlassBorderHigh,
         ) {
             Column(
                 modifier = Modifier
@@ -722,12 +700,12 @@ private fun DeviceDetailsDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                DetailItem(label = "Alias", value = peer.alias.ifEmpty { "Michi Node" })
-                DetailItem(label = "Tipo de nodo", value = formatDeviceTypeLabel(peer.deviceType))
-                DetailItem(label = "Dirección IP", value = peer.ip)
-                DetailItem(label = "Puerto", value = peer.port.toString())
-                if (peer.deviceId.isNotEmpty()) {
-                    DetailItem(label = "ID de dispositivo", value = peer.deviceId)
+                DetailItem(label = "Alias", value = device.name.ifEmpty { "Michi Node" })
+                DetailItem(label = "Tipo de nodo", value = formatDeviceTypeLabel(device.deviceType))
+                DetailItem(label = "Dirección IP", value = device.ip)
+                DetailItem(label = "Puerto", value = device.port.toString())
+                if (device.id.isNotEmpty()) {
+                    DetailItem(label = "ID de dispositivo", value = device.id)
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))

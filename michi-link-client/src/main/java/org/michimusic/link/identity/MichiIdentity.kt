@@ -54,12 +54,11 @@ class MichiIdentity(private val context: Context) {
         }
     }
 
-    fun getPublicKeyBase64Url(): String {
-        return encodeBase64Url(publicKey!!.encoded)
-    }
+    val publicKeyBase64Url: String
+        get() = encodeBase64Url(publicKey!!.encoded)
 
-    fun getMichiId(): String {
-        return try {
+    val michiId: String
+        get() = try {
             val digest = Class.forName("org.bouncycastle.crypto.digests.Blake3Digest").getConstructor(Int::class.java).newInstance(256)
             val pubBytes = publicKey!!.encoded
             val updateMethod = digest.javaClass.getMethod("update", ByteArray::class.java, Int::class.java, Int::class.java)
@@ -69,15 +68,8 @@ class MichiIdentity(private val context: Context) {
             doFinalMethod.invoke(digest, hash, 0)
             encodeBase64Url(hash)
         } catch (e: Exception) {
-            // Fallback to Blake2b if Blake3 is not in BC
-            val digest = Blake2bDigest(256)
-            val pubBytes = publicKey!!.encoded
-            digest.update(pubBytes, 0, pubBytes.size)
-            val hash = ByteArray(32)
-            digest.doFinal(hash, 0)
-            encodeBase64Url(hash)
+            throw IllegalStateException("BLAKE3 digest is not available. MichiIdentity requires BouncyCastle with BLAKE3 support.", e)
         }
-    }
 
     fun signChallenge(nonceBase64Url: String): String {
         val nonceBytes = decodeBase64Url(nonceBase64Url)
@@ -86,6 +78,28 @@ class MichiIdentity(private val context: Context) {
         signer.update(nonceBytes, 0, nonceBytes.size)
         val signature = signer.generateSignature()
         return encodeBase64Url(signature)
+    }
+
+    fun verifyServerIdentity(serverMichiId: String, serverPublicKeyBase64Url: String): Boolean {
+        return try {
+            val pubBytes = decodeBase64Url(serverPublicKeyBase64Url)
+            val digest = Class.forName("org.bouncycastle.crypto.digests.Blake3Digest").getConstructor(Int::class.java).newInstance(256)
+            val updateMethod = digest.javaClass.getMethod("update", ByteArray::class.java, Int::class.java, Int::class.java)
+            updateMethod.invoke(digest, pubBytes, 0, pubBytes.size)
+            val hash = ByteArray(32)
+            val doFinalMethod = digest.javaClass.getMethod("doFinal", ByteArray::class.java, Int::class.java)
+            doFinalMethod.invoke(digest, hash, 0)
+            val computedId = encodeBase64Url(hash)
+            computedId == serverMichiId
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun generateNonce(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return encodeBase64Url(bytes)
     }
 
     private fun encodeBase64Url(data: ByteArray): String {

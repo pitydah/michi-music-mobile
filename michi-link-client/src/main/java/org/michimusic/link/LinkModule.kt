@@ -11,6 +11,6 @@ val linkModule = module {
     single { TokenStore(androidContext()) }
     single { org.michimusic.link.identity.MichiIdentity(androidContext()) }
     single { PairedDeviceRegistry(androidContext(), get()) }
-    single { ConnectionManager(get()) }
+    single { ConnectionManager(get(), get()) }
     single { LinkPackageImporter(androidContext()) }
 }

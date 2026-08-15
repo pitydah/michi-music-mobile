@@ -39,6 +39,8 @@ data class PlaybackSessionState(
     val duration: Long = 0L,
     val queue: List<Track> = emptyList(),
     val queueIndex: Int = -1,
+    val repeatMode: Int = 0, // 0 = off, 1 = all, 2 = one
+    val shuffleMode: Int = 0, // 0 = off, 1 = all
     val isRemoteActive: Boolean = false,
     val remoteVolume: Int = 50,
     val statusMessage: String? = null,

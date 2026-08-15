@@ -3,46 +3,50 @@ package org.michimusic.mobile.sync
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.michimusic.core.models.DiscoveredPeer
+import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.core.models.SyncConnectionState
 
 class DeviceActionResolverTest {
 
     @Test
     fun disconnectedPeer_returnsConnectActionOnly() {
-        val peer = DiscoveredPeer(
-            alias = "Micro Server",
+        val device = UnifiedDevice(
+            id = "1",
+            name = "Micro Server",
             ip = "192.168.1.100",
             port = 53318,
             deviceType = "server",
+            connectionState = SyncConnectionState.DISCONNECTED,
+            isPaired = false,
+            roles = emptyList()
         )
 
         val actions = DeviceActionResolver.resolveActions(
-            peer = peer,
-            connectionState = SyncConnectionState.DISCONNECTED,
-            isPeerConnected = false,
+            device = device,
             isConnecting = false,
         )
 
         assertEquals(1, actions.size)
         assertEquals(DeviceActionType.CONNECT, actions.first().type)
-        assertEquals("Conectar", actions.first().label)
+        assertEquals("Vincular", actions.first().label)
         assertTrue(actions.first().isPrimary)
     }
 
     @Test
     fun connectingPeer_returnsConnectingState() {
-        val peer = DiscoveredPeer(
-            alias = "PC",
+        val device = UnifiedDevice(
+            id = "1",
+            name = "PC",
             ip = "192.168.1.50",
             port = 53318,
             deviceType = "desktop",
+            connectionState = SyncConnectionState.CONNECTING,
+            isPaired = false,
+            roles = emptyList()
         )
 
         val actions = DeviceActionResolver.resolveActions(
-            peer = peer,
-            connectionState = SyncConnectionState.CONNECTING,
-            isPeerConnected = false,
+            device = device,
             isConnecting = true,
         )
 
@@ -52,17 +56,19 @@ class DeviceActionResolverTest {
 
     @Test
     fun connectedServer_returnsLibraryAndSyncActions() {
-        val peer = DiscoveredPeer(
-            alias = "Michi Server",
+        val device = UnifiedDevice(
+            id = "1",
+            name = "Michi Server",
             ip = "192.168.1.100",
             port = 53318,
             deviceType = "server",
+            connectionState = SyncConnectionState.CONNECTED,
+            isPaired = true,
+            roles = listOf("server")
         )
 
         val actions = DeviceActionResolver.resolveActions(
-            peer = peer,
-            connectionState = SyncConnectionState.PAIRED,
-            isPeerConnected = true,
+            device = device,
             isConnecting = false,
         )
 
@@ -74,17 +80,19 @@ class DeviceActionResolverTest {
 
     @Test
     fun connectedDesktopPlayer_returnsControlAndContinueActions() {
-        val peer = DiscoveredPeer(
-            alias = "Desktop Player",
+        val device = UnifiedDevice(
+            id = "1",
+            name = "Desktop Player",
             ip = "192.168.1.55",
             port = 53318,
             deviceType = "desktop",
+            connectionState = SyncConnectionState.CONNECTED,
+            isPaired = true,
+            roles = listOf("player")
         )
 
         val actions = DeviceActionResolver.resolveActions(
-            peer = peer,
-            connectionState = SyncConnectionState.CONNECTED,
-            isPeerConnected = true,
+            device = device,
             isConnecting = false,
         )
 
@@ -96,17 +104,19 @@ class DeviceActionResolverTest {
 
     @Test
     fun connectedStreamReceiver_returnsPlayOnDeviceAction() {
-        val peer = DiscoveredPeer(
-            alias = "Living Room",
+        val device = UnifiedDevice(
+            id = "1",
+            name = "Living Room",
             ip = "192.168.1.60",
             port = 53318,
             deviceType = "stream",
+            connectionState = SyncConnectionState.CONNECTED,
+            isPaired = true,
+            roles = listOf("audio_receiver")
         )
 
         val actions = DeviceActionResolver.resolveActions(
-            peer = peer,
-            connectionState = SyncConnectionState.CONNECTED,
-            isPeerConnected = true,
+            device = device,
             isConnecting = false,
         )
 

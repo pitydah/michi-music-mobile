@@ -150,7 +150,7 @@ fun HomeScreen(
                                 sessionManager.playPause()
                             },
                             onContinueHere = {
-                                sessionManager.switchEndpoint(PlaybackEndpoint.LocalPhone) { success, msg ->
+                                sessionManager.handoffTo(PlaybackEndpoint.LocalPhone) { success, msg ->
                                     scope.launch { snackbarHostState.showSnackbar(msg) }
                                 }
                             },

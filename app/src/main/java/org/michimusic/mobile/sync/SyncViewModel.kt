@@ -23,6 +23,10 @@ import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkDiscovery
 
+import org.michimusic.link.PairedDeviceRegistry
+import org.michimusic.link.ConnectionManager
+import org.michimusic.link.PairedDevice
+
 import org.michimusic.link.TokenStore
 import org.michimusic.link.dto.LegacyPairConfirmResponseDto
 import org.michimusic.link.dto.LegacyPairStartResponseDto
@@ -34,6 +38,7 @@ import org.michimusic.link.errors.LinkException
 data class SyncUiState(
     val state: SyncConnectionState = SyncConnectionState.DISCONNECTED,
     val peers: List<DiscoveredPeer> = emptyList(),
+    val unifiedDevices: List<org.michimusic.core.models.UnifiedDevice> = emptyList(),
     val connectedPeer: DiscoveredPeer? = null,
     val pairingStart: LegacyPairStartResponseDto? = null,
     val pairingConfirm: LegacyPairConfirmResponseDto? = null,
@@ -55,13 +60,17 @@ class SyncViewModel(
     private val _connectedPeer = MutableStateFlow<DiscoveredPeer?>(null)
     private val _pairStartResponse = MutableStateFlow<LegacyPairStartResponseDto?>(null)
     private val _pairConfirmResponse = MutableStateFlow<LegacyPairConfirmResponseDto?>(null)
+    private val _error = MutableStateFlow<String?>(null)
+    private val _syncProgress = MutableStateFlow<SyncProgress>(SyncProgress.Idle)
+    private val _pairingStrategy = MutableStateFlow(PairingStrategy.LEGACY)
 
     val uiState: StateFlow<SyncUiState> = combine(
         combine(
             linkDiscovery.peers.map { it.values.toList() },
             _connectionState,
-        ) { peers, connState ->
-            peers to connState
+            connectionManager.connectionStates
+        ) { peers, connState, connStates ->
+            Triple(peers, connState, connStates)
         },
         combine(
             _connectedPeer,
@@ -70,15 +79,54 @@ class SyncViewModel(
         ) { peer, pairStart, strategy ->
             Triple(peer, pairStart, strategy)
         },
-    ) { (peers, connState), (peer, pairStart, strategy) ->
+    ) { (peers, connState, connStates), (peer, pairStart, strategy) ->
+        val registered = registry.getAllDevices()
+        val unified = mutableListOf<org.michimusic.core.models.UnifiedDevice>()
+        
+        // Add all registered devices first
+        registered.forEach { reg ->
+            val dPeer = peers.find { it.deviceId == reg.deviceId || it.ip == reg.lastUrl.substringAfter("://").substringBefore(":") }
+            unified.add(
+                org.michimusic.core.models.UnifiedDevice(
+                    id = reg.deviceId,
+                    name = dPeer?.alias ?: reg.deviceName,
+                    ip = dPeer?.ip ?: reg.lastUrl.substringAfter("://").substringBefore(":"),
+                    port = dPeer?.port ?: 53318,
+                    connectionState = connStates[reg.deviceId] ?: (if (dPeer != null) SyncConnectionState.DISCONNECTED else SyncConnectionState.OFFLINE),
+                    isPaired = true,
+                    deviceType = reg.serviceType.ifEmpty { "server" },
+                    roles = reg.roles,
+                    features = reg.features
+                )
+            )
+        }
+        
+        // Add discovered devices that are not registered
+        peers.filter { p -> registered.none { it.deviceId == p.deviceId || it.lastUrl.contains(p.ip) } }.forEach { p ->
+            unified.add(
+                org.michimusic.core.models.UnifiedDevice(
+                    id = p.deviceId.ifEmpty { p.ip },
+                    name = p.alias,
+                    ip = p.ip,
+                    port = p.port,
+                    connectionState = SyncConnectionState.DISCONNECTED,
+                    isPaired = false,
+                    deviceType = p.deviceType,
+                    roles = emptyList(),
+                    features = emptyList()
+                )
+            )
+        }
+
         SyncUiState(
             state = connState,
             peers = peers,
+            unifiedDevices = unified,
             connectedPeer = peer,
             pairingStart = pairStart,
             pairingStrategy = strategy,
         )
-    ).combine(
+    }.combine(
         combine(_error, _syncProgress) { err, progress -> err to progress }
     ) { state, (err, progress) ->
         state.copy(error = err, syncProgress = progress)
@@ -152,7 +200,7 @@ class SyncViewModel(
             val existingDevice = registry.getDevice(resolvedDeviceId)
             if (existingDevice != null && existingDevice.deviceToken.isNotEmpty()) {
                 client.deviceToken = existingDevice.deviceToken
-                if (client.checkTokenValid()) {
+                if (client.getServerInfo().isSuccess) {
                     _connectedPeer.value = peer
                     _connectionState.value = SyncConnectionState.CONNECTED
                     return@launch
@@ -260,19 +308,24 @@ class SyncViewModel(
                     _connectionState.value = SyncConnectionState.ERROR
                 }
             } else {
-                val nonce = java.util.UUID.randomUUID().toString()
-                val sig = identity.signBase64Url(nonce).getOrNull() ?: ""
+                val nonce = identity.generateNonce()
+                val sig = identity.signChallenge(nonce)
                 val request = org.michimusic.link.dto.PairStartRequestDto(
                     deviceName = android.os.Build.MODEL,
                     deviceType = "mobile",
-                    roles = listOf("remote"),
-                    authStrategy = "local_network",
+                    roles = listOf("remote_controller"),
+                    authStrategy = "ED25519_CHALLENGE",
                     michiId = identity.michiId,
                     publicKey = identity.publicKeyBase64Url,
                     challengeNonce = nonce,
                     challengeSignature = sig,
                 )
                 client.pairStart(request).onSuccess { startResp ->
+                    if (!identity.verifyServerIdentity(startResp.serverMichiId, startResp.serverPublicKey)) {
+                        _error.value = "Identity mismatch: La clave pública del servidor no coincide con su Michi ID."
+                        _connectionState.value = SyncConnectionState.ERROR
+                        return@onSuccess
+                    }
                     _connectionState.value = SyncConnectionState.PAIRING
                     
                     val confirmReq = org.michimusic.link.dto.PairConfirmRequestDto(
@@ -289,14 +342,14 @@ class SyncViewModel(
                         val serverInfo = client.getServerInfo().getOrNull()
                         val device = org.michimusic.link.PairedDevice(
                             deviceId = resolvedDeviceId,
-                            deviceName = serverInfo?.alias ?: peer.alias,
+                            deviceName = serverInfo?.effectiveName ?: peer.alias,
                             serviceType = serverInfo?.service ?: "",
                             deviceToken = effectiveToken,
-                            refreshToken = confirmResp.refreshToken,
+                            refreshToken = confirmResp.refreshToken ?: "",
                             permissions = emptyList(),
                             roles = serverInfo?.roles ?: emptyList(),
                             features = emptyList(),
-                            authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LOCAL_NETWORK,
+                            authStrategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.ED25519_CHALLENGE,
                             tokenRefreshSupported = client.tokenRefreshSupported ?: false,
                             pairedAt = System.currentTimeMillis(),
                             lastUrl = client.baseUrl
@@ -320,23 +373,27 @@ class SyncViewModel(
 
     private fun startCodePairing(client: LinkClient, pin: String) {
         viewModelScope.launch {
-            val nonce = java.util.UUID.randomUUID().toString()
-            val sig = identity.signBase64Url(nonce).getOrNull() ?: ""
+            val nonce = identity.generateNonce()
+            val sig = identity.signChallenge(nonce)
             val request = org.michimusic.link.dto.PairStartRequestDto(
                 deviceName = android.os.Build.MODEL,
                 deviceType = "mobile",
-                roles = listOf("remote"),
-                authStrategy = "server_code",
+                roles = listOf("remote_controller"),
+                authStrategy = "SERVER_CODE",
                 michiId = identity.michiId,
                 publicKey = identity.publicKeyBase64Url,
                 challengeNonce = nonce,
                 challengeSignature = sig,
             )
             client.pairStart(request).onSuccess { startResp ->
+                if (!identity.verifyServerIdentity(startResp.serverMichiId, startResp.serverPublicKey)) {
+                    _error.value = "Identity mismatch: La clave pública del servidor no coincide con su Michi ID."
+                    _connectionState.value = SyncConnectionState.ERROR
+                    return@onSuccess
+                }
                 _pairStartResponse.value = org.michimusic.link.dto.LegacyPairStartResponseDto(
                     pairingId = startResp.sessionId,
-                    challenge = "",
-                    authStrategy = "server_code"
+                    serverDeviceId = startResp.serverMichiId
                 )
                 _connectionState.value = SyncConnectionState.PAIRING
                 
@@ -358,12 +415,12 @@ class SyncViewModel(
                     }
                     val serverInfo = client.getServerInfo().getOrNull()
                     
-                    val device = org.michimusic.link.PairedDevice(
+                    val device = PairedDevice(
                         deviceId = resolvedDeviceId,
-                        deviceName = serverInfo?.alias ?: "Michi Server",
+                        deviceName = serverInfo?.effectiveName ?: "Michi Server",
                         serviceType = serverInfo?.service ?: "",
                         deviceToken = effectiveToken,
-                        refreshToken = confirmResp.refreshToken,
+                        refreshToken = confirmResp.refreshToken ?: "",
                         permissions = emptyList(),
                         roles = serverInfo?.roles ?: emptyList(),
                         features = emptyList(),
@@ -396,13 +453,18 @@ class SyncViewModel(
         }
     }
 
-    fun forgetServer() {
-        val deviceId = registry.getAllDevices().firstOrNull()?.deviceId
-        if (deviceId != null) {
-            registry.removeDevice(deviceId)
-            connectionManager.disconnect(deviceId)
+    fun connectToDevice(deviceId: String) {
+        connectionManager.connect(deviceId)
+    }
+
+    fun forgetDevice(deviceId: String) {
+        registry.removeDevice(deviceId)
+        connectionManager.disconnect(deviceId)
+        
+        // If we are currently disconnected from everything else, we can stop discovery or clear state
+        if (registry.getAllDevices().isEmpty()) {
+            disconnect()
         }
-        disconnect()
     }
 
     fun disconnect() {
@@ -473,103 +535,66 @@ class SyncViewModel(
             return
         }
 
+        val parser = org.michimusic.link.identity.QrPairingParser(identity)
+        val result = parser.parseAndValidate(qrContent)
+        
+        result.onFailure {
+            onResult(false, it.message ?: "QR inválido")
+            return
+        }
+        
+        val canonicalQr = result.getOrThrow()
+
         viewModelScope.launch {
             try {
-                var host: String? = null
-                var port = 53318
-                var qrCode: String = qrContent.trim()
-
-                if (qrContent.startsWith("michi://") || qrContent.startsWith("http://") || qrContent.startsWith("https://")) {
-                    val uri = android.net.Uri.parse(qrContent)
-                    uri.getQueryParameter("host")?.let { host = it }
-                    uri.getQueryParameter("port")?.toIntOrNull()?.let { port = it }
-                    uri.getQueryParameter("code")?.let { qrCode = it }
-                    uri.getQueryParameter("qr_code")?.let { qrCode = it }
-                } else if (qrContent.startsWith("{") && qrContent.endsWith("}")) {
-                    try {
-                        val jsonObj = org.json.JSONObject(qrContent)
-                        if (jsonObj.has("host")) host = jsonObj.getString("host")
-                        if (jsonObj.has("port")) port = jsonObj.getInt("port")
-                        if (jsonObj.has("qr_code")) qrCode = jsonObj.getString("qr_code")
-                        else if (jsonObj.has("code")) qrCode = jsonObj.getString("code")
-                    } catch (_: Exception) {}
+                // Ensure endpoint is an absolute URL
+                val url = if (!canonicalQr.endpoint.startsWith("http")) {
+                    "http://${canonicalQr.endpoint}"
+                } else {
+                    canonicalQr.endpoint
                 }
-
-                val targetHost = host
-                    ?: currentClient?.baseUrl?.substringAfter("://")?.substringBefore(":")
-                    ?: _connectedPeer.value?.ip
-
-                if (targetHost.isNullOrBlank()) {
-                    val firstPeer = linkDiscovery.peers.value.values.firstOrNull()
-                    if (firstPeer != null) {
-                        val client = LinkClient(baseUrl = "http://${firstPeer.ip}:${firstPeer.port}", clientDeviceId = clientId)
-                        executeQrClaim(client, firstPeer, qrCode, onResult)
-                    } else {
-                        onResult(false, "No se encontró ningún servidor Michi en tu red local.")
-                    }
-                    return@launch
-                }
-
-                val baseUrl = "http://$targetHost:$port"
-                val client = LinkClient(baseUrl = baseUrl, clientDeviceId = clientId)
-                val peer = DiscoveredPeer(
-                    alias = "Michi Node",
-                    ip = targetHost,
-                    port = port,
-                    deviceType = "server",
-                    deviceId = "",
+                
+                val client = org.michimusic.link.LinkClient(baseUrl = url, clientDeviceId = identity.michiId)
+                
+                val req = org.michimusic.link.dto.PairConfirmRequestDto(
+                    sessionId = canonicalQr.sessionId,
+                    pin = "",
+                    michiId = identity.michiId,
+                    publicKey = identity.publicKeyBase64Url
                 )
-                executeQrClaim(client, peer, qrCode, onResult)
+                
+                client.pairConfirm(req).onSuccess { confirmResp ->
+                    val serverInfo = client.getServerInfoWithFallback().getOrNull()
+                    val device = org.michimusic.link.PairedDevice(
+                        deviceId = confirmResp.serverId.ifEmpty { canonicalQr.serverMichiId },
+                        deviceName = serverInfo?.effectiveName ?: "Servidor Michi",
+                        serviceType = serverInfo?.service ?: "",
+                        deviceToken = confirmResp.token,
+                        refreshToken = confirmResp.refreshToken ?: "",
+                        permissions = emptyList(),
+                        roles = serverInfo?.roles ?: emptyList(),
+                        features = emptyList(),
+                        authStrategy = serverInfo?.effectiveAuthStrategy ?: org.michimusic.link.dto.PairingStrategy.SERVER_CODE,
+                        tokenRefreshSupported = client.tokenRefreshSupported ?: false,
+                        pairedAt = System.currentTimeMillis(),
+                        lastUrl = url
+                    )
+                    registry.saveDevice(device)
+                    _connectionState.value = SyncConnectionState.PAIRED
+                    onResult(true, "Dispositivo vinculado correctamente")
+                }.onFailure { err ->
+                    val msg = when {
+                        err.message?.contains("404") == true -> "Código QR expirado o no encontrado"
+                        err.message?.contains("401") == true -> "Permiso denegado por el servidor"
+                        err.message?.contains("Connect") == true -> "No se pudo conectar con el servidor"
+                        else -> "Error de vinculación: ${err.message ?: "Intenta de nuevo"}"
+                    }
+                    onResult(false, msg)
+                }
             } catch (e: Exception) {
-                onResult(false, "Error al procesar el código: ${e.message}")
+                onResult(false, "Error interno: ${e.message}")
             }
         }
-    }
-
-    private suspend fun executeQrClaim(
-        client: LinkClient,
-        peer: DiscoveredPeer,
-        qrCode: String,
-        onResult: (Boolean, String) -> Unit,
-    ) {
-        client.claimQr(qrCode, QrClaimRequest(clientDeviceId = clientId)).fold(
-            onSuccess = { response ->
-                if (response.success && response.deviceToken.isNotBlank()) {
-                    tokenStore.save(
-                        serverId = response.deviceId.ifEmpty { peer.deviceId },
-                        serverName = peer.alias,
-                        service = "michi-link",
-                        serverDeviceId = response.deviceId,
-                        serverAlias = peer.alias,
-                        clientDeviceId = clientId,
-                        deviceToken = response.deviceToken,
-                        refreshToken = response.refreshToken,
-                        permissions = listOf("playback", "library", "sync"),
-                        serverUrl = client.baseUrl,
-                        roles = listOf("server"),
-                        features = emptyList(),
-                        authStrategy = PairingStrategy.SERVER_CODE,
-                        tokenRefreshSupported = true,
-                    )
-                    client.deviceToken = response.deviceToken
-                    currentClient = client
-                    _connectedPeer.value = peer
-                    _connectionState.value = SyncConnectionState.CONNECTED
-                    onResult(true, "Dispositivo vinculado correctamente")
-                } else {
-                    onResult(false, "El código QR es inválido o ha expirado")
-                }
-            },
-            onFailure = { err ->
-                val msg = when {
-                    err.message?.contains("404") == true -> "Código QR expirado o no encontrado"
-                    err.message?.contains("401") == true -> "Permiso denegado por el servidor"
-                    err.message?.contains("Connect") == true -> "No se pudo conectar con el servidor"
-                    else -> "Error de vinculación: ${err.message ?: "Intenta de nuevo"}"
-                }
-                onResult(false, msg)
-            }
-        )
     }
 
     fun clearError() { _error.value = null }

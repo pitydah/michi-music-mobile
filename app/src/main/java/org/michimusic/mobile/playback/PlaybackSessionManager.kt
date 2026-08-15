@@ -11,6 +11,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.michimusic.core.models.DiscoveredPeer
+import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.link.LinkClient
@@ -187,7 +188,28 @@ class PlaybackSessionManager(
         )
     }
 
-    fun switchEndpoint(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
+    fun attachRemote(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
+        if (target.isLocal) {
+            selectLocalEndpoint()
+            onResult(true, "Conectado al reproductor local")
+            return
+        }
+
+        val client = connectionManager.getClient(target.id)
+        if (client == null) {
+            onResult(false, "No hay conexión activa con ${target.name}")
+            return
+        }
+
+        isRemoteSelected = true
+        _sessionState.value = _sessionState.value.copy(
+            activeEndpoint = target,
+            isRemoteActive = true,
+        )
+        onResult(true, "Controlando ${target.name}")
+    }
+
+    fun handoffTo(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
         if (target.isLocal) {
             // Handoff Remote -> Local
             val currentRemote = _sessionState.value.currentTrack
@@ -223,7 +245,17 @@ class PlaybackSessionManager(
                     activeEndpoint = target,
                     isRemoteActive = true,
                 )
-                client.sendPlaybackCommand("play")
+                // Basic handoff: just play the current track on remote
+                val currentTrackId = local?.currentTrack?.id
+                if (currentTrackId != null) {
+                     client.sendPlaybackCommand("play", currentTrackId)
+                     if (local.position > 0) {
+                         delay(500) // Give it a moment to load
+                         client.sendPlaybackCommand("seek", local.position.toString())
+                     }
+                } else {
+                    client.sendPlaybackCommand("play")
+                }
                 onResult(true, "Reproduciendo en ${target.name}")
             }
         }

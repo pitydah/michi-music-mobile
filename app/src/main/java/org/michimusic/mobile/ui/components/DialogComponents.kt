@@ -1196,7 +1196,7 @@ fun AudioRouteDialog(
                                     RoundedCornerShape(14.dp),
                                 )
                                 .clickable {
-                                    sessionManager?.switchEndpoint(endpoint) { _, _ -> }
+                                    sessionManager?.handoffTo(endpoint) { _, _ -> }
                                 }
                                 .padding(12.dp),
                         ) {

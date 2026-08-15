@@ -1,6 +1,6 @@
 package org.michimusic.mobile.sync
 
-import org.michimusic.core.models.DiscoveredPeer
+import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.core.models.SyncConnectionState
 
 enum class DeviceActionType {
@@ -23,18 +23,16 @@ data class DeviceAction(
 
 object DeviceActionResolver {
     fun resolveActions(
-        peer: DiscoveredPeer,
-        connectionState: SyncConnectionState,
-        isPeerConnected: Boolean,
+        device: UnifiedDevice,
         isConnecting: Boolean,
     ): List<DeviceAction> {
         val actions = mutableListOf<DeviceAction>()
 
-        if (!isPeerConnected) {
+        if (device.connectionState != SyncConnectionState.CONNECTED) {
             actions.add(
                 DeviceAction(
                     type = DeviceActionType.CONNECT,
-                    label = if (isConnecting) "Conectando..." else "Conectar",
+                    label = if (isConnecting) "Conectando..." else if (device.isPaired) "Conectar" else "Vincular",
                     isPrimary = true,
                 )
             )
@@ -42,22 +40,26 @@ object DeviceActionResolver {
         }
 
         // Capabilities / Role driven actions for connected device
-        val deviceType = peer.deviceType.lowercase()
-        when (deviceType) {
-            "server" -> {
-                actions.add(DeviceAction(DeviceActionType.BROWSE_LIBRARY, "Biblioteca", isPrimary = true))
-                actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar"))
-            }
-            "desktop", "player" -> {
-                actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = true))
-                actions.add(DeviceAction(DeviceActionType.CONTINUE_PLAYBACK_HERE, "Continuar aquí"))
-            }
-            "stream", "receiver" -> {
-                actions.add(DeviceAction(DeviceActionType.PLAY_ON_DEVICE, "Reproducir aquí", isPrimary = true))
-            }
-            else -> {
-                actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = true))
-            }
+        val roles = device.roles
+        val isServer = roles.contains("server")
+        val isPlayer = roles.contains("player")
+        val isReceiver = roles.contains("audio_receiver") || roles.contains("video_receiver") || roles.contains("cast_receiver")
+
+        if (isServer) {
+            actions.add(DeviceAction(DeviceActionType.BROWSE_LIBRARY, "Biblioteca", isPrimary = true))
+            actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar"))
+        }
+        
+        if (isPlayer) {
+            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = !isServer))
+            actions.add(DeviceAction(DeviceActionType.CONTINUE_PLAYBACK_HERE, "Continuar aquí"))
+        } else if (isReceiver) {
+            actions.add(DeviceAction(DeviceActionType.PLAY_ON_DEVICE, "Reproducir aquí", isPrimary = !isServer))
+        }
+
+        // Fallback if no roles matched but connected
+        if (actions.isEmpty()) {
+            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = true))
         }
 
         actions.add(DeviceAction(DeviceActionType.DISCONNECT, "Desconectar", isDestructive = true))

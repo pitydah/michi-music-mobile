@@ -47,6 +47,19 @@ data class LibraryResponse(
     val albums: Int = 0,
 )
 
+
+data class UnifiedDevice(
+    val id: String, // PairedDevice deviceId or DiscoveredPeer deviceId
+    val name: String,
+    val ip: String,
+    val port: Int,
+    val connectionState: SyncConnectionState,
+    val isPaired: Boolean,
+    val deviceType: String,
+    val roles: List<String> = emptyList(),
+    val features: List<String> = emptyList(),
+)
+
 @Serializable
 data class TrackDto(
     val id: String,
@@ -105,6 +118,8 @@ enum class SyncConnectionState {
     PAIRED,
     AUTH_ERROR,
     REVOKED,
+    UNAUTHORIZED,
+    OFFLINE,
     ERROR,
 }
 

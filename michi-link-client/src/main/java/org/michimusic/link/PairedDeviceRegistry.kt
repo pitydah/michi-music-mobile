@@ -69,13 +69,15 @@ class PairedDeviceRegistry(private val context: Context, private val legacyToken
                 pairedAt = legacyTokenStore.getPairedAt(),
                 lastUrl = legacyTokenStore.getServerUrl() ?: ""
             )
-            saveDevice(device, prefs)
+            val current = readDevices(prefs).filter { it.deviceId != device.deviceId }.toMutableList()
+            current.add(device)
+            writeDevices(current, prefs)
         }
         prefs.edit().putBoolean(MIGRATED_FROM_TOKENSTORE, true).apply()
     }
 
-    fun getAllDevices(): List<PairedDevice> {
-        val devicesJson = securePrefs.getString(DEVICES_KEY, "[]") ?: "[]"
+    private fun readDevices(prefs: SharedPreferences): List<PairedDevice> {
+        val devicesJson = prefs.getString(DEVICES_KEY, "[]") ?: "[]"
         return try {
             json.decodeFromString<List<PairedDevice>>(devicesJson)
         } catch (e: Exception) {
@@ -83,19 +85,27 @@ class PairedDeviceRegistry(private val context: Context, private val legacyToken
         }
     }
 
+    private fun writeDevices(devices: List<PairedDevice>, prefs: SharedPreferences) {
+        prefs.edit().putString(DEVICES_KEY, json.encodeToString(devices)).apply()
+    }
+
+    fun getAllDevices(): List<PairedDevice> {
+        return readDevices(securePrefs)
+    }
+
     fun getDevice(deviceId: String): PairedDevice? {
         return getAllDevices().find { it.deviceId == deviceId }
     }
 
     fun saveDevice(device: PairedDevice, prefs: SharedPreferences = securePrefs) {
-        val current = getAllDevices().filter { it.deviceId != device.deviceId }.toMutableList()
+        val current = readDevices(prefs).filter { it.deviceId != device.deviceId }.toMutableList()
         current.add(device)
-        prefs.edit().putString(DEVICES_KEY, json.encodeToString(current)).apply()
+        writeDevices(current, prefs)
     }
 
     fun removeDevice(deviceId: String) {
         val current = getAllDevices().filter { it.deviceId != deviceId }
-        securePrefs.edit().putString(DEVICES_KEY, json.encodeToString(current)).apply()
+        writeDevices(current, securePrefs)
     }
 
     fun clearAll() {
