@@ -51,9 +51,9 @@ SyncScreen → seleccionar servidor
 ```
 SyncScreen → seleccionar servidor
 → detecta auth.strategy = RECEIVER_BUTTON
-→ no permite emparejar
-→ mensaje: "Este dispositivo no es una fuente controlable directa"
-→ servidor no aparece como opción de pairing
+→ inicia flujo de pairing con ventana física (120 s)
+→ llama a /api/v1/pair/start con autenticación Ed25519
+→ llama a /api/v1/pair/confirm y guarda el token emitido por el receptor
 ```
 
 ### LEGACY

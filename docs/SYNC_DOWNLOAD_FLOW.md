@@ -51,8 +51,8 @@ User abre SyncScreen
 User selecciona servidor
 → SyncViewModel.selectPeer()
 → LinkClient.getServerInfo()
-→ Detecta PairingStrategy (PLAYER_PASSWORD | SERVER_CODE | LEGACY)
-→ Si RECEIVER_BUTTON: error, no continuar
+→ Detecta PairingStrategy (PLAYER_PASSWORD | SERVER_CODE | ED25519_CHALLENGE | RECEIVER_BUTTON | LEGACY)
+→ Si RECEIVER_BUTTON: inicia flujo con ventana física de confirmación en el receptor
 
 PLAYER_PASSWORD:
 → User ingresa username + password

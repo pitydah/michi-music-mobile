@@ -28,7 +28,7 @@ v0.2.0-beta — Michi Link API v1.0.0-alpha
 ### Michi Link (sync/stream/remote)
 - **Descubrimiento**: UDP multicast 224.0.0.167:53318
 - **Server info**: `/api/v1/server/info` (tolerante a Player y Micro Server)
-- **Pairing**: PLAYER_PASSWORD, SERVER_CODE, LEGACY (RECEIVER_BUTTON rechazado)
+- **Pairing**: PLAYER_PASSWORD, SERVER_CODE, ED25519_CHALLENGE, RECEIVER_BUTTON, LEGACY
 - **Token**: persistente en SharedPreferences, refresh soportado
 - **Sync**: manifest + delta con cursor, descarga con checksum SHA-256
 - **Streaming**: HTTP Range-Request, buffer 64KB
