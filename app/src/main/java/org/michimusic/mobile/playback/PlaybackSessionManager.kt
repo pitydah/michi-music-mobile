@@ -128,28 +128,29 @@ class PlaybackSessionManager(
         pairedDevices.forEach { pd ->
             if (endpoints.none { it.id == pd.deviceId }) {
                 val isConnected = connectionManager.connectionStates.value[pd.deviceId] == SyncConnectionState.CONNECTED
-                val isReceiver = pd.roles.contains("audio_receiver") || pd.serviceType.contains("stream")
-                val isServer = pd.roles.contains("music_server") || pd.serviceType.contains("server")
-                val isPlayer = pd.roles.contains("playback_host") || pd.serviceType.contains("player")
+                val caps = org.michimusic.link.capability.CapabilityResolver.resolve(
+                    roles = pd.roles,
+                    features = pd.features
+                )
                 val type = when {
-                    isReceiver -> EndpointType.STREAM_RECEIVER
-                    isServer -> EndpointType.SERVER
-                    isPlayer -> EndpointType.DESKTOP_PLAYER
+                    caps.isAudioReceiver -> EndpointType.STREAM_RECEIVER
+                    caps.isMusicServer -> EndpointType.SERVER
+                    caps.isPlaybackHost -> EndpointType.DESKTOP_PLAYER
                     else -> EndpointType.UNKNOWN
                 }
-                val caps = when (type) {
-                    EndpointType.STREAM_RECEIVER -> setOf("PLAYBACK", "AUDIO_OUTPUT")
-                    EndpointType.SERVER -> setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
-                    EndpointType.DESKTOP_PLAYER -> setOf("PLAYBACK", "REMOTE_CONTROL")
-                    else -> emptySet()
-                }
+                val capSet = mutableSetOf<String>()
+                if (caps.isPlaybackHost || caps.isAudioReceiver || caps.isMusicServer) capSet.add("PLAYBACK")
+                if (caps.isAudioReceiver) capSet.add("AUDIO_OUTPUT")
+                if (caps.isPlaybackHost || caps.isMusicServer) capSet.add("REMOTE_CONTROL")
+                if (caps.isLibraryHost) capSet.add("LIBRARY")
+
                 endpoints.add(PlaybackEndpoint(
                     id = pd.deviceId,
                     name = pd.deviceName,
                     type = type,
                     isLocal = false,
                     isConnected = isConnected,
-                    capabilities = caps
+                    capabilities = capSet
                 ))
             }
         }
@@ -161,28 +162,35 @@ class PlaybackSessionManager(
 
     private fun mapPeerToEndpoint(peer: DiscoveredPeer, isConnected: Boolean): PlaybackEndpoint {
         val paired = registry.getDevice(peer.deviceId)
+        val caps = if (paired != null) {
+            org.michimusic.link.capability.CapabilityResolver.resolve(
+                roles = paired.roles,
+                features = paired.features
+            )
+        } else {
+            // Unpaired discovered peer without verified ServerInfo is strictly UNKNOWN
+            org.michimusic.link.capability.ResolvedCapabilities.UNKNOWN
+        }
+
         val type = when {
-            paired?.roles?.contains("audio_receiver") == true || peer.deviceType.lowercase() in listOf("stream", "receiver") -> EndpointType.STREAM_RECEIVER
-            paired?.roles?.contains("music_server") == true || peer.deviceType.lowercase() == "server" -> EndpointType.SERVER
-            paired?.roles?.contains("room") == true || peer.deviceType.lowercase() == "room" -> EndpointType.ROOM
-            paired?.roles?.contains("playback_host") == true || peer.deviceType.lowercase() in listOf("player", "desktop_player", "desktop") -> EndpointType.DESKTOP_PLAYER
+            caps.isAudioReceiver -> EndpointType.STREAM_RECEIVER
+            caps.isMusicServer -> EndpointType.SERVER
+            caps.isPlaybackHost -> EndpointType.DESKTOP_PLAYER
             else -> EndpointType.UNKNOWN
         }
-        val caps = when (type) {
-            EndpointType.STREAM_RECEIVER -> setOf("PLAYBACK", "AUDIO_OUTPUT")
-            EndpointType.SERVER -> setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY")
-            EndpointType.ROOM -> setOf("PLAYBACK", "GROUP_OUTPUT")
-            EndpointType.DESKTOP_PLAYER -> setOf("PLAYBACK", "REMOTE_CONTROL")
-            EndpointType.LOCAL_PHONE -> setOf("PLAYBACK", "LOCAL_OUTPUT")
-            EndpointType.UNKNOWN -> emptySet()
-        }
+        val capSet = mutableSetOf<String>()
+        if (caps.isPlaybackHost || caps.isAudioReceiver || caps.isMusicServer) capSet.add("PLAYBACK")
+        if (caps.isAudioReceiver) capSet.add("AUDIO_OUTPUT")
+        if (caps.isPlaybackHost || caps.isMusicServer) capSet.add("REMOTE_CONTROL")
+        if (caps.isLibraryHost) capSet.add("LIBRARY")
+
         return PlaybackEndpoint(
             id = peer.deviceId.ifEmpty { "${peer.ip}:${peer.port}" },
             name = peer.alias.ifEmpty { "Michi Node" },
             type = type,
             isLocal = false,
             isConnected = isConnected,
-            capabilities = caps,
+            capabilities = capSet,
         )
     }
 
@@ -563,38 +571,43 @@ class PlaybackSessionManager(
                     val resolvedTrackIds = mutableListOf<String>()
 
                     for (track in q) {
+                        // Ya pertenece al catálogo remoto
                         if (track.source == TrackSource.STREAMING && track.id.isNotEmpty()) {
                             resolvedTrackIds.add(track.id)
-                            val searchResult = client.search(track.title).getOrNull()
-                            val match = searchResult?.firstOrNull { candidate ->
-                                // 1. Match by canonical content hash if available
-                                val hashMatch = track.contentHash.isNotEmpty() &&
-                                    candidate.contentHash.isNotEmpty() &&
-                                    track.contentHash.equals(candidate.contentHash, ignoreCase = true)
-                                if (hashMatch) return@firstOrNull true
+                            continue
+                        }
 
-                                // 2. Match by normalized metadata fallback signature
-                                val idMatch = track.metadataFallbackIdentity.equals(candidate.metadataFallbackIdentity, ignoreCase = true)
-                                if (idMatch) return@firstOrNull true
+                        // Pista local: resolver contra catálogo remoto
+                        val searchResult = client.search(track.title).getOrNull()
+                        val match = searchResult?.firstOrNull { candidate ->
+                            // 1. Match by canonical content hash if available
+                            val hashMatch = track.contentHash.isNotEmpty() &&
+                                candidate.contentHash.isNotEmpty() &&
+                                track.contentHash.equals(candidate.contentHash, ignoreCase = true)
+                            if (hashMatch) return@firstOrNull true
 
-                                // 3. Multi-criteria fallback (title + artist + duration within 3s)
-                                val titleMatches = candidate.title.equals(track.title, ignoreCase = true)
-                                val artistMatches = candidate.artist.isEmpty() || track.artist.isEmpty() ||
-                                        candidate.artist.equals(track.artist, ignoreCase = true)
-                                val durationMatches = candidate.duration <= 0 || track.duration <= 0 ||
-                                        Math.abs(candidate.duration - track.duration) <= 3000
-                                titleMatches && artistMatches && durationMatches
-                            }
-                            if (match != null && match.effectiveId.isNotEmpty()) {
-                                resolvedTrackIds.add(match.effectiveId)
-                            } else {
-                                hasUnresolvableLocalTrack = true
-                                break
-                            }
+                            // 2. Match by normalized metadata fallback signature
+                            val idMatch = track.metadataFallbackIdentity.equals(candidate.metadataFallbackIdentity, ignoreCase = true)
+                            if (idMatch) return@firstOrNull true
+
+                            // 3. Multi-criteria fallback (title + artist + duration within 3s)
+                            val titleMatches = candidate.title.equals(track.title, ignoreCase = true)
+                            val artistMatches = candidate.artist.isEmpty() || track.artist.isEmpty() ||
+                                    candidate.artist.equals(track.artist, ignoreCase = true)
+                            val durationMatches = candidate.duration <= 0 || track.duration <= 0 ||
+                                    Math.abs(candidate.duration - track.duration) <= 3000
+                            titleMatches && artistMatches && durationMatches
+                        }
+
+                        if (match != null && match.effectiveId.isNotEmpty()) {
+                            resolvedTrackIds.add(match.effectiveId)
+                        } else {
+                            hasUnresolvableLocalTrack = true
+                            break
                         }
                     }
 
-                    if (hasUnresolvableLocalTrack) {
+                    if (hasUnresolvableLocalTrack || resolvedTrackIds.size != q.size) {
                         onResult(false, "No se pudo transferir: algunas pistas locales no existen en el servidor ${target.name}")
                         return@launch
                     }
