@@ -693,6 +693,42 @@ class PlaybackSessionManagerTest {
     }
 
     @Test
+    fun fallback_cleansUpSessionResourcesAndSetsLocalPhone() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        every { linkClient.baseUrl } returns "http://192.168.1.50:8400"
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "stream_1") linkClient else null
+        }
+        connectionManager.updateState("stream_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        manager.selectLocalEndpoint(
+            reason = StreamErrorReason.NETWORK_LOST,
+            message = "Conexión perdida con receptor"
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+        assertFalse(manager.sessionState.value.isRemoteActive)
+        assertEquals(StreamErrorReason.NETWORK_LOST, manager.sessionState.value.lastSessionError)
+        assertEquals("Conexión perdida con receptor", manager.sessionState.value.statusMessage)
+    }
+
+    @Test
     fun authoritativeControls_localMode() {
         val audioController = mockk<AudioController>(relaxed = true)
         val dummyStateFlow = MutableStateFlow(PlayerState())
