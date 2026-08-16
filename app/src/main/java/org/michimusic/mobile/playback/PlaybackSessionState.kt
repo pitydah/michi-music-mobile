@@ -1,6 +1,7 @@
 package org.michimusic.mobile.playback
 
 import org.michimusic.core.models.Track
+import org.michimusic.link.rtp.RtpMetrics
 
 enum class EndpointType {
     LOCAL_PHONE,
@@ -15,6 +16,8 @@ enum class StreamErrorReason {
     FORMAT_UNSUPPORTED,
     RECEIVER_NEGOTIATION_FAILED,
     RTP_START_FAILED,
+    RTP_BUFFER_OVERFLOW,
+    RTP_STREAM_DEGRADED,
     SESSION_EXPIRED,
     NETWORK_LOST,
 }
@@ -54,4 +57,5 @@ data class PlaybackSessionState(
     val remoteVolume: Int = 50,
     val statusMessage: String? = null,
     val lastSessionError: StreamErrorReason? = null,
+    val rtpMetrics: RtpMetrics? = null,
 )

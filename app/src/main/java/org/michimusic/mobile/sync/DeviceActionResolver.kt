@@ -2,6 +2,7 @@ package org.michimusic.mobile.sync
 
 import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.core.models.SyncConnectionState
+import org.michimusic.link.capability.CapabilityResolver
 
 enum class DeviceActionType {
     CONNECT,
@@ -39,26 +40,24 @@ object DeviceActionResolver {
             return actions
         }
 
-        // Capabilities / Role & Feature driven actions for connected device
-        val roles = device.roles
-        val features = device.features
-        val isLibrary = roles.contains("library_host") || roles.contains("music_server") || features.contains("library")
-        val isSync = roles.contains("sync_host") || features.contains("sync")
-        val isPlayback = roles.contains("playback_host") || features.contains("playback") || features.contains("remote_control")
-        val isReceiver = roles.contains("audio_receiver") || features.contains("audio_output") || features.contains("streaming")
+        // Single source of truth: resolve typed capabilities
+        val caps = CapabilityResolver.resolve(
+            roles = device.roles,
+            features = device.features
+        )
 
-        if (isLibrary) {
+        if (caps.isLibraryHost) {
             actions.add(DeviceAction(DeviceActionType.BROWSE_LIBRARY, "Biblioteca", isPrimary = true))
         }
-        if (isSync) {
+        if (caps.isSyncHost) {
             actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar"))
         }
-        if (isPlayback) {
-            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = !isLibrary))
+        if (caps.isPlaybackHost) {
+            actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = !caps.isLibraryHost))
             actions.add(DeviceAction(DeviceActionType.CONTINUE_PLAYBACK_HERE, "Continuar aquí"))
         }
-        if (isReceiver) {
-            actions.add(DeviceAction(DeviceActionType.PLAY_ON_DEVICE, "Reproducir aquí", isPrimary = !isLibrary && !isPlayback))
+        if (caps.isAudioReceiver) {
+            actions.add(DeviceAction(DeviceActionType.PLAY_ON_DEVICE, "Reproducir aquí", isPrimary = !caps.isLibraryHost && !caps.isPlaybackHost))
         }
 
         // Fallback if no specific actions were resolved

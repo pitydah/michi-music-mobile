@@ -24,15 +24,11 @@ data class TrackResponseDto(
     val effectiveId: String get() = id.ifEmpty { trackId }
 
     /**
-     * Stable content identity signature. Uses contentHash if present,
-     * or normalized canonical metadata signature: "title|artist|album|duration_secs".
+     * Normalized metadata signature fallback: "title|artist|album|duration_secs".
+     * Used only as a fallback heuristic when canonical contentHash is not available.
      */
-    val stableContentIdentity: String
-        get() = if (contentHash.isNotEmpty()) {
-            contentHash
-        } else {
-            "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
-        }
+    val metadataFallbackIdentity: String
+        get() = "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
 
     fun normalized(): TrackResponseDto =
         if (id.isNotEmpty() || trackId.isEmpty()) this else copy(id = trackId)

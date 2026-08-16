@@ -45,9 +45,26 @@ class PlaybackSessionManager(
     private var formatObserverJob: Job? = null
 
     init {
-        rtpAudioSender.onError = {
+        rtpAudioSender.onError = { ex ->
+            val reason = when {
+                ex is IllegalStateException && ex.message?.contains("Sustained RTP buffer overflow", ignoreCase = true) == true ->
+                    StreamErrorReason.RTP_BUFFER_OVERFLOW
+                ex is java.net.SocketException || ex is java.io.IOException ->
+                    StreamErrorReason.NETWORK_LOST
+                else ->
+                    StreamErrorReason.RTP_START_FAILED
+            }
+            val msg = when (reason) {
+                StreamErrorReason.RTP_BUFFER_OVERFLOW ->
+                    "Sobrecarga en la transmisión de audio hacia Michi Stream; la reproducción continúa en este teléfono"
+                StreamErrorReason.NETWORK_LOST ->
+                    "Se perdió la conexión con Michi Stream; la reproducción continúa en este teléfono"
+                else ->
+                    "Error en la transmisión hacia Michi Stream; la reproducción continúa en este teléfono"
+            }
             scope.launch(Dispatchers.Main) {
-                selectLocalEndpoint()
+                val wasPlaying = audioController?.state?.value?.isPlaying == true
+                selectLocalEndpoint(reason = reason, message = msg, resumePlayback = wasPlaying)
             }
         }
 
@@ -290,7 +307,8 @@ class PlaybackSessionManager(
 
     fun selectLocalEndpoint(
         reason: StreamErrorReason? = null,
-        message: String? = null
+        message: String? = null,
+        resumePlayback: Boolean = false
     ) {
         val wasRemote = isRemoteSelected
         isRemoteSelected = false
@@ -298,6 +316,7 @@ class PlaybackSessionManager(
         formatObserverJob?.cancel()
         formatObserverJob = null
         org.michimusic.player.PlayerDependencies.stopPcmStreaming()
+        val finalMetrics = rtpAudioSender.getMetrics()
         rtpAudioSender.stop()
         val activeEp = _sessionState.value.activeEndpoint
         if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
@@ -317,7 +336,7 @@ class PlaybackSessionManager(
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = PlaybackEndpoint.LocalPhone,
             currentTrack = local?.currentTrack,
-            isPlaying = local?.isPlaying ?: false,
+            isPlaying = if (resumePlayback) true else (local?.isPlaying ?: false),
             position = local?.position ?: 0L,
             duration = local?.duration ?: 0L,
             queue = local?.queue ?: emptyList(),
@@ -326,8 +345,13 @@ class PlaybackSessionManager(
             shuffleMode = if (local?.shuffleMode == true) 1 else 0,
             isRemoteActive = false,
             lastSessionError = reason,
+            rtpMetrics = finalMetrics,
             statusMessage = message ?: if (wasRemote) "Reproduciendo en este teléfono" else null
         )
+
+        if (resumePlayback) {
+            audioController?.play()
+        }
     }
 
     fun attachRemote(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
@@ -541,17 +565,16 @@ class PlaybackSessionManager(
                     for (track in q) {
                         if (track.source == TrackSource.STREAMING && track.id.isNotEmpty()) {
                             resolvedTrackIds.add(track.id)
-                        } else {
                             val searchResult = client.search(track.title).getOrNull()
                             val match = searchResult?.firstOrNull { candidate ->
-                                // 1. Match by content hash if available
+                                // 1. Match by canonical content hash if available
                                 val hashMatch = track.contentHash.isNotEmpty() &&
                                     candidate.contentHash.isNotEmpty() &&
                                     track.contentHash.equals(candidate.contentHash, ignoreCase = true)
                                 if (hashMatch) return@firstOrNull true
 
-                                // 2. Match by stable canonical content identity signature
-                                val idMatch = track.stableContentIdentity.equals(candidate.stableContentIdentity, ignoreCase = true)
+                                // 2. Match by normalized metadata fallback signature
+                                val idMatch = track.metadataFallbackIdentity.equals(candidate.metadataFallbackIdentity, ignoreCase = true)
                                 if (idMatch) return@firstOrNull true
 
                                 // 3. Multi-criteria fallback (title + artist + duration within 3s)
@@ -781,7 +804,8 @@ class PlaybackSessionManager(
         if (newReq == null) {
             selectLocalEndpoint(
                 reason = StreamErrorReason.FORMAT_UNSUPPORTED,
-                message = "Esta pista no es compatible con Michi Stream; la reproducción continúa en este teléfono"
+                message = "Esta pista no es compatible con Michi Stream; la reproducción continúa en este teléfono",
+                resumePlayback = wasPlaying
             )
             return
         }
@@ -797,7 +821,8 @@ class PlaybackSessionManager(
                 }
                 selectLocalEndpoint(
                     reason = StreamErrorReason.FORMAT_UNSUPPORTED,
-                    message = "Esta pista no es compatible con Michi Stream; la reproducción continúa en este teléfono"
+                    message = "Esta pista no es compatible con Michi Stream; la reproducción continúa en este teléfono",
+                    resumePlayback = wasPlaying
                 )
                 return@onSuccess
             }
@@ -834,7 +859,8 @@ class PlaybackSessionManager(
                             withContext(Dispatchers.Main) {
                                 selectLocalEndpoint(
                                     reason = StreamErrorReason.SESSION_EXPIRED,
-                                    message = "Se perdió la sesión con Michi Stream; la reproducción continúa en este teléfono"
+                                    message = "Se perdió la sesión con Michi Stream; la reproducción continúa en este teléfono",
+                                    resumePlayback = wasPlaying
                                 )
                             }
                             break
@@ -844,14 +870,18 @@ class PlaybackSessionManager(
             } else {
                 selectLocalEndpoint(
                     reason = StreamErrorReason.RTP_START_FAILED,
-                    message = "No se pudo iniciar la transmisión de audio; la reproducción continúa en este teléfono"
+                    message = "No se pudo iniciar la transmisión de audio; la reproducción continúa en este teléfono",
+                    resumePlayback = wasPlaying
                 )
             }
         }.onFailure {
             selectLocalEndpoint(
                 reason = StreamErrorReason.RECEIVER_NEGOTIATION_FAILED,
-                message = "No se pudo renegociar la sesión con Michi Stream; la reproducción continúa en este teléfono"
+                message = "No se pudo renegociar la sesión con Michi Stream; la reproducción continúa en este teléfono",
+                resumePlayback = wasPlaying
             )
         }
     }
+
+    fun getRtpMetrics(): org.michimusic.link.rtp.RtpMetrics = rtpAudioSender.getMetrics()
 }

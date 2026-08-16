@@ -26,15 +26,11 @@ data class Track(
     val contentHash: String = "",
 ) {
     /**
-     * Stable content identity signature. Uses contentHash if available,
-     * or normalized canonical metadata signature: "title|artist|album|duration_secs".
+     * Normalized metadata signature fallback: "title|artist|album|duration_secs".
+     * Used only as a fallback heuristic when canonical contentHash is not available.
      */
-    val stableContentIdentity: String
-        get() = if (contentHash.isNotEmpty()) {
-            contentHash
-        } else {
-            "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
-        }
+    val metadataFallbackIdentity: String
+        get() = "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
 }
 
 enum class TrackSource {

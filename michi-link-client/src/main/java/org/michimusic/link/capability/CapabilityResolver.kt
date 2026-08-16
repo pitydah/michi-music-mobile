@@ -34,25 +34,32 @@ data class ResolvedCapabilities(
 }
 
 /**
- * Single source of truth for extracting typed capabilities from ServerInfo.
+ * Single source of truth for extracting typed capabilities from ServerInfo or stored device roles/features.
  * Does not grant functional roles based purely on multicast discovery announcements.
  */
 object CapabilityResolver {
-    fun resolve(serverInfo: ServerInfoDto?): ResolvedCapabilities {
-        if (serverInfo == null) return ResolvedCapabilities.UNKNOWN
+    fun resolve(
+        roles: List<String>,
+        features: List<String>,
+        apiVersion: String = "",
+        michiLinkVersion: String = "",
+        audioCapabilities: AudioCapabilitiesDto? = null
+    ): ResolvedCapabilities {
+        if (roles.isEmpty() && features.isEmpty() && audioCapabilities == null) {
+            return ResolvedCapabilities.UNKNOWN
+        }
 
-        val roles = serverInfo.roles.map { it.lowercase() }
-        val features = serverInfo.effectiveFeatures
-        val isReceiverLite = (serverInfo.apiVersion.equals("v1-lite", ignoreCase = true) ||
-            serverInfo.michiLinkVersion.startsWith("1.") ||
-            serverInfo.michiLinkVersion.startsWith("v1")) &&
-            (roles.contains("audio_receiver") || serverInfo.audio != null)
+        val lowerRoles = roles.map { it.lowercase() }
+        val isReceiverLite = (apiVersion.equals("v1-lite", ignoreCase = true) ||
+            michiLinkVersion.startsWith("1.") ||
+            michiLinkVersion.startsWith("v1")) &&
+            (lowerRoles.contains("audio_receiver") || audioCapabilities != null)
 
-        val isAudioReceiver = roles.contains("audio_receiver") || isReceiverLite
-        val isMusicServer = roles.contains("music_server") || roles.contains("library_master")
-        val isLibraryHost = roles.contains("library_host") || roles.contains("library_master") || features.contains("library")
-        val isPlaybackHost = roles.contains("playback_host") || roles.contains("desktop_player")
-        val isSyncHost = roles.contains("sync_host") || roles.contains("library_master")
+        val isAudioReceiver = lowerRoles.contains("audio_receiver") || isReceiverLite || features.contains("audio_output") || features.contains("streaming")
+        val isMusicServer = lowerRoles.contains("music_server") || lowerRoles.contains("library_master")
+        val isLibraryHost = lowerRoles.contains("library_host") || lowerRoles.contains("library_master") || lowerRoles.contains("music_server") || features.contains("library")
+        val isPlaybackHost = lowerRoles.contains("playback_host") || lowerRoles.contains("desktop_player") || features.contains("playback") || features.contains("remote_control")
+        val isSyncHost = lowerRoles.contains("sync_host") || lowerRoles.contains("library_master") || features.contains("sync")
 
         return ResolvedCapabilities(
             isAudioReceiver = isAudioReceiver,
@@ -61,9 +68,20 @@ object CapabilityResolver {
             isPlaybackHost = isPlaybackHost,
             isSyncHost = isSyncHost,
             isReceiverLite = isReceiverLite,
-            audioCapabilities = serverInfo.audio,
-            rawRoles = serverInfo.roles,
+            audioCapabilities = audioCapabilities,
+            rawRoles = roles,
             features = features,
+        )
+    }
+
+    fun resolve(serverInfo: ServerInfoDto?): ResolvedCapabilities {
+        if (serverInfo == null) return ResolvedCapabilities.UNKNOWN
+        return resolve(
+            roles = serverInfo.roles,
+            features = serverInfo.effectiveFeatures,
+            apiVersion = serverInfo.apiVersion,
+            michiLinkVersion = serverInfo.michiLinkVersion,
+            audioCapabilities = serverInfo.audio
         )
     }
 }
