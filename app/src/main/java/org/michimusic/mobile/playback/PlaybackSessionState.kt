@@ -1,5 +1,8 @@
 package org.michimusic.mobile.playback
 
+import org.michimusic.core.models.PlaybackTarget
+import org.michimusic.core.models.ReceiverDevice
+import org.michimusic.core.models.RoomDevice
 import org.michimusic.core.models.Track
 import org.michimusic.link.rtp.RtpMetrics
 
@@ -20,6 +23,17 @@ enum class StreamErrorReason {
     RTP_STREAM_DEGRADED,
     SESSION_EXPIRED,
     NETWORK_LOST,
+}
+
+enum class HandoffState {
+    IDLE,
+    LOCAL_PLAYING,
+    REMOTE_PREPARING,
+    REMOTE_READY,
+    REMOTE_PLAYING_CONFIRMED,
+    LOCAL_STOP,
+    REMOTE_PLAYING,
+    FAILED,
 }
 
 data class PlaybackEndpoint(
@@ -44,7 +58,11 @@ data class PlaybackEndpoint(
 
 data class PlaybackSessionState(
     val activeEndpoint: PlaybackEndpoint = PlaybackEndpoint.LocalPhone,
+    val activeTarget: PlaybackTarget = PlaybackTarget.LocalPhone,
     val availableEndpoints: List<PlaybackEndpoint> = listOf(PlaybackEndpoint.LocalPhone),
+    val receivers: List<ReceiverDevice> = emptyList(),
+    val rooms: List<RoomDevice> = emptyList(),
+    val handoffState: HandoffState = HandoffState.IDLE,
     val currentTrack: Track? = null,
     val isPlaying: Boolean = false,
     val position: Long = 0L,
