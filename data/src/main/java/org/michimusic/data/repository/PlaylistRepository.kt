@@ -22,15 +22,40 @@ open class PlaylistRepository(
     }
 
     open suspend fun createPlaylist(name: String, trackIds: List<String> = emptyList()): Playlist {
-        val id = "playlist_${UUID.randomUUID().toString().take(8)}"
+        val id = "playlist_${java.util.UUID.randomUUID().toString().take(8)}"
         val entity = CachedPlaylist(
             id = id,
             name = name.trim(),
-            trackIds = trackIds.joinToString(","),
+            trackIds = trackIds.filter { it.isNotBlank() }.joinToString(","),
             trackCount = trackIds.size,
         )
         playlistDao?.insert(entity)
         return Playlist(id = id, name = name.trim(), trackCount = trackIds.size)
+    }
+
+    // New method: add tracks to existing playlist
+    open suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) {
+        if (playlistDao == null) return
+        val cached = playlistDao.getAllPlaylists().find { it.id == id } ?: return
+        val existingIds = cached.trackIds.split(",").filter { it.isNotBlank() }
+        val combined = (existingIds + newTrackIds.filter { it.isNotBlank() }).distinct()
+        val updated = cached.copy(
+            trackIds = combined.joinToString(","),
+            trackCount = combined.size,
+        )
+        playlistDao.insert(updated)
+    }
+
+    // New method: remove a single track from playlist
+    open suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
+        if (playlistDao == null) return
+        val cached = playlistDao.getAllPlaylists().find { it.id == id } ?: return
+        val existingIds = cached.trackIds.split(",").filter { it.isNotBlank() && it != trackId }
+        val updated = cached.copy(
+            trackIds = existingIds.joinToString(","),
+            trackCount = existingIds.size,
+        )
+        playlistDao.insert(updated)
     }
 
     open suspend fun deletePlaylist(id: String) {

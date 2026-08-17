@@ -126,17 +126,20 @@ open class LocalMediaRepository(
             val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
             val albumIdCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val durCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val dataCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
             val trackCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
             val yearCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
             val sizeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val mimeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
-            val dateCol = c.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
+            val dateCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
 
             while (c.moveToNext()) {
                 val id = c.getString(idCol) ?: continue
                 val trackId = "local_$id"
-                val data = c.getString(dataCol) ?: continue
+                // Build content URI; works on Android Q+ where direct file path may be inaccessible.
+                val contentUri = android.content.ContentUris.withAppendedId(
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                    id.toLong()
+                ).toString()
                 allTrackIds.add(trackId)
                 tracks.add(Track(
                     id = trackId,
@@ -145,7 +148,7 @@ open class LocalMediaRepository(
                     album = c.getString(albumCol) ?: "Unknown",
                     albumId = c.getString(albumIdCol) ?: "",
                     duration = c.getLong(durCol).coerceAtLeast(0),
-                    filepath = data,
+                    filepath = contentUri,
                     trackNumber = c.getInt(trackCol).coerceAtLeast(0),
                     year = c.getInt(yearCol).coerceAtLeast(0),
                     size = c.getLong(sizeCol).coerceAtLeast(0),

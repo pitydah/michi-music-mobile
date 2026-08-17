@@ -23,7 +23,7 @@ val appModule = module {
         SyncViewModel(
             context = get(),
             linkDiscovery = get(),
-            registry = get(),
+            registry =  get(),
             connectionManager = get(),
             identity = get(),
             trackRepository = get()
