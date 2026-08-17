@@ -102,7 +102,6 @@ open class LocalMediaRepository(
                 MediaStore.Audio.Media.ALBUM,
                 MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.DURATION,
-                MediaStore.Audio.Media.DATA,
                 MediaStore.Audio.Media.TRACK,
                 MediaStore.Audio.Media.YEAR,
                 MediaStore.Audio.Media.SIZE,

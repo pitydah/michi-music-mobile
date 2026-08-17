@@ -1,5 +1,7 @@
 package org.michimusic.data.repository
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -74,4 +76,6 @@ private class TestPlaylistDao : PlaylistDao {
     override suspend fun deleteAll() {
         playlists.clear()
     }
+
+    override fun observeAll(): Flow<List<CachedPlaylist>> = flowOf(playlists.sortedBy { it.name })
 }

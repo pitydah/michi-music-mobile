@@ -4,6 +4,9 @@ import java.util.UUID
 import org.michimusic.core.models.Playlist
 import org.michimusic.data.cache.CachedPlaylist
 import org.michimusic.data.cache.PlaylistDao
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 open class PlaylistRepository(
     private val playlistDao: PlaylistDao? = null,
@@ -31,6 +34,19 @@ open class PlaylistRepository(
         )
         playlistDao?.insert(entity)
         return Playlist(id = id, name = name.trim(), trackCount = trackIds.size)
+    }
+
+    // New Flow-based observation of playlists
+    open fun observePlaylists(): Flow<List<Playlist>> {
+        return playlistDao?.observeAll()?.map { cachedList ->
+            cachedList.map { CachedPlaylist ->
+                Playlist(
+                    id = CachedPlaylist.id,
+                    name = CachedPlaylist.name,
+                    trackCount = CachedPlaylist.trackCount
+                )
+            }
+        } ?: flowOf(emptyList())
     }
 
     // New method: add tracks to existing playlist

@@ -7,8 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.michimusic.data.repository.PlaylistRepository
 
 data class PlaylistItem(
@@ -28,14 +28,23 @@ class PlaylistsViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    init {
+        viewModelScope.launch(ioDispatcher) {
+            _isLoading.value = true
+            repo.observePlaylists().collect { cachedList ->
+                _playlists.value = cachedList.map { PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount) }
+                _isLoading.value = false
+            }
+        }
+    }
+
+    // Retained for compatibility; can be removed later
     fun loadPlaylists() {
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             try {
                 val items = repo.getAllPlaylists()
-                _playlists.value = items.map {
-                    PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount)
-                }
+                _playlists.value = items.map { PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount) }
             } catch (_: Exception) {
                 _playlists.value = emptyList()
             } finally {
