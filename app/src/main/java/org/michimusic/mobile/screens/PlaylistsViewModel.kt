@@ -43,4 +43,19 @@ class PlaylistsViewModel(
             }
         }
     }
+
+    /** Create a new playlist and refresh the list */
+    suspend fun createPlaylist(name: String) = withContext(ioDispatcher) {
+        repo.createPlaylist(name)
+        loadPlaylists()
+    }
+
+    /** Add tracks to an existing playlist and refresh */
+    suspend fun addTracksToPlaylist(id: String, trackIds: List<String>) = withContext(ioDispatcher) {
+        repo.addTracksToPlaylist(id, trackIds)
+        loadPlaylists()
+    }
+
+
+
 }

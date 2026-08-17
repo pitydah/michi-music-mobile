@@ -169,8 +169,15 @@ open class LocalMediaRepository(
             if (cached != null) {
                 track.copy(replayGainTrack = cached.trackGain, replayGainAlbum = cached.albumGain)
             } else {
-                val parsed = ReplayGainReader.read(track.filepath)
-                rgUpdates.add(ReplayGainEntity(track.id, parsed.trackGain, parsed.albumGain))
+                val parsed = if (track.filepath.startsWith("content://")) {
+                    // Content URIs cannot be read via File APIs; use default gains
+                    org.michimusic.data.local.ReplayGainReader.ReplayGainData()
+                } else {
+                    ReplayGainReader.read(track.filepath)
+                }
+                if (!track.filepath.startsWith("content://")) {
+                    rgUpdates.add(ReplayGainEntity(track.id, parsed.trackGain, parsed.albumGain))
+                }
                 track.copy(replayGainTrack = parsed.trackGain, replayGainAlbum = parsed.albumGain)
             }
         }.also {
