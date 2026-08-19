@@ -1,7 +1,9 @@
 package org.michimusic.link.identity
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.bouncycastle.crypto.AsymmetricCipherKeyPair
@@ -13,18 +15,35 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.security.SecureRandom
 
+private const val IDENTITY_PREFS_FILE_NAME = "michi_identity_store"
+private const val PRIVATE_KEY_PREF = "private_key"
+
+// Reads the persisted Ed25519 private key from `prefs`, or generates and persists a new one if
+// none exists yet. Deliberately takes a plain SharedPreferences rather than reaching into
+// Context/Keystore itself, so it can be exercised directly in tests against an in-memory/
+// unencrypted SharedPreferences - no working Android Keystore required - while production code
+// (MichiIdentity.loadOrGenerateKeys) always passes it the real EncryptedSharedPreferences.
+internal fun loadOrGenerateEd25519Key(prefs: SharedPreferences): Ed25519PrivateKeyParameters {
+    val privKeyBase64 = prefs.getString(PRIVATE_KEY_PREF, null)
+    return if (privKeyBase64 != null) {
+        val privBytes = Base64.decode(privKeyBase64, Base64.DEFAULT)
+        Ed25519PrivateKeyParameters(privBytes, 0)
+    } else {
+        val generator = Ed25519KeyPairGenerator()
+        generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
+        val keyPair: AsymmetricCipherKeyPair = generator.generateKeyPair()
+        val priv = keyPair.private as Ed25519PrivateKeyParameters
+        prefs.edit()
+            .putString(PRIVATE_KEY_PREF, Base64.encodeToString(priv.encoded, Base64.DEFAULT))
+            .apply()
+        priv
+    }
+}
+
 class MichiIdentity(private val context: Context) {
-    private val prefs by lazy {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            "michi_identity_store",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+
+    private companion object {
+        private const val TAG = "MichiIdentity"
     }
 
     private var privateKey: Ed25519PrivateKeyParameters? = null
@@ -35,23 +54,43 @@ class MichiIdentity(private val context: Context) {
     }
 
     private fun loadOrGenerateKeys() {
-        val privKeyBase64 = prefs.getString("private_key", null)
-        if (privKeyBase64 != null) {
-            val privBytes = Base64.decode(privKeyBase64, Base64.DEFAULT)
-            privateKey = Ed25519PrivateKeyParameters(privBytes, 0)
-            publicKey = privateKey!!.generatePublicKey()
-        } else {
-            val generator = Ed25519KeyPairGenerator()
-            generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
-            val keyPair: AsymmetricCipherKeyPair = generator.generateKeyPair()
-            
-            privateKey = keyPair.private as Ed25519PrivateKeyParameters
-            publicKey = keyPair.public as Ed25519PublicKeyParameters
+        val prefs = openIdentityPrefs()
+        privateKey = loadOrGenerateEd25519Key(prefs)
+        publicKey = privateKey!!.generatePublicKey()
+    }
 
-            prefs.edit()
-                .putString("private_key", Base64.encodeToString(privateKey!!.encoded, Base64.DEFAULT))
-                .apply()
-        }
+    // A Keystore-wrapped keyset can outlive the Keystore key that wraps it: after an
+    // uninstall/reinstall (or a system/app data restore that brings shared_prefs back while
+    // the app's own Keystore entry was not restored with it), EncryptedSharedPreferences.create()
+    // itself throws (GeneralSecurityException, e.g. AEADBadTagException/KeyStoreException
+    // "Signature/MAC verification failed", or IOException for a corrupted keyset file) before
+    // any of our own values can even be read. That identity is cryptographically
+    // unrecoverable - not a transient bug - so the only correct move is to delete this app's
+    // own encrypted identity file (nothing else) and mint a fresh Ed25519 identity. This
+    // intentionally invalidates any existing Michi Link pairing/tokens tied to the old
+    // identity; the user will simply need to re-pair. Recovery is attempted at most once - a
+    // second failure is a real, unrecoverable error and propagates.
+    private fun openIdentityPrefs(): SharedPreferences =
+        IdentityStorageRecovery.openWithRecovery(
+            deleteCorruptedStorage = {
+                Log.w(TAG, "Encrypted identity store unreadable (Keystore/keyset mismatch) - " +
+                    "deleting local identity storage and generating a new identity")
+                context.deleteSharedPreferences(IDENTITY_PREFS_FILE_NAME)
+            },
+            createStore = { createEncryptedPrefs() },
+        )
+
+    private fun createEncryptedPrefs(): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            IDENTITY_PREFS_FILE_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
     }
 
     val publicKeyBase64Url: String
