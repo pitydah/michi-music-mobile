@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -37,8 +40,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
+import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.PlaylistDetailUiState
 import org.michimusic.mobile.screens.PlaylistsViewModel
+import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SecondaryPurple
@@ -164,13 +172,73 @@ fun PlaylistDetailScreen(
                 is PlaylistDetailUiState.Found -> {
                     if (state.playlist.trackCount == 0) {
                         EmptyPlaylistState()
+                    } else {
+                        PlaylistTracksList(tracks = state.playlist.tracks)
                     }
-                    // trackCount > 0: track listing is out of scope for this stage.
                 }
 
                 PlaylistDetailUiState.NotFound -> {
                     PlaylistNotFoundState()
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistTracksList(tracks: List<Track>) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("playlist_detail_track_list"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(tracks, key = { it.id }) { track ->
+            PlaylistTrackRow(track)
+        }
+        item { Spacer(Modifier.height(100.dp)) }
+    }
+}
+
+@Composable
+private fun PlaylistTrackRow(track: Track) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("playlist_detail_track_${track.id}"),
+        backgroundColor = GlassFillLow,
+        borderColor = GlassBorderLow,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AlbumArtView(
+                coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
+                imageModel = track.filepath.ifEmpty { track.coverId },
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = PureWhite,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

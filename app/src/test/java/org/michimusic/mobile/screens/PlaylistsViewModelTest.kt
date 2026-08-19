@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import io.mockk.mockk
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,9 +16,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.Playlist
+import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.PlaylistRepository
 
 import org.junit.Rule
+import org.michimusic.core.models.Track
 import org.michimusic.mobile.rules.MainDispatcherRule
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -87,6 +90,55 @@ class PlaylistsViewModelTest {
     }
 
     @Test
+    fun loadPlaylistDetail_resolvesTracksInStoredOrder() = runTest(testDispatcher) {
+        val orderedIds = listOf("trackC", "trackA", "trackB")
+        val tracksByOrder = orderedIds.mapIndexed { idx, id -> Track(id = id, title = "T$idx") }
+        val repoWithTracks = object : FakePlaylistRepo() {
+            override suspend fun getById(id: String) =
+                Playlist(id = "p1", name = "Ordered", trackIds = orderedIds, trackCount = orderedIds.size)
+            override suspend fun getTracksForPlaylist(playlist: Playlist) =
+                playlist.trackIds.mapNotNull { trackId -> tracksByOrder.find { it.id == trackId } }
+        }
+        val vm = PlaylistsViewModel(repoWithTracks, testDispatcher)
+
+        vm.loadPlaylistDetail("p1")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals(orderedIds, (state as PlaylistDetailUiState.Found).playlist.tracks.map { it.id })
+    }
+
+    @Test
+    fun loadPlaylistDetail_skipsTrackIdsMissingFromResolution() = runTest(testDispatcher) {
+        val repoWithMissingTrack = object : FakePlaylistRepo() {
+            override suspend fun getById(id: String) =
+                Playlist(id = "p1", name = "Mix", trackIds = listOf("t1", "ghost"), trackCount = 2)
+            override suspend fun getTracksForPlaylist(playlist: Playlist) =
+                playlist.trackIds.filter { it != "ghost" }.map { Track(id = it, title = "Title-$it") }
+        }
+        val vm = PlaylistsViewModel(repoWithMissingTrack, testDispatcher)
+
+        vm.loadPlaylistDetail("p1")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals(listOf("t1"), (state as PlaylistDetailUiState.Found).playlist.tracks.map { it.id })
+    }
+
+    @Test
+    fun loadPlaylistDetail_emptyPlaylist_returnsEmptyTracks() = runTest(testDispatcher) {
+        val vm = PlaylistsViewModel(FakePlaylistRepo(), testDispatcher)
+        vm.loadPlaylistDetail("pl2")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertTrue((state as PlaylistDetailUiState.Found).playlist.tracks.isEmpty())
+    }
+
+    @Test
     fun loadPlaylistDetail_doesNotDependOnObservedPlaylistsList() = runTest(testDispatcher) {
         // A repo whose observePlaylists() flow never emits (simulating a not-yet-loaded
         // reactive list) must not block loadPlaylistDetail from resolving via getById.
@@ -107,7 +159,7 @@ class PlaylistsViewModelTest {
     }
 }
 
-private open class FakePlaylistRepo : PlaylistRepository() {
+private open class FakePlaylistRepo : PlaylistRepository(trackDao = mockk<TrackDao>(relaxed = true)) {
     override suspend fun getAllPlaylists(): List<Playlist> = listOf(
         Playlist(id = "pl1", name = "Favorites", trackCount = 2),
         Playlist(id = "pl2", name = "Recently Added", trackCount = 1),

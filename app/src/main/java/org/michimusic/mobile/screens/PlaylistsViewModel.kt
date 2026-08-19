@@ -9,12 +9,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import org.michimusic.core.models.Track
 import org.michimusic.data.repository.PlaylistRepository
 
 data class PlaylistItem(
     val id: String,
     val name: String,
     val trackCount: Int,
+    val tracks: List<Track> = emptyList(),
 )
 
 sealed interface PlaylistDetailUiState {
@@ -71,8 +73,9 @@ class PlaylistsViewModel(
             _selectedPlaylistState.value = try {
                 val playlist = repo.getById(id)
                 if (playlist != null) {
+                    val tracks = repo.getTracksForPlaylist(playlist)
                     PlaylistDetailUiState.Found(
-                        PlaylistItem(id = playlist.id, name = playlist.name, trackCount = playlist.trackCount),
+                        PlaylistItem(id = playlist.id, name = playlist.name, trackCount = playlist.trackCount, tracks = tracks),
                     )
                 } else {
                     PlaylistDetailUiState.NotFound

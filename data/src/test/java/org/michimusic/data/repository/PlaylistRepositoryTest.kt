@@ -1,15 +1,22 @@
 package org.michimusic.data.repository
 
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.michimusic.core.models.Playlist
 import org.michimusic.data.cache.CachedPlaylist
+import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.PlaylistDao
+import org.michimusic.data.cache.TrackDao
 
 class PlaylistRepositoryTest {
 
@@ -19,7 +26,7 @@ class PlaylistRepositoryTest {
     @Before
     fun setup() {
         fakeDao = TestPlaylistDao()
-        repository = PlaylistRepository(fakeDao)
+        repository = PlaylistRepository(fakeDao, mockk<TrackDao>(relaxed = true))
     }
 
     @Test
@@ -60,7 +67,103 @@ class PlaylistRepositoryTest {
         assertEquals(p2.id, remaining.first().id)
         assertNull(repository.getById(p1.id))
     }
+
+    // --- trackIds parsing / mapping ---
+
+    @Test
+    fun getAllPlaylists_populatesTrackIdsFromCsv() = runTest {
+        fakeDao.insert(CachedPlaylist(id = "p1", name = "Mix", trackIds = "t1,t2,t3", trackCount = 3))
+
+        val playlist = repository.getAllPlaylists().first()
+        assertEquals(listOf("t1", "t2", "t3"), playlist.trackIds)
+    }
+
+    @Test
+    fun getAllPlaylists_emptyCsv_returnsEmptyTrackIds() = runTest {
+        fakeDao.insert(CachedPlaylist(id = "p1", name = "Empty", trackIds = "", trackCount = 0))
+
+        val playlist = repository.getAllPlaylists().first()
+        assertTrue(playlist.trackIds.isEmpty())
+    }
+
+    @Test
+    fun getAllPlaylists_trimsWhitespaceAroundIds() = runTest {
+        fakeDao.insert(CachedPlaylist(id = "p1", name = "Spaced", trackIds = " t1 , t2 ,t3 ", trackCount = 3))
+
+        val playlist = repository.getAllPlaylists().first()
+        assertEquals(listOf("t1", "t2", "t3"), playlist.trackIds)
+    }
+
+    @Test
+    fun getAllPlaylists_preservesStoredOrder() = runTest {
+        fakeDao.insert(CachedPlaylist(id = "p1", name = "Ordered", trackIds = "trackC,trackA,trackB", trackCount = 3))
+
+        val playlist = repository.getAllPlaylists().first()
+        assertEquals(listOf("trackC", "trackA", "trackB"), playlist.trackIds)
+    }
+
+    @Test
+    fun getById_populatesTrackIds() = runTest {
+        fakeDao.insert(CachedPlaylist(id = "p1", name = "Mix", trackIds = "t1,t2", trackCount = 2))
+
+        val playlist = repository.getById("p1")
+        assertEquals(listOf("t1", "t2"), playlist?.trackIds)
+    }
+
+    @Test
+    fun observePlaylists_populatesTrackIds() = runTest {
+        fakeDao.insert(CachedPlaylist(id = "p1", name = "Mix", trackIds = "t1, t2 ,t3", trackCount = 3))
+
+        val playlists = repository.observePlaylists().first()
+        assertEquals(listOf("t1", "t2", "t3"), playlists.first().trackIds)
+    }
+
+    @Test
+    fun addTracksToPlaylist_trimsIncomingIdsBeforeStoring() = runTest {
+        val created = repository.createPlaylist("Chill")
+        repository.addTracksToPlaylist(created.id, listOf(" t1 ", "t2", " t3"))
+
+        val updated = repository.getById(created.id)
+        assertEquals(listOf("t1", "t2", "t3"), updated?.trackIds)
+    }
+
+    // --- resolving trackIds to Track, preserving order ---
+
+    @Test
+    fun getTracksForPlaylist_resolvesInStoredOrder() = runTest {
+        val trackDao = mockk<TrackDao>()
+        val repoWithTracks = PlaylistRepository(fakeDao, trackDao)
+        coEvery { trackDao.getTrackById("trackC") } returns cachedTrack("trackC", "C")
+        coEvery { trackDao.getTrackById("trackA") } returns cachedTrack("trackA", "A")
+        coEvery { trackDao.getTrackById("trackB") } returns cachedTrack("trackB", "B")
+
+        val playlist = Playlist(id = "p1", name = "Ordered", trackIds = listOf("trackC", "trackA", "trackB"), trackCount = 3)
+        val tracks = repoWithTracks.getTracksForPlaylist(playlist)
+
+        assertEquals(listOf("C", "A", "B"), tracks.map { it.title })
+    }
+
+    @Test
+    fun getTracksForPlaylist_skipsMissingTrack() = runTest {
+        val trackDao = mockk<TrackDao>()
+        val repoWithTracks = PlaylistRepository(fakeDao, trackDao)
+        coEvery { trackDao.getTrackById("t1") } returns cachedTrack("t1", "One")
+        coEvery { trackDao.getTrackById("ghost") } returns null
+
+        val playlist = Playlist(id = "p1", name = "Mix", trackIds = listOf("t1", "ghost"), trackCount = 2)
+        val tracks = repoWithTracks.getTracksForPlaylist(playlist)
+
+        assertEquals(1, tracks.size)
+        assertEquals("One", tracks.first().title)
+    }
+
 }
+
+private fun cachedTrack(id: String, title: String) = CachedTrack(
+    id = id,
+    title = title,
+    artist = "Artist $title",
+)
 
 private class TestPlaylistDao : PlaylistDao {
     private val playlists = mutableListOf<CachedPlaylist>()
