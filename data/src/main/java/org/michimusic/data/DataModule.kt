@@ -23,5 +23,5 @@ val dataModule = module {
     single { get<MichiDatabase>().appDao() }
     single { SyncedTrackRepository(get(), get()) }
     single { LocalMediaRepository(androidContext(), get()) }
-    single { PlaylistRepository(get(), get()) }
+    single { PlaylistRepository(get(), get(), get()) }
 }

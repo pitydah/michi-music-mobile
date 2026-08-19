@@ -20,16 +20,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +49,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.PlaylistDetailUiState
 import org.michimusic.mobile.screens.PlaylistsViewModel
+import org.michimusic.mobile.ui.components.AddTracksDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -63,9 +70,30 @@ fun PlaylistDetailScreen(
     viewModel: PlaylistsViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.selectedPlaylistState.collectAsState()
+    val availableTracks by viewModel.availableTracks.collectAsState()
+    val isLoadingAvailableTracks by viewModel.isLoadingAvailableTracks.collectAsState()
+    val isAddingTracks by viewModel.isAddingTracks.collectAsState()
+    val addTracksError by viewModel.addTracksError.collectAsState()
+
+    var showAddTracksDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(playlistId) {
         viewModel.loadPlaylistDetail(playlistId)
+    }
+
+    LaunchedEffect(addTracksError) {
+        addTracksError?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearAddTracksError()
+        }
+    }
+
+    val existingTrackIds = remember(uiState) {
+        (uiState as? PlaylistDetailUiState.Found)?.playlist?.trackIds?.toSet() ?: emptySet()
+    }
+    val pickableTracks = remember(availableTracks, existingTrackIds) {
+        availableTracks.filterNot { it.id in existingTrackIds }
     }
 
     Box(
@@ -153,6 +181,29 @@ fun PlaylistDetailScreen(
                         )
                     }
                 }
+
+                Spacer(Modifier.weight(1f))
+
+                if (uiState !is PlaylistDetailUiState.NotFound) {
+                    IconButton(
+                        onClick = {
+                            viewModel.loadAvailableTracks()
+                            showAddTracksDialog = true
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(GlassFillLow)
+                            .testTag("playlist_detail_add_tracks_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Añadir canciones",
+                            tint = PureWhite,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(32.dp))
@@ -181,6 +232,25 @@ fun PlaylistDetailScreen(
                     PlaylistNotFoundState()
                 }
             }
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+
+        if (showAddTracksDialog) {
+            AddTracksDialog(
+                availableTracks = pickableTracks,
+                isLoadingTracks = isLoadingAvailableTracks,
+                isSaving = isAddingTracks,
+                onConfirm = { selectedIds ->
+                    viewModel.addTracksToPlaylist(playlistId, selectedIds) { success ->
+                        if (success) showAddTracksDialog = false
+                    }
+                },
+                onDismiss = { if (!isAddingTracks) showAddTracksDialog = false },
+            )
         }
     }
 }

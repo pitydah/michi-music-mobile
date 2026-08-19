@@ -17,6 +17,7 @@ import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.Playlist
 import org.michimusic.data.cache.TrackDao
+import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.PlaylistRepository
 
 import org.junit.Rule
@@ -36,7 +37,7 @@ class PlaylistsViewModelTest {
     @Before
     fun setup() {
         repo = FakePlaylistRepo()
-        viewModel = PlaylistsViewModel(repo, testDispatcher)
+        viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), testDispatcher)
     }
 
     @After
@@ -56,7 +57,7 @@ class PlaylistsViewModelTest {
         val emptyRepo = object : FakePlaylistRepo() {
             override suspend fun getAllPlaylists(): List<Playlist> = emptyList()
         }
-        val vm = PlaylistsViewModel(emptyRepo, testDispatcher)
+        val vm = PlaylistsViewModel(emptyRepo, LocalMediaRepository(), testDispatcher)
         vm.loadPlaylists()
         advanceUntilIdle()
         assertTrue(vm.playlists.value.isEmpty())
@@ -99,7 +100,7 @@ class PlaylistsViewModelTest {
             override suspend fun getTracksForPlaylist(playlist: Playlist) =
                 playlist.trackIds.mapNotNull { trackId -> tracksByOrder.find { it.id == trackId } }
         }
-        val vm = PlaylistsViewModel(repoWithTracks, testDispatcher)
+        val vm = PlaylistsViewModel(repoWithTracks, LocalMediaRepository(), testDispatcher)
 
         vm.loadPlaylistDetail("p1")
         advanceUntilIdle()
@@ -117,7 +118,7 @@ class PlaylistsViewModelTest {
             override suspend fun getTracksForPlaylist(playlist: Playlist) =
                 playlist.trackIds.filter { it != "ghost" }.map { Track(id = it, title = "Title-$it") }
         }
-        val vm = PlaylistsViewModel(repoWithMissingTrack, testDispatcher)
+        val vm = PlaylistsViewModel(repoWithMissingTrack, LocalMediaRepository(), testDispatcher)
 
         vm.loadPlaylistDetail("p1")
         advanceUntilIdle()
@@ -129,7 +130,7 @@ class PlaylistsViewModelTest {
 
     @Test
     fun loadPlaylistDetail_emptyPlaylist_returnsEmptyTracks() = runTest(testDispatcher) {
-        val vm = PlaylistsViewModel(FakePlaylistRepo(), testDispatcher)
+        val vm = PlaylistsViewModel(FakePlaylistRepo(), LocalMediaRepository(), testDispatcher)
         vm.loadPlaylistDetail("pl2")
         advanceUntilIdle()
 
@@ -147,7 +148,7 @@ class PlaylistsViewModelTest {
                 kotlinx.coroutines.awaitCancellation()
             }
         }
-        val vm = PlaylistsViewModel(slowRepo, testDispatcher)
+        val vm = PlaylistsViewModel(slowRepo, LocalMediaRepository(), testDispatcher)
 
         vm.loadPlaylistDetail("pl2")
         advanceUntilIdle()
@@ -157,12 +158,147 @@ class PlaylistsViewModelTest {
         assertTrue(state is PlaylistDetailUiState.Found)
         assertEquals("Recently Added", (state as PlaylistDetailUiState.Found).playlist.name)
     }
+
+    // --- 3B: adding tracks ---
+
+    @Test
+    fun addTracksToPlaylist_callsRepositoryAndRefreshesDetailWithNewTracks() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.addTracksToPlaylist("p1", listOf("D", "C"))
+        advanceUntilIdle()
+
+        assertEquals("p1" to listOf("D", "C"), recordingRepo.addTracksCalledWith)
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals(listOf("A", "B", "D", "C"), (state as PlaylistDetailUiState.Found).playlist.tracks.map { it.id })
+    }
+
+    @Test
+    fun addTracksToPlaylist_updatesTrackCountInDetailState() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = listOf(Track(id = "A", title = "A")))
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.addTracksToPlaylist("p1", listOf("B"))
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value as PlaylistDetailUiState.Found
+        assertEquals(2, state.playlist.trackCount)
+    }
+
+    @Test
+    fun addTracksToPlaylist_isAddingTracks_backToFalseAfterSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        assertFalse(vm.isAddingTracks.value)
+        vm.addTracksToPlaylist("p1", listOf("A"))
+        advanceUntilIdle()
+
+        assertFalse(vm.isAddingTracks.value)
+    }
+
+    @Test
+    fun addTracksToPlaylist_repositoryFailure_doesNotCrashAndClearsAddingState() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.addTracksToPlaylist("p1", listOf("X"))
+        advanceUntilIdle()
+
+        assertFalse(vm.isAddingTracks.value)
+        assertEquals("boom", vm.addTracksError.value)
+    }
+
+    @Test
+    fun addTracksToPlaylist_emptySelection_doesNotCallRepository() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.addTracksToPlaylist("p1", emptyList())
+        advanceUntilIdle()
+
+        assertEquals(null, recordingRepo.addTracksCalledWith)
+    }
+
+    @Test
+    fun clearAddTracksError_resetsErrorToNull() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.addTracksToPlaylist("p1", listOf("X"))
+        advanceUntilIdle()
+        assertEquals("boom", vm.addTracksError.value)
+
+        vm.clearAddTracksError()
+        assertEquals(null, vm.addTracksError.value)
+    }
+
+    @Test
+    fun loadAvailableTracks_populatesFromLocalMediaRepository() = runTest(testDispatcher) {
+        val deviceTracks = listOf(Track(id = "t1", title = "One"), Track(id = "t2", title = "Two"))
+        val localMedia = object : LocalMediaRepository() {
+            override suspend fun loadTracks(): List<Track> = deviceTracks
+        }
+        val vm = PlaylistsViewModel(FakePlaylistRepo(), localMedia, testDispatcher)
+
+        vm.loadAvailableTracks()
+        advanceUntilIdle()
+
+        assertEquals(deviceTracks, vm.availableTracks.value)
+        assertFalse(vm.isLoadingAvailableTracks.value)
+    }
+
+    @Test
+    fun loadAvailableTracks_repositoryFailure_returnsEmptyWithoutCrashing() = runTest(testDispatcher) {
+        val failingLocalMedia = object : LocalMediaRepository() {
+            override suspend fun loadTracks(): List<Track> = throw RuntimeException("scan failed")
+        }
+        val vm = PlaylistsViewModel(FakePlaylistRepo(), failingLocalMedia, testDispatcher)
+
+        vm.loadAvailableTracks()
+        advanceUntilIdle()
+
+        assertTrue(vm.availableTracks.value.isEmpty())
+        assertFalse(vm.isLoadingAvailableTracks.value)
+    }
 }
 
-private open class FakePlaylistRepo : PlaylistRepository(trackDao = mockk<TrackDao>(relaxed = true)) {
+private open class FakePlaylistRepo : PlaylistRepository(
+    trackDao = mockk<TrackDao>(relaxed = true),
+    localMediaRepository = LocalMediaRepository(),
+) {
     override suspend fun getAllPlaylists(): List<Playlist> = listOf(
         Playlist(id = "pl1", name = "Favorites", trackCount = 2),
         Playlist(id = "pl2", name = "Recently Added", trackCount = 1),
     )
     override suspend fun getById(id: String) = getAllPlaylists().find { it.id == id }
+}
+
+// Stateful fake used to verify the add-tracks orchestration (Repository call -> detail
+// refresh) without needing a real Room-backed PlaylistRepository.
+private class RecordingPlaylistRepo(
+    initialTracks: List<Track> = emptyList(),
+    private val shouldFail: Boolean = false,
+) : PlaylistRepository(
+    trackDao = mockk<TrackDao>(relaxed = true),
+    localMediaRepository = LocalMediaRepository(),
+) {
+
+    private var currentTracks: List<Track> = initialTracks
+    var addTracksCalledWith: Pair<String, List<String>>? = null
+        private set
+
+    override suspend fun getById(id: String) = Playlist(id = id, name = "Mix", trackCount = currentTracks.size)
+
+    override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = currentTracks
+
+    override suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) {
+        addTracksCalledWith = id to newTrackIds
+        if (shouldFail) throw RuntimeException("boom")
+        currentTracks = currentTracks + newTrackIds.map { Track(id = it, title = "Title-$it") }
+    }
 }

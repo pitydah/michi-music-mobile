@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.map
 open class PlaylistRepository(
     private val playlistDao: PlaylistDao? = null,
     private val trackDao: TrackDao,
+    private val localMediaRepository: LocalMediaRepository,
 ) {
     open suspend fun getAllPlaylists(): List<Playlist> {
         if (playlistDao == null) return emptyList()
@@ -86,10 +87,17 @@ open class PlaylistRepository(
     }
 
     // Resolves a playlist's trackIds to their Track objects, preserving the stored order.
-    // IDs with no matching cached track (e.g. deleted from device) are silently skipped,
-    // not removed from the playlist.
-    open suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> =
-        playlist.trackIds.mapNotNull { id -> trackDao.getTrackById(id)?.toTrack() }
+    // trackIds mixes two independent ID namespaces: local device tracks (LocalMediaRepository,
+    // MediaStore-backed) and synced/remote tracks (TrackDao, cached_tracks - Michi Link only).
+    // The local library is loaded once up front rather than per id. IDs with no matching
+    // track in either source are silently skipped, not removed from the playlist.
+    open suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> {
+        if (playlist.trackIds.isEmpty()) return emptyList()
+        val localTracksById = localMediaRepository.loadTracks().associateBy { it.id }
+        return playlist.trackIds.mapNotNull { id ->
+            localTracksById[id] ?: trackDao.getTrackById(id)?.toTrack()
+        }
+    }
 
     // Parses the stored CSV of track IDs, trimming whitespace and dropping blanks,
     // while preserving the original stored order.

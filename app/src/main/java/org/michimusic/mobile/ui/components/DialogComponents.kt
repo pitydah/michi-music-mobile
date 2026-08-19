@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +44,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -65,6 +67,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -1818,5 +1821,226 @@ fun PlayerPasswordPairingDialog(
     }
 }
 
+@Composable
+fun AddTracksDialog(
+    availableTracks: List<Track>,
+    isLoadingTracks: Boolean,
+    isSaving: Boolean,
+    onConfirm: (List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Ordered, not a Set: preserves the order the user tapped tracks in, which becomes
+    // the order they're appended to the playlist.
+    val selectedIds = remember { mutableStateListOf<String>() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("add_tracks_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text(
+                            text = "Añadir Canciones",
+                            color = PureWhite,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        if (selectedIds.isNotEmpty()) {
+                            Text(
+                                text = "${selectedIds.size} seleccionadas",
+                                color = TertiaryCyan,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cerrar",
+                            tint = OnSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                when {
+                    isLoadingTracks -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .testTag("add_tracks_dialog_loading"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = TertiaryCyan)
+                        }
+                    }
+
+                    availableTracks.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .testTag("add_tracks_dialog_empty"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(40.dp),
+                                )
+                                Text(
+                                    text = "No hay canciones disponibles para añadir",
+                                    color = TextSecondary,
+                                    fontSize = 13.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 260.dp)
+                                .testTag("add_tracks_dialog_list"),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            items(availableTracks, key = { it.id }) { track ->
+                                val isSelected = track.id in selectedIds
+                                AddTracksDialogRow(
+                                    track = track,
+                                    isSelected = isSelected,
+                                    onToggle = {
+                                        if (isSelected) selectedIds.remove(track.id) else selectedIds.add(track.id)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val canConfirm = selectedIds.isNotEmpty() && !isSaving
+                Button(
+                    onClick = { if (canConfirm) onConfirm(selectedIds.toList()) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("add_tracks_dialog_confirm_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (canConfirm) PrimaryPinkContainer else PrimaryPinkContainer.copy(alpha = 0.4f),
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            color = PureWhite,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    } else {
+                        Text(
+                            text = if (selectedIds.isEmpty()) "Añadir" else "Añadir (${selectedIds.size})",
+                            color = PureWhite,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddTracksDialogRow(
+    track: Track,
+    isSelected: Boolean,
+    onToggle: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isSelected) SecondaryPurple.copy(alpha = 0.15f) else GlassFillLow)
+            .border(1.dp, if (isSelected) SecondaryPurple else GlassBorderLow, RoundedCornerShape(12.dp))
+            .clickable(onClick = onToggle)
+            .padding(10.dp)
+            .testTag("add_tracks_dialog_track_${track.id}"),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            AlbumArtView(
+                coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
+                imageModel = track.filepath.ifEmpty { track.coverId },
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    color = PureWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = track.artist,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) SecondaryPurple else Color.Transparent)
+                    .border(1.dp, if (isSelected) SecondaryPurple else GlassBorderHigh, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Seleccionada",
+                        tint = PureWhite,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+            }
+        }
+    }
+}
 
 
