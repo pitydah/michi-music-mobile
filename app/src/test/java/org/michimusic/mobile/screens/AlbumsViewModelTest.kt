@@ -1,6 +1,7 @@
 package org.michimusic.mobile.screens
 
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10,6 +11,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.Playlist
@@ -66,5 +69,31 @@ class AlbumsViewModelTest {
         assertEquals("t2", viewModel.recentTracks.value[0].id)
 
         assertEquals(1, viewModel.playlists.value.size)
+    }
+
+    @Test
+    fun `createPlaylist persists via repository and refreshes playlists state`() = runTest(testDispatcher) {
+        val created = Playlist("p2", "Synthwave Nights", emptyList(), trackCount = 0)
+        coEvery { playlistRepo.createPlaylist("Synthwave Nights") } returns created
+        coEvery { playlistRepo.getAllPlaylists() } returns listOf(created)
+
+        var completed = false
+        viewModel.createPlaylist("Synthwave Nights") { completed = true }
+        testScheduler.advanceUntilIdle()
+
+        coVerify { playlistRepo.createPlaylist("Synthwave Nights") }
+        assertEquals(1, viewModel.playlists.value.size)
+        assertEquals("Synthwave Nights", viewModel.playlists.value.first().name)
+        assertTrue(completed)
+    }
+
+    @Test
+    fun `createPlaylist with blank name does not call repository`() = runTest(testDispatcher) {
+        var completed = false
+        viewModel.createPlaylist("   ") { completed = true }
+        testScheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { playlistRepo.createPlaylist(any()) }
+        assertFalse(completed)
     }
 }
