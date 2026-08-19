@@ -2,11 +2,14 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -163,5 +166,41 @@ class HomeScreenTest {
         // visually indistinguishable and only one shared "Prueba" node would exist.
         composeTestRule.onNodeWithText("Prueba Biblioteca").assertIsDisplayed()
         composeTestRule.onNodeWithText("Prueba Inicio").assertIsDisplayed()
+    }
+
+    @Test
+    fun `clicking a real playlist tile invokes onNavigateToPlaylist with its id, not the top-recent callback`() {
+        val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.playlists } returns MutableStateFlow(
+            listOf(Playlist(id = "real-playlist-42", name = "Synthwave Nights", trackCount = 3))
+        )
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.error } returns MutableStateFlow(null)
+        every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+
+        val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
+
+        val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
+
+        var navigatedPlaylistId: String? = null
+
+        composeTestRule.setContent {
+            HomeScreen(
+                viewModel = mockViewModel,
+                sessionManager = mockSession,
+                audioController = mockAudio,
+                onNavigateToPlaylist = { id -> navigatedPlaylistId = id },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("playlist_tile_real-playlist-42").performClick()
+
+        assertEquals("real-playlist-42", navigatedPlaylistId)
+        // Favoritos/Recientes still route through the separate type-based callback, untouched.
+        io.mockk.verify(exactly = 0) { mockAudio.playQueue(any(), any()) }
     }
 }

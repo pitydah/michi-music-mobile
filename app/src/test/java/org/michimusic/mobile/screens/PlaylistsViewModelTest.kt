@@ -66,6 +66,45 @@ class PlaylistsViewModelTest {
         advanceUntilIdle()
         assertFalse(viewModel.isLoading.value)
     }
+
+    @Test
+    fun loadPlaylistDetail_existingPlaylist_emitsFound() = runTest(testDispatcher) {
+        viewModel.loadPlaylistDetail("pl1")
+        advanceUntilIdle()
+
+        val state = viewModel.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals("Favorites", (state as PlaylistDetailUiState.Found).playlist.name)
+        assertEquals(2, state.playlist.trackCount)
+    }
+
+    @Test
+    fun loadPlaylistDetail_unknownId_emitsNotFound() = runTest(testDispatcher) {
+        viewModel.loadPlaylistDetail("does-not-exist")
+        advanceUntilIdle()
+
+        assertEquals(PlaylistDetailUiState.NotFound, viewModel.selectedPlaylistState.value)
+    }
+
+    @Test
+    fun loadPlaylistDetail_doesNotDependOnObservedPlaylistsList() = runTest(testDispatcher) {
+        // A repo whose observePlaylists() flow never emits (simulating a not-yet-loaded
+        // reactive list) must not block loadPlaylistDetail from resolving via getById.
+        val slowRepo = object : FakePlaylistRepo() {
+            override fun observePlaylists() = kotlinx.coroutines.flow.flow<List<org.michimusic.core.models.Playlist>> {
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        val vm = PlaylistsViewModel(slowRepo, testDispatcher)
+
+        vm.loadPlaylistDetail("pl2")
+        advanceUntilIdle()
+
+        assertTrue(vm.playlists.value.isEmpty())
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals("Recently Added", (state as PlaylistDetailUiState.Found).playlist.name)
+    }
 }
 
 private open class FakePlaylistRepo : PlaylistRepository() {

@@ -42,6 +42,13 @@ class PlaylistRepositoryTest {
     }
 
     @Test
+    fun getById_unknownId_returnsNull() = runTest {
+        repository.createPlaylist("Favorites")
+        val found = repository.getById("does-not-exist")
+        assertNull(found)
+    }
+
+    @Test
     fun deletePlaylist_removesFromStorage() = runTest {
         val p1 = repository.createPlaylist("Chill")
         val p2 = repository.createPlaylist("Focus")

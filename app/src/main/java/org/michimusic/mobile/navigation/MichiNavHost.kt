@@ -10,10 +10,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import org.michimusic.mobile.ui.components.BottomNavBar
 import org.michimusic.mobile.ui.components.MiniPlayer
 import org.michimusic.mobile.ui.screens.AlbumsScreen
@@ -22,6 +24,7 @@ import org.michimusic.mobile.ui.screens.DevicesScreen
 import org.michimusic.mobile.ui.screens.DiagnosticsScreen
 import org.michimusic.mobile.ui.screens.HomeScreen
 import org.michimusic.mobile.ui.screens.NowPlayingScreen
+import org.michimusic.mobile.ui.screens.PlaylistDetailScreen
 import org.michimusic.mobile.ui.screens.PlaylistScreen
 import org.michimusic.mobile.ui.screens.QueueScreen
 import org.michimusic.mobile.ui.screens.RemoteScreen
@@ -47,12 +50,14 @@ fun MichiNavHost() {
                 BottomNavBar(
                     currentRoute = currentRoute,
                     onTabSelected = { route ->
+                        // No saveState/restoreState: this NavHost is a single flat graph, not
+                        // one nested graph per tab, so secondary screens pushed on top of a tab
+                        // (e.g. "settings", "playlist/{playlistId}") would otherwise get cached
+                        // and incorrectly restored the next time that tab is reselected.
+                        // Always land on the tab's root instead.
                         navController.navigate(route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
+                            popUpTo(navController.graph.findStartDestination().id)
                             launchSingleTop = true
-                            restoreState = true
                         }
                     },
                 )
@@ -76,6 +81,7 @@ fun MichiNavHost() {
                         onNavigateToSearch = { navController.navigate("search") },
                         onNavigateToSettings = { navController.navigate("settings") },
                         onNavigateToDevices = { navController.navigate("devices") },
+                        onNavigateToPlaylist = { id -> navController.navigate("playlist/$id") },
                     )
                 }
                 composable("library") { AlbumsScreen() }
@@ -97,6 +103,16 @@ fun MichiNavHost() {
                     )
                 }
                 composable("playlist") { PlaylistScreen() }
+                composable(
+                    route = "playlist/{playlistId}",
+                    arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
+                ) { backStackEntry ->
+                    val playlistId = backStackEntry.arguments?.getString("playlistId") ?: return@composable
+                    PlaylistDetailScreen(
+                        playlistId = playlistId,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
                 composable("queue") { QueueScreen() }
                 composable("synced") { SyncedTracksScreen() }
                 composable("diagnostics") { DiagnosticsScreen() }
