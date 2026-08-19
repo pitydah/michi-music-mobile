@@ -74,14 +74,6 @@ class LocalMediaRepositoryTest {
     }
 
     @Test
-    fun invalidateCache_clearsCache() = runTest(testDispatcher) {
-        repo.loadTracks()
-        repo.invalidateCache()
-        // Force reload would trigger queryTracks again
-        assertTrue(true)
-    }
-
-    @Test
     fun loadAlbums_emptyTracks_returnsEmpty() = runTest(testDispatcher) {
         val emptyRepo = TestableLocalMediaRepository(tracks = emptyList())
         assertTrue(emptyRepo.loadAlbums().isEmpty())
