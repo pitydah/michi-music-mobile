@@ -17,6 +17,12 @@ data class PlaylistItem(
     val trackCount: Int,
 )
 
+sealed interface PlaylistDetailUiState {
+    data object Loading : PlaylistDetailUiState
+    data class Found(val playlist: PlaylistItem) : PlaylistDetailUiState
+    data object NotFound : PlaylistDetailUiState
+}
+
 class PlaylistsViewModel(
     private val repo: PlaylistRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -27,6 +33,10 @@ class PlaylistsViewModel(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private val _selectedPlaylistState =
+        MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
+    val selectedPlaylistState: StateFlow<PlaylistDetailUiState> = _selectedPlaylistState.asStateFlow()
 
     init {
         viewModelScope.launch(ioDispatcher) {
@@ -49,6 +59,26 @@ class PlaylistsViewModel(
                 _playlists.value = emptyList()
             } finally {
                 _isLoading.value = false
+            }
+        }
+    }
+
+    // Loads a single playlist by id directly from the repository, independent of
+    // whether the reactive `playlists` list has finished loading yet.
+    fun loadPlaylistDetail(id: String) {
+        viewModelScope.launch(ioDispatcher) {
+            _selectedPlaylistState.value = PlaylistDetailUiState.Loading
+            _selectedPlaylistState.value = try {
+                val playlist = repo.getById(id)
+                if (playlist != null) {
+                    PlaylistDetailUiState.Found(
+                        PlaylistItem(id = playlist.id, name = playlist.name, trackCount = playlist.trackCount),
+                    )
+                } else {
+                    PlaylistDetailUiState.NotFound
+                }
+            } catch (_: Exception) {
+                PlaylistDetailUiState.NotFound
             }
         }
     }

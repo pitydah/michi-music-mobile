@@ -91,6 +91,7 @@ fun HomeScreen(
     onNavigateToSearch: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToDevices: () -> Unit = {},
+    onNavigateToPlaylist: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: AlbumsViewModel = koinViewModel(),
     sessionManager: PlaybackSessionManager = koinInject(),
@@ -230,6 +231,7 @@ fun HomeScreen(
                                 else -> if (allTracks.isNotEmpty()) audioController.playQueue(allTracks, 0)
                             }
                         },
+                        onNavigateToPlaylist = onNavigateToPlaylist,
                     )
                 }
 
@@ -604,6 +606,7 @@ private fun YourPlaylistsSection(
     playlists: List<Playlist>,
     onCreatePlaylist: () -> Unit,
     onPlaylistClick: (String) -> Unit,
+    onNavigateToPlaylist: (String) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -672,7 +675,7 @@ private fun YourPlaylistsSection(
                         modifier = Modifier
                             .width(160.dp)
                             .testTag("playlist_tile_${playlist.id}"),
-                        onClick = {},
+                        onClick = { onNavigateToPlaylist(playlist.id) },
                     )
                 }
             }
