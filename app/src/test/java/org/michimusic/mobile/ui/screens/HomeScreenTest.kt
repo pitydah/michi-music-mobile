@@ -46,8 +46,44 @@ class HomeScreenTest {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
         }
 
-        // We could test for CircularProgressIndicator, but Compose UI tests 
-        // usually rely on content description. We just verify no crash.
+        // TopBar must stay on screen during loading instead of being replaced by the spinner.
+        composeTestRule.onNodeWithTag("home_settings_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("loading_indicator").assertIsDisplayed()
+    }
+
+    @Test
+    fun `topbar remains mounted when loading finishes and content replaces the spinner`() {
+        val isLoadingFlow = MutableStateFlow(true)
+
+        val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
+        every { mockViewModel.isLoading } returns isLoadingFlow
+        every { mockViewModel.error } returns MutableStateFlow(null)
+        every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+
+        val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
+
+        val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
+
+        composeTestRule.setContent {
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+        }
+
+        // Loading state: TopBar visible, spinner visible, scrollable content not yet shown.
+        composeTestRule.onNodeWithTag("home_settings_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("loading_indicator").assertIsDisplayed()
+
+        // Simulate loadMedia() completing.
+        isLoadingFlow.value = false
+        composeTestRule.waitForIdle()
+
+        // Loaded state: TopBar still visible (never unmounted), spinner gone, real content shown.
+        composeTestRule.onNodeWithTag("home_settings_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_scroll_list").assertIsDisplayed()
     }
 
     @Test
