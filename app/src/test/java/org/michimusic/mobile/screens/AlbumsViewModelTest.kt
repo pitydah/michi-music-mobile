@@ -44,6 +44,26 @@ class AlbumsViewModelTest {
     }
 
     @Test
+    fun `starts in loading state before loadMedia is called`() {
+        assertTrue(viewModel.isLoading.value)
+    }
+
+    @Test
+    fun `loadMedia flips isLoading to false once it completes`() = runTest(testDispatcher) {
+        coEvery { localRepo.loadAlbums() } returns emptyList()
+        coEvery { appDao.getTopTracks(12) } returns emptyList()
+        coEvery { appDao.getRecentHistory(20) } returns emptyList()
+        coEvery { playlistRepo.getAllPlaylists() } returns emptyList()
+
+        viewModel.loadMedia()
+        assertTrue(viewModel.isLoading.value)
+
+        testScheduler.advanceUntilIdle()
+
+        assertFalse(viewModel.isLoading.value)
+    }
+
+    @Test
     fun `loadMedia fetches albums, top tracks, recent tracks and playlists`() = runTest(testDispatcher) {
         val t1 = Track(id = "t1", title = "Track 1", artist = "Artist", album = "Album", duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2, coverId = "", trackNumber = 1, year = 2020, filepath = "/path", source = org.michimusic.core.models.TrackSource.LOCAL)
         val t2 = Track(id = "t2", title = "Track 2", artist = "Artist", album = "Album", duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2, coverId = "", trackNumber = 2, year = 2020, filepath = "/path", source = org.michimusic.core.models.TrackSource.LOCAL)

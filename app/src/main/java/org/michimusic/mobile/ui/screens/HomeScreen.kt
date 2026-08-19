@@ -110,34 +110,10 @@ fun HomeScreen(
     val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
     val isPlaying = sessionState.isPlaying
 
+    val isLoading by viewModel.isLoading.collectAsState()
+    val errorMessage by viewModel.error.collectAsState()
+
     var showCreatePlaylist by remember { mutableStateOf(false) }
-    // Loading indicator
-    if (viewModel.isLoading.collectAsState().value) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("loading_indicator"),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(
-                color = PrimaryPinkContainer,
-                strokeWidth = 4.dp
-            )
-        }
-        return@HomeScreen
-    }
-    // Error message
-    viewModel.error.collectAsState().value?.let { errMsg ->
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Red.copy(alpha = 0.1f))
-                .testTag("error_message")
-                .padding(8.dp)
-        ) {
-            Text(text = errMsg, color = Color.Red)
-        }
-    }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -155,10 +131,38 @@ fun HomeScreen(
                 .fillMaxSize()
                 .statusBarsPadding(),
         ) {
-            // Simplified Top App Bar
+            // Simplified Top App Bar - stays visible during loading
             HomeTopBar(
                 onSettingsClick = onNavigateToSettings,
             )
+
+            // Error message
+            errorMessage?.let { errMsg ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Red.copy(alpha = 0.1f))
+                        .testTag("error_message")
+                        .padding(8.dp)
+                ) {
+                    Text(text = errMsg, color = Color.Red)
+                }
+            }
+
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("loading_indicator"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = PrimaryPinkContainer,
+                        strokeWidth = 4.dp
+                    )
+                }
+                return@Column
+            }
 
             // Scrollable Content
             LazyColumn(
