@@ -80,6 +80,7 @@ import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -653,6 +654,29 @@ private fun YourPlaylistsSection(
                 onClick = { onPlaylistClick("recent") },
             )
         }
+
+        if (playlists.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(horizontal = 4.dp),
+                modifier = Modifier.testTag("your_playlists_list"),
+            ) {
+                items(playlists, key = { it.id }) { playlist ->
+                    PlaylistTile(
+                        title = playlist.name,
+                        subtitle = "${playlist.trackCount} canciones",
+                        icon = Icons.Filled.LibraryMusic,
+                        accentColor = SecondaryPurple,
+                        modifier = Modifier
+                            .width(160.dp)
+                            .testTag("playlist_tile_${playlist.id}"),
+                        onClick = {},
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -702,7 +726,8 @@ private fun PlaylistTile(
                 Text(
                     text = title,
                     style = MichiTypography.cardTitle,
-                    maxLines = 1,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = subtitle,

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.robolectric.RobolectricTestRunner
@@ -103,5 +104,64 @@ class HomeScreenTest {
         
         // Top tracks (shown in Quick Picks if we populate allTracks)
         // composeTestRule.onNodeWithText("Pistas Sugeridas").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun `shows user created playlists with name and track count`() {
+        val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.playlists } returns MutableStateFlow(
+            listOf(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 3))
+        )
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.error } returns MutableStateFlow(null)
+        every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+
+        val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
+
+        val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
+
+        composeTestRule.setContent {
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithText("Synthwave Nights").assertIsDisplayed()
+        composeTestRule.onNodeWithText("3 canciones").assertIsDisplayed()
+    }
+
+    @Test
+    fun `long playlist names wrap instead of being clipped to the first word`() {
+        val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.playlists } returns MutableStateFlow(
+            listOf(
+                Playlist(id = "p1", name = "Prueba Biblioteca", trackCount = 0),
+                Playlist(id = "p2", name = "Prueba Inicio", trackCount = 0),
+            )
+        )
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.error } returns MutableStateFlow(null)
+        every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+
+        val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
+
+        val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
+
+        composeTestRule.setContent {
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+        }
+
+        // Both full names must exist as distinct, fully-matched nodes even though
+        // they share the same first word - if the title text were still being
+        // clipped to a single word ("Prueba"), these two playlists would be
+        // visually indistinguishable and only one shared "Prueba" node would exist.
+        composeTestRule.onNodeWithText("Prueba Biblioteca").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Prueba Inicio").assertIsDisplayed()
     }
 }

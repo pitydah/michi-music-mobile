@@ -663,7 +663,10 @@ fun AlbumsScreen(
 
         if (showCreatePlaylist) {
             CreatePlaylistDialog(
-                onCreate = { showCreatePlaylist = false },
+                onCreate = { name ->
+                    viewModel.createPlaylist(name) {}
+                    showCreatePlaylist = false
+                },
                 onDismiss = { showCreatePlaylist = false },
             )
         }
