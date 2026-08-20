@@ -58,6 +58,9 @@ class PlaylistsViewModel(
     private val _addTracksError = MutableStateFlow<String?>(null)
     val addTracksError: StateFlow<String?> = _addTracksError.asStateFlow()
 
+    private val _isRemovingTrack = MutableStateFlow(false)
+    val isRemovingTrack: StateFlow<Boolean> = _isRemovingTrack.asStateFlow()
+
     init {
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
@@ -135,6 +138,26 @@ class PlaylistsViewModel(
 
     fun clearAddTracksError() {
         _addTracksError.value = null
+    }
+
+    // Removes a single track from a playlist and refreshes the detail state so the row
+    // disappears and the count drops immediately. Reuses the same error/snackbar flow as
+    // addTracksToPlaylist rather than introducing a parallel one. Guarded by isRemovingTrack
+    // so a double-tap on the confirm button can't fire two overlapping removals.
+    fun removeTrackFromPlaylist(playlistId: String, trackId: String) {
+        if (_isRemovingTrack.value) return
+        viewModelScope.launch(ioDispatcher) {
+            _isRemovingTrack.value = true
+            _addTracksError.value = null
+            try {
+                repo.removeTrackFromPlaylist(playlistId, trackId)
+                refreshPlaylistDetail(playlistId)
+            } catch (e: Exception) {
+                _addTracksError.value = e.message ?: "No se pudo quitar la canción"
+            } finally {
+                _isRemovingTrack.value = false
+            }
+        }
     }
 
     private suspend fun refreshPlaylistDetail(id: String) {

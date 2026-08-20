@@ -237,6 +237,104 @@ class PlaylistsViewModelTest {
         assertEquals(null, vm.addTracksError.value)
     }
 
+    // --- 3C: removing tracks ---
+
+    @Test
+    fun removeTrackFromPlaylist_callsRepositoryAndRefreshesDetailWithTrackRemoved() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.removeTrackFromPlaylist("p1", "A")
+        advanceUntilIdle()
+
+        assertEquals("p1" to "A", recordingRepo.removeTrackCalledWith)
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals(listOf("B"), (state as PlaylistDetailUiState.Found).playlist.tracks.map { it.id })
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_updatesTrackCountInDetailState() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.removeTrackFromPlaylist("p1", "A")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value as PlaylistDetailUiState.Found
+        assertEquals(1, state.playlist.trackCount)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_removingLastTrack_leavesEmptyFoundState() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = listOf(Track(id = "A", title = "A")))
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.removeTrackFromPlaylist("p1", "A")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value as PlaylistDetailUiState.Found
+        assertEquals(0, state.playlist.trackCount)
+        assertTrue(state.playlist.tracks.isEmpty())
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_isRemovingTrack_backToFalseAfterSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = listOf(Track(id = "A", title = "A")))
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        assertFalse(vm.isRemovingTrack.value)
+        vm.removeTrackFromPlaylist("p1", "A")
+        advanceUntilIdle()
+
+        assertFalse(vm.isRemovingTrack.value)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_repositoryFailure_doesNotCrashAndExposesError() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.removeTrackFromPlaylist("p1", "A")
+        advanceUntilIdle()
+
+        assertFalse(vm.isRemovingTrack.value)
+        assertEquals("boom", vm.addTracksError.value)
+        // The current detail state must survive the failure, not be wiped out.
+        assertTrue(vm.selectedPlaylistState.value !is PlaylistDetailUiState.NotFound)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_calledAgainWhileInFlight_isIgnored() = runTest(testDispatcher) {
+        // A repository call that never completes keeps isRemovingTrack true, so a second
+        // tap while the first removal is still in flight must be a synchronous no-op.
+        var callCount = 0
+        val neverCompletingRepo = object : PlaylistRepository(
+            trackDao = mockk<TrackDao>(relaxed = true),
+            localMediaRepository = LocalMediaRepository(),
+        ) {
+            override suspend fun getById(id: String) = Playlist(id = id, name = "Mix", trackCount = 2)
+            override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = emptyList()
+            override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
+                callCount++
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.removeTrackFromPlaylist("p1", "A")
+        testDispatcher.scheduler.runCurrent()
+        vm.removeTrackFromPlaylist("p1", "B")
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(1, callCount)
+        assertTrue(vm.isRemovingTrack.value)
+    }
+
     @Test
     fun loadAvailableTracks_populatesFromLocalMediaRepository() = runTest(testDispatcher) {
         val deviceTracks = listOf(Track(id = "t1", title = "One"), Track(id = "t2", title = "Two"))
@@ -291,6 +389,8 @@ private class RecordingPlaylistRepo(
     private var currentTracks: List<Track> = initialTracks
     var addTracksCalledWith: Pair<String, List<String>>? = null
         private set
+    var removeTrackCalledWith: Pair<String, String>? = null
+        private set
 
     override suspend fun getById(id: String) = Playlist(id = id, name = "Mix", trackCount = currentTracks.size)
 
@@ -300,5 +400,11 @@ private class RecordingPlaylistRepo(
         addTracksCalledWith = id to newTrackIds
         if (shouldFail) throw RuntimeException("boom")
         currentTracks = currentTracks + newTrackIds.map { Track(id = it, title = "Title-$it") }
+    }
+
+    override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
+        removeTrackCalledWith = id to trackId
+        if (shouldFail) throw RuntimeException("boom")
+        currentTracks = currentTracks.filter { it.id != trackId }
     }
 }

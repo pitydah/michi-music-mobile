@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -52,6 +53,7 @@ import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.AddTracksDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
@@ -74,8 +76,10 @@ fun PlaylistDetailScreen(
     val isLoadingAvailableTracks by viewModel.isLoadingAvailableTracks.collectAsState()
     val isAddingTracks by viewModel.isAddingTracks.collectAsState()
     val addTracksError by viewModel.addTracksError.collectAsState()
+    val isRemovingTrack by viewModel.isRemovingTrack.collectAsState()
 
     var showAddTracksDialog by remember { mutableStateOf(false) }
+    var trackPendingRemoval by remember { mutableStateOf<Track?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(playlistId) {
@@ -224,7 +228,11 @@ fun PlaylistDetailScreen(
                     if (state.playlist.trackCount == 0) {
                         EmptyPlaylistState()
                     } else {
-                        PlaylistTracksList(tracks = state.playlist.tracks)
+                        PlaylistTracksList(
+                            tracks = state.playlist.tracks,
+                            removeEnabled = !isRemovingTrack,
+                            onRemoveClick = { track -> trackPendingRemoval = track },
+                        )
                     }
                 }
 
@@ -252,11 +260,26 @@ fun PlaylistDetailScreen(
                 onDismiss = { if (!isAddingTracks) showAddTracksDialog = false },
             )
         }
+
+        trackPendingRemoval?.let { track ->
+            RemoveTrackFromPlaylistDialog(
+                trackTitle = track.title,
+                onConfirm = {
+                    viewModel.removeTrackFromPlaylist(playlistId, track.id)
+                    trackPendingRemoval = null
+                },
+                onDismiss = { trackPendingRemoval = null },
+            )
+        }
     }
 }
 
 @Composable
-private fun PlaylistTracksList(tracks: List<Track>) {
+private fun PlaylistTracksList(
+    tracks: List<Track>,
+    removeEnabled: Boolean,
+    onRemoveClick: (Track) -> Unit,
+) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -264,14 +287,14 @@ private fun PlaylistTracksList(tracks: List<Track>) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         items(tracks, key = { it.id }) { track ->
-            PlaylistTrackRow(track)
+            PlaylistTrackRow(track, removeEnabled = removeEnabled, onRemoveClick = { onRemoveClick(track) })
         }
         item { Spacer(Modifier.height(100.dp)) }
     }
 }
 
 @Composable
-private fun PlaylistTrackRow(track: Track) {
+private fun PlaylistTrackRow(track: Track, removeEnabled: Boolean, onRemoveClick: () -> Unit) {
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -308,6 +331,21 @@ private fun PlaylistTrackRow(track: Track) {
                     color = TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            IconButton(
+                onClick = onRemoveClick,
+                enabled = removeEnabled,
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("playlist_detail_remove_track_${track.id}"),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "Quitar de la playlist",
+                    tint = TextMuted,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }
