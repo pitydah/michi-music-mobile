@@ -266,7 +266,7 @@ class AudioController(
     ) {
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
-                .setMediaId(track.id)
+                .setMediaId(LibraryProvider.buildSongId(track.id))
                 .setUri(track.filepath)
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
@@ -295,7 +295,7 @@ class AudioController(
         val newQueue = _state.value.queue + track
         mediaController?.addMediaItem(
             MediaItem.Builder()
-                .setMediaId(track.id)
+                .setMediaId(LibraryProvider.buildSongId(track.id))
                 .setUri(track.filepath)
                 .setMediaMetadata(
                     androidx.media3.common.MediaMetadata.Builder()
