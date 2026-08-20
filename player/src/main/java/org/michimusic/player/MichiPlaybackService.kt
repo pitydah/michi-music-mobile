@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -97,6 +98,14 @@ class MichiPlaybackService : MediaLibraryService() {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (!isPlaying) deferSave()
                 }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    android.util.Log.e(
+                        "MichiPlaybackDebug",
+                        "onPlayerError errorCode=${error.errorCode} message=${error.message} " +
+                            "mediaId=${exoPlayer.currentMediaItem?.mediaId} mediaItemCount=${exoPlayer.mediaItemCount}",
+                    )
+                }
             })
         } catch (e: Exception) {
             android.util.Log.e("MichiPlaybackService", "Error al iniciar servicio", e)
@@ -146,22 +155,37 @@ class MichiPlaybackService : MediaLibraryService() {
         saveJob?.cancel()
         saveJob = saveScope.launch {
             delay(3000)
-            saveNow()
+            // saveScope runs on Dispatchers.IO, but ExoPlayer/Player must only be touched from
+            // its application thread (main). Reading the snapshot has to happen on Main; only
+            // the actual persistence (SharedPreferences write) is left on this IO-scoped
+            // coroutine. See snapshotState()/saveNow() below.
+            val state = withContext(Dispatchers.Main) { snapshotState() } ?: return@launch
+            stateStore.save(state)
         }
     }
 
+    // Called directly from onTaskRemoved()/onDestroy(), both of which the Android framework
+    // already invokes on the main thread - so this stays a plain synchronous read+persist
+    // for them, with no dispatcher hop needed.
     private fun saveNow() {
-        val p = player ?: return
+        val state = snapshotState() ?: return
+        stateStore.save(state)
+    }
+
+    // The only part of saving that touches the Player. Must always be called from the
+    // player's application thread (main) - see the callers above for how each one guarantees
+    // that.
+    private fun snapshotState(): PlaybackStateStore.SavedState? {
+        val p = player ?: return null
         val count = p.mediaItemCount
-        if (count == 0) return
+        if (count == 0) return null
         val ids = (0 until count).map { p.getMediaItemAt(it).mediaId }
-        val state = PlaybackStateStore.SavedState(
+        return PlaybackStateStore.SavedState(
             mediaIds = ids,
             startIndex = p.currentMediaItemIndex,
             positionMs = p.currentPosition,
             repeatMode = p.repeatMode,
             shuffleMode = p.shuffleModeEnabled,
         )
-        stateStore.save(state)
     }
 }

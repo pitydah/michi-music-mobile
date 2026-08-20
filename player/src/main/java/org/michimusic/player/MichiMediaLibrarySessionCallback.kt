@@ -1,5 +1,6 @@
 package org.michimusic.player
 
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -13,6 +14,7 @@ import androidx.media3.session.SessionError
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -114,12 +116,29 @@ class MichiMediaLibrarySessionCallback(
         controller: MediaSession.ControllerInfo,
         mediaItems: List<MediaItem>,
     ): ListenableFuture<List<MediaItem>> {
-        val resolved = libraryProvider.resolveForPlayback(mediaItems)
-        return if (resolved.isNotEmpty()) {
-            Futures.immediateFuture(resolved)
-        } else {
-            Futures.immediateFuture(mediaItems)
+        val future = SettableFuture.create<List<MediaItem>>()
+        scope.launch {
+            try {
+                // Guarantees LibraryProvider's cache is populated before resolving - the
+                // browsing-only callbacks that used to populate it (onGetLibraryRoot,
+                // onPlaybackResumption) are never invoked by a plain MediaController client.
+                libraryProvider.ensureLoaded()
+                Log.d(
+                    "MichiPlaybackDebug",
+                    "onAddMediaItems received=${mediaItems.size} ids=${mediaItems.map { it.mediaId }}",
+                )
+                val resolved = libraryProvider.resolveForPlayback(mediaItems)
+                Log.d(
+                    "MichiPlaybackDebug",
+                    "onAddMediaItems resolved=${resolved.size} ids=${resolved.map { it.mediaId }}",
+                )
+                future.set(if (resolved.isNotEmpty()) resolved else mediaItems)
+            } catch (e: Exception) {
+                Log.e("MichiPlaybackDebug", "onAddMediaItems failed to resolve mediaItems", e)
+                future.set(mediaItems)
+            }
         }
+        return future
     }
 
     override fun onSetMediaItems(
@@ -129,15 +148,37 @@ class MichiMediaLibrarySessionCallback(
         startIndex: Int,
         startPositionMs: Long,
     ): ListenableFuture<MediaItemsWithStartPosition> {
-        if (mediaItems.size == 1) {
-            maybeExpandSingleItem(mediaItems.first(), startIndex, startPositionMs)?.also {
-                return Futures.immediateFuture(it)
+        val future = SettableFuture.create<MediaItemsWithStartPosition>()
+        scope.launch {
+            try {
+                // Same guarantee as onAddMediaItems: ensure the cache is populated before
+                // either the single-item expansion path or resolveForPlayback read it.
+                libraryProvider.ensureLoaded()
+
+                if (mediaItems.size == 1) {
+                    val expanded = maybeExpandSingleItem(mediaItems.first(), startIndex, startPositionMs)
+                    if (expanded != null) {
+                        future.set(expanded)
+                        return@launch
+                    }
+                }
+
+                Log.d(
+                    "MichiPlaybackDebug",
+                    "onSetMediaItems received=${mediaItems.size} ids=${mediaItems.map { it.mediaId }}",
+                )
+                val resolved = libraryProvider.resolveForPlayback(mediaItems)
+                Log.d(
+                    "MichiPlaybackDebug",
+                    "onSetMediaItems resolved=${resolved.size} ids=${resolved.map { it.mediaId }}",
+                )
+                future.set(MediaItemsWithStartPosition(resolved, startIndex, startPositionMs))
+            } catch (e: Exception) {
+                Log.e("MichiPlaybackDebug", "onSetMediaItems failed to resolve mediaItems", e)
+                future.set(MediaItemsWithStartPosition(emptyList(), startIndex, startPositionMs))
             }
         }
-        val resolved = libraryProvider.resolveForPlayback(mediaItems)
-        return Futures.immediateFuture(
-            MediaItemsWithStartPosition(resolved, startIndex, startPositionMs)
-        )
+        return future
     }
 
     private fun maybeExpandSingleItem(

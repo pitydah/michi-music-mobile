@@ -2,9 +2,12 @@ package org.michimusic.player
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.michimusic.core.models.Album
 import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
@@ -81,11 +84,28 @@ class LibraryProvider(
     private var cachedPlaylists: List<Pair<Playlist, List<Track>>> = emptyList()
     private var cachedArtists: List<Pair<Artist, List<LocalMediaRepository.LocalAlbum>>> = emptyList()
 
+    // Guards resolveForPlayback()'s data: refresh() is real MediaStore I/O (loadPlaylists()
+    // in particular runs its own query with no internal caching), so playback commands must
+    // not trigger it on every single call. ensureLoaded() runs refresh() exactly once - the
+    // first time anything needs the cache - instead of relying on a browsing-only callback
+    // (onGetLibraryRoot/onPlaybackResumption) that a plain MediaController never triggers.
+    private var isLoaded = false
+    private val loadMutex = Mutex()
+
+    suspend fun ensureLoaded() {
+        if (isLoaded) return
+        loadMutex.withLock {
+            if (isLoaded) return@withLock
+            refresh()
+        }
+    }
+
     suspend fun refresh() {
         cachedTracks = repository.loadTracks()
         cachedAlbums = repository.loadAlbums()
         cachedPlaylists = repository.loadPlaylists()
         cachedArtists = repository.loadArtists()
+        isLoaded = true
     }
 
     fun getRootChildren(): List<MediaItem> = listOf(
@@ -318,10 +338,21 @@ class LibraryProvider(
                 }
                 extractSongId(mediaId) != null -> {
                     extractSongId(mediaId)?.let { songId ->
-                        cachedTracks.firstOrNull { it.id == songId }?.let { track ->
-                            resolved.add(track.toPlayableSong())
-                        }
+                        val track = cachedTracks.firstOrNull { it.id == songId }
+                        Log.d(
+                            "MichiPlaybackDebug",
+                            "resolveForPlayback song mediaId=$mediaId songId=$songId " +
+                                "source=LibraryProvider.cachedTracks cachedTracksSize=${cachedTracks.size} " +
+                                "found=${track != null} action=${if (track != null) "added" else "discarded"}",
+                        )
+                        track?.let { resolved.add(it.toPlayableSong()) }
                     }
+                }
+                else -> {
+                    Log.d(
+                        "MichiPlaybackDebug",
+                        "resolveForPlayback discarded unmatched mediaId=$mediaId uri=${item.localConfiguration?.uri}",
+                    )
                 }
             }
         }
