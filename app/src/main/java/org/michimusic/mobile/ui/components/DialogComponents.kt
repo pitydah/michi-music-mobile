@@ -1977,6 +1977,77 @@ fun AddTracksDialog(
 }
 
 @Composable
+fun RemoveTrackFromPlaylistDialog(
+    trackTitle: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("remove_track_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Text(
+                    text = "Quitar de la playlist",
+                    color = PureWhite,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "¿Quieres quitar \"$trackTitle\" de esta playlist?",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("remove_track_dialog_cancel_button"),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("Cancelar", color = PureWhite)
+                    }
+
+                    Button(
+                        onClick = onConfirm,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("remove_track_dialog_confirm_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("Quitar", color = PureWhite, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AddTracksDialogRow(
     track: Track,
     isSelected: Boolean,

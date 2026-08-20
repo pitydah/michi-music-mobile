@@ -66,6 +66,10 @@ class PlaylistDetailScreenTest {
             tracks = tracks + toAdd.mapNotNull { trackId -> resolvableTracks.find { it.id == trackId } }
             trackCount = tracks.size
         }
+        override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
+            tracks = tracks.filter { it.id != trackId }
+            trackCount = tracks.size
+        }
     }
 
     @Test
@@ -225,6 +229,109 @@ class PlaylistDetailScreenTest {
 
         composeTestRule.onNodeWithTag("add_tracks_dialog_track_d2").assertIsDisplayed()
         composeTestRule.onAllNodesWithTag("add_tracks_dialog_track_t1").assertCountEquals(0)
+    }
+
+    // --- 3C: removing tracks ---
+
+    @Test
+    fun `remove action is visible for each track row`() {
+        val tracks = listOf(
+            Track(id = "t1", title = "Neon Skyline", artist = "Cyber Runner"),
+            Track(id = "t2", title = "Midnight Drive", artist = "Vapor Wave"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Synthwave Nights", trackIds = listOf("t1", "t2"), trackCount = 2),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t2").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping remove opens a confirmation dialog naming the track`() {
+        val tracks = listOf(Track(id = "t1", title = "Neon Skyline", artist = "Cyber Runner"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Synthwave Nights", trackIds = listOf("t1"), trackCount = 1),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
+
+        composeTestRule.onNodeWithTag("remove_track_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("¿Quieres quitar \"Neon Skyline\" de esta playlist?").assertIsDisplayed()
+    }
+
+    @Test
+    fun `cancelling the confirmation keeps the track in the playlist`() {
+        val tracks = listOf(Track(id = "t1", title = "Neon Skyline", artist = "Cyber Runner"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Synthwave Nights", trackIds = listOf("t1"), trackCount = 1),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
+        composeTestRule.onNodeWithTag("remove_track_dialog_cancel_button").performClick()
+
+        composeTestRule.onAllNodesWithTag("remove_track_dialog").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("playlist_detail_track_t1").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1 canción").assertIsDisplayed()
+    }
+
+    @Test
+    fun `confirming removal drops the row and updates the count immediately`() {
+        val tracks = listOf(
+            Track(id = "t1", title = "Neon Skyline", artist = "Cyber Runner"),
+            Track(id = "t2", title = "Midnight Drive", artist = "Vapor Wave"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Synthwave Nights", trackIds = listOf("t1", "t2"), trackCount = 2),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
+        composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
+
+        composeTestRule.onAllNodesWithTag("playlist_detail_track_t1").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("playlist_detail_track_t2").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1 canción").assertIsDisplayed()
+    }
+
+    @Test
+    fun `removing the last track shows the empty state without leaving the screen`() {
+        val tracks = listOf(Track(id = "t1", title = "Neon Skyline", artist = "Cyber Runner"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Synthwave Nights", trackIds = listOf("t1"), trackCount = 1),
+            tracks = tracks,
+        )
+        var backCalled = false
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
+        composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
+
+        composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_screen").assertIsDisplayed()
+        assertTrue(!backCalled)
     }
 
     @Test

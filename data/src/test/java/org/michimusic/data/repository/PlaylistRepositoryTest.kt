@@ -181,6 +181,76 @@ class PlaylistRepositoryTest {
         assertEquals(3, reloaded?.trackCount)
     }
 
+    // --- 3C: removing tracks ---
+
+    @Test
+    fun removeTrackFromPlaylist_removesExistingTrackPreservingOrderOfRest() = runTest {
+        val created = repository.createPlaylist("Chill", listOf("A", "B", "C", "D"))
+        repository.removeTrackFromPlaylist(created.id, "B")
+
+        val updated = repository.getById(created.id)
+        assertEquals(listOf("A", "C", "D"), updated?.trackIds)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_updatesTrackCount() = runTest {
+        val created = repository.createPlaylist("Chill", listOf("A", "B", "C"))
+        repository.removeTrackFromPlaylist(created.id, "A")
+
+        val updated = repository.getById(created.id)
+        assertEquals(2, updated?.trackCount)
+        assertEquals(updated?.trackIds?.size, updated?.trackCount)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_removingLastTrack_leavesEmptyPlaylist() = runTest {
+        val created = repository.createPlaylist("Chill", listOf("A"))
+        repository.removeTrackFromPlaylist(created.id, "A")
+
+        val updated = repository.getById(created.id)
+        assertTrue(updated?.trackIds?.isEmpty() == true)
+        assertEquals(0, updated?.trackCount)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_unknownTrackId_isSafeNoOp() = runTest {
+        val created = repository.createPlaylist("Chill", listOf("A", "B"))
+        repository.removeTrackFromPlaylist(created.id, "does-not-exist")
+
+        val updated = repository.getById(created.id)
+        assertEquals(listOf("A", "B"), updated?.trackIds)
+        assertEquals(2, updated?.trackCount)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_doesNotAffectOtherTracks() = runTest {
+        val created = repository.createPlaylist("Chill", listOf("A", "B", "C"))
+        repository.removeTrackFromPlaylist(created.id, "B")
+
+        val updated = repository.getById(created.id)
+        assertTrue(updated?.trackIds?.contains("A") == true)
+        assertTrue(updated?.trackIds?.contains("C") == true)
+        assertTrue(updated?.trackIds?.contains("B") == false)
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_unknownPlaylistId_isSafeNoOp() = runTest {
+        repository.removeTrackFromPlaylist("does-not-exist", "A")
+        assertTrue(repository.getAllPlaylists().isEmpty())
+    }
+
+    @Test
+    fun removeTrackFromPlaylist_persistsAcrossNewRepositoryInstance() = runTest {
+        val created = repository.createPlaylist("Chill", listOf("A", "B", "C"))
+        repository.removeTrackFromPlaylist(created.id, "B")
+
+        // Simulate closing and reopening the app: a fresh Repository over the same DAO.
+        val reopened = PlaylistRepository(fakeDao, mockk(relaxed = true), LocalMediaRepository())
+        val reloaded = reopened.getById(created.id)
+        assertEquals(listOf("A", "C"), reloaded?.trackIds)
+        assertEquals(2, reloaded?.trackCount)
+    }
+
     // --- resolving trackIds to Track, preserving order ---
 
     @Test
