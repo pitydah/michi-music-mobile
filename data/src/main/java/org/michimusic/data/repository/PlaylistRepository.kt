@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
+enum class MoveDirection { UP, DOWN }
+
 open class PlaylistRepository(
     private val playlistDao: PlaylistDao? = null,
     private val trackDao: TrackDao,
@@ -95,6 +97,41 @@ open class PlaylistRepository(
         val trimmed = newName.trim()
         if (trimmed.isEmpty()) return
         playlistDao.renameById(id, trimmed)
+    }
+
+    // Moves a track one step up/down among the *resolvable* tracks only (the ones
+    // PlaylistDetail can actually show), never among the raw persisted trackIds.
+    //
+    // Policy for unresolvable ids (4E): they never change absolute index in trackIds.
+    // Only the two resolvable ids directly involved in the move swap positions with each
+    // other; every other id - resolvable or not - keeps its exact slot. This is the same
+    // as saying "reorder only among resolvable slots": if trackIds = [A, X, B] with X
+    // unresolvable and the user moves B above A, the result is [B, X, A] - X is never
+    // touched, so a currently-unresolvable remote track can't be silently dropped or
+    // shuffled by a reorder it wasn't even visible for.
+    //
+    // A no-op (unknown playlist, trackId not currently resolvable, or already at the
+    // boundary in the visible order) is always safe and never persists anything.
+    open suspend fun moveTrack(id: String, trackId: String, direction: MoveDirection) {
+        if (playlistDao == null) return
+        val cached = playlistDao.getAllPlaylists().find { it.id == id } ?: return
+        val trackIds = parseTrackIds(cached.trackIds)
+        val playlist = Playlist(id = cached.id, name = cached.name, trackIds = trackIds, trackCount = cached.trackCount)
+        val visibleIds = getTracksForPlaylist(playlist).map { it.id }
+
+        val fromVisibleIndex = visibleIds.indexOf(trackId)
+        if (fromVisibleIndex < 0) return
+        val toVisibleIndex = if (direction == MoveDirection.UP) fromVisibleIndex - 1 else fromVisibleIndex + 1
+        if (toVisibleIndex !in visibleIds.indices) return
+        val neighborId = visibleIds[toVisibleIndex]
+
+        val newTrackIds = trackIds.toMutableList()
+        val i = newTrackIds.indexOf(trackId)
+        val j = newTrackIds.indexOf(neighborId)
+        newTrackIds[i] = neighborId
+        newTrackIds[j] = trackId
+
+        playlistDao.updateTrackIds(id, newTrackIds.joinToString(","))
     }
 
     // Resolves a playlist's trackIds to their Track objects, preserving the stored order.

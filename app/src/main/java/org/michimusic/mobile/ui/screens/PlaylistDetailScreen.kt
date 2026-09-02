@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,6 +23,8 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
+import org.michimusic.data.repository.MoveDirection
 import org.michimusic.mobile.screens.PlaylistDetailUiState
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.AddTracksDialog
@@ -88,6 +91,7 @@ fun PlaylistDetailScreen(
     val isRemovingTrack by viewModel.isRemovingTrack.collectAsState()
     val isDeletingPlaylist by viewModel.isDeletingPlaylist.collectAsState()
     val isRenamingPlaylist by viewModel.isRenamingPlaylist.collectAsState()
+    val isReorderingTrack by viewModel.isReorderingTrack.collectAsState()
 
     var showAddTracksDialog by remember { mutableStateOf(false) }
     var trackPendingRemoval by remember { mutableStateOf<Track?>(null) }
@@ -301,12 +305,15 @@ fun PlaylistDetailScreen(
                         PlaylistTracksList(
                             tracks = state.playlist.tracks,
                             removeEnabled = !isRemovingTrack,
+                            moveEnabled = !isReorderingTrack,
                             onRemoveClick = { track -> trackPendingRemoval = track },
                             onTrackClick = { track ->
                                 val tracks = state.playlist.tracks
                                 val index = tracks.indexOfFirst { it.id == track.id }
                                 if (index >= 0) audioController.playQueue(tracks, index)
                             },
+                            onMoveUp = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.UP) },
+                            onMoveDown = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.DOWN) },
                         )
                     }
                 }
@@ -382,8 +389,11 @@ fun PlaylistDetailScreen(
 private fun PlaylistTracksList(
     tracks: List<Track>,
     removeEnabled: Boolean,
+    moveEnabled: Boolean,
     onRemoveClick: (Track) -> Unit,
     onTrackClick: (Track) -> Unit,
+    onMoveUp: (Track) -> Unit,
+    onMoveDown: (Track) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -391,12 +401,17 @@ private fun PlaylistTracksList(
             .testTag("playlist_detail_track_list"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        items(tracks, key = { it.id }) { track ->
+        itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
             PlaylistTrackRow(
                 track,
                 removeEnabled = removeEnabled,
+                moveEnabled = moveEnabled,
+                canMoveUp = index > 0,
+                canMoveDown = index < tracks.lastIndex,
                 onRemoveClick = { onRemoveClick(track) },
                 onClick = { onTrackClick(track) },
+                onMoveUp = { onMoveUp(track) },
+                onMoveDown = { onMoveDown(track) },
             )
         }
         item { Spacer(Modifier.height(100.dp)) }
@@ -404,7 +419,19 @@ private fun PlaylistTracksList(
 }
 
 @Composable
-private fun PlaylistTrackRow(track: Track, removeEnabled: Boolean, onRemoveClick: () -> Unit, onClick: () -> Unit) {
+private fun PlaylistTrackRow(
+    track: Track,
+    removeEnabled: Boolean,
+    moveEnabled: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onRemoveClick: () -> Unit,
+    onClick: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+) {
+    var showTrackMenu by remember { mutableStateOf(false) }
+
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -443,6 +470,55 @@ private fun PlaylistTrackRow(track: Track, removeEnabled: Boolean, onRemoveClick
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+
+            // Secondary reorder action, tucked behind a small overflow menu so it doesn't
+            // compete visually with tap-to-play or the existing remove action.
+            Box {
+                IconButton(
+                    onClick = { showTrackMenu = true },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .testTag("playlist_detail_track_options_${track.id}"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "Más opciones para ${track.title}",
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showTrackMenu,
+                    onDismissRequest = { showTrackMenu = false },
+                    modifier = Modifier.testTag("playlist_detail_track_menu_${track.id}"),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Mover arriba") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = TextMuted)
+                        },
+                        enabled = canMoveUp && moveEnabled,
+                        onClick = {
+                            showTrackMenu = false
+                            onMoveUp()
+                        },
+                        modifier = Modifier.testTag("playlist_detail_move_up_${track.id}"),
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Mover abajo") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = TextMuted)
+                        },
+                        enabled = canMoveDown && moveEnabled,
+                        onClick = {
+                            showTrackMenu = false
+                            onMoveDown()
+                        },
+                        modifier = Modifier.testTag("playlist_detail_move_down_${track.id}"),
+                    )
+                }
             }
 
             IconButton(
