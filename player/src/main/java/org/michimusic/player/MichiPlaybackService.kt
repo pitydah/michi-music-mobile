@@ -101,7 +101,7 @@ class MichiPlaybackService : MediaLibraryService() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     android.util.Log.e(
-                        "MichiPlaybackDebug",
+                        "MichiPlaybackService",
                         "onPlayerError errorCode=${error.errorCode} message=${error.message} " +
                             "mediaId=${exoPlayer.currentMediaItem?.mediaId} mediaItemCount=${exoPlayer.mediaItemCount}",
                     )
