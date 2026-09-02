@@ -64,6 +64,9 @@ class PlaylistsViewModel(
     private val _isDeletingPlaylist = MutableStateFlow(false)
     val isDeletingPlaylist: StateFlow<Boolean> = _isDeletingPlaylist.asStateFlow()
 
+    private val _isRenamingPlaylist = MutableStateFlow(false)
+    val isRenamingPlaylist: StateFlow<Boolean> = _isRenamingPlaylist.asStateFlow()
+
     init {
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
@@ -180,6 +183,33 @@ class PlaylistsViewModel(
                 _addTracksError.value = e.message ?: "No se pudo eliminar la playlist"
             } finally {
                 _isDeletingPlaylist.value = false
+                onComplete(success)
+            }
+        }
+    }
+
+    // Renames a playlist, reusing the same non-blank/trim rule createPlaylist already applies
+    // (no new validation invented here). Guarded by isRenamingPlaylist against a double-tap,
+    // and refreshes the detail state on success so PlaylistDetail shows the new name without
+    // requiring a separate reactive Flow for the single selected playlist.
+    fun renamePlaylist(playlistId: String, newName: String, onComplete: (success: Boolean) -> Unit = {}) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty() || _isRenamingPlaylist.value) {
+            onComplete(false)
+            return
+        }
+        viewModelScope.launch(ioDispatcher) {
+            _isRenamingPlaylist.value = true
+            _addTracksError.value = null
+            var success = false
+            try {
+                repo.renamePlaylist(playlistId, trimmed)
+                refreshPlaylistDetail(playlistId)
+                success = true
+            } catch (e: Exception) {
+                _addTracksError.value = e.message ?: "No se pudo renombrar la playlist"
+            } finally {
+                _isRenamingPlaylist.value = false
                 onComplete(success)
             }
         }

@@ -66,7 +66,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -2121,6 +2123,104 @@ fun DeletePlaylistDialog(
                             )
                         } else {
                             Text("Eliminar", color = PureWhite, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RenamePlaylistDialog(
+    currentName: String,
+    isSaving: Boolean,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var textValue by remember {
+        mutableStateOf(TextFieldValue(text = currentName, selection = TextRange(0, currentName.length)))
+    }
+
+    Dialog(onDismissRequest = { if (!isSaving) onDismiss() }) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("rename_playlist_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Text(
+                    text = "Renombrar playlist",
+                    color = PureWhite,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedTextField(
+                    value = textValue,
+                    onValueChange = { textValue = it },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = PureWhite,
+                        unfocusedTextColor = PureWhite,
+                        focusedBorderColor = PrimaryPink,
+                        unfocusedBorderColor = GlassBorderLow,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("rename_playlist_dialog_field"),
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !isSaving,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("rename_playlist_dialog_cancel_button"),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("Cancelar", color = PureWhite)
+                    }
+
+                    val trimmedName = textValue.text.trim()
+                    val canConfirm = trimmedName.isNotEmpty() && !isSaving
+                    Button(
+                        onClick = { if (canConfirm) onConfirm(trimmedName) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("rename_playlist_dialog_confirm_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (canConfirm) PrimaryPinkContainer else PrimaryPinkContainer.copy(alpha = 0.4f),
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                color = PureWhite,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        } else {
+                            Text("Guardar", color = PureWhite, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

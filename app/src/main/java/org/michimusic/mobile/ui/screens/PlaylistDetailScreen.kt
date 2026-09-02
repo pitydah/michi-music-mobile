@@ -22,8 +22,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +60,7 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.DeletePlaylistDialog
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
+import org.michimusic.mobile.ui.components.RenamePlaylistDialog
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
@@ -82,10 +87,13 @@ fun PlaylistDetailScreen(
     val addTracksError by viewModel.addTracksError.collectAsState()
     val isRemovingTrack by viewModel.isRemovingTrack.collectAsState()
     val isDeletingPlaylist by viewModel.isDeletingPlaylist.collectAsState()
+    val isRenamingPlaylist by viewModel.isRenamingPlaylist.collectAsState()
 
     var showAddTracksDialog by remember { mutableStateOf(false) }
     var trackPendingRemoval by remember { mutableStateOf<Track?>(null) }
     var showDeletePlaylistDialog by remember { mutableStateOf(false) }
+    var showRenamePlaylistDialog by remember { mutableStateOf(false) }
+    var showOptionsMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(playlistId) {
@@ -195,20 +203,51 @@ fun PlaylistDetailScreen(
                 Spacer(Modifier.weight(1f))
 
                 if (uiState !is PlaylistDetailUiState.NotFound) {
-                    IconButton(
-                        onClick = { showDeletePlaylistDialog = true },
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
-                            .testTag("playlist_detail_delete_playlist_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = "Eliminar playlist",
-                            tint = TextMuted,
-                            modifier = Modifier.size(20.dp),
-                        )
+                    Box {
+                        IconButton(
+                            onClick = { showOptionsMenu = true },
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(GlassFillLow)
+                                .testTag("playlist_detail_options_button"),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "Más opciones",
+                                tint = TextMuted,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showOptionsMenu,
+                            onDismissRequest = { showOptionsMenu = false },
+                            modifier = Modifier.testTag("playlist_detail_options_menu"),
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Renombrar") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Edit, contentDescription = null, tint = TextMuted)
+                                },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    showRenamePlaylistDialog = true
+                                },
+                                modifier = Modifier.testTag("playlist_detail_rename_menu_item"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Eliminar playlist") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Delete, contentDescription = null, tint = TextMuted)
+                                },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    showDeletePlaylistDialog = true
+                                },
+                                modifier = Modifier.testTag("playlist_detail_delete_menu_item"),
+                            )
+                        }
                     }
 
                     Spacer(Modifier.width(10.dp))
@@ -313,6 +352,20 @@ fun PlaylistDetailScreen(
                     }
                 },
                 onDismiss = { showDeletePlaylistDialog = false },
+            )
+        }
+
+        if (showRenamePlaylistDialog) {
+            val currentName = (uiState as? PlaylistDetailUiState.Found)?.playlist?.name.orEmpty()
+            RenamePlaylistDialog(
+                currentName = currentName,
+                isSaving = isRenamingPlaylist,
+                onConfirm = { newName ->
+                    viewModel.renamePlaylist(playlistId, newName) { success ->
+                        if (success) showRenamePlaylistDialog = false
+                    }
+                },
+                onDismiss = { showRenamePlaylistDialog = false },
             )
         }
     }

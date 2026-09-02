@@ -69,6 +69,71 @@ class PlaylistRepositoryTest {
         assertNull(repository.getById(p1.id))
     }
 
+    // --- 4D: renaming a playlist ---
+
+    @Test
+    fun renamePlaylist_changesOnlyTheName() = runTest {
+        val created = repository.createPlaylist("Old Name", listOf("A", "B"))
+        repository.renamePlaylist(created.id, "New Name")
+
+        val updated = repository.getById(created.id)
+        assertEquals("New Name", updated?.name)
+    }
+
+    @Test
+    fun renamePlaylist_preservesTrackIds() = runTest {
+        val created = repository.createPlaylist("Old Name", listOf("A", "B", "C"))
+        repository.renamePlaylist(created.id, "New Name")
+
+        val updated = repository.getById(created.id)
+        assertEquals(listOf("A", "B", "C"), updated?.trackIds)
+    }
+
+    @Test
+    fun renamePlaylist_preservesTrackCount() = runTest {
+        val created = repository.createPlaylist("Old Name", listOf("A", "B", "C"))
+        repository.renamePlaylist(created.id, "New Name")
+
+        val updated = repository.getById(created.id)
+        assertEquals(3, updated?.trackCount)
+    }
+
+    @Test
+    fun renamePlaylist_trimsIncomingName() = runTest {
+        val created = repository.createPlaylist("Old Name")
+        repository.renamePlaylist(created.id, "  Padded Name  ")
+
+        val updated = repository.getById(created.id)
+        assertEquals("Padded Name", updated?.name)
+    }
+
+    @Test
+    fun renamePlaylist_blankName_isSafeNoOp() = runTest {
+        val created = repository.createPlaylist("Old Name")
+        repository.renamePlaylist(created.id, "   ")
+
+        val updated = repository.getById(created.id)
+        assertEquals("Old Name", updated?.name)
+    }
+
+    @Test
+    fun renamePlaylist_unknownPlaylistId_isSafeNoOp() = runTest {
+        repository.renamePlaylist("does-not-exist", "New Name")
+        assertTrue(repository.getAllPlaylists().isEmpty())
+    }
+
+    @Test
+    fun renamePlaylist_persistsAcrossNewRepositoryInstance() = runTest {
+        val created = repository.createPlaylist("Old Name", listOf("A"))
+        repository.renamePlaylist(created.id, "New Name")
+
+        // Simulate closing and reopening the app: a fresh Repository over the same DAO.
+        val reopened = PlaylistRepository(fakeDao, mockk(relaxed = true), LocalMediaRepository())
+        val reloaded = reopened.getById(created.id)
+        assertEquals("New Name", reloaded?.name)
+        assertEquals(listOf("A"), reloaded?.trackIds)
+    }
+
     // --- trackIds parsing / mapping ---
 
     @Test
@@ -418,6 +483,11 @@ private class TestPlaylistDao : PlaylistDao {
 
     override suspend fun deleteById(id: String) {
         playlists.removeAll { it.id == id }
+    }
+
+    override suspend fun renameById(id: String, name: String) {
+        val index = playlists.indexOfFirst { it.id == id }
+        if (index >= 0) playlists[index] = playlists[index].copy(name = name)
     }
 
     override suspend fun deleteAll() {

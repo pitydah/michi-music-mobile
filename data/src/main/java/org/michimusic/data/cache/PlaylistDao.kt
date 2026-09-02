@@ -23,6 +23,9 @@ interface PlaylistDao {
     @Query("DELETE FROM cached_playlists WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("UPDATE cached_playlists SET name = :name WHERE id = :id")
+    suspend fun renameById(id: String, name: String)
+
     @Query("DELETE FROM cached_playlists")
     suspend fun deleteAll()
 }
