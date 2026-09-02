@@ -335,6 +335,74 @@ class PlaylistsViewModelTest {
         assertTrue(vm.isRemovingTrack.value)
     }
 
+    // --- 4C: deleting a playlist ---
+
+    @Test
+    fun deletePlaylist_callsRepositoryExactlyOnceAndReportsSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = listOf(Track(id = "A", title = "A")))
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var result: Boolean? = null
+
+        vm.deletePlaylist("p1") { success -> result = success }
+        advanceUntilIdle()
+
+        assertEquals("p1", recordingRepo.deletePlaylistCalledWith)
+        assertEquals(1, recordingRepo.deletePlaylistCallCount)
+        assertEquals(true, result)
+    }
+
+    @Test
+    fun deletePlaylist_isDeletingPlaylist_backToFalseAfterSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = listOf(Track(id = "A", title = "A")))
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        assertFalse(vm.isDeletingPlaylist.value)
+        vm.deletePlaylist("p1")
+        advanceUntilIdle()
+
+        assertFalse(vm.isDeletingPlaylist.value)
+    }
+
+    @Test
+    fun deletePlaylist_repositoryFailure_doesNotCrashExposesErrorAndReportsFailure() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var result: Boolean? = null
+
+        vm.deletePlaylist("p1") { success -> result = success }
+        advanceUntilIdle()
+
+        assertFalse(vm.isDeletingPlaylist.value)
+        assertEquals("boom", vm.addTracksError.value)
+        assertEquals(false, result)
+    }
+
+    @Test
+    fun deletePlaylist_calledAgainWhileInFlight_isIgnored() = runTest(testDispatcher) {
+        // Mirrors removeTrackFromPlaylist_calledAgainWhileInFlight_isIgnored: a repository
+        // call that never completes keeps isDeletingPlaylist true, so a second tap on the
+        // confirm button while the first deletion is still in flight must be a no-op.
+        var callCount = 0
+        val neverCompletingRepo = object : PlaylistRepository(
+            trackDao = mockk<TrackDao>(relaxed = true),
+            localMediaRepository = LocalMediaRepository(),
+        ) {
+            override suspend fun deletePlaylist(id: String) {
+                callCount++
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.deletePlaylist("p1")
+        testDispatcher.scheduler.runCurrent()
+        vm.deletePlaylist("p1")
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(1, callCount)
+        assertTrue(vm.isDeletingPlaylist.value)
+    }
+
     @Test
     fun loadAvailableTracks_populatesFromLocalMediaRepository() = runTest(testDispatcher) {
         val deviceTracks = listOf(Track(id = "t1", title = "One"), Track(id = "t2", title = "Two"))
@@ -391,6 +459,10 @@ private class RecordingPlaylistRepo(
         private set
     var removeTrackCalledWith: Pair<String, String>? = null
         private set
+    var deletePlaylistCalledWith: String? = null
+        private set
+    var deletePlaylistCallCount: Int = 0
+        private set
 
     override suspend fun getById(id: String) = Playlist(id = id, name = "Mix", trackCount = currentTracks.size)
 
@@ -406,5 +478,11 @@ private class RecordingPlaylistRepo(
         removeTrackCalledWith = id to trackId
         if (shouldFail) throw RuntimeException("boom")
         currentTracks = currentTracks.filter { it.id != trackId }
+    }
+
+    override suspend fun deletePlaylist(id: String) {
+        deletePlaylistCalledWith = id
+        deletePlaylistCallCount++
+        if (shouldFail) throw RuntimeException("boom")
     }
 }

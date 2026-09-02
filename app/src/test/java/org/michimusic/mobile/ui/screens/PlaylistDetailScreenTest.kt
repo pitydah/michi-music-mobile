@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -53,12 +54,18 @@ class PlaylistDetailScreenTest {
         private val basePlaylist: Playlist?,
         initialTracks: List<Track>,
         private val resolvableTracks: List<Track>,
+        private val deleteShouldFail: Boolean = false,
+        // When true, deletePlaylist() suspends forever instead of returning - used to
+        // simulate an in-flight deletion so a second tap can be observed as a no-op.
+        var deleteBlocksForever: Boolean = false,
     ) : PlaylistRepository(
         trackDao = mockk<TrackDao>(relaxed = true),
         localMediaRepository = LocalMediaRepository(),
     ) {
         private var tracks: List<Track> = initialTracks
         private var trackCount: Int = basePlaylist?.trackCount ?: initialTracks.size
+        var deleteCallCount: Int = 0
+            private set
 
         override suspend fun getById(id: String): Playlist? = basePlaylist?.copy(trackCount = trackCount)
         override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = tracks
@@ -71,6 +78,11 @@ class PlaylistDetailScreenTest {
         override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
             tracks = tracks.filter { it.id != trackId }
             trackCount = tracks.size
+        }
+        override suspend fun deletePlaylist(id: String) {
+            deleteCallCount++
+            if (deleteBlocksForever) kotlinx.coroutines.awaitCancellation()
+            if (deleteShouldFail) throw RuntimeException("No se pudo eliminar la playlist")
         }
     }
 
@@ -457,5 +469,147 @@ class PlaylistDetailScreenTest {
 
         composeTestRule.onAllNodesWithTag("playlist_detail_track_a").assertCountEquals(0)
         verify(exactly = 0) { mockAudio.playQueue(any(), any()) }
+    }
+
+    // --- 4C: deleting a playlist ---
+
+    @Test
+    fun `delete button opens the delete confirmation dialog`() {
+        val viewModel = viewModelWithPlaylist(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0))
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+
+        composeTestRule.onNodeWithTag("delete_playlist_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Eliminar playlist").assertIsDisplayed()
+    }
+
+    @Test
+    fun `cancelling the delete confirmation does not delete and stays on PlaylistDetail`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+        var backCalled = false
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("delete_playlist_dialog_cancel_button").performClick()
+
+        composeTestRule.onAllNodesWithTag("delete_playlist_dialog").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("playlist_detail_screen").assertIsDisplayed()
+        assertEquals(0, repo.deleteCallCount)
+        assertTrue(!backCalled)
+    }
+
+    @Test
+    fun `confirming delete calls the delete operation exactly once`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
+
+        assertEquals(1, repo.deleteCallCount)
+    }
+
+    @Test
+    fun `double tap on confirm delete does not trigger two deletions`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0),
+            emptyList(),
+            emptyList(),
+            deleteBlocksForever = true,
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
+        composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
+
+        assertEquals(1, repo.deleteCallCount)
+    }
+
+    @Test
+    fun `successful deletion navigates back to the previous screen`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+        var backCalled = false
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
+
+        assertTrue(backCalled)
+    }
+
+    @Test
+    fun `failed deletion keeps the screen, does not navigate back and allows retry`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0),
+            emptyList(),
+            emptyList(),
+            deleteShouldFail = true,
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+        var backCalled = false
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
+
+        assertTrue(!backCalled)
+        composeTestRule.onNodeWithTag("playlist_detail_screen").assertIsDisplayed()
+        // The dialog stays open so the user can retry directly, same idiom as AddTracksDialog on failure.
+        composeTestRule.onNodeWithTag("delete_playlist_dialog").assertIsDisplayed()
+    }
+
+    @Test
+    fun `delete action coexists with tap-to-play, remove track and add tracks without interference`() {
+        val tracks = listOf(Track(id = "a", title = "Track A", artist = "Artist"))
+        val deviceTracks = listOf(Track(id = "d1", title = "Discovery", artist = "New Artist"))
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a"), trackCount = 1),
+            tracks,
+            deviceTracks,
+        )
+        val localMedia = object : LocalMediaRepository() {
+            override suspend fun loadTracks(): List<Track> = deviceTracks
+        }
+        val viewModel = PlaylistsViewModel(repo, localMedia, Dispatchers.Unconfined)
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
+
+        composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
+        composeTestRule.onNodeWithTag("add_tracks_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Discovery").assertIsDisplayed()
     }
 }

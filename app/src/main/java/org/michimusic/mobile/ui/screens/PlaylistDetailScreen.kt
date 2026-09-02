@@ -53,6 +53,7 @@ import org.michimusic.mobile.screens.PlaylistDetailUiState
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.AddTracksDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.DeletePlaylistDialog
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -80,9 +81,11 @@ fun PlaylistDetailScreen(
     val isAddingTracks by viewModel.isAddingTracks.collectAsState()
     val addTracksError by viewModel.addTracksError.collectAsState()
     val isRemovingTrack by viewModel.isRemovingTrack.collectAsState()
+    val isDeletingPlaylist by viewModel.isDeletingPlaylist.collectAsState()
 
     var showAddTracksDialog by remember { mutableStateOf(false) }
     var trackPendingRemoval by remember { mutableStateOf<Track?>(null) }
+    var showDeletePlaylistDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(playlistId) {
@@ -193,6 +196,24 @@ fun PlaylistDetailScreen(
 
                 if (uiState !is PlaylistDetailUiState.NotFound) {
                     IconButton(
+                        onClick = { showDeletePlaylistDialog = true },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(GlassFillLow)
+                            .testTag("playlist_detail_delete_playlist_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Eliminar playlist",
+                            tint = TextMuted,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    Spacer(Modifier.width(10.dp))
+
+                    IconButton(
                         onClick = {
                             viewModel.loadAvailableTracks()
                             showAddTracksDialog = true
@@ -277,6 +298,21 @@ fun PlaylistDetailScreen(
                     trackPendingRemoval = null
                 },
                 onDismiss = { trackPendingRemoval = null },
+            )
+        }
+
+        if (showDeletePlaylistDialog) {
+            DeletePlaylistDialog(
+                isDeleting = isDeletingPlaylist,
+                onConfirm = {
+                    viewModel.deletePlaylist(playlistId) { success ->
+                        if (success) {
+                            showDeletePlaylistDialog = false
+                            onBack()
+                        }
+                    }
+                },
+                onDismiss = { showDeletePlaylistDialog = false },
             )
         }
     }

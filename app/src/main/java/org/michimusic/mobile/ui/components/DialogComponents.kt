@@ -2048,6 +2048,88 @@ fun RemoveTrackFromPlaylistDialog(
 }
 
 @Composable
+fun DeletePlaylistDialog(
+    isDeleting: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = { if (!isDeleting) onDismiss() }) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceContainer,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("delete_playlist_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Text(
+                    text = "Eliminar playlist",
+                    color = PureWhite,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "¿Quieres eliminar esta playlist? Las canciones no se eliminarán del dispositivo.",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !isDeleting,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("delete_playlist_dialog_cancel_button"),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("Cancelar", color = PureWhite)
+                    }
+
+                    Button(
+                        onClick = { if (!isDeleting) onConfirm() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .testTag("delete_playlist_dialog_confirm_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isDeleting) PrimaryPinkContainer.copy(alpha = 0.4f) else PrimaryPinkContainer,
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        if (isDeleting) {
+                            CircularProgressIndicator(
+                                color = PureWhite,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        } else {
+                            Text("Eliminar", color = PureWhite, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AddTracksDialogRow(
     track: Track,
     isSelected: Boolean,
