@@ -61,6 +61,9 @@ class PlaylistsViewModel(
     private val _isRemovingTrack = MutableStateFlow(false)
     val isRemovingTrack: StateFlow<Boolean> = _isRemovingTrack.asStateFlow()
 
+    private val _isDeletingPlaylist = MutableStateFlow(false)
+    val isDeletingPlaylist: StateFlow<Boolean> = _isDeletingPlaylist.asStateFlow()
+
     init {
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
@@ -156,6 +159,28 @@ class PlaylistsViewModel(
                 _addTracksError.value = e.message ?: "No se pudo quitar la canción"
             } finally {
                 _isRemovingTrack.value = false
+            }
+        }
+    }
+
+    // Deletes the playlist itself only - never its tracks or their underlying media files.
+    // Guarded by isDeletingPlaylist so a double-tap on the confirm button can't fire two
+    // overlapping deletions. onComplete reports success/failure so the caller (PlaylistDetailScreen)
+    // knows when it's safe to navigate back - never before the delete has actually finished.
+    fun deletePlaylist(playlistId: String, onComplete: (success: Boolean) -> Unit = {}) {
+        if (_isDeletingPlaylist.value) return
+        viewModelScope.launch(ioDispatcher) {
+            _isDeletingPlaylist.value = true
+            _addTracksError.value = null
+            var success = false
+            try {
+                repo.deletePlaylist(playlistId)
+                success = true
+            } catch (e: Exception) {
+                _addTracksError.value = e.message ?: "No se pudo eliminar la playlist"
+            } finally {
+                _isDeletingPlaylist.value = false
+                onComplete(success)
             }
         }
     }
