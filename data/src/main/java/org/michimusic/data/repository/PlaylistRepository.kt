@@ -86,6 +86,17 @@ open class PlaylistRepository(
         playlistDao?.deleteById(id)
     }
 
+    // Updates only the name column, leaving trackIds/trackCount untouched - a targeted
+    // UPDATE is safer here than the read-modify-write via insert(REPLACE) used by
+    // addTracksToPlaylist/removeTrackFromPlaylist, since it can't race with a concurrent
+    // track list change and clobber it.
+    open suspend fun renamePlaylist(id: String, newName: String) {
+        if (playlistDao == null) return
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        playlistDao.renameById(id, trimmed)
+    }
+
     // Resolves a playlist's trackIds to their Track objects, preserving the stored order.
     // trackIds mixes two independent ID namespaces: local device tracks (LocalMediaRepository,
     // MediaStore-backed) and synced/remote tracks (TrackDao, cached_tracks - Michi Link only).

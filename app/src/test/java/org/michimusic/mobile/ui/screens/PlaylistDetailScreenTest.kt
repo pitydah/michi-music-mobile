@@ -2,11 +2,13 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -58,16 +60,25 @@ class PlaylistDetailScreenTest {
         // When true, deletePlaylist() suspends forever instead of returning - used to
         // simulate an in-flight deletion so a second tap can be observed as a no-op.
         var deleteBlocksForever: Boolean = false,
+        private val renameShouldFail: Boolean = false,
+        // When true, renamePlaylist() suspends forever instead of returning - used to
+        // simulate an in-flight rename so a second tap can be observed as a no-op.
+        var renameBlocksForever: Boolean = false,
     ) : PlaylistRepository(
         trackDao = mockk<TrackDao>(relaxed = true),
         localMediaRepository = LocalMediaRepository(),
     ) {
         private var tracks: List<Track> = initialTracks
         private var trackCount: Int = basePlaylist?.trackCount ?: initialTracks.size
+        private var name: String = basePlaylist?.name ?: ""
         var deleteCallCount: Int = 0
             private set
+        var renameCallCount: Int = 0
+            private set
+        var renameCalledWith: String? = null
+            private set
 
-        override suspend fun getById(id: String): Playlist? = basePlaylist?.copy(trackCount = trackCount)
+        override suspend fun getById(id: String): Playlist? = basePlaylist?.copy(name = name, trackCount = trackCount)
         override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = tracks
         override suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) {
             val existingIds = tracks.map { it.id }
@@ -83,6 +94,13 @@ class PlaylistDetailScreenTest {
             deleteCallCount++
             if (deleteBlocksForever) kotlinx.coroutines.awaitCancellation()
             if (deleteShouldFail) throw RuntimeException("No se pudo eliminar la playlist")
+        }
+        override suspend fun renamePlaylist(id: String, newName: String) {
+            renameCallCount++
+            renameCalledWith = newName
+            if (renameBlocksForever) kotlinx.coroutines.awaitCancellation()
+            if (renameShouldFail) throw RuntimeException("No se pudo renombrar la playlist")
+            name = newName
         }
     }
 
@@ -474,14 +492,15 @@ class PlaylistDetailScreenTest {
     // --- 4C: deleting a playlist ---
 
     @Test
-    fun `delete button opens the delete confirmation dialog`() {
+    fun `delete option in the overflow menu opens the delete confirmation dialog`() {
         val viewModel = viewModelWithPlaylist(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0))
 
         composeTestRule.setContent {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
 
         composeTestRule.onNodeWithTag("delete_playlist_dialog").assertIsDisplayed()
         composeTestRule.onNodeWithText("Eliminar playlist").assertIsDisplayed()
@@ -497,7 +516,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_cancel_button").performClick()
 
         composeTestRule.onAllNodesWithTag("delete_playlist_dialog").assertCountEquals(0)
@@ -515,7 +535,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
 
         assertEquals(1, repo.deleteCallCount)
@@ -535,7 +556,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
 
@@ -552,7 +574,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
 
         assertTrue(backCalled)
@@ -573,7 +596,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
 
         assertTrue(!backCalled)
@@ -601,13 +625,213 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
-        composeTestRule.onNodeWithTag("playlist_detail_delete_playlist_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
 
+        composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
+        composeTestRule.onNodeWithTag("add_tracks_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Discovery").assertIsDisplayed()
+    }
+
+    // --- 4D: renaming a playlist ---
+
+    @Test
+    fun `rename option in the overflow menu opens the rename dialog`() {
+        val viewModel = viewModelWithPlaylist(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0))
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+
+        composeTestRule.onNodeWithTag("rename_playlist_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Renombrar playlist").assertIsDisplayed()
+    }
+
+    @Test
+    fun `rename dialog is pre-filled with the current playlist name`() {
+        val viewModel = viewModelWithPlaylist(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0))
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+
+        // The header behind the dialog also shows the same name, so assert against the
+        // field specifically rather than onNodeWithText, which would match both.
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").assertTextContains("Synthwave Nights")
+    }
+
+    @Test
+    fun `cancelling the rename dialog does not rename and stays on PlaylistDetail`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_cancel_button").performClick()
+
+        composeTestRule.onAllNodesWithTag("rename_playlist_dialog").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("playlist_detail_screen").assertIsDisplayed()
+        assertEquals(0, repo.renameCallCount)
+        composeTestRule.onNodeWithText("Synthwave Nights").assertIsDisplayed()
+    }
+
+    @Test
+    fun `saving a valid new name calls rename and updates the title without leaving the screen`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Old Name", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+        var backCalled = false
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").performTextReplacement("New Name")
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+
+        assertEquals(1, repo.renameCallCount)
+        assertEquals("New Name", repo.renameCalledWith)
+        composeTestRule.onAllNodesWithTag("rename_playlist_dialog").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("playlist_detail_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithText("New Name").assertIsDisplayed()
+        assertTrue(!backCalled)
+    }
+
+    @Test
+    fun `saved name is trimmed before being persisted`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Old Name", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").performTextReplacement("  Padded Name  ")
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+
+        assertEquals("Padded Name", repo.renameCalledWith)
+    }
+
+    @Test
+    fun `blank name does not enable saving`() {
+        val repo = FakeDetailRepo(Playlist(id = "p1", name = "Old Name", trackCount = 0), emptyList(), emptyList())
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").performTextReplacement("   ")
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+
+        assertEquals(0, repo.renameCallCount)
+        composeTestRule.onNodeWithTag("rename_playlist_dialog").assertIsDisplayed()
+    }
+
+    @Test
+    fun `double tap on save does not trigger two renames`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Old Name", trackCount = 0),
+            emptyList(),
+            emptyList(),
+            renameBlocksForever = true,
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").performTextReplacement("New Name")
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+
+        assertEquals(1, repo.renameCallCount)
+    }
+
+    @Test
+    fun `failed rename keeps the dialog open and does not change the title`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Old Name", trackCount = 0),
+            emptyList(),
+            emptyList(),
+            renameShouldFail = true,
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+        var backCalled = false
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").performTextReplacement("New Name")
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+
+        assertTrue(!backCalled)
+        composeTestRule.onNodeWithTag("playlist_detail_screen").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Old Name").assertIsDisplayed()
+    }
+
+    @Test
+    fun `rename option coexists with tap-to-play, remove track, add tracks and delete option`() {
+        val tracks = listOf(Track(id = "a", title = "Track A", artist = "Artist"))
+        val deviceTracks = listOf(Track(id = "d1", title = "Discovery", artist = "New Artist"))
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a"), trackCount = 1),
+            tracks,
+            deviceTracks,
+        )
+        val localMedia = object : LocalMediaRepository() {
+            override suspend fun loadTracks(): List<Track> = deviceTracks
+        }
+        val viewModel = PlaylistsViewModel(repo, localMedia, Dispatchers.Unconfined)
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        // Renaming still works alongside everything else.
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_rename_menu_item").performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_field").performTextReplacement("Renamed Mix")
+        composeTestRule.onNodeWithTag("rename_playlist_dialog_confirm_button").performClick()
+        composeTestRule.onNodeWithText("Renamed Mix").assertIsDisplayed()
+
+        // Tap-to-play (4B) still works.
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
+
+        // Remove track (3C) is still available.
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
+
+        // Add-tracks selector (3B) still opens.
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
         composeTestRule.onNodeWithTag("add_tracks_dialog").assertIsDisplayed()
         composeTestRule.onNodeWithText("Discovery").assertIsDisplayed()

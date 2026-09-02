@@ -403,6 +403,108 @@ class PlaylistsViewModelTest {
         assertTrue(vm.isDeletingPlaylist.value)
     }
 
+    // --- 4D: renaming a playlist ---
+
+    @Test
+    fun renamePlaylist_validName_callsRepositoryExactlyOnceAndReportsSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var result: Boolean? = null
+
+        vm.renamePlaylist("p1", "New Name") { success -> result = success }
+        advanceUntilIdle()
+
+        assertEquals("p1" to "New Name", recordingRepo.renamePlaylistCalledWith)
+        assertEquals(1, recordingRepo.renamePlaylistCallCount)
+        assertEquals(true, result)
+    }
+
+    @Test
+    fun renamePlaylist_success_refreshesDetailStateWithNewName() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.renamePlaylist("p1", "New Name")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals("New Name", (state as PlaylistDetailUiState.Found).playlist.name)
+    }
+
+    @Test
+    fun renamePlaylist_isRenamingPlaylist_backToFalseAfterSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        assertFalse(vm.isRenamingPlaylist.value)
+        vm.renamePlaylist("p1", "New Name")
+        advanceUntilIdle()
+
+        assertFalse(vm.isRenamingPlaylist.value)
+    }
+
+    @Test
+    fun renamePlaylist_repositoryFailure_doesNotCrashExposesErrorAndReportsFailure() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var result: Boolean? = null
+
+        vm.renamePlaylist("p1", "New Name") { success -> result = success }
+        advanceUntilIdle()
+
+        assertFalse(vm.isRenamingPlaylist.value)
+        assertEquals("boom", vm.addTracksError.value)
+        assertEquals(false, result)
+    }
+
+    @Test
+    fun renamePlaylist_calledAgainWhileInFlight_isIgnored() = runTest(testDispatcher) {
+        var callCount = 0
+        val neverCompletingRepo = object : PlaylistRepository(
+            trackDao = mockk<TrackDao>(relaxed = true),
+            localMediaRepository = LocalMediaRepository(),
+        ) {
+            override suspend fun renamePlaylist(id: String, newName: String) {
+                callCount++
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.renamePlaylist("p1", "New Name")
+        testDispatcher.scheduler.runCurrent()
+        vm.renamePlaylist("p1", "Another Name")
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(1, callCount)
+        assertTrue(vm.isRenamingPlaylist.value)
+    }
+
+    @Test
+    fun renamePlaylist_blankName_doesNotCallRepositoryAndReportsFailure() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var result: Boolean? = null
+
+        vm.renamePlaylist("p1", "   ") { success -> result = success }
+        advanceUntilIdle()
+
+        assertEquals(0, recordingRepo.renamePlaylistCallCount)
+        assertEquals(false, result)
+    }
+
+    @Test
+    fun renamePlaylist_trimsNameBeforeCallingRepository() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.renamePlaylist("p1", "  Padded Name  ")
+        advanceUntilIdle()
+
+        assertEquals("p1" to "Padded Name", recordingRepo.renamePlaylistCalledWith)
+    }
+
     @Test
     fun loadAvailableTracks_populatesFromLocalMediaRepository() = runTest(testDispatcher) {
         val deviceTracks = listOf(Track(id = "t1", title = "One"), Track(id = "t2", title = "Two"))
@@ -463,8 +565,13 @@ private class RecordingPlaylistRepo(
         private set
     var deletePlaylistCallCount: Int = 0
         private set
+    var renamePlaylistCalledWith: Pair<String, String>? = null
+        private set
+    var renamePlaylistCallCount: Int = 0
+        private set
+    private var currentName: String = "Mix"
 
-    override suspend fun getById(id: String) = Playlist(id = id, name = "Mix", trackCount = currentTracks.size)
+    override suspend fun getById(id: String) = Playlist(id = id, name = currentName, trackCount = currentTracks.size)
 
     override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = currentTracks
 
@@ -484,5 +591,12 @@ private class RecordingPlaylistRepo(
         deletePlaylistCalledWith = id
         deletePlaylistCallCount++
         if (shouldFail) throw RuntimeException("boom")
+    }
+
+    override suspend fun renamePlaylist(id: String, newName: String) {
+        renamePlaylistCalledWith = id to newName
+        renamePlaylistCallCount++
+        if (shouldFail) throw RuntimeException("boom")
+        currentName = newName
     }
 }
