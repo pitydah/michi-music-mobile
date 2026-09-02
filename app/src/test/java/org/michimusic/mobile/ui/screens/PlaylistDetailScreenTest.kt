@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -19,6 +20,7 @@ import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.screens.PlaylistsViewModel
+import org.michimusic.player.AudioController
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -77,7 +79,7 @@ class PlaylistDetailScreenTest {
         val viewModel = viewModelWithPlaylist(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 5))
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithText("Synthwave Nights").assertIsDisplayed()
@@ -89,7 +91,7 @@ class PlaylistDetailScreenTest {
         val viewModel = viewModelWithPlaylist(Playlist(id = "p2", name = "Vacia", trackCount = 0))
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p2", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p2", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
@@ -101,7 +103,7 @@ class PlaylistDetailScreenTest {
         val viewModel = viewModelWithPlaylist(null)
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "missing-id", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "missing-id", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_not_found_state").assertIsDisplayed()
@@ -120,7 +122,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_track_list").assertIsDisplayed()
@@ -140,7 +142,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_track_t1").assertIsDisplayed()
@@ -154,7 +156,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
@@ -171,7 +173,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
@@ -197,7 +199,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
@@ -222,7 +224,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
@@ -245,7 +247,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").assertIsDisplayed()
@@ -261,7 +263,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
@@ -279,7 +281,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
@@ -302,7 +304,7 @@ class PlaylistDetailScreenTest {
         )
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
@@ -323,7 +325,7 @@ class PlaylistDetailScreenTest {
         var backCalled = false
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
@@ -340,11 +342,120 @@ class PlaylistDetailScreenTest {
         var backCalled = false
 
         composeTestRule.setContent {
-            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel)
+            PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
         composeTestRule.onNodeWithTag("playlist_detail_back_button").performClick()
 
         assertTrue(backCalled)
+    }
+
+    // --- 4B: tap-to-play from PlaylistDetail ---
+
+    @Test
+    fun `tapping the first track plays the full playlist starting at index 0`() {
+        val tracks = listOf(
+            Track(id = "a", title = "Track A", artist = "Artist"),
+            Track(id = "b", title = "Track B", artist = "Artist"),
+            Track(id = "c", title = "Track C", artist = "Artist"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "ABC", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            tracks = tracks,
+        )
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
+
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
+    }
+
+    @Test
+    fun `tapping a middle track starts playback there while keeping the full queue and order`() {
+        val tracks = listOf(
+            Track(id = "a", title = "Track A", artist = "Artist"),
+            Track(id = "b", title = "Track B", artist = "Artist"),
+            Track(id = "c", title = "Track C", artist = "Artist"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "ABC", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            tracks = tracks,
+        )
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_b").performClick()
+
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 1) }
+    }
+
+    @Test
+    fun `tapping the last track starts playback at the last index`() {
+        val tracks = listOf(
+            Track(id = "a", title = "Track A", artist = "Artist"),
+            Track(id = "b", title = "Track B", artist = "Artist"),
+            Track(id = "c", title = "Track C", artist = "Artist"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "ABC", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            tracks = tracks,
+        )
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_c").performClick()
+
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 2) }
+    }
+
+    @Test
+    fun `tapping the only track in a single-song playlist plays it at index 0`() {
+        val tracks = listOf(Track(id = "solo", title = "Solo Track", artist = "Artist"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Solo", trackIds = listOf("solo"), trackCount = 1),
+            tracks = tracks,
+        )
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_solo").performClick()
+
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
+    }
+
+    @Test
+    fun `removing a track still works and does not trigger playback`() {
+        val tracks = listOf(
+            Track(id = "a", title = "Track A", artist = "Artist"),
+            Track(id = "b", title = "Track B", artist = "Artist"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "AB", trackIds = listOf("a", "b"), trackCount = 2),
+            tracks = tracks,
+        )
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").performClick()
+        composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
+
+        composeTestRule.onAllNodesWithTag("playlist_detail_track_a").assertCountEquals(0)
+        verify(exactly = 0) { mockAudio.playQueue(any(), any()) }
     }
 }

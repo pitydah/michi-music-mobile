@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.PlaylistDetailUiState
 import org.michimusic.mobile.screens.PlaylistsViewModel
@@ -63,6 +64,7 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.player.AudioController
 
 @Composable
 fun PlaylistDetailScreen(
@@ -70,6 +72,7 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PlaylistsViewModel = koinViewModel(),
+    audioController: AudioController = koinInject(),
 ) {
     val uiState by viewModel.selectedPlaylistState.collectAsState()
     val availableTracks by viewModel.availableTracks.collectAsState()
@@ -232,6 +235,11 @@ fun PlaylistDetailScreen(
                             tracks = state.playlist.tracks,
                             removeEnabled = !isRemovingTrack,
                             onRemoveClick = { track -> trackPendingRemoval = track },
+                            onTrackClick = { track ->
+                                val tracks = state.playlist.tracks
+                                val index = tracks.indexOfFirst { it.id == track.id }
+                                if (index >= 0) audioController.playQueue(tracks, index)
+                            },
                         )
                     }
                 }
@@ -279,6 +287,7 @@ private fun PlaylistTracksList(
     tracks: List<Track>,
     removeEnabled: Boolean,
     onRemoveClick: (Track) -> Unit,
+    onTrackClick: (Track) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier
@@ -287,20 +296,26 @@ private fun PlaylistTracksList(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         items(tracks, key = { it.id }) { track ->
-            PlaylistTrackRow(track, removeEnabled = removeEnabled, onRemoveClick = { onRemoveClick(track) })
+            PlaylistTrackRow(
+                track,
+                removeEnabled = removeEnabled,
+                onRemoveClick = { onRemoveClick(track) },
+                onClick = { onTrackClick(track) },
+            )
         }
         item { Spacer(Modifier.height(100.dp)) }
     }
 }
 
 @Composable
-private fun PlaylistTrackRow(track: Track, removeEnabled: Boolean, onRemoveClick: () -> Unit) {
+private fun PlaylistTrackRow(track: Track, removeEnabled: Boolean, onRemoveClick: () -> Unit, onClick: () -> Unit) {
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("playlist_detail_track_${track.id}"),
         backgroundColor = GlassFillLow,
         borderColor = GlassBorderLow,
+        onClick = onClick,
     ) {
         Row(
             modifier = Modifier
