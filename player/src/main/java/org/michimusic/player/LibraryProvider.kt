@@ -2,7 +2,6 @@ package org.michimusic.player
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -338,21 +337,10 @@ class LibraryProvider(
                 }
                 extractSongId(mediaId) != null -> {
                     extractSongId(mediaId)?.let { songId ->
-                        val track = cachedTracks.firstOrNull { it.id == songId }
-                        Log.d(
-                            "MichiPlaybackDebug",
-                            "resolveForPlayback song mediaId=$mediaId songId=$songId " +
-                                "source=LibraryProvider.cachedTracks cachedTracksSize=${cachedTracks.size} " +
-                                "found=${track != null} action=${if (track != null) "added" else "discarded"}",
-                        )
-                        track?.let { resolved.add(it.toPlayableSong()) }
+                        cachedTracks.firstOrNull { it.id == songId }?.let { track ->
+                            resolved.add(track.toPlayableSong())
+                        }
                     }
-                }
-                else -> {
-                    Log.d(
-                        "MichiPlaybackDebug",
-                        "resolveForPlayback discarded unmatched mediaId=$mediaId uri=${item.localConfiguration?.uri}",
-                    )
                 }
             }
         }

@@ -1,6 +1,5 @@
 package org.michimusic.player
 
-import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -123,18 +122,9 @@ class MichiMediaLibrarySessionCallback(
                 // browsing-only callbacks that used to populate it (onGetLibraryRoot,
                 // onPlaybackResumption) are never invoked by a plain MediaController client.
                 libraryProvider.ensureLoaded()
-                Log.d(
-                    "MichiPlaybackDebug",
-                    "onAddMediaItems received=${mediaItems.size} ids=${mediaItems.map { it.mediaId }}",
-                )
                 val resolved = libraryProvider.resolveForPlayback(mediaItems)
-                Log.d(
-                    "MichiPlaybackDebug",
-                    "onAddMediaItems resolved=${resolved.size} ids=${resolved.map { it.mediaId }}",
-                )
                 future.set(if (resolved.isNotEmpty()) resolved else mediaItems)
-            } catch (e: Exception) {
-                Log.e("MichiPlaybackDebug", "onAddMediaItems failed to resolve mediaItems", e)
+            } catch (_: Exception) {
                 future.set(mediaItems)
             }
         }
@@ -163,18 +153,9 @@ class MichiMediaLibrarySessionCallback(
                     }
                 }
 
-                Log.d(
-                    "MichiPlaybackDebug",
-                    "onSetMediaItems received=${mediaItems.size} ids=${mediaItems.map { it.mediaId }}",
-                )
                 val resolved = libraryProvider.resolveForPlayback(mediaItems)
-                Log.d(
-                    "MichiPlaybackDebug",
-                    "onSetMediaItems resolved=${resolved.size} ids=${resolved.map { it.mediaId }}",
-                )
                 future.set(MediaItemsWithStartPosition(resolved, startIndex, startPositionMs))
-            } catch (e: Exception) {
-                Log.e("MichiPlaybackDebug", "onSetMediaItems failed to resolve mediaItems", e)
+            } catch (_: Exception) {
                 future.set(MediaItemsWithStartPosition(emptyList(), startIndex, startPositionMs))
             }
         }
