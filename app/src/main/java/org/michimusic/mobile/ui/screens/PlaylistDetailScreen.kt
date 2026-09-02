@@ -190,7 +190,11 @@ fun PlaylistDetailScreen(
                         modifier = Modifier.testTag("playlist_detail_title"),
                     )
                     if (uiState is PlaylistDetailUiState.Found) {
-                        val count = (uiState as PlaylistDetailUiState.Found).playlist.trackCount
+                        // Count of tracks actually resolvable/renderable (state.playlist.tracks),
+                        // not the persisted trackCount - a stored trackId can outlive the file it
+                        // points to (moved/deleted device track, unreachable remote fallback), so
+                        // the header must match what PlaylistTracksList below actually renders.
+                        val count = (uiState as PlaylistDetailUiState.Found).playlist.tracks.size
                         Text(
                             text = if (count == 1) "1 canción" else "$count canciones",
                             fontSize = 13.sp,
@@ -288,7 +292,10 @@ fun PlaylistDetailScreen(
                 }
 
                 is PlaylistDetailUiState.Found -> {
-                    if (state.playlist.trackCount == 0) {
+                    // Gate on resolvable tracks, not the persisted trackCount: a playlist can
+                    // have trackCount > 0 while every stored id has become unresolvable, in
+                    // which case there is nothing to render and the empty state is correct.
+                    if (state.playlist.tracks.isEmpty()) {
                         EmptyPlaylistState()
                     } else {
                         PlaylistTracksList(

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -106,7 +107,11 @@ class PlaylistDetailScreenTest {
 
     @Test
     fun `shows playlist name and track count when found`() {
-        val viewModel = viewModelWithPlaylist(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 5))
+        val tracks = (1..5).map { Track(id = "t$it", title = "Track $it") }
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Synthwave Nights", trackIds = tracks.map { it.id }, trackCount = 5),
+            tracks = tracks,
+        )
 
         composeTestRule.setContent {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
@@ -835,5 +840,91 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
         composeTestRule.onNodeWithTag("add_tracks_dialog").assertIsDisplayed()
         composeTestRule.onNodeWithText("Discovery").assertIsDisplayed()
+    }
+
+    // --- 4E: trackCount vs resolvable tracks consistency ---
+
+    @Test
+    fun `header count and rendered rows reflect resolvable tracks, not the persisted trackCount`() {
+        // trackIds/trackCount claim 3 tracks (a, b, c) but "b" can no longer be resolved
+        // (e.g. its device file was deleted) - getTracksForPlaylist only returns a and c.
+        val resolvableTracks = listOf(
+            Track(id = "a", title = "Track A", artist = "Artist"),
+            Track(id = "c", title = "Track C", artist = "Artist"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            tracks = resolvableTracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithText("2 canciones").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_c").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("playlist_detail_track_b").assertCountEquals(0)
+        composeTestRule.onAllNodesWithTag("playlist_detail_empty_state").assertCountEquals(0)
+    }
+
+    @Test
+    fun `every stored id unresolvable shows EmptyPlaylistState instead of a phantom count`() {
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b"), trackCount = 2),
+            tracks = emptyList(),
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("playlist_detail_track_list").assertCountEquals(0)
+        composeTestRule.onAllNodesWithText("2 canciones").assertCountEquals(0)
+    }
+
+    @Test
+    fun `removing a resolvable track still works when the playlist also has an unresolvable id`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "ghost"), trackCount = 2),
+            listOf(Track(id = "a", title = "Track A", artist = "Artist")),
+            emptyList(),
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithText("1 canción").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").performClick()
+        composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
+
+        composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
+    }
+
+    @Test
+    fun `tapping a track plays exactly the resolvable list the user sees, indexed within it`() {
+        // trackIds has "b" between "a" and "c", but only a/c resolve - the queue sent to
+        // AudioController must be the resolvable list [a, c], and tapping "c" must resolve
+        // to index 1 within THAT list, not its position (2) in the persisted trackIds.
+        val resolvableTracks = listOf(
+            Track(id = "a", title = "Track A", artist = "Artist"),
+            Track(id = "c", title = "Track C", artist = "Artist"),
+        )
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            tracks = resolvableTracks,
+        )
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_c").performClick()
+
+        verify(exactly = 1) { mockAudio.playQueue(resolvableTracks, 1) }
     }
 }
