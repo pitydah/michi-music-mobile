@@ -2,6 +2,8 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -22,6 +24,7 @@ import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.LocalMediaRepository
+import org.michimusic.data.repository.MoveDirection
 import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.player.AudioController
@@ -65,6 +68,9 @@ class PlaylistDetailScreenTest {
         // When true, renamePlaylist() suspends forever instead of returning - used to
         // simulate an in-flight rename so a second tap can be observed as a no-op.
         var renameBlocksForever: Boolean = false,
+        // When true, moveTrack() suspends forever instead of returning - used to simulate
+        // an in-flight reorder so a second tap can be observed as a no-op.
+        var moveBlocksForever: Boolean = false,
     ) : PlaylistRepository(
         trackDao = mockk<TrackDao>(relaxed = true),
         localMediaRepository = LocalMediaRepository(),
@@ -77,6 +83,10 @@ class PlaylistDetailScreenTest {
         var renameCallCount: Int = 0
             private set
         var renameCalledWith: String? = null
+            private set
+        var moveTrackCallCount: Int = 0
+            private set
+        var moveTrackCalledWith: Pair<String, MoveDirection>? = null
             private set
 
         override suspend fun getById(id: String): Playlist? = basePlaylist?.copy(name = name, trackCount = trackCount)
@@ -102,6 +112,19 @@ class PlaylistDetailScreenTest {
             if (renameBlocksForever) kotlinx.coroutines.awaitCancellation()
             if (renameShouldFail) throw RuntimeException("No se pudo renombrar la playlist")
             name = newName
+        }
+        override suspend fun moveTrack(id: String, trackId: String, direction: MoveDirection) {
+            moveTrackCallCount++
+            moveTrackCalledWith = trackId to direction
+            if (moveBlocksForever) kotlinx.coroutines.awaitCancellation()
+            val fromIndex = tracks.indexOfFirst { it.id == trackId }
+            if (fromIndex < 0) return
+            val toIndex = if (direction == MoveDirection.UP) fromIndex - 1 else fromIndex + 1
+            if (toIndex !in tracks.indices) return
+            tracks = tracks.toMutableList().apply {
+                val moved = removeAt(fromIndex)
+                add(toIndex, moved)
+            }
         }
     }
 
@@ -926,5 +949,199 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_track_c").performClick()
 
         verify(exactly = 1) { mockAudio.playQueue(resolvableTracks, 1) }
+    }
+
+    // --- 4F: reordering tracks ---
+
+    @Test
+    fun `reorder controls appear per row via the track options menu`() {
+        val tracks = listOf(Track(id = "a", title = "Track A", artist = "Artist"), Track(id = "b", title = "Track B", artist = "Artist"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b"), trackCount = 2),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
+
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_move_down_a").assertIsDisplayed()
+    }
+
+    @Test
+    fun `moving a middle track up calls moveTrack with the UP direction`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            listOf(Track(id = "a", title = "A"), Track(id = "b", title = "B"), Track(id = "c", title = "C")),
+            emptyList(),
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_b").performClick()
+
+        assertEquals("b" to MoveDirection.UP, repo.moveTrackCalledWith)
+    }
+
+    @Test
+    fun `moving a middle track down calls moveTrack with the DOWN direction`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            listOf(Track(id = "a", title = "A"), Track(id = "b", title = "B"), Track(id = "c", title = "C")),
+            emptyList(),
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_down_b").performClick()
+
+        assertEquals("b" to MoveDirection.DOWN, repo.moveTrackCalledWith)
+    }
+
+    @Test
+    fun `first track does not offer moving up`() {
+        val tracks = listOf(Track(id = "a", title = "A"), Track(id = "b", title = "B"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b"), trackCount = 2),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
+
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_a").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `last track does not offer moving down`() {
+        val tracks = listOf(Track(id = "a", title = "A"), Track(id = "b", title = "B"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b"), trackCount = 2),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
+
+        composeTestRule.onNodeWithTag("playlist_detail_move_down_b").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `double tap on move up does not trigger two reorders`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b"), trackCount = 2),
+            listOf(Track(id = "a", title = "A"), Track(id = "b", title = "B")),
+            emptyList(),
+            moveBlocksForever = true,
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_b").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_b").performClick()
+
+        assertEquals(1, repo.moveTrackCallCount)
+    }
+
+    @Test
+    fun `tap to play and remove still work alongside the reorder menu`() {
+        val tracks = listOf(Track(id = "a", title = "Track A", artist = "Artist"), Track(id = "b", title = "Track B", artist = "Artist"))
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b"), trackCount = 2),
+            tracks,
+            emptyList(),
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+        val mockAudio = mockk<AudioController>(relaxed = true)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
+        verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
+
+        composeTestRule.onNodeWithTag("playlist_detail_remove_track_b").performClick()
+        composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
+
+        composeTestRule.onAllNodesWithTag("playlist_detail_track_b").assertCountEquals(0)
+    }
+
+    @Test
+    fun `after reordering, the visible list reflects the new order`() {
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "b", "c"), trackCount = 3),
+            listOf(Track(id = "a", title = "Track A"), Track(id = "b", title = "Track B"), Track(id = "c", title = "Track C")),
+            emptyList(),
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        // Move "c" up twice: [a, b, c] -> [a, c, b] -> [c, a, b].
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
+
+        // "c" is now first, so it can no longer move up...
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_c").assertIsNotEnabled()
+
+        // ...while "a" (now second) can.
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_a").assertIsEnabled()
+    }
+
+    // 4E policy, obligatorio: an id the UI can't resolve/render must not be lost or
+    // corrupted by reordering the tracks that ARE visible around it. The exact "stays at
+    // its absolute index" guarantee is verified precisely at the Repository level
+    // (PlaylistRepositoryTest.moveTrack_unresolvableIdInBetween_*); this is the
+    // UI-integration sanity check that the screen still works end-to-end in that scenario.
+    @Test
+    fun `reordering visible tracks still works when the playlist also has an unresolvable id`() {
+        val tracks = listOf(Track(id = "a", title = "Track A"), Track(id = "c", title = "Track C"))
+        val repo = FakeDetailRepo(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a", "x", "c"), trackCount = 3),
+            tracks,
+            emptyList(),
+        )
+        val viewModel = PlaylistsViewModel(repo, LocalMediaRepository(), Dispatchers.Unconfined)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
+
+        assertEquals("c" to MoveDirection.UP, repo.moveTrackCalledWith)
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_c").assertIsDisplayed()
     }
 }

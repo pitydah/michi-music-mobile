@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.LocalMediaRepository
+import org.michimusic.data.repository.MoveDirection
 import org.michimusic.data.repository.PlaylistRepository
 
 data class PlaylistItem(
@@ -66,6 +67,9 @@ class PlaylistsViewModel(
 
     private val _isRenamingPlaylist = MutableStateFlow(false)
     val isRenamingPlaylist: StateFlow<Boolean> = _isRenamingPlaylist.asStateFlow()
+
+    private val _isReorderingTrack = MutableStateFlow(false)
+    val isReorderingTrack: StateFlow<Boolean> = _isReorderingTrack.asStateFlow()
 
     init {
         viewModelScope.launch(ioDispatcher) {
@@ -184,6 +188,26 @@ class PlaylistsViewModel(
             } finally {
                 _isDeletingPlaylist.value = false
                 onComplete(success)
+            }
+        }
+    }
+
+    // Moves a track one step up/down within the playlist's currently resolvable/visible
+    // order (see PlaylistRepository.moveTrack for the exact policy on unresolvable ids).
+    // Guarded by isReorderingTrack against overlapping taps - up/down are rapid-fire UI
+    // actions more likely to be double-tapped than the confirmation-gated operations above.
+    fun moveTrack(playlistId: String, trackId: String, direction: MoveDirection) {
+        if (_isReorderingTrack.value) return
+        viewModelScope.launch(ioDispatcher) {
+            _isReorderingTrack.value = true
+            _addTracksError.value = null
+            try {
+                repo.moveTrack(playlistId, trackId, direction)
+                refreshPlaylistDetail(playlistId)
+            } catch (e: Exception) {
+                _addTracksError.value = e.message ?: "No se pudo reordenar la canción"
+            } finally {
+                _isReorderingTrack.value = false
             }
         }
     }

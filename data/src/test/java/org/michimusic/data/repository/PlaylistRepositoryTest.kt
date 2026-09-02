@@ -134,6 +134,165 @@ class PlaylistRepositoryTest {
         assertEquals(listOf("A"), reloaded?.trackIds)
     }
 
+    // --- 4F: reordering tracks ---
+
+    @Test
+    fun moveTrack_up_swapsWithPreviousResolvableTrack() = runTest {
+        val localMedia = CountingLocalMediaRepository(
+            listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B"), Track(id = "C", title = "C"), Track(id = "D", title = "D")),
+        )
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B", "C", "D"))
+
+        repoWithTracks.moveTrack(created.id, "C", MoveDirection.UP)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(listOf("A", "C", "B", "D"), updated?.trackIds)
+    }
+
+    @Test
+    fun moveTrack_down_swapsWithNextResolvableTrack() = runTest {
+        val localMedia = CountingLocalMediaRepository(
+            listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B"), Track(id = "C", title = "C"), Track(id = "D", title = "D")),
+        )
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B", "C", "D"))
+
+        repoWithTracks.moveTrack(created.id, "B", MoveDirection.DOWN)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(listOf("A", "C", "B", "D"), updated?.trackIds)
+    }
+
+    // Reproduces the exact walkthrough from the spec: each move is applied on top of the
+    // previous result, not on the original list.
+    @Test
+    fun moveTrack_chainedSequenceFromSpecExample_matchesExpectedFinalOrder() = runTest {
+        val localMedia = CountingLocalMediaRepository(
+            listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B"), Track(id = "C", title = "C"), Track(id = "D", title = "D")),
+        )
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B", "C", "D"))
+
+        repoWithTracks.moveTrack(created.id, "C", MoveDirection.UP)
+        assertEquals(listOf("A", "C", "B", "D"), repoWithTracks.getById(created.id)?.trackIds)
+
+        repoWithTracks.moveTrack(created.id, "A", MoveDirection.UP) // no-op: already first
+        assertEquals(listOf("A", "C", "B", "D"), repoWithTracks.getById(created.id)?.trackIds)
+
+        repoWithTracks.moveTrack(created.id, "D", MoveDirection.DOWN) // no-op: already last
+        assertEquals(listOf("A", "C", "B", "D"), repoWithTracks.getById(created.id)?.trackIds)
+
+        repoWithTracks.moveTrack(created.id, "B", MoveDirection.DOWN)
+        assertEquals(listOf("A", "C", "D", "B"), repoWithTracks.getById(created.id)?.trackIds)
+    }
+
+    @Test
+    fun moveTrack_preservesExactSetOfIds() = runTest {
+        val localMedia = CountingLocalMediaRepository(
+            listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B"), Track(id = "C", title = "C")),
+        )
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B", "C"))
+
+        repoWithTracks.moveTrack(created.id, "B", MoveDirection.DOWN)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(setOf("A", "B", "C"), updated?.trackIds?.toSet())
+        assertEquals(3, updated?.trackIds?.size)
+    }
+
+    @Test
+    fun moveTrack_doesNotChangeTrackCount() = runTest {
+        val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B"))
+
+        repoWithTracks.moveTrack(created.id, "B", MoveDirection.UP)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(2, updated?.trackCount)
+    }
+
+    @Test
+    fun moveTrack_firstTrackUp_isSafeNoOp() = runTest {
+        val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B"))
+
+        repoWithTracks.moveTrack(created.id, "A", MoveDirection.UP)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(listOf("A", "B"), updated?.trackIds)
+    }
+
+    @Test
+    fun moveTrack_lastTrackDown_isSafeNoOp() = runTest {
+        val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B"))
+
+        repoWithTracks.moveTrack(created.id, "B", MoveDirection.DOWN)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(listOf("A", "B"), updated?.trackIds)
+    }
+
+    @Test
+    fun moveTrack_unknownPlaylistId_isSafeNoOp() = runTest {
+        repository.moveTrack("does-not-exist", "A", MoveDirection.UP)
+        assertTrue(repository.getAllPlaylists().isEmpty())
+    }
+
+    @Test
+    fun moveTrack_persistsAcrossNewRepositoryInstance() = runTest {
+        val localMedia = CountingLocalMediaRepository(
+            listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B"), Track(id = "C", title = "C")),
+        )
+        val repoWithTracks = PlaylistRepository(fakeDao, mockk(relaxed = true), localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "B", "C"))
+
+        repoWithTracks.moveTrack(created.id, "C", MoveDirection.UP)
+
+        // Simulate closing and reopening the app: a fresh Repository over the same DAO.
+        val reopened = PlaylistRepository(fakeDao, mockk(relaxed = true), LocalMediaRepository())
+        val reloaded = reopened.getById(created.id)
+        assertEquals(listOf("A", "C", "B"), reloaded?.trackIds)
+    }
+
+    // 4E policy: an id that can't currently be resolved (neither local nor remote) must
+    // keep its exact absolute position - only the two resolvable ids directly involved in
+    // the move swap places with each other.
+    @Test
+    fun moveTrack_unresolvableIdInBetween_keepsItsAbsolutePositionUntouched() = runTest {
+        val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
+        val trackDao = mockk<TrackDao>()
+        coEvery { trackDao.getTrackById("X") } returns null
+        val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "X", "B"))
+
+        // Visible order is [A, B] (X never resolves) - moving B up swaps it with A.
+        repoWithTracks.moveTrack(created.id, "B", MoveDirection.UP)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(listOf("B", "X", "A"), updated?.trackIds)
+    }
+
+    @Test
+    fun moveTrack_unresolvableTrackId_isSafeNoOp() = runTest {
+        val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
+        val trackDao = mockk<TrackDao>()
+        coEvery { trackDao.getTrackById("X") } returns null
+        val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
+        val created = repoWithTracks.createPlaylist("Mix", listOf("A", "X", "B"))
+
+        // X itself is not visible/resolvable, so trying to move it must be a no-op.
+        repoWithTracks.moveTrack(created.id, "X", MoveDirection.DOWN)
+
+        val updated = repoWithTracks.getById(created.id)
+        assertEquals(listOf("A", "X", "B"), updated?.trackIds)
+    }
+
     // --- trackIds parsing / mapping ---
 
     @Test
@@ -488,6 +647,11 @@ private class TestPlaylistDao : PlaylistDao {
     override suspend fun renameById(id: String, name: String) {
         val index = playlists.indexOfFirst { it.id == id }
         if (index >= 0) playlists[index] = playlists[index].copy(name = name)
+    }
+
+    override suspend fun updateTrackIds(id: String, trackIds: String) {
+        val index = playlists.indexOfFirst { it.id == id }
+        if (index >= 0) playlists[index] = playlists[index].copy(trackIds = trackIds)
     }
 
     override suspend fun deleteAll() {

@@ -18,6 +18,7 @@ import org.junit.Test
 import org.michimusic.core.models.Playlist
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.LocalMediaRepository
+import org.michimusic.data.repository.MoveDirection
 import org.michimusic.data.repository.PlaylistRepository
 
 import org.junit.Rule
@@ -505,6 +506,105 @@ class PlaylistsViewModelTest {
         assertEquals("p1" to "Padded Name", recordingRepo.renamePlaylistCalledWith)
     }
 
+    // --- 4F: reordering tracks ---
+
+    @Test
+    fun moveTrack_validOperation_callsRepositoryExactlyOnce() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.moveTrack("p1", "B", MoveDirection.UP)
+        advanceUntilIdle()
+
+        assertEquals(Triple("p1", "B", MoveDirection.UP), recordingRepo.moveTrackCalledWith)
+        assertEquals(1, recordingRepo.moveTrackCallCount)
+    }
+
+    @Test
+    fun moveTrack_success_refreshesDetailStateWithNewOrder() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B"), Track(id = "C", title = "C")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.moveTrack("p1", "C", MoveDirection.UP)
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Found)
+        assertEquals(listOf("A", "C", "B"), (state as PlaylistDetailUiState.Found).playlist.tracks.map { it.id })
+    }
+
+    @Test
+    fun moveTrack_isReorderingTrack_backToFalseAfterSuccess() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        assertFalse(vm.isReorderingTrack.value)
+        vm.moveTrack("p1", "B", MoveDirection.UP)
+        advanceUntilIdle()
+
+        assertFalse(vm.isReorderingTrack.value)
+    }
+
+    @Test
+    fun moveTrack_repositoryFailure_doesNotCrashAndExposesError() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+            shouldFail = true,
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.moveTrack("p1", "B", MoveDirection.UP)
+        advanceUntilIdle()
+
+        assertFalse(vm.isReorderingTrack.value)
+        assertEquals("boom", vm.addTracksError.value)
+    }
+
+    @Test
+    fun moveTrack_boundaryNoOp_doesNotChangeOrder() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(
+            initialTracks = listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")),
+        )
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+
+        // "A" is already first - the Repository's own boundary check makes this a no-op;
+        // the ViewModel doesn't duplicate that validation, it just must not corrupt state.
+        vm.moveTrack("p1", "A", MoveDirection.UP)
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value as PlaylistDetailUiState.Found
+        assertEquals(listOf("A", "B"), state.playlist.tracks.map { it.id })
+    }
+
+    @Test
+    fun moveTrack_calledAgainWhileInFlight_isIgnored() = runTest(testDispatcher) {
+        var callCount = 0
+        val neverCompletingRepo = object : PlaylistRepository(
+            trackDao = mockk<TrackDao>(relaxed = true),
+            localMediaRepository = LocalMediaRepository(),
+        ) {
+            override suspend fun moveTrack(id: String, trackId: String, direction: MoveDirection) {
+                callCount++
+                kotlinx.coroutines.awaitCancellation()
+            }
+        }
+        val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
+
+        vm.moveTrack("p1", "A", MoveDirection.UP)
+        testDispatcher.scheduler.runCurrent()
+        vm.moveTrack("p1", "B", MoveDirection.DOWN)
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(1, callCount)
+        assertTrue(vm.isReorderingTrack.value)
+    }
+
     @Test
     fun loadAvailableTracks_populatesFromLocalMediaRepository() = runTest(testDispatcher) {
         val deviceTracks = listOf(Track(id = "t1", title = "One"), Track(id = "t2", title = "Two"))
@@ -569,6 +669,10 @@ private class RecordingPlaylistRepo(
         private set
     var renamePlaylistCallCount: Int = 0
         private set
+    var moveTrackCalledWith: Triple<String, String, MoveDirection>? = null
+        private set
+    var moveTrackCallCount: Int = 0
+        private set
     private var currentName: String = "Mix"
 
     override suspend fun getById(id: String) = Playlist(id = id, name = currentName, trackCount = currentTracks.size)
@@ -598,5 +702,19 @@ private class RecordingPlaylistRepo(
         renamePlaylistCallCount++
         if (shouldFail) throw RuntimeException("boom")
         currentName = newName
+    }
+
+    override suspend fun moveTrack(id: String, trackId: String, direction: MoveDirection) {
+        moveTrackCalledWith = Triple(id, trackId, direction)
+        moveTrackCallCount++
+        if (shouldFail) throw RuntimeException("boom")
+        val fromIndex = currentTracks.indexOfFirst { it.id == trackId }
+        if (fromIndex < 0) return
+        val toIndex = if (direction == MoveDirection.UP) fromIndex - 1 else fromIndex + 1
+        if (toIndex !in currentTracks.indices) return
+        currentTracks = currentTracks.toMutableList().apply {
+            val moved = removeAt(fromIndex)
+            add(toIndex, moved)
+        }
     }
 }
