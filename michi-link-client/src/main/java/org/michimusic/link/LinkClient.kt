@@ -552,14 +552,37 @@ class LinkClient(
         startBytes: Long = 0,
         bufferSize: Int = 65536,
     ): Result<Long> = withContext(Dispatchers.IO) {
+        streamTrackRange(
+            trackId = trackId,
+            outputStream = outputStream,
+            startBytes = startBytes,
+            bufferSize = bufferSize,
+        ).map { it.bytesRead }
+    }
+
+    suspend fun streamTrackRange(
+        trackId: String,
+        outputStream: OutputStream,
+        startBytes: Long = 0,
+        expectedEtag: String? = null,
+        bufferSize: Int = 65536,
+        onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)? = null,
+    ): Result<StreamRangeResult> = withContext(Dispatchers.IO) {
         try {
             val response = client.get("$baseUrl/api/v1/stream/${encodePathSegment(trackId)}") {
                 if (isAuthenticated) header("Authorization", authHeader())
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 if (startBytes > 0) header("Range", "bytes=$startBytes-")
+                if (!expectedEtag.isNullOrBlank()) header("If-Range", expectedEtag)
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
+
+            val responseEtag = response.headers["ETag"]?.trim('\"') ?: ""
+            val isPartial = response.status == HttpStatusCode.PartialContent
+            val contentLength = response.headers["Content-Length"]?.toLongOrNull()
+            val contentRange = response.headers["Content-Range"]
+
             val channel = response.bodyAsChannel()
             var totalRead = 0L
             val buffer = ByteArray(bufferSize)
@@ -568,9 +591,19 @@ class LinkClient(
                 if (read == -1) break
                 outputStream.write(buffer, 0, read)
                 totalRead += read
+                onProgress?.invoke(totalRead, contentLength)
             }
             outputStream.flush()
-            Result.success(totalRead)
+            Result.success(
+                StreamRangeResult(
+                    bytesRead = totalRead,
+                    statusCode = response.status.value,
+                    isPartialContent = isPartial,
+                    etag = responseEtag,
+                    contentLength = contentLength,
+                    contentRange = contentRange,
+                )
+            )
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -1161,3 +1194,13 @@ private data class AltQueueDto(
     val items: List<org.michimusic.link.dto.QueueTrackDto> = emptyList(),
     @kotlinx.serialization.SerialName("currentIndex") val currentIndex: Int = -1,
 )
+
+data class StreamRangeResult(
+    val bytesRead: Long,
+    val statusCode: Int,
+    val isPartialContent: Boolean,
+    val etag: String = "",
+    val contentLength: Long? = null,
+    val contentRange: String? = null,
+)
+

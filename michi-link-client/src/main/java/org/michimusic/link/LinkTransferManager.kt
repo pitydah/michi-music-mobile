@@ -1,6 +1,7 @@
 package org.michimusic.link
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -14,6 +15,14 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.michimusic.core.models.DownloadItem
+import org.michimusic.link.transfer.ResumeMode
+import org.michimusic.link.transfer.TransferCheckpoint
+import org.michimusic.link.transfer.TransferChecksumMismatchException
+import org.michimusic.link.transfer.TransferETagMismatchException
+import org.michimusic.link.transfer.TransferProgress
+import org.michimusic.link.transfer.TransferPromotionException
+import org.michimusic.link.transfer.TransferSizeMismatchException
+import org.michimusic.link.transfer.TransferState
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -24,6 +33,9 @@ class LinkTransferManager(
 ) {
     private val _downloads = MutableStateFlow<Map<String, DownloadProgress>>(emptyMap())
     val downloads: StateFlow<Map<String, DownloadProgress>> = _downloads.asStateFlow()
+
+    private val _checkpoints = MutableStateFlow<Map<String, TransferCheckpoint>>(emptyMap())
+    val checkpoints: StateFlow<Map<String, TransferCheckpoint>> = _checkpoints.asStateFlow()
 
     private val musicDir: File
         get() = File(context.filesDir, "synced_music").also { it.mkdirs() }
@@ -37,57 +49,211 @@ class LinkTransferManager(
         val file = File(musicDir, fileName)
         val tempFile = File(musicDir, "$fileName.part")
 
+        // 1. If file already exists and is intact, return immediately
         if (file.exists() && file.length() > 0) {
-            if (item.checksum.isNotEmpty() && !verifyChecksum(file, item.checksum)) {
-                file.delete()
-            } else {
-                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(file.length()))
+            val len = file.length()
+            if (item.checksum.isEmpty() || verifyChecksum(file, item.checksum)) {
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(len))
+                updateCheckpoint(item.trackId) {
+                    TransferCheckpoint(
+                        trackId = item.trackId,
+                        tempPath = tempFile.absolutePath,
+                        finalPath = file.absolutePath,
+                        bytesVerified = len,
+                        expectedSize = if (item.size > 0) item.size else len,
+                        sha256Expected = item.checksum,
+                        resumeMode = ResumeMode.NOT_APPLICABLE,
+                        state = TransferState.COMPLETED,
+                    )
+                }
                 return@withContext Result.success(file)
+            }
+            // If checksum differs (e.g. updating track or re-downloading), do NOT delete existing file yet!
+            // It will be atomically replaced by promoteDownload only once the new .part download is fully verified.
+        }
+
+
+        // 2. Preflight checkpoint inspection
+        var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
+        val savedCheckpoint = _checkpoints.value[item.trackId]
+        val expectedEtag = savedCheckpoint?.etag?.ifEmpty { null }
+
+        var startOffset = 0L
+        var shouldAppend = false
+
+        if (existingPartBytes > 0) {
+            if (item.size > 0 && existingPartBytes >= item.size) {
+                // .part is larger or equal to full size; reset to prevent corruption
+                tempFile.delete()
+                existingPartBytes = 0L
+            } else {
+                startOffset = existingPartBytes
+                shouldAppend = true
             }
         }
 
-        _downloads.value += (item.trackId to DownloadProgress.Downloading(0L))
-        tempFile.delete()
-
-        val result = FileOutputStream(tempFile).use { outputStream ->
-            client.streamTrack(
+        _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(startOffset))
+        updateCheckpoint(item.trackId) {
+            TransferCheckpoint(
                 trackId = item.trackId,
-                outputStream = outputStream,
-                startBytes = 0,
+                tempPath = tempFile.absolutePath,
+                finalPath = file.absolutePath,
+                bytesVerified = startOffset,
+                expectedSize = item.size,
+                etag = expectedEtag ?: "",
+                sha256Expected = item.checksum,
+                resumeMode = if (startOffset > 0) ResumeMode.RESUMED_FROM_OFFSET else ResumeMode.NOT_APPLICABLE,
+                state = TransferState.DOWNLOADING,
             )
         }
 
-        result.onSuccess { bytes ->
-            if (item.size > 0 && bytes != item.size) {
-                tempFile.delete()
-                _downloads.value += (item.trackId to DownloadProgress.Failed("Size mismatch"))
-                return@withContext Result.failure(SizeMismatchException(item.trackId, item.size, bytes))
-            }
-            if (item.checksum.isNotEmpty()) {
-                if (verifyChecksum(tempFile, item.checksum)) {
-                    if (!promoteDownload(tempFile, file)) {
-                        _downloads.value += (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
-                        return@withContext Result.failure(DownloadFinalizeException(item.trackId))
-                    }
-                    _downloads.value += (item.trackId to DownloadProgress.Completed(file.length()))
-                } else {
-                    tempFile.delete()
-                    _downloads.value += (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
-                    return@withContext Result.failure(ChecksumException(item.trackId))
-                }
-            } else {
-                if (!promoteDownload(tempFile, file)) {
-                    _downloads.value += (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
-                    return@withContext Result.failure(DownloadFinalizeException(item.trackId))
-                }
-                _downloads.value += (item.trackId to DownloadProgress.Completed(file.length()))
-            }
-        }.onFailure { e ->
-            tempFile.delete()
-            _downloads.value += (item.trackId to DownloadProgress.Failed(e.message ?: "Error"))
-        }
+        try {
+            var actualResumeMode = if (startOffset > 0) ResumeMode.RESUMED_FROM_OFFSET else ResumeMode.NOT_APPLICABLE
+            var responseEtag = expectedEtag ?: ""
 
-        result.map { file }
+            // Stream track with Range support
+            val streamResult = try {
+                // If append mode, write to existing file; otherwise create new
+                FileOutputStream(tempFile, shouldAppend).use { outputStream ->
+                    client.streamTrackRange(
+                        trackId = item.trackId,
+                        outputStream = outputStream,
+                        startBytes = startOffset,
+                        expectedEtag = expectedEtag,
+                    ) { bytesRead, _ ->
+                        val currentBytes = if (shouldAppend) startOffset + bytesRead else bytesRead
+                        _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(currentBytes))
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (ex: Exception) {
+                Result.failure(ex)
+            }
+
+            if (streamResult.isFailure) {
+                val error = streamResult.exceptionOrNull() ?: Exception("Unknown error")
+                // On failure, if it was an ETag mismatch or partial content error, we can handle it
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(error.message ?: "Download failed"))
+                updateCheckpoint(item.trackId) {
+                    it?.copy(state = TransferState.FAILED) ?: TransferCheckpoint(
+                        trackId = item.trackId,
+                        tempPath = tempFile.absolutePath,
+                        finalPath = file.absolutePath,
+                        bytesVerified = if (tempFile.exists()) tempFile.length() else 0L,
+                        expectedSize = item.size,
+                        state = TransferState.FAILED,
+                    )
+                }
+                return@withContext Result.failure(error)
+            }
+
+            val rangeInfo = streamResult.getOrThrow()
+            responseEtag = rangeInfo.etag
+
+            // Check if server refused Range and sent 200 OK from scratch
+            if (startOffset > 0 && !rangeInfo.isPartialContent) {
+                // Server ignored range and sent the entire file!
+                // But since we opened with append=true, tempFile contains startOffset + fullFile!
+                // We MUST restart honestly from zero to prevent corrupted audio file.
+                actualResumeMode = ResumeMode.RESTARTED_FROM_ZERO
+                tempFile.delete()
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(0L))
+                
+                val restartedResult = FileOutputStream(tempFile, false).use { outputStream ->
+                    client.streamTrackRange(
+                        trackId = item.trackId,
+                        outputStream = outputStream,
+                        startBytes = 0L,
+                    ) { bytesRead, _ ->
+                        _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(bytesRead))
+                    }
+                }
+                if (restartedResult.isFailure) {
+                    val err = restartedResult.exceptionOrNull() ?: Exception("Restarted download failed")
+                    _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(err.message ?: "Failed"))
+                    return@withContext Result.failure(err)
+                }
+            }
+
+            // 3. Verifying stage
+            val downloadedLength = tempFile.length()
+            updateCheckpoint(item.trackId) {
+                it?.copy(
+                    bytesVerified = downloadedLength,
+                    etag = responseEtag,
+                    resumeMode = actualResumeMode,
+                    state = TransferState.VERIFYING,
+                )
+            }
+
+            // Size check
+            if (item.size > 0 && downloadedLength != item.size) {
+                tempFile.delete()
+                val err = TransferSizeMismatchException(item.trackId, item.size, downloadedLength)
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Size mismatch"))
+                updateCheckpoint(item.trackId) { it?.copy(state = TransferState.FAILED) }
+                return@withContext Result.failure(err)
+            }
+
+            // SHA-256 Checksum check
+            if (item.checksum.isNotEmpty()) {
+                val matches = verifyChecksum(tempFile, item.checksum)
+                if (!matches) {
+                    tempFile.delete()
+                    val actualHex = calculateSha256(tempFile)
+                    val err = TransferChecksumMismatchException(item.trackId, item.checksum, actualHex)
+                    _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
+                    updateCheckpoint(item.trackId) { it?.copy(state = TransferState.FAILED) }
+                    return@withContext Result.failure(err)
+                }
+            }
+
+            // 4. Committing stage: Atomic promotion
+            updateCheckpoint(item.trackId) { it?.copy(state = TransferState.COMMITTING) }
+            val promoted = promoteDownload(tempFile, file)
+            if (!promoted) {
+                val err = TransferPromotionException(item.trackId, "Atomic rename/replace failed")
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
+                updateCheckpoint(item.trackId) { it?.copy(state = TransferState.FAILED) }
+                return@withContext Result.failure(err)
+            }
+
+            // 5. Completed
+            _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(file.length()))
+            updateCheckpoint(item.trackId) {
+                it?.copy(
+                    bytesVerified = file.length(),
+                    state = TransferState.COMPLETED,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
+            Result.success(file)
+
+        } catch (ce: CancellationException) {
+            // Cancel preserves safe .part for later resume
+            val currentBytes = if (tempFile.exists()) tempFile.length() else 0L
+            _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Cancelled"))
+            updateCheckpoint(item.trackId) {
+                it?.copy(
+                    bytesVerified = currentBytes,
+                    state = TransferState.PAUSED,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
+            throw ce
+        } catch (e: Exception) {
+            val currentBytes = if (tempFile.exists()) tempFile.length() else 0L
+            _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(e.message ?: "Error"))
+            updateCheckpoint(item.trackId) {
+                it?.copy(
+                    bytesVerified = currentBytes,
+                    state = TransferState.FAILED,
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
+            Result.failure(e)
+        }
     }
 
     suspend fun downloadTracks(
@@ -129,10 +295,23 @@ class LinkTransferManager(
 
     fun clearDownloads() {
         musicDir.listFiles()?.forEach { it.delete() }
-        _downloads.value = emptyMap<String, DownloadProgress>()
+        _downloads.value = emptyMap()
+        _checkpoints.value = emptyMap()
+    }
+
+    private fun updateCheckpoint(trackId: String, transform: (TransferCheckpoint?) -> TransferCheckpoint?) {
+        val current = _checkpoints.value
+        val updated = transform(current[trackId])
+        _checkpoints.value = if (updated != null) current + (trackId to updated) else current - trackId
     }
 
     private fun verifyChecksum(file: File, expected: String): Boolean {
+        if (!file.exists()) return false
+        val hex = calculateSha256(file)
+        return hex.equals(expected.trim(), ignoreCase = true)
+    }
+
+    private fun calculateSha256(file: File): String {
         return try {
             val digest = MessageDigest.getInstance("SHA-256")
             FileInputStream(file).use { fis ->
@@ -142,17 +321,35 @@ class LinkTransferManager(
                     digest.update(buffer, 0, read)
                 }
             }
-            val hex = digest.digest().joinToString("") { "%02x".format(it) }
-            hex == expected.lowercase()
+            digest.digest().joinToString("") { "%02x".format(it) }
         } catch (_: Exception) {
-            false
+            ""
         }
     }
 
+    /**
+     * Promotes .part to final file atomically.
+     * If finalFile already exists and is valid, preserves it until promotion succeeds.
+     */
     private fun promoteDownload(tempFile: File, finalFile: File): Boolean {
         if (!tempFile.exists() || tempFile.length() <= 0L) return false
-        if (finalFile.exists() && !finalFile.delete()) return false
-        return tempFile.renameTo(finalFile)
+
+        val backupFile = if (finalFile.exists()) {
+            File(finalFile.parentFile, "${finalFile.name}.bak").also {
+                if (it.exists()) it.delete()
+                finalFile.renameTo(it)
+            }
+        } else null
+
+        val renamed = tempFile.renameTo(finalFile)
+        if (renamed) {
+            backupFile?.delete()
+            return true
+        } else {
+            // Restore previous good file if rename failed
+            backupFile?.renameTo(finalFile)
+            return false
+        }
     }
 
     private fun safeFileName(value: String): String =
