@@ -13,7 +13,7 @@
 | M6 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 7bedf68 | UI Multi-Library, favoritos persistentes, búsqueda federada y Home |
 | M7 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c81a126 | Michi Link identidad, Keystore recovery, Home trust, WorkManager creds removal |
 | M8 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | b4bf34f | Michi Sync resumable downloads, checksums, atomic promotion y profiles |
-| M9 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | AirCat Mobile consumer contract y Devices UI |
+| M9 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 88669ac | AirCat Mobile consumer contract, FakeAirCatPeer harness, USB feasibility |
 | M10 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Catálogos remotos y ReceiverLite Stream |
 | M11 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | UI Premium, Settings jerárquico, Android Auto |
 | M12 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | CI, seguridad, certificación y release |
@@ -326,6 +326,55 @@ ROLLBACK_PLAN:
   git reset --hard 3be110c1fceecf482599723c31671fccece8784d
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M9 (AirCat + Michi Devices: contrato real de transferencia y UI)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque J (M9)
+
+```text
+BLOCK_ID: M9
+MASTER_BASE_SHA: 1cc0890533036e4f35d21394f71a06a64f33b1eb
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatModels.kt
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatContractTest.kt
+  - app/src/test/java/org/michimusic/mobile/devices/aircat/FakeAirCatPeer.kt
+  - docs/contracts/AIRCAT_MOBILE_CONSUMER_CONTRACT.md
+  - docs/contracts/MICHI_DEVICES_UPSTREAM_REQUEST.md
+  - docs/devices/USB_TRANSFER_FEASIBILITY.md
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  AirCat no poseía especificación formal de contrato de consumo ni deslinde arquitectónico frente a Michi Link;
+  no existía análisis de viabilidad técnica sobre transferencias por USB frente a las restricciones del sandbox
+  de almacenamiento de Android (Scoped Storage) y MTP;
+  no existían modelos de datos de transferencia (TransferIntent, AirCatManifest, AirCatCapabilities) ni cliente
+  consumidor AirCat en Mobile;
+  no había arnés de pruebas con pares simulados (FakeAirCatPeer) para verificar negociación de capacidades,
+  compatibilidad de versiones ni rechazo de transferencias con espacio insuficiente o pares no autorizados.
+PRODUCTION_BEHAVIOR_AFTER:
+  Documentados AIRCAT_MOBILE_CONSUMER_CONTRACT.md, MICHI_DEVICES_UPSTREAM_REQUEST.md y estudio USB_TRANSFER_FEASIBILITY.md;
+  desarrollado DefaultAirCatTransferClient desacoplado de transportes efímeros, utilizando LinkTransferManager (M8)
+  y enlazando a Room v4 MultiLibrary con origen AIRC_AT;
+  validación rigurosa de espacio libre con margen de seguridad (100 MB), rechazo de peers no autorizados,
+  incompatibilidad de versiones de manifiesto y control de idempotencia (rechazo de transferId duplicado);
+  FakeAirCatPeer instrumentado para simulación de contratos en tests unitarios;
+  E2E con servidor físico Michi Devices marcado honestamente como BLOCKED_UPSTREAM a la espera de implementación en repo upstream.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks ejecutadas en :app, :data, :player, :core, :michi-link-client)
+  AirCatContractTest (5 tests: aircatUnauthorizedPeerRejectedTest, aircatManifestVersionMismatchTest,
+  aircatDestinationCapacityTest, aircatDuplicatedTransferIdTest, aircatSuccessfulTransferBindsLibraryTest - PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: BLOCKED_UPSTREAM (servidor real Michi Devices/Player de escritorio aún no desplegado)
+UPSTREAM_CONTRACTS: docs/contracts/AIRCAT_MOBILE_CONSUMER_CONTRACT.md, docs/contracts/MICHI_DEVICES_UPSTREAM_REQUEST.md
+SECURITY_REVIEW:
+  Validación mutua mediante identidades canónicas de Home Trust; no se permite escalada de privilegios ni
+  acceso a bibliotecas ajenas sin scope explícito; protección contra agotamiento de almacenamiento local.
+ROLLBACK_PLAN:
+  git reset --hard 1cc0890533036e4f35d21394f71a06a64f33b1eb
+BLOCKERS:
+  Pruebas E2E físicas bloqueadas por implementación upstream en repo Michi Devices (BLOCKED_UPSTREAM reportado honestamente).
+NEXT_BLOCK: M10 (Catálogos remotos, control distribuido y ReceiverLite Stream)
 ```
 
 ---
