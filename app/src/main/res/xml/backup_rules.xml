@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="michi_identity_store.xml" />
+    <exclude domain="sharedpref" path="michi_link_secure.xml" />
+    <exclude domain="sharedpref" path="michi_link_registry_secure.xml" />
+</full-backup-content>

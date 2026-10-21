@@ -23,6 +23,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MichiMusic"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:enableOnBackInvokedCallback="true">
 
         <!-- ComponentActivity required for Robolectric Compose tests -->

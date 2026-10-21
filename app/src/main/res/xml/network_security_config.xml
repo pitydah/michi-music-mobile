@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network Security Config for Michi Music Mobile.
+    Cleartext HTTP is permitted for local network communication (Michi Link LAN nodes,
+    ESP32 / Michi Stream players, desktop companion nodes, localhost/loopback).
+    Note: Android's network security config does NOT parse CIDR subnet strings in <domain> tags;
+    literal hostnames, FQDNs, or base-config cleartextTrafficPermitted are required.
+-->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.0.0/16</domain>
-        <domain includeSubdomains="true">10.0.0.0/8</domain>
-        <domain includeSubdomains="true">172.16.0.0/12</domain>
-        <domain includeSubdomains="true">127.0.0.0/8</domain>
         <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">michi.local</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

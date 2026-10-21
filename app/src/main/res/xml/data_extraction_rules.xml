@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Excludes the app's Keystore-backed EncryptedSharedPreferences files from Android's cloud
+    backup and device-to-device transfer. Their ciphertext is wrapped by an Android Keystore
+    key that is device-specific and never itself backed up - if the file is restored without
+    that key (uninstall/reinstall, restore to a new/reset device, etc.), decryption throws
+    AEADBadTagException/KeyStoreException before the app can even read its own values. Excluding
+    them here removes that failure mode at the source, instead of only recovering from it after
+    the fact (see MichiIdentity.openIdentityPrefs()/IdentityStorageRecovery). Everything else
+    (Room databases, playlists, other prefs) keeps the default backup behavior.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="michi_identity_store.xml" />
+        <exclude domain="sharedpref" path="michi_link_secure.xml" />
+        <exclude domain="sharedpref" path="michi_link_registry_secure.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="michi_identity_store.xml" />
+        <exclude domain="sharedpref" path="michi_link_secure.xml" />
+        <exclude domain="sharedpref" path="michi_link_registry_secure.xml" />
+    </device-transfer>
+</data-extraction-rules>
