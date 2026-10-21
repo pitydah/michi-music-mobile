@@ -8,7 +8,7 @@
 | M1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | deae6e64 | Autoridad única Media3, LocalPlaybackGateway, PlaybackStatus/ErrorMapper, recuperación de pistas faltantes |
 | M2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | bb2c3fc3 | Medios locales tipados MediaResult, SAF SafMediaRepository, ReplayGain SeekableAudioSource/ContentResolver |
 | M3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | ef003543 | USB DAC Route Truth, OutputDescriptor, AudioRouteObserver, hotplug auto-pausa y UI veraz |
-| M4 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | Hi-Res, DSP/Transparente, Signal Truth |
+| M4 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 7eee54d | Hi-Res, DSP/Transparente, ReplayGain multi-formato, Signal Truth, DSD/DoP Feasibility |
 | M5 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | Multi-Library Room v3->v4 y dominio relacional |
 | M6 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | UI Multi-Library, favoritos, búsqueda |
 | M7 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Link identidad, Keystore recovery, Home trust |
@@ -61,6 +61,59 @@ ROLLBACK_PLAN:
   git reset --hard 5ef3d21ad373ec56aee0e5015b3cba14ca6cf716
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M4 (Hi-Res, DSP/Transparente, ReplayGain y Signal Truth)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque E (M4)
+
+```text
+BLOCK_ID: M4
+MASTER_BASE_SHA: 2a2ec287e07ae510bc49a75d1645e9a4440058b7
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/PlayerModule.kt
+  - app/src/main/java/org/michimusic/mobile/ui/components/DialogComponents.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/NowPlayingScreen.kt
+  - core/src/main/java/org/michimusic/core/models/AudioProcessingModels.kt
+  - docs/audio/DSD_DOP_FEASIBILITY.md
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+  - player/src/main/java/org/michimusic/player/AudioModeManager.kt
+  - player/src/main/java/org/michimusic/player/MichiAudioEffects.kt
+  - player/src/main/java/org/michimusic/player/MichiPlaybackService.kt
+  - player/src/main/java/org/michimusic/player/PlayerController.kt
+  - player/src/main/java/org/michimusic/player/PlayerDependencies.kt
+  - player/src/main/java/org/michimusic/player/ReplayGainAudioProcessor.kt
+  - player/src/main/java/org/michimusic/player/SignalTruthTracker.kt
+  - player/src/test/java/org/michimusic/player/AudioModeAndSignalTruthTest.kt
+  - player/src/test/java/org/michimusic/player/MichiPlaybackServiceTest.kt
+  - player/src/test/java/org/michimusic/player/ReplayGainMultiFormatTest.kt
+PRODUCTION_BEHAVIOR_BEFORE:
+  ReplayGainAudioProcessor solo admitía ENCODING_PCM_16BIT, descartando o distorsionando audio Hi-Res de 24-bit,
+  32-bit o Float; no existía modo transparente ni separación entre procesamiento DSP y reproducción purista;
+  MichiAudioEffects no permitía bypass dinámico sin destruir los ajustes personalizados del usuario; la UI
+  no reportaba la verdad de la señal de audio (formato fuente vs formato decodificado vs configuración AudioTrack),
+  y no existía estudio técnico documentado para reproducción DSD/DoP en Android.
+PRODUCTION_BEHAVIOR_AFTER:
+  ReplayGainAudioProcessor soporta 16-bit, 24-bit, 32-bit y Float con protección de clipping little-endian y bypass
+  inmediato en modo Transparent; AudioModeManager gestiona modos AUTO, TRANSPARENT y DSP coordinando bypass
+  de hardware HAL effects (MichiAudioEffects.isBypassedByMode) sin borrar preferencias; SignalTruthTracker
+  consolida observaciones veraces de decodificación y AudioTrack sin afirmar bit-perfect salvo confirmación estricta;
+  NowPlayingScreen incluye cápsula Signal Truth y diálogo de diagnóstico veraz; DialogComponents integra selector
+  de modo de audio; estudio docs/audio/DSD_DOP_FEASIBILITY.md documentado rigurosamente.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 322 actionable tasks ejecutadas en :player, :app, :data, :core, :michi-link-client)
+  ReplayGainMultiFormatTest (clipping 16-bit, 24-bit, Float, Transparent bypass - PASSED)
+  AudioModeAndSignalTruthTest (Transparent bypass, restore DSP, unknown fields, decoder updates, hot-swap - PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere dispositivo físico con DAC USB Hi-Res y analizador de espectro de señal)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Operaciones de buffer little-endian acotadas al tamaño remanente exacto de buffers para evitar BufferOverflowException
+  o OutOfMemoryError con streams de audio corruptos o maliciosos.
+ROLLBACK_PLAN:
+  git reset --hard 2a2ec287e07ae510bc49a75d1645e9a4440058b7
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M5 (Multi-Library Core: Room schema v3->v4, DAOs, relational domain)
 ```
 
 ---
