@@ -16,6 +16,22 @@ val playerModule = module {
     single { org.michimusic.player.MichiAudioEffects(androidContext()) }
     single { org.michimusic.player.UsbDacManager(androidContext()) }
     single {
+        org.michimusic.player.AudioModeManager(
+            context = androidContext(),
+            audioEffects = get(),
+            replayGainProcessor = null,
+            usbDacManager = get(),
+        )
+    }
+    single {
+        org.michimusic.player.SignalTruthTracker(
+            audioModeManager = get(),
+            audioEffects = get(),
+            replayGainProcessor = null,
+            usbDacManager = get(),
+        )
+    }
+    single {
         org.michimusic.mobile.playback.PlaybackSessionManager(
             audioController = get(),
             connectionManager = get(),

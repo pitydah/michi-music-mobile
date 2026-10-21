@@ -30,6 +30,8 @@ class MichiPlaybackService : MediaLibraryService() {
     private val saveScopeJob = Job()
     private val saveScope = CoroutineScope(Dispatchers.IO + saveScopeJob)
     private var saveJob: Job? = null
+    private val serviceScopeJob = Job()
+    private val serviceScope = CoroutineScope(Dispatchers.Main.immediate + serviceScopeJob)
 
     override fun onCreate() {
         super.onCreate()
@@ -47,12 +49,35 @@ class MichiPlaybackService : MediaLibraryService() {
             val rtpTap = RtpPcmAudioTap()
             PlayerDependencies.rtpPcmAudioTap = rtpTap
 
+            val modeManager = AudioModeManager(
+                context = this,
+                audioEffects = audioEffects,
+                replayGainProcessor = replayGainProcessor,
+                usbDacManager = usbDacManager,
+            )
+            PlayerDependencies.audioModeManager = modeManager
+
+            val truthTracker = SignalTruthTracker(
+                audioModeManager = modeManager,
+                audioEffects = audioEffects,
+                replayGainProcessor = replayGainProcessor,
+                usbDacManager = usbDacManager,
+            )
+            PlayerDependencies.signalTruthTracker = truthTracker
+
+            serviceScope.launch {
+                rtpTap.currentFormat.collect { pcm ->
+                    truthTracker.onPcmFormatDecoded(pcm)
+                }
+            }
+
             val controller = PlayerController(
                 this,
                 listOf(replayGainProcessor, rtpTap),
                 replayGainDao,
                 audioEffects,
                 usbDacManager,
+                truthTracker,
             )
             val exoPlayer = controller.getExoPlayer()
             playerController = controller
@@ -132,6 +157,7 @@ class MichiPlaybackService : MediaLibraryService() {
         saveNow()
         saveJob?.cancel()
         saveScopeJob.cancel()
+        serviceScopeJob.cancel()
         mediaLibrarySession?.release()
         mediaLibrarySession = null
         playerController?.release()

@@ -212,11 +212,16 @@ fun EqualizerDialog(
 ) {
     val audioEffects: org.michimusic.player.MichiAudioEffects? = runCatching { org.koin.compose.koinInject<org.michimusic.player.MichiAudioEffects>() }.getOrNull()
     val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching { org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>() }.getOrNull()
+    val audioModeManager: org.michimusic.player.AudioModeManager? = runCatching { org.koin.compose.koinInject<org.michimusic.player.AudioModeManager>() }.getOrNull()
+
     val effectsState by (audioEffects?.effectsState?.collectAsState() ?: remember {
         mutableStateOf(org.michimusic.player.AudioEffectsState())
     })
     val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember {
         mutableStateOf(org.michimusic.player.UsbDacInfo())
+    })
+    val currentMode by (audioModeManager?.currentMode?.collectAsState() ?: remember {
+        mutableStateOf(org.michimusic.core.models.AudioProcessingMode.DSP)
     })
 
     var selectedTab by remember { mutableStateOf(0) }
@@ -349,6 +354,54 @@ fun EqualizerDialog(
                             )
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Mode Selector Bar (DSP / TRANSPARENT / AUTO)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GlassFillLow)
+                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    val modes = listOf(
+                        org.michimusic.core.models.AudioProcessingMode.DSP to "DSP Studio",
+                        org.michimusic.core.models.AudioProcessingMode.TRANSPARENT to "Transparent",
+                        org.michimusic.core.models.AudioProcessingMode.AUTO to "Auto",
+                    )
+                    modes.forEach { (m, label) ->
+                        val isSelected = currentMode == m
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) TertiaryCyan.copy(alpha = 0.25f) else Color.Transparent)
+                                .clickable { audioModeManager?.setMode(m) }
+                                .padding(vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) TertiaryCyan else TextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+
+                if (currentMode == org.michimusic.core.models.AudioProcessingMode.TRANSPARENT) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Modo Transparente: Ecualizador y ReplayGain en bypass para máxima pureza. La salida efectiva depende del mezclador de Android.",
+                        color = TertiaryCyan,
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))

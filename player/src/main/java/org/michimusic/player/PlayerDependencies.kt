@@ -20,6 +20,10 @@ object PlayerDependencies {
     var usbDacManager: UsbDacManager? = null
     @JvmStatic
     var rtpPcmAudioTap: RtpPcmAudioTap? = null
+    @JvmStatic
+    var audioModeManager: AudioModeManager? = null
+    @JvmStatic
+    var signalTruthTracker: SignalTruthTracker? = null
 
     @JvmStatic
     var mockPcmFormatFlow: MutableStateFlow<PcmFormat?>? = null
@@ -38,6 +42,9 @@ object PlayerDependencies {
     fun resetTestingOverrides() {
         mockPcmFormatFlow = null
         mockPcmFormatForTesting = null
+        signalTruthTracker = null
+        audioModeManager = null
+        rtpPcmAudioTap = null
     }
 
     @JvmStatic

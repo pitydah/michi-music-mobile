@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Headphones
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -104,9 +106,15 @@ fun NowPlayingScreen(
 
     val isShuffle = if (sessionState.isRemoteActive) sessionState.shuffleMode == 1 else playerState.shuffleMode
     val repeatMode = if (sessionState.isRemoteActive) sessionState.repeatMode else playerState.repeatMode
+    val signalTracker: org.michimusic.player.SignalTruthTracker? = runCatching { koinInject<org.michimusic.player.SignalTruthTracker>() }.getOrNull()
+    val signalObservation by (signalTracker?.observation?.collectAsState() ?: remember {
+        mutableStateOf(org.michimusic.core.models.AudioSignalObservation())
+    })
+
     var showQueueDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showAudioRouteDialog by remember { mutableStateOf(false) }
+    var showSignalTruthDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -272,38 +280,67 @@ fun NowPlayingScreen(
                         )
                     }
 
-                    // Real active endpoint selector capsule
-                    Box(
-                        modifier = Modifier
-                            .clip(MichiShapes.pill)
-                            .background(GlassFillLow)
-                            .border(1.dp, GlassBorderLow, MichiShapes.pill)
-                            .clickable { showAudioRouteDialog = true }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .testTag("audio_route_button"),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        // Signal Truth pill
+                        val decoded = signalObservation.decodedFormat
+                        val label = if (decoded != null && decoded.sampleRate > 0) {
+                            "${decoded.bitDepth}b/${decoded.sampleRate / 1000}k"
+                        } else {
+                            "Truth"
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(MichiShapes.pill)
+                                .background(TertiaryCyan.copy(alpha = 0.12f))
+                                .border(1.dp, TertiaryCyan.copy(alpha = 0.35f), MichiShapes.pill)
+                                .clickable { showSignalTruthDialog = true }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .testTag("signal_truth_button"),
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Headphones,
-                                contentDescription = "Salidas de Audio",
-                                tint = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
-                                modifier = Modifier.size(16.dp),
-                            )
                             Text(
-                                text = activeEndpoint.name,
-                                color = PureWhite,
+                                text = label,
+                                color = TertiaryCyan,
                                 style = MichiTypography.microLabel,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                             )
-                            Icon(
-                                imageVector = Icons.Filled.ExpandMore,
-                                contentDescription = null,
-                                tint = OnSurfaceVariant,
-                                modifier = Modifier.size(14.dp),
-                            )
+                        }
+
+                        // Real active endpoint selector capsule
+                        Box(
+                            modifier = Modifier
+                                .clip(MichiShapes.pill)
+                                .background(GlassFillLow)
+                                .border(1.dp, GlassBorderLow, MichiShapes.pill)
+                                .clickable { showAudioRouteDialog = true }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .testTag("audio_route_button"),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Headphones,
+                                    contentDescription = "Salidas de Audio",
+                                    tint = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Text(
+                                    text = activeEndpoint.name,
+                                    color = PureWhite,
+                                    style = MichiTypography.microLabel,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.ExpandMore,
+                                    contentDescription = null,
+                                    tint = OnSurfaceVariant,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -522,5 +559,79 @@ fun NowPlayingScreen(
         if (showEqualizerDialog) {
             EqualizerDialog(onDismiss = { showEqualizerDialog = false })
         }
+
+        if (showSignalTruthDialog) {
+            SignalTruthDialog(
+                observation = signalObservation,
+                onDismiss = { showSignalTruthDialog = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SignalTruthDialog(
+    observation: org.michimusic.core.models.AudioSignalObservation,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = SurfaceObsidian,
+            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Verdad de la Señal (Signal Truth)",
+                        color = PureWhite,
+                        style = MichiTypography.sectionTitle,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Filled.Close, contentDescription = "Cerrar", tint = OnSurfaceVariant)
+                    }
+                }
+
+                HorizontalDivider(color = GlassBorderLow)
+
+                SignalTruthRow("Fuente Original", observation.sourceFormat?.let { "${it.codec} • ${if (it.sampleRate > 0) "${it.sampleRate} Hz" else "Header"} • ${it.channels} ch" } ?: "No disponible")
+                SignalTruthRow("Decodificado (PCM)", observation.decodedFormat?.let { "${it.bitDepth}-bit / ${it.sampleRate} Hz • ${it.channels} ch" } ?: "No decodificado / Desconocido")
+                SignalTruthRow("Procesamiento DSP", if (observation.dspStatus.isEqActive) "Activo (EQ/FX)" else "Bypass / Neutro")
+                SignalTruthRow("ReplayGain", if (observation.dspStatus.isReplayGainActive) "Aplicado (${"%.1f".format(observation.dspStatus.replayGainAppliedDb)} dB)" else "Inactivo / Bypass")
+                SignalTruthRow("Enrutamiento", observation.routeStatus)
+                SignalTruthRow("Salida AudioTrack", observation.outputConfig?.let { "${it.bitDepth}-bit / ${it.sampleRate} Hz • ${it.channels} ch" } ?: "No verificable")
+                SignalTruthRow("Bit-Perfect", when (observation.bitPerfect) {
+                    org.michimusic.core.models.BitPerfectStatus.VERIFIED -> "Verificado en hardware"
+                    org.michimusic.core.models.BitPerfectStatus.REQUESTED -> "Solicitado (depende de Android/HAL)"
+                    org.michimusic.core.models.BitPerfectStatus.NOT_REQUESTED -> "No solicitado"
+                    org.michimusic.core.models.BitPerfectStatus.UNVERIFIABLE -> "No verificable en este dispositivo"
+                })
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignalTruthRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = label, color = OnSurfaceVariant, fontSize = 11.sp)
+        Text(text = value, color = PureWhite, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }

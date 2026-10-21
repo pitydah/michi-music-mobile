@@ -23,12 +23,20 @@ class MichiPlaybackServiceTest {
     fun setup() {
         mockkObject(PlayerDependencies)
         PlayerDependencies.replayGainDao = io.mockk.mockk<ReplayGainDao>(relaxed = true)
-        PlayerDependencies.audioEffects = io.mockk.mockk(relaxed = true)
+        val mockEffects = io.mockk.mockk<MichiAudioEffects>(relaxed = true)
+        io.mockk.every { mockEffects.effectsState } returns kotlinx.coroutines.flow.MutableStateFlow(AudioEffectsState())
+        PlayerDependencies.audioEffects = mockEffects
         PlayerDependencies.usbDacManager = io.mockk.mockk(relaxed = true)
     }
 
     @After
     fun teardown() {
+        PlayerDependencies.audioEffects = null
+        PlayerDependencies.replayGainDao = null
+        PlayerDependencies.usbDacManager = null
+        PlayerDependencies.signalTruthTracker = null
+        PlayerDependencies.audioModeManager = null
+        PlayerDependencies.rtpPcmAudioTap = null
         unmockkAll()
     }
 

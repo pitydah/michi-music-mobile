@@ -43,6 +43,7 @@ class PlayerController(
     replayGainDao: ReplayGainDao? = null,
     private val audioEffects: MichiAudioEffects? = null,
     private val usbDacManager: UsbDacManager? = null,
+    private val signalTruthTracker: SignalTruthTracker? = null,
 ) {
 
     private val controllerJob = SupervisorJob()
@@ -74,14 +75,31 @@ class PlayerController(
             .build()
     }
 
-    private val renderersFactory = RenderersFactory { handler, _, audioListener, _, _ ->
+    private val audioRendererEventListener = object : androidx.media3.exoplayer.audio.AudioRendererEventListener {
+        override fun onAudioInputFormatChanged(
+            format: androidx.media3.common.Format,
+            decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
+        ) {
+            signalTruthTracker?.onDecoderInputFormat(format)
+        }
+
+        override fun onAudioTrackInitialized(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
+            signalTruthTracker?.onAudioTrackInitialized(
+                sampleRate = audioTrackConfig.sampleRate,
+                channelCount = java.lang.Integer.bitCount(audioTrackConfig.channelConfig),
+                encoding = audioTrackConfig.encoding,
+            )
+        }
+    }
+
+    private val renderersFactory = RenderersFactory { handler, _, _, _, _ ->
         try {
             arrayOf(
                 MediaCodecAudioRenderer(
                     context,
                     MediaCodecSelector.DEFAULT,
                     handler,
-                    audioListener,
+                    audioRendererEventListener,
                     audioSink,
                 ),
             )
@@ -130,11 +148,13 @@ class PlayerController(
                 val queue = _state.value.queue
                 val index = player.currentMediaItemIndex
                 if (index in queue.indices) {
+                    val track = queue[index]
                     _state.value = _state.value.copy(
-                        currentTrack = queue[index],
+                        currentTrack = track,
                         queueIndex = index,
                         position = 0L,
                     )
+                    signalTruthTracker?.onTrackChanged(track)
                 }
             }
 
