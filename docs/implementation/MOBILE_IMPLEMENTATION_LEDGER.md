@@ -873,8 +873,47 @@ UPSTREAM_CONTRACTS: N/A
 SECURITY_REVIEW:
   Aislamiento multi-tenant integral tanto en persistencia relacional (Room) como en el sistema de archivos (ext4/F2FS); verificación estricta de tokens antes del inicio de transferencias AirCat para prevenir ataques de suplantación entre nodos emparejados.
 ROLLBACK_PLAN:
-  git revert al commit resultante o reset a dd095591e4a0b85d842d4bf5c759147e853f0e84
+```
+
+---
+
+## Checkpoint de Ejecución — Reanudación Real AirCat, Validación de Confianza de Sesión y Aislamiento Estricto
+
+```text
+BLOCK_ID: SPRINT_KILLCRITIC_RESUMABLE_AIRCRAFT_AND_STRICT_ISOLATION
+MASTER_BASE_SHA: d083d620bea45954b7e41f68a96092866564bf44
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkTransferManager.kt
+  - app/src/test/java/org/michimusic/mobile/sync/EndToEndOfflineSyncTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. P0 - Reanudación funcional de AirCat tras pausa: pauseTransfer cancelaba el Job de corrutina, pero resumeTransfer únicamente mutaba el estado en memoria sin relanzar la transferencia ni consultar los checkpoints persistentes de pistas ya completadas, requiriendo iniciar de cero o quedando en limbo.
+  2. P0 - Validación de confianza y sesión en AirCat: startAirCatTransfer confiaba ciegamente en el token de pairedDevice sin verificar que la conexión activa mantuviera la sesión viva y autorizada, ni que la identidad del nodo remoto (serverDeviceId / michiId) coincidiera de manera fidedigna antes de solicitar el catálogo.
+  3. P1 - Fallback ambiguo a archivos heredados en getTrackFile: cuando se suministraban remoteDeviceId y destinationLibraryId, getTrackFile recurría a archivos con nombre legado "trackId.ext", arriesgando servir pistas huérfanas de otros servidores y vulnerando el aislamiento multi-servidor estricto.
+  4. P1 - Pruebas de integración no concurrentes ni verificadas a nivel de bytes: testDualServerPhysicalFileIsolation se ejecutaba de forma secuencial y testAirCatRealtimeStreamingCancellation cancelaba la corrutina antes de asegurar que los bytes parciales hubiesen llegado por la red.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Reanudación real con sesión activa y salto de checkpoints: AirCatTransferClient persiste ActiveTransferSession internamente y al recibir resumeTransfer() re-lanza el Job en un clientScope dedicado con SupervisorJob. En executeTransfer(), evalúa si cada pista ya posee checkpoint COMPLETED y archivo físico verificado en disco; si es así, avanza el acumulador de bytes y salta la descarga, reanudando transparentemente desde la pista pendiente.
+  2. Verificación criptográfica y de identidad remota previa a AirCat: SyncViewModel.startAirCatTransfer realiza una llamada de comprobación a effectiveClient.getServerInfo(), validando que la sesión esté autorizada y que el remoteServerId/remoteMichiId coincida de manera fidedigna con la identidad almacenada del dispositivo.
+  3. Eliminación del fallback ambiguo en getTrackFile: getTrackFile no realiza fallbacks a rutas no aisladas cuando se especifican remoteDeviceId y destinationLibraryId, asegurando que cada nodo y biblioteca acceda únicamente a sus archivos debidamente aislados.
+  4. Endurecimiento exhaustivo de pruebas:
+     - testDualServerPhysicalFileIsolation ejecuta descargas simultáneas en paralelo real mediante async/coroutineScope.
+     - testAirCatRealtimeStreamingCancellation utiliza un CompletableDeferred para verificar que los primeros 16KB fueron transmitidos activamente antes de disparar la cancelación.
+     - Nuevo test testAirCatPauseAndResumeFromCheckpoint verifica el ciclo completo de interrupción tras la primera pista y reanudación automática exitosa de la segunda pista con persistencia en Room.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - suite completa de pruebas unitarias al 100%, 0 fallos)
+  EndToEndOfflineSyncTest (7 tests PASSED: testCompleteOfflineSyncFlowWithRealRoomPersistence, testProcessInterruptionRecoveryWithPersistentCheckpoint, testTransactionIntegrityWhenLibraryRegistrationFails, testCheckpointIsolationAcrossServersForSameTrack, testAirCatInteractivePauseResumeCancel, testDualServerPhysicalFileIsolation, testAirCatRealtimeStreamingCancellation, testAirCatPauseAndResumeFromCheckpoint)
+  ./gradlew lintNormalDebug (PASSED - 0 errores de lint)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Verificación mutua de tokens e identidades de nodo previa a la transferencia de datos; eliminación de lecturas cruzadas en el almacenamiento de audio; integridad transaccional de estados en Room.
+ROLLBACK_PLAN:
+  git revert al commit resultante o reset a d083d620bea45954b7e41f68a96092866564bf44
 BLOCKERS: Ninguno.
 ```
+
 
 

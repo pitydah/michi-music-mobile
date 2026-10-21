@@ -721,6 +721,20 @@ class SyncViewModel(
                         )
                     }
 
+                // Verify remote session trust, active connection, and peer identity consistency
+                val serverInfoRes = effectiveClient.getServerInfo()
+                if (serverInfoRes.isFailure) {
+                    onResult(false, "No se pudo verificar la sesión remota con $targetDeviceId: ${serverInfoRes.exceptionOrNull()?.message}")
+                    return@launch
+                }
+                val serverInfo = serverInfoRes.getOrThrow()
+                val remoteServerId = serverInfo.effectiveServerId
+                val remoteMichiId = serverInfo.michiId
+                if (targetDeviceId != remoteServerId && (device.michiId.isNotEmpty() && targetDeviceId != device.michiId && remoteMichiId != device.michiId)) {
+                    onResult(false, "Inconsistencia de identidad remota: esperado $targetDeviceId pero respondió $remoteServerId")
+                    return@launch
+                }
+
                 // 1. Fetch manifest
                 val manifestRes = effectiveClient.fetchSyncManifest(targetDeviceId)
                 if (manifestRes.isFailure) {

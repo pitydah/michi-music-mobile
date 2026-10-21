@@ -380,12 +380,6 @@ class LinkTransferManager(
         val file = File(musicDir, fileName)
         if (file.exists()) return file
 
-        // Fallback to legacy single-track filename if isolated filename not found
-        if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
-            val legacyFile = File(musicDir, "${safeFileName(trackId)}.$ext")
-            if (legacyFile.exists()) return legacyFile
-        }
-
         return null
     }
 

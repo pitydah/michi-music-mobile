@@ -1,10 +1,14 @@
 package org.michimusic.mobile.devices.aircat
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.michimusic.core.models.DownloadItem
 import org.michimusic.core.models.LocationAvailability
@@ -50,9 +54,19 @@ class DefaultAirCatTransferClient(
     private val _processedTransferIds = MutableStateFlow<Set<String>>(emptySet())
     override val processedTransferIds: StateFlow<Set<String>> = _processedTransferIds.asStateFlow()
 
+    private data class ActiveTransferSession(
+        val intent: TransferIntent,
+        val manifest: AirCatManifest,
+        val linkClient: LinkClient,
+        val availableStorageBytes: Long,
+        val onProgress: ((AirCatProgressEvent) -> Unit)?,
+    )
+
     private val cancelledTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val pausedTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val activeJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    private val activeSessions = java.util.concurrent.ConcurrentHashMap<String, ActiveTransferSession>()
+    private val clientScope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
     override suspend fun executeTransfer(
         intent: TransferIntent,
@@ -67,6 +81,13 @@ class DefaultAirCatTransferClient(
         if (!pausedTransferIds.contains(intent.transferId)) {
             pausedTransferIds.remove(intent.transferId)
         }
+        activeSessions[intent.transferId] = ActiveTransferSession(
+            intent = intent,
+            manifest = manifest,
+            linkClient = linkClient,
+            availableStorageBytes = availableStorageBytes,
+            onProgress = onProgress,
+        )
         kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.let { job ->
             activeJobs[intent.transferId] = job
         }
@@ -181,6 +202,15 @@ class DefaultAirCatTransferClient(
                     destinationLibraryId = intent.destinationLibraryId,
                 )
                 val finalPath = existingFile?.absolutePath ?: File(transferManager.musicDir, targetFileName).absolutePath
+                val finalCandidate = File(finalPath)
+
+                // Check if track is already completed in persistent checkpoint and file exists on disk
+                val existingCp = checkpointRepository?.getCheckpoint(transferKey)
+                if (existingCp?.transferState == org.michimusic.core.models.TransferStatus.COMPLETED && finalCandidate.exists() && (item.size <= 0 || finalCandidate.length() == item.size)) {
+                    downloadedFiles.add(finalCandidate)
+                    transferredBytesAcc += finalCandidate.length()
+                    continue
+                }
 
                 val downloadItem = DownloadItem(
                     trackId = item.logicalTrackId,
@@ -298,6 +328,7 @@ class DefaultAirCatTransferClient(
             }
 
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
+            activeSessions.remove(intent.transferId)
             emitEvent(intent.transferId, manifest.totalTracks, manifest.totalTracks, manifest.totalBytes, manifest.totalBytes, AirCatTransferState.COMPLETED, onProgress = onProgress)
             Result.success(downloadedFiles)
 
@@ -354,11 +385,26 @@ class DefaultAirCatTransferClient(
                 state = AirCatTransferState.TRANSFERRING,
             )
         }
+
+        val session = activeSessions[transferId]
+        if (session != null && activeJobs[transferId]?.isActive != true) {
+            val job = clientScope.launch {
+                executeTransfer(
+                    intent = session.intent,
+                    manifest = session.manifest,
+                    linkClient = session.linkClient,
+                    availableStorageBytes = session.availableStorageBytes,
+                    onProgress = session.onProgress,
+                )
+            }
+            activeJobs[transferId] = job
+        }
     }
 
     override fun cancelTransfer(transferId: String) {
         cancelledTransferIds.add(transferId)
         activeJobs[transferId]?.cancel()
+        activeSessions.remove(transferId)
         val current = _progressEvents.value
         if (current != null && current.transferId == transferId) {
             _progressEvents.value = current.copy(state = AirCatTransferState.CANCELLED)

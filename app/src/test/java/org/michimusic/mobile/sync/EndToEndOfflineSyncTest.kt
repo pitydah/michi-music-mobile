@@ -3,9 +3,12 @@ package org.michimusic.mobile.sync
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -537,12 +540,15 @@ class EndToEndOfflineSyncTest {
             transferKey = "$server2:$destLib2:$sharedTrackId",
         )
 
-        // Download both tracks with identical logical trackId from both servers
+        // Download both tracks with identical logical trackId from both servers truly simultaneously
         val client1 = peer1.mockClient
         val client2 = peer2.mockClient
 
-        val file1Result = transferManager.downloadTrack(client1, item1)
-        val file2Result = transferManager.downloadTrack(client2, item2)
+        val (file1Result, file2Result) = coroutineScope {
+            val d1 = async(Dispatchers.IO) { transferManager.downloadTrack(client1, item1) }
+            val d2 = async(Dispatchers.IO) { transferManager.downloadTrack(client2, item2) }
+            d1.await() to d2.await()
+        }
 
         assertTrue("File 1 download must succeed", file1Result.isSuccess)
         assertTrue("File 2 download must succeed", file2Result.isSuccess)
@@ -575,9 +581,35 @@ class EndToEndOfflineSyncTest {
         val trackId = "trk_infinite_stream"
 
         val massiveStream = ByteArray(1024 * 1024) { (it % 255).toByte() }
+        val streamStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         val peer = FakeAirCatPeer(serverId)
-        peer.setupTrackStreaming(trackId, massiveStream)
+        coEvery {
+            peer.mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = any(),
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            val os = secondArg<java.io.OutputStream>()
+            val onProg = arg<((Long, Long) -> Unit)?>(5)
+
+            // Write first 16KB chunk and signal streaming has actually begun
+            os.write(massiveStream, 0, 16384)
+            onProg?.invoke(16384L, massiveStream.size.toLong())
+            streamStarted.complete(Unit)
+
+            // Sleep briefly while checking coroutine context or thread interrupt
+            try {
+                Thread.sleep(5000)
+            } catch (_: InterruptedException) {
+            }
+
+            throw kotlinx.coroutines.CancellationException("Transfer streaming cooperatively cancelled")
+        }
 
         every { pairedRegistry.getDevice(serverId) } returns PairedDevice(
             deviceId = serverId,
@@ -622,7 +654,7 @@ class EndToEndOfflineSyncTest {
             ),
         )
 
-        // Launch transfer and immediately cancel it
+        // Launch transfer in background coroutine
         val job = launch(Dispatchers.IO) {
             aircatClient.executeTransfer(
                 intent = intent,
@@ -632,13 +664,137 @@ class EndToEndOfflineSyncTest {
             )
         }
 
-        // Cancel transfer while active
+        // Wait until bytes are actually in-flight over the wire
+        streamStarted.await()
+
+        // Cancel transfer while actively streaming
         aircatClient.cancelTransfer(transferId)
         job.join()
 
-        // Transfer must be marked as CANCELLED
+        // Verify state is CANCELLED and partial file was preserved without corrupting database
         val latestProgress = aircatClient.progressEvents.first()
         assertNotNull(latestProgress)
         assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED, latestProgress?.state)
+    }
+
+    @Test
+    fun testAirCatPauseAndResumeFromCheckpoint() = runBlocking {
+        val serverId = "desktop_node_resume"
+        val destLibId = "lib_phone_resume"
+
+        database.libraryDao().insertLibrary(
+            org.michimusic.data.cache.LibraryEntity(
+                libraryId = destLibId,
+                name = "Phone Resume Lib",
+                type = "SYNCED",
+                ownerId = serverId,
+                isWritable = true,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+
+        every { pairedRegistry.getDevice(serverId) } returns PairedDevice(
+            deviceId = serverId,
+            deviceName = "Resume Server Node",
+            deviceToken = "tok_resume_123",
+            lastUrl = "http://192.168.1.150:8400",
+        )
+
+        val trackData1 = "Track One Full Audio Payload".toByteArray()
+        val trackData2 = "Track Two Full Audio Payload".toByteArray()
+        val hash1 = sha256(trackData1)
+        val hash2 = sha256(trackData2)
+
+        val peer = FakeAirCatPeer(serverId)
+        peer.setupTrackStreaming("trk_p_1", trackData1)
+        peer.setupTrackStreaming("trk_p_2", trackData2)
+
+        val aircatClient = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val transferId = "xfer_pause_resume_e2e"
+        val intent = TransferIntent(
+            transferId = transferId,
+            sourceMichiId = serverId,
+            destinationMichiId = "client_me",
+            sourceLibraryId = "lib_source_remote",
+            destinationLibraryId = destLibId,
+        )
+
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = transferId,
+            sourceDeviceId = serverId,
+            totalTracks = 2,
+            totalBytes = (trackData1.size + trackData2.size).toLong(),
+            items = listOf(
+                AirCatManifestItem(
+                    logicalTrackId = "trk_p_1",
+                    remoteTrackId = "trk_p_1",
+                    title = "First Song",
+                    artist = "Artist A",
+                    album = "Album A",
+                    format = "flac",
+                    size = trackData1.size.toLong(),
+                    sha256 = hash1,
+                ),
+                AirCatManifestItem(
+                    logicalTrackId = "trk_p_2",
+                    remoteTrackId = "trk_p_2",
+                    title = "Second Song",
+                    artist = "Artist B",
+                    album = "Album B",
+                    format = "flac",
+                    size = trackData2.size.toLong(),
+                    sha256 = hash2,
+                )
+            ),
+        )
+
+        // 1. Start transfer
+        val job = launch(Dispatchers.IO) {
+            aircatClient.executeTransfer(
+                intent = intent,
+                manifest = manifest,
+                linkClient = peer.mockClient,
+                availableStorageBytes = 200L * 1024 * 1024,
+            )
+        }
+
+        // Wait until at least track 1 finishes or is in progress
+        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")?.transferState != TransferStatus.COMPLETED) {
+            Thread.sleep(10)
+        }
+
+        // Pause transfer
+        aircatClient.pauseTransfer(transferId)
+        job.join()
+
+        // Verify paused state
+        assertTrue(aircatClient.isTransferPaused(transferId))
+
+        // 2. Resume transfer
+        aircatClient.resumeTransfer(transferId)
+
+        // Wait until completion
+        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_2")?.transferState != TransferStatus.COMPLETED) {
+            Thread.sleep(10)
+        }
+
+        val cp1 = checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")
+        val cp2 = checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_2")
+        assertNotNull(cp1)
+        assertNotNull(cp2)
+        assertEquals(TransferStatus.COMPLETED, cp1?.transferState)
+        assertEquals(TransferStatus.COMPLETED, cp2?.transferState)
+
+        // Verify library contains both tracks
+        val tracks = libraryRepo.observeTracks(LibraryScope.One(destLibId)).first()
+        assertEquals(2, tracks.size)
     }
 }
