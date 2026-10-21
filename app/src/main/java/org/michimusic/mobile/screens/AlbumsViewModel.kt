@@ -8,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
@@ -21,7 +22,14 @@ class AlbumsViewModel(
     private val appDao: AppDao,
     private val playlistRepo: PlaylistRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val favoritesRepo: org.michimusic.data.repository.FavoritesRepository? = null,
 ) : ViewModel() {
+
+    private val _favoriteTrackIds = MutableStateFlow<Set<String>>(emptySet())
+    val favoriteTrackIds: StateFlow<Set<String>> = _favoriteTrackIds.asStateFlow()
+
+    private val _favoriteTracks = MutableStateFlow<List<Track>>(emptyList())
+    val favoriteTracks: StateFlow<List<Track>> = _favoriteTracks.asStateFlow()
 
     private val _albums = MutableStateFlow<List<LocalAlbum>>(emptyList())
     val albums: StateFlow<List<LocalAlbum>> = _albums.asStateFlow()
@@ -81,6 +89,14 @@ class AlbumsViewModel(
                     emptyList()
                 }
 
+                val favIds: Set<String> = try {
+                    favoritesRepo?.observeFavoriteTrackIds()?.firstOrNull() ?: emptySet()
+                } catch (_: Exception) {
+                    emptySet()
+                }
+                _favoriteTrackIds.value = favIds
+                _favoriteTracks.value = tracks.filter { it.id in favIds }
+
                 _albums.value = result
                 _allTracks.value = tracks
                 _topTracks.value = smartLists.first
@@ -92,6 +108,8 @@ class AlbumsViewModel(
                 _topTracks.value = emptyList()
                 _recentTracks.value = emptyList()
                 _playlists.value = emptyList()
+                _favoriteTracks.value = emptyList()
+                _favoriteTrackIds.value = emptySet()
                 _error.value = e.message ?: "Error al cargar la biblioteca"
             } finally {
                 _isLoading.value = false

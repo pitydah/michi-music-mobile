@@ -35,6 +35,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow(null)
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
         
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
@@ -62,6 +63,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow(null)
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
 
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
@@ -95,6 +97,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow("Error de carga")
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
 
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
@@ -122,6 +125,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow(null)
         every { mockViewModel.recentTracks } returns MutableStateFlow(listOf(t1))
         every { mockViewModel.topTracks } returns MutableStateFlow(listOf(t2))
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(listOf(t2))
 
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
@@ -156,6 +160,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow(null)
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
 
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
@@ -185,6 +190,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow(null)
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
 
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
@@ -215,6 +221,7 @@ class HomeScreenTest {
         every { mockViewModel.error } returns MutableStateFlow(null)
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
 
         val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
         every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())

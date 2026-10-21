@@ -18,6 +18,7 @@ val appModule = module {
     includes(syncModule, remoteModule, dataModule, playerModule, linkModule)
 
     single<CoroutineDispatcher> { Dispatchers.IO }
+    single { org.michimusic.mobile.library.LibraryScopeStore(get(), get()) }
 
     viewModel {
         SyncViewModel(

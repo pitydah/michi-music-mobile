@@ -100,6 +100,7 @@ fun HomeScreen(
     val allTracks by viewModel.allTracks.collectAsState()
     val recentTracks by viewModel.recentTracks.collectAsState()
     val topTracks by viewModel.topTracks.collectAsState()
+    val favoriteTracks by viewModel.favoriteTracks.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
 
     val sessionState by sessionManager.sessionState.collectAsState()
@@ -224,12 +225,14 @@ fun HomeScreen(
                 item {
                     YourPlaylistsSection(
                         totalTracks = allTracks.size,
+                        favoritesCount = favoriteTracks.size,
                         topTracksCount = topTracks.size,
                         recentTracksCount = recentTracks.size,
                         playlists = playlists,
                         onCreatePlaylist = { showCreatePlaylist = true },
                         onPlaylistClick = { type ->
                             when (type) {
+                                "favorites" -> if (favoriteTracks.isNotEmpty()) audioController.playQueue(favoriteTracks, 0)
                                 "top" -> if (topTracks.isNotEmpty()) audioController.playQueue(topTracks, 0)
                                 "recent" -> if (recentTracks.isNotEmpty()) audioController.playQueue(recentTracks, 0)
                                 else -> if (allTracks.isNotEmpty()) audioController.playQueue(allTracks, 0)
@@ -605,6 +608,7 @@ private fun RecentTrackCard(
 @Composable
 private fun YourPlaylistsSection(
     totalTracks: Int,
+    favoritesCount: Int = 0,
     topTracksCount: Int,
     recentTracksCount: Int,
     playlists: List<Playlist>,
@@ -646,9 +650,17 @@ private fun YourPlaylistsSection(
         ) {
             PlaylistTile(
                 title = "Favoritos",
-                subtitle = "$topTracksCount temas",
+                subtitle = "$favoritesCount pistas",
                 icon = Icons.Filled.Star,
                 accentColor = PrimaryPinkContainer,
+                modifier = Modifier.weight(1f),
+                onClick = { onPlaylistClick("favorites") },
+            )
+            PlaylistTile(
+                title = "Más Escuchadas",
+                subtitle = "$topTracksCount temas",
+                icon = Icons.Filled.PlayArrow,
+                accentColor = SecondaryPurple,
                 modifier = Modifier.weight(1f),
                 onClick = { onPlaylistClick("top") },
             )

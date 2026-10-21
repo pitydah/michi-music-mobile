@@ -113,6 +113,11 @@ fun AlbumsScreen(
     val currentTrack = playerState.currentTrack
     val isPlaying = playerState.isPlaying
 
+    val libraryScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
+    val musicLibraryRepo: org.michimusic.data.repository.MusicLibraryRepository = koinInject()
+    val activeScope by libraryScopeStore.activeScope.collectAsState()
+    val availableLibraries by musicLibraryRepo.observeLibraries().collectAsState(initial = emptyList())
+
     var selectedTab by remember { mutableStateOf(LibraryTab.SONGS) }
     var selectedFilter by remember { mutableStateOf(LibraryFilter.ALL) }
     var viewMode by remember { mutableStateOf(LibraryViewMode.LIST) }
@@ -247,6 +252,58 @@ fun AlbumsScreen(
                             contentDescription = "Nueva Playlist",
                             tint = PureWhite,
                             modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
+
+            // Library Scope Selector (Todas / Este teléfono / etc.)
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // Option "Todas"
+                val isAllSelected = activeScope is org.michimusic.core.models.LibraryScope.All
+                item {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isAllSelected) SecondaryPurple.copy(alpha = 0.25f) else GlassFillLow)
+                            .border(1.dp, if (isAllSelected) SecondaryPurple else GlassBorderLow, RoundedCornerShape(8.dp))
+                            .clickable { libraryScopeStore.setScope(org.michimusic.core.models.LibraryScope.All) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("library_scope_all"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "Todas",
+                            color = if (isAllSelected) PureWhite else TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Medium,
+                        )
+                    }
+                }
+
+                // Existing libraries in repository
+                items(availableLibraries) { lib ->
+                    val isSelected = (activeScope as? org.michimusic.core.models.LibraryScope.One)?.libraryId == lib.id
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) SecondaryPurple.copy(alpha = 0.25f) else GlassFillLow)
+                            .border(1.dp, if (isSelected) SecondaryPurple else GlassBorderLow, RoundedCornerShape(8.dp))
+                            .clickable { libraryScopeStore.setScope(org.michimusic.core.models.LibraryScope.One(lib.id)) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("library_scope_${lib.id}"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = lib.name,
+                            color = if (isSelected) PureWhite else TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         )
                     }
                 }
