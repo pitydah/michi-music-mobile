@@ -24,4 +24,5 @@ val dataModule = module {
     single { SyncedTrackRepository(get(), get()) }
     single { LocalMediaRepository(androidContext(), get()) }
     single { PlaylistRepository(get(), get(), get()) }
+    single { org.michimusic.data.repository.SafMediaRepository(androidContext(), get()) }
 }

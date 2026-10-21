@@ -18,7 +18,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 // Exercises LocalMediaRepository.loadTracks()'s real caching logic (not a subclass that
-// overrides loadTracks() itself). Only queryTracks() - the MediaStore-dependent boundary -
+// overrides loadTracks() itself). Only queryTracksResult() - the MediaStore-dependent boundary -
 // is substituted, so the cache-hit/miss/invalidate behavior under test is the real thing.
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -39,7 +39,7 @@ class LocalMediaRepositoryCacheTest {
 
     @Test
     fun loadTracks_validResultWithTracks_isCachedOnSecondCall() = runTest(testDispatcher) {
-        val repo = QueryControlledRepository(listOf(listOf(trackA, trackB)))
+        val repo = QueryControlledRepository(listOf(MediaResult.Success(listOf(trackA, trackB))))
 
         val first = repo.loadTracks()
         assertEquals(listOf(trackA, trackB), first)
@@ -53,7 +53,7 @@ class LocalMediaRepositoryCacheTest {
     @Test
     fun loadTracks_validEmptyResult_isCachedOnSecondCall() = runTest(testDispatcher) {
         // cursor != null, 0 rows: a legitimate empty library, safe to cache.
-        val repo = QueryControlledRepository(listOf(emptyList()))
+        val repo = QueryControlledRepository(listOf(MediaResult.Success(emptyList())))
 
         val first = repo.loadTracks()
         assertTrue(first.isEmpty())
@@ -67,9 +67,9 @@ class LocalMediaRepositoryCacheTest {
     @Test
     fun loadTracks_failedQueryThenGrantedPermission_reQueriesAndReturnsTracksImmediately() = runTest(testDispatcher) {
         // Reproduces the device bug: first call races ahead of the permission grant
-        // (SecurityException -> dispatcher returns null), then a second call happens
+        // (SecurityException -> dispatcher returns PermissionDenied), then a second call happens
         // once the permission is actually granted.
-        val repo = QueryControlledRepository(listOf(null, listOf(trackA, trackB)))
+        val repo = QueryControlledRepository(listOf(MediaResult.PermissionDenied, MediaResult.Success(listOf(trackA, trackB))))
 
         val first = repo.loadTracks()
         assertTrue("a failed query must surface as an empty list, not crash", first.isEmpty())
@@ -87,7 +87,7 @@ class LocalMediaRepositoryCacheTest {
 
     @Test
     fun invalidateCache_forcesRequeryOnNextLoad() = runTest(testDispatcher) {
-        val repo = QueryControlledRepository(listOf(listOf(trackA), listOf(trackA, trackB)))
+        val repo = QueryControlledRepository(listOf(MediaResult.Success(listOf(trackA)), MediaResult.Success(listOf(trackA, trackB))))
 
         val first = repo.loadTracks()
         assertEquals(listOf(trackA), first)
@@ -100,16 +100,23 @@ class LocalMediaRepositoryCacheTest {
         assertEquals(2, repo.queryCount)
     }
 
+    @Test
+    fun fetchTracksResult_returnsPermissionDenied_whenQueryFailsWithPermission() = runTest(testDispatcher) {
+        val repo = QueryControlledRepository(listOf(MediaResult.PermissionDenied))
+        val result = repo.fetchTracksResult()
+        assertTrue(result is MediaResult.PermissionDenied)
+    }
+
     companion object {
         private val trackA = Track(id = "a", title = "Song A", artist = "Artist", album = "Album", source = TrackSource.LOCAL)
         private val trackB = Track(id = "b", title = "Song B", artist = "Artist", album = "Album", source = TrackSource.LOCAL)
     }
 }
 
-// Stands in for the MediaStore-backed queryTracks(): each call returns the next scripted
-// response (null = failed query, emptyList() = valid empty result, list = valid with tracks).
+// Stands in for the MediaStore-backed queryTracksResult(): each call returns the next scripted
+// response (PermissionDenied = failed query, Success(emptyList()) = valid empty result, Success(list) = valid with tracks).
 private class QueryControlledRepository(
-    responses: List<List<Track>?>,
+    responses: List<MediaResult<List<Track>>>,
 ) : LocalMediaRepository(context = null, replayGainDao = null) {
 
     private val queue = ArrayDeque(responses)
@@ -117,7 +124,7 @@ private class QueryControlledRepository(
     var queryCount = 0
         private set
 
-    override suspend fun queryTracks(): List<Track>? {
+    override suspend fun queryTracksResult(): MediaResult<List<Track>> {
         queryCount++
         return queue.removeFirst()
     }

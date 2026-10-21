@@ -70,25 +70,28 @@ open class LocalMediaRepository(
         }.sortedBy { it.album.title }
     }
 
-    open suspend fun loadTracks(): List<Track> = cacheMutex.withLock {
+    open suspend fun fetchTracksResult(): MediaResult<List<Track>> = cacheMutex.withLock {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             val cached = cachedTracks
             val cacheHit = cached != null && now - cacheTime < CACHE_TTL_MS
             if (cacheHit) {
-                return@withContext cached!!
+                return@withContext MediaResult.Success(cached!!)
             }
-            // A null result means the query itself failed (e.g. no permission yet) rather
-            // than the library legitimately being empty, so it must not be cached - otherwise
-            // a permission granted right after a failed query would stay masked by the cache.
-            val result = queryTracks()
-            if (result != null) {
-                cachedTracks = result
+            val result = queryTracksResult()
+            if (result is MediaResult.Success) {
+                cachedTracks = result.data
                 cacheTime = now
-                result
-            } else {
-                emptyList()
             }
+            result
+        }
+    }
+
+    open suspend fun loadTracks(): List<Track> {
+        return when (val result = fetchTracksResult()) {
+            is MediaResult.Success -> result.data
+            is MediaResult.PermissionDenied -> emptyList()
+            is MediaResult.QueryFailed -> emptyList()
         }
     }
 
@@ -98,14 +101,10 @@ open class LocalMediaRepository(
         }
     }
 
-    // Returns null when the MediaStore query itself failed (e.g. SecurityException because
-    // the audio permission wasn't granted yet), as opposed to emptyList() which means the
-    // query ran fine and the device legitimately has no tracks. Callers must not cache null.
-    // Open/internal so tests can substitute the MediaStore-dependent part while exercising
-    // the real caching logic in loadTracks().
-    internal open suspend fun queryTracks(): List<Track>? {
-        val ctx = context ?: return emptyList()
-        val cursor = MediaQueryDispatcher(
+    // Returns MediaResult typed status. Callers must not cache non-Success.
+    internal open suspend fun queryTracksResult(): MediaResult<List<Track>> {
+        val ctx = context ?: return MediaResult.Success(emptyList())
+        val queryResult = MediaQueryDispatcher(
             ctx.contentResolver,
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
         )
@@ -130,15 +129,13 @@ open class LocalMediaRepository(
                 MediaStore.Audio.Media.RELATIVE_PATH,
                 MediaStore.Audio.Media.BUCKET_DISPLAY_NAME,
             )
-            // No IS_MUSIC selection: that heuristic column is unreliable for files MediaStore
-            // never explicitly tagged as music (e.g. tracks downloaded outside the Music/
-            // folder). Every audio row is fetched instead, and only the categories that are
-            // definitely not songs are excluded below via isRealTrack().
             .setSortOrder(MediaStore.Audio.Media.TITLE + " ASC")
-            .dispatch()
+            .dispatchWithResult()
 
-        if (cursor == null) {
-            return null
+        val cursor = when (queryResult) {
+            is MediaResult.Success -> queryResult.data ?: return MediaResult.Success(emptyList())
+            is MediaResult.PermissionDenied -> return MediaResult.PermissionDenied
+            is MediaResult.QueryFailed -> return queryResult
         }
 
         val tracks = mutableListOf<Track>()
@@ -220,12 +217,12 @@ open class LocalMediaRepository(
         val rgMap = rgBatch.associateBy { it.trackId }
 
         val rgUpdates = mutableListOf<ReplayGainEntity>()
-        return tracks.map { track ->
+        val processedTracks = tracks.map { track ->
             val cached = rgMap[track.id]
             if (cached != null) {
                 track.copy(replayGainTrack = cached.trackGain, replayGainAlbum = cached.albumGain)
             } else {
-                val parsed = ReplayGainReader.read(track.filepath)
+                val parsed = ReplayGainReader.read(context, track.filepath)
                 // NaN is the project-wide sentinel for "no ReplayGain data" (see
                 // ReplayGainAudioProcessor's isNaN() checks) - it must stay NaN on the Track
                 // for that reason, but must never reach replaygain_cache: SQLite binds a NaN
@@ -242,6 +239,7 @@ open class LocalMediaRepository(
                 replayGainDao?.upsertAll(rgUpdates)
             }
         }
+        return MediaResult.Success(processedTracks)
     }
 
     open suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {

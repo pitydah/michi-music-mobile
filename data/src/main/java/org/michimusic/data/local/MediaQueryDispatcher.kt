@@ -5,6 +5,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.annotation.WorkerThread
+import org.michimusic.data.repository.MediaResult
 
 class MediaQueryDispatcher(
     private val contentResolver: ContentResolver,
@@ -54,7 +55,23 @@ class MediaQueryDispatcher(
             selectionArgs?.toTypedArray(),
             sortOrder,
         )
-    } catch (e: SecurityException) {
+    } catch (_: SecurityException) {
         null
+    }
+
+    @WorkerThread
+    fun dispatchWithResult(): MediaResult<Cursor?> = try {
+        val cursor = contentResolver.query(
+            queryUri,
+            projection,
+            selection,
+            selectionArgs?.toTypedArray(),
+            sortOrder,
+        )
+        MediaResult.Success(cursor)
+    } catch (_: SecurityException) {
+        MediaResult.PermissionDenied
+    } catch (e: Throwable) {
+        MediaResult.QueryFailed(e)
     }
 }

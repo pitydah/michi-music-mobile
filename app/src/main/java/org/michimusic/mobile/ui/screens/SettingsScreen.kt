@@ -381,9 +381,65 @@ fun SettingsScreen(
             SettingsSectionCard(
                 icon = Icons.Default.FolderSpecial,
                 title = "Biblioteca & Almacenamiento",
-                subtitle = "Escaneo y carátulas",
+                subtitle = "Escaneo, carátulas e importación",
                 accent = TertiaryCyan,
             ) {
+                var importedCount by remember { mutableStateOf<Int?>(null) }
+                val safMediaRepository: org.michimusic.data.repository.SafMediaRepository = koinInject()
+                val openDocLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+                ) { uris ->
+                    if (uris.isNotEmpty()) {
+                        scope.launch {
+                            var imported = 0
+                            for (uri in uris) {
+                                val track = safMediaRepository.importAudioUri(uri)
+                                if (track != null) imported++
+                            }
+                            importedCount = imported
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(GlassFillLow)
+                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
+                        .clickable { openDocLauncher.launch(arrayOf("audio/*", "application/ogg")) }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Importar audio (SAF)",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = PureWhite,
+                            ),
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = if (importedCount != null) {
+                                "$importedCount pista(s) importada(s)"
+                            } else {
+                                "Seleccionar archivos locales o de almacenamiento externo"
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                        )
+                    }
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = TertiaryCyan,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 SettingSwitchRow(
                     title = "Escanear al iniciar",
                     subtitle = "Detectar nueva música automáticamente al abrir la app",
