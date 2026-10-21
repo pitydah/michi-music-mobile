@@ -10,7 +10,7 @@
 | M3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | ef003543 | USB DAC Route Truth, OutputDescriptor, AudioRouteObserver, hotplug auto-pausa y UI veraz |
 | M4 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 7eee54d | Hi-Res, DSP/Transparente, ReplayGain multi-formato, Signal Truth, DSD/DoP Feasibility |
 | M5 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 5bc5ab4 | Multi-Library Room v3->v4, DAOs, identidades/ubicaciones desacopladas y repositorios de dominio |
-| M6 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | UI Multi-Library, favoritos, búsqueda |
+| M6 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 7bedf68 | UI Multi-Library, favoritos persistentes, búsqueda federada y Home |
 | M7 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Link identidad, Keystore recovery, Home trust |
 | M8 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Sync resumable downloads y profiles |
 | M9 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | AirCat Mobile consumer contract y Devices UI |
@@ -163,6 +163,58 @@ ROLLBACK_PLAN:
   git reset --hard 5ead81fc7ceebdaae2e7616d61f76269ebf58fc2
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M6 (UI Multi-Library, favoritos, búsqueda y Home)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque G (M6)
+
+```text
+BLOCK_ID: M6
+MASTER_BASE_SHA: 36b30869d6bf37f6a6ca7006886e80b2a74c207d
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/AppModule.kt
+  - app/src/main/java/org/michimusic/mobile/library/LibraryScopeStore.kt
+  - app/src/main/java/org/michimusic/mobile/screens/AlbumsViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/screens/SearchViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/AlbumsScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/HomeScreen.kt
+  - app/src/test/java/org/michimusic/mobile/library/LibraryScopeStoreTest.kt
+  - app/src/test/java/org/michimusic/mobile/screens/AlbumsViewModelTest.kt
+  - app/src/test/java/org/michimusic/mobile/screens/FederatedSearchTest.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/HomeScreenTest.kt
+  - data/src/main/java/org/michimusic/data/DataModule.kt
+  - data/src/main/java/org/michimusic/data/repository/FavoritesRepository.kt
+  - data/src/test/java/org/michimusic/data/repository/FavoritesRepositoryTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  HomeScreen confundía analíticas de reproducción (topTracks) con favoritos del usuario ("Favoritos: $topTracksCount temas");
+  no existía repositorio de favoritos persistentes desacoplado; no había navegación por scopes de biblioteca en AlbumsScreen;
+  la búsqueda local mezclaba indistintamente diferentes masterizaciones (p. ej. 44.1 kHz vs 96 kHz) o no deduplicaba
+  correctamente las ubicaciones disponibles; la selección de biblioteca activa no persistía entre sesiones.
+PRODUCTION_BEHAVIOR_AFTER:
+  FavoritesRepository implementa almacenamiento persistente de favoritos en app_settings de forma asíncrona y segura;
+  LibraryScopeStore persiste StateFlow<LibraryScope> con fallback determinista a LibraryScope.All en caso de borrado;
+  AlbumsScreen integra selector dinámico de scope (Todas, Este teléfono, bibliotecas sincronizadas/custom);
+  HomeScreen separa nítidamente "Favoritos" ($favoritesCount pistas) de "Más Escuchadas" ($topTracksCount temas) y "Recientes";
+  SearchViewModel agrupa ubicaciones disponibles y preserva versiones con distinta calidad/masterización (sampleRate/bitrate/formato).
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks ejecutadas en :app, :data, :player, :core, :michi-link-client)
+  FavoritesRepositoryTest (toggle, add, remove, persistencia y reactividad - PASSED)
+  LibraryScopeStoreTest (persistencia, cambio de scope, fallback a All ante eliminación - PASSED)
+  FederatedSearchTest (búsqueda federada, agrupación de ubicaciones, preservación de masters distintos - PASSED)
+  AlbumsViewModelTest (carga de biblioteca, favoritos y playlists - PASSED)
+  HomeScreenTest (loading state, recents, top tracks, favoritos, wrapping de títulos largos - PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: N/A
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Favoritos y scopes sanitizan entradas; fallback seguro si el scope guardado ya no existe;
+  sin fugas de datos de bibliotecas privadas en búsqueda federada no autorizada.
+ROLLBACK_PLAN:
+  git reset --hard 36b30869d6bf37f6a6ca7006886e80b2a74c207d
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M7 (Michi Link, Identidad, Home Trust y Seguridad Android)
 ```
 
 ---
