@@ -7,7 +7,61 @@
 | M0 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 45ed692a | Rescate 13 commits playlists, DI validado, DAO y mutex atómico, UI Error state y Main.immediate |
 | M1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | deae6e64 | Autoridad única Media3, LocalPlaybackGateway, PlaybackStatus/ErrorMapper, recuperación de pistas faltantes |
 | M2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | bb2c3fc3 | Medios locales tipados MediaResult, SAF SafMediaRepository, ReplayGain SeekableAudioSource/ContentResolver |
-| M3 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | USB DAC Route Truth y hotplug |
+| M3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | ef003543 | USB DAC Route Truth, OutputDescriptor, AudioRouteObserver, hotplug auto-pausa y UI veraz |
+| M4 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | Hi-Res, DSP/Transparente, Signal Truth |
+| M5 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | Multi-Library Room v3->v4 y dominio relacional |
+| M6 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | UI Multi-Library, favoritos, búsqueda |
+| M7 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Link identidad, Keystore recovery, Home trust |
+| M8 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Sync resumable downloads y profiles |
+| M9 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | AirCat Mobile consumer contract y Devices UI |
+| M10 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Catálogos remotos y ReceiverLite Stream |
+| M11 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | UI Premium, Settings jerárquico, Android Auto |
+| M12 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | CI, seguridad, certificación y release |
+| M13 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | IA musical optativa |
+
+---
+
+## Checkpoint de Ejecución — Bloque D (M3)
+
+```text
+BLOCK_ID: M3
+MASTER_BASE_SHA: 5ef3d21ad373ec56aee0e5015b3cba14ca6cf716
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/ui/components/DialogComponents.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/AudioRouteScreen.kt
+  - player/src/main/java/org/michimusic/player/AudioRouteModels.kt
+  - player/src/main/java/org/michimusic/player/AudioRouteObserver.kt
+  - player/src/main/java/org/michimusic/player/PlayerController.kt
+  - player/src/main/java/org/michimusic/player/UsbDacManager.kt
+  - player/src/test/java/org/michimusic/player/UsbDacManagerTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  UsbDacManager y la UI asumían optimismo ciego: un dongle USB conectado se catalogaba como "DAC USB DIRECTO"
+  y salida actual activa sin confirmación del hardware/AudioTrack ni de Media3; no existía desacoplamiento
+  de IDs efímeros de Android ni máquina de estados de ruta; la desconexión abrupta del USB o auriculares
+  no pausaba la reproducción deterministamente, pudiendo filtrar audio no deseado por el altavoz integrado.
+PRODUCTION_BEHAVIOR_AFTER:
+  Se implementó AudioRouteStatus (NoDevice, Detected, Requested, Confirmed, Failed, Unknown) y OutputDescriptor
+  desacoplado de IDs volátiles; UsbDacManager opera mediante AudioDeviceSource inyectable y notifica eventos
+  de desconexión hotplug; PlayerController intercepta desconexión de USB mientras isPlaying y pausa de inmediato;
+  AudioRouteObserver se conecta a AudioTrack (vía AudioTrackProvider) para reportar enrutamiento efectivo;
+  DialogComponents y AudioRouteScreen exhiben estado veraz y frecuencias declaradas sin falsear bit-perfect.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 322 actionable tasks ejecutadas en :player, :app, :data, :core, :michi-link-client)
+  UsbDacManagerTest: initialState_hasFallbackSpeakerWhenNoManager, selectDevice_updatesSelectedDeviceId,
+  clearDeviceSelection_resetsToNull, release_doesNotThrow, usbDetectedNotRoutedTest, usbDisconnectPausesTest,
+  usbReplugNewIdTest, twoDacsChooseRequestedTest, unknownRouteDoesNotClaimConfirmedTest, routeCallbackReleasedTest.
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere dispositivo Android físico y al menos 2 dongles DAC USB reales)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  No se exponen datos de usuario ni recursos de hardware no autorizados; desuscripción y liberación de callbacks
+  en UsbDacManager y PlayerController verificada para prevenir fugas de memoria (memory leaks) de AudioDeviceCallback.
+ROLLBACK_PLAN:
+  git reset --hard 5ef3d21ad373ec56aee0e5015b3cba14ca6cf716
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M4 (Hi-Res, DSP/Transparente, ReplayGain y Signal Truth)
+```
 
 ---
 
