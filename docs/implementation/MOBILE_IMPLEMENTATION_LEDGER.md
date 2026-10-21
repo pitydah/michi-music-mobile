@@ -15,7 +15,7 @@
 | M8 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | b4bf34f | Michi Sync resumable downloads, checksums, atomic promotion y profiles |
 | M9 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 88669ac | AirCat Mobile consumer contract, FakeAirCatPeer harness, USB feasibility |
 | M10 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 248c5a9 | Catálogos remotos y ReceiverLite Stream |
-| M11 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | UI Premium, Settings jerárquico, Android Auto |
+| M11 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 73e54d6 | UI Premium, Settings jerárquico, Android Auto y Diagnósticos expurgados |
 | M12 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | CI, seguridad, certificación y release |
 | M13 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | IA musical optativa |
 
@@ -375,6 +375,48 @@ ROLLBACK_PLAN:
 BLOCKERS:
   Pruebas E2E físicas bloqueadas por implementación upstream en repo Michi Devices (BLOCKED_UPSTREAM reportado honestamente).
 NEXT_BLOCK: M10 (Catálogos remotos, control distribuido y ReceiverLite Stream)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque L (M11)
+
+```text
+BLOCK_ID: M11
+MASTER_BASE_SHA: 96db01d36886e9275a507e15bf919934eeae5d5a
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/ui/screens/SettingsScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DiagnosticsScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DiagnosticsRedactor.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/SettingsHierarchyTest.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/DiagnosticsRedactionTest.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/A11yAndTokensTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  SettingsScreen era una lista vertical única con scroll infinito y sobrecarga cognitiva;
+  no existía navegación jerárquica con categorías claras (Audio & DSP, Biblioteca & Almacenamiento, Accesibilidad, Privacidad);
+  DiagnosticsScreen permitía ver estados de red pero no proporcionaba exportación redactada ni reseteo de auditoría,
+  arriesgando fuga de tokens sensibles en capturas de pantalla o reportes pegados;
+  no existían tests que validaran contratos de claves de SharedPreferences ni que los targets táctiles cumplieran con los mínimos de accesibilidad.
+PRODUCTION_BEHAVIOR_AFTER:
+  SettingsScreen rediseñado jerárquicamente con subpantallas fluidas (AnimatedContent) y soporte de navegación de retroceso (BackHandler);
+  preservación 100% íntegra de claves de preferencias existentes en SharedPreferences y Room;
+  DiagnosticsScreen equipado con copiado de informe con expurgo de seguridad (DiagnosticsRedactor que elimina tokens, URLs internas y credenciales) y reseteo;
+  conformidad estricta con tokens de diseño (MichiSpacing, MichiShapes, MichiTypography) y objetivos táctiles >= 48dp;
+  contratos de Android Auto auditados y clasificados honestamente como ANDROID_AUTO_PENDING (MediaLibraryService no exportado, sin dependencias GMS en F-Droid);
+  suite completa de pruebas (342 tareas) ejecutada con éxito (BUILD SUCCESSFUL).
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks en :app, :data, :player, :core, :michi-link-client)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin dispositivo/emulador conectado en sesión de desarrollo)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere hardware de infotenimiento para Android Auto y pruebas de accesibilidad en pantalla física)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  DiagnosticsRedactor elimina tokens de autenticación, contraseñas, bearer tokens y enmascara IPs privadas antes de cualquier exportación o copiado.
+  MediaLibraryService permanece con android:exported="false" en variantes sin bridge automotriz seguro.
+ROLLBACK_PLAN:
+  git reset --hard 96db01d36886e9275a507e15bf919934eeae5d5a
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M12 (Calidad, Seguridad, CI, Validación Física y Release)
 ```
 
 ---
