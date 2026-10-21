@@ -12,7 +12,7 @@
 | M5 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 5bc5ab4 | Multi-Library Room v3->v4, DAOs, identidades/ubicaciones desacopladas y repositorios de dominio |
 | M6 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 7bedf68 | UI Multi-Library, favoritos persistentes, búsqueda federada y Home |
 | M7 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c81a126 | Michi Link identidad, Keystore recovery, Home trust, WorkManager creds removal |
-| M8 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Sync resumable downloads y profiles |
+| M8 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | b4bf34f | Michi Sync resumable downloads, checksums, atomic promotion y profiles |
 | M9 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | AirCat Mobile consumer contract y Devices UI |
 | M10 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Catálogos remotos y ReceiverLite Stream |
 | M11 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | UI Premium, Settings jerárquico, Android Auto |
@@ -267,6 +267,65 @@ ROLLBACK_PLAN:
   git reset --hard aeddc6d5c0daf8d32934a46f34bdd45b52ab852d
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M8 (Michi Sync: descargas transaccionales, reanudación y perfiles de sincronización)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque I (M8)
+
+```text
+BLOCK_ID: M8
+MASTER_BASE_SHA: 3be110c1fceecf482599723c31671fccece8784d
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/di/KoinAccessors.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/test/java/org/michimusic/mobile/sync/SyncWorkerSecurityTest.kt
+  - data/src/main/java/org/michimusic/data/DataModule.kt
+  - data/src/main/java/org/michimusic/data/cache/MichiDatabase.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryDaos.kt
+  - data/src/main/java/org/michimusic/data/repository/MusicLibraryRepository.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkClient.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkTransferManager.kt
+  - michi-link-client/src/main/java/org/michimusic/link/transfer/TransferModels.kt
+  - michi-link-client/src/test/java/org/michimusic/link/transfer/ResumableTransferTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  LinkTransferManager.downloadTrack borraba el archivo .part existente y comenzaba desde 0 sin soporte veraz
+  de reanudación por Range; no validaba el código HTTP 206 ni detectaba si el servidor ignoraba el rango
+  devolviendo 200 OK con el stream completo (lo que causaba archivos corruptos si se abrían en append);
+  la promoción del archivo descargado no era transaccional ni protegía el archivo bueno previo ante fallos de red;
+  no existía máquina de estados con checkpoints persistibles ni progreso honesto en bytes;
+  SyncProfileDao y SyncManifestDao no estaban expuestos en Room/DI;
+  las descargas completadas en SyncWorker no registraban la ubicación TrackLocation(SYNCED_MANAGED) ni la membresía
+  en la biblioteca destino del sistema multi-biblioteca de Room v4.
+PRODUCTION_BEHAVIOR_AFTER:
+  LinkClient soporta streamTrackRange con validación de cabeceras Range, ETag, If-Range y Content-Range;
+  LinkTransferManager implementa máquina de estados transaccional (QUEUED, PREFLIGHT, DOWNLOADING, VERIFYING,
+  COMMITTING, COMPLETED, PAUSED, FAILED) con TransferCheckpoint;
+  reanudación veraz en offset o reinicio transparente y honesto (RESTARTED_FROM_ZERO) si el servidor ignora el rango;
+  verificación estricta de hash SHA-256 previa a la promoción;
+  promoción atómica con copia de seguridad y restauración del archivo previo en caso de fallo durante el reemplazo;
+  cancelación limpia que preserva el .part para su posterior reanudación;
+  SyncProfileDao y SyncManifestDao implementados y registrados en Koin DataModule;
+  SyncWorker enlaza los archivos descargados a TrackLocation.SYNCED_MANAGED y membresía en la biblioteca de destino
+  asociada al dispositivo remoto;
+  Suite completa de pruebas unitarias cubriendo reanudación, fallback ante falta de Range, verificación de checksum,
+  preservación atómica de archivos antiguos y ausencia de credenciales en WorkManager.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks ejecutadas en :michi-link-client, :data, :app, :player, :core)
+  ResumableTransferTest (5 tests: partialDownloadResumesAtOffset, rangeNotSupportedFallsBackHonestRestart,
+  checksumMismatchNeverPromotes, cancelPreservesSafePart, atomicPromotionKeepsOldGoodFile - PASSED)
+  SyncWorkerSecurityTest (workInputContainsNoSecretsTest - PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere dispositivo Android físico y servidor Michi Node real para pruebas de corte de red WiFi durante descarga)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Verificación criptográfica SHA-256 de todas las pistas antes de su promoción; prevención de DoS por buffers
+  desbordados o archivos maliciosos; ninguna credencial ni token almacenado en WorkManager Data.
+ROLLBACK_PLAN:
+  git reset --hard 3be110c1fceecf482599723c31671fccece8784d
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M9 (AirCat + Michi Devices: contrato real de transferencia y UI)
 ```
 
 ---
