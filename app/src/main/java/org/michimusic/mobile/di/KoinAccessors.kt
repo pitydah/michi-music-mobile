@@ -21,3 +21,11 @@ val appDao: AppDao? by lazy {
 val replayGainDao: ReplayGainDao? by lazy {
     runCatching { KoinJavaComponent.get<ReplayGainDao>(ReplayGainDao::class.java) }.getOrNull()
 }
+
+val pairedDeviceRegistry: org.michimusic.link.PairedDeviceRegistry? by lazy {
+    runCatching { KoinJavaComponent.get<org.michimusic.link.PairedDeviceRegistry>(org.michimusic.link.PairedDeviceRegistry::class.java) }.getOrNull()
+}
+
+val tokenStore: org.michimusic.link.TokenStore? by lazy {
+    runCatching { KoinJavaComponent.get<org.michimusic.link.TokenStore>(org.michimusic.link.TokenStore::class.java) }.getOrNull()
+}

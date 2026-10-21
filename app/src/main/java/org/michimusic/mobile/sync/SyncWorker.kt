@@ -37,28 +37,34 @@ class SyncWorker(
 
         fun buildInputData(
             baseUrl: String,
-            sessionToken: String,
             deviceId: String,
             alias: String,
-            deviceToken: String = "",
             clientDeviceId: String = "",
         ) = workDataOf(
             "baseUrl" to baseUrl,
-            "sessionToken" to sessionToken,
             "deviceId" to deviceId,
             "alias" to alias,
-            "deviceToken" to deviceToken,
             "clientDeviceId" to clientDeviceId,
         )
     }
 
     override suspend fun doWork(): Result {
         val baseUrl = inputData.getString("baseUrl") ?: return Result.failure()
-        val sessionToken = inputData.getString("sessionToken") ?: ""
-        val deviceToken = inputData.getString("deviceToken") ?: ""
         val deviceId = inputData.getString("deviceId") ?: ""
         val alias = inputData.getString("alias") ?: ""
         val clientDeviceId = inputData.getString("clientDeviceId") ?: ""
+
+        // Security: resolve credentials from encrypted keystore/prefs at runtime
+        val pairedDevice = org.michimusic.mobile.di.pairedDeviceRegistry?.getDevice(deviceId)
+        val legacyStore = org.michimusic.mobile.di.tokenStore
+        val resolvedDeviceToken = pairedDevice?.deviceToken?.ifEmpty { null }
+            ?: legacyStore?.getDeviceToken()?.ifEmpty { null }
+            ?: ""
+
+        if (resolvedDeviceToken.isEmpty()) {
+            // Unauthenticated or revoked device: do not proceed with unauthenticated sync
+            return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+        }
 
         val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
@@ -77,8 +83,8 @@ class SyncWorker(
 
         val client = LinkClient(
             baseUrl = baseUrl,
-            sessionToken = sessionToken,
-            deviceToken = deviceToken,
+            sessionToken = resolvedDeviceToken,
+            deviceToken = resolvedDeviceToken,
             clientDeviceId = clientDeviceId.ifEmpty { deviceId },
         )
         val trackDao = trackDao

@@ -139,13 +139,15 @@ class SyncViewModel(
     private var currentClient: LinkClient? = null
 
     init {
-        clientId = try {
-            "android_${android.provider.Settings.Secure.getString(
-                context.contentResolver,
-                android.provider.Settings.Secure.ANDROID_ID,
-            )?.takeLast(6) ?: "000000"}"
-        } catch (_: Exception) {
-            "android_000000"
+        clientId = identity.michiId.ifEmpty {
+            try {
+                "android_${android.provider.Settings.Secure.getString(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ANDROID_ID,
+                )?.takeLast(6) ?: "000000"}"
+            } catch (_: Exception) {
+                "android_000000"
+            }
         }
     }
 
@@ -592,10 +594,8 @@ class SyncViewModel(
 
         val inputData = SyncWorker.buildInputData(
             baseUrl = client.baseUrl,
-            sessionToken = client.sessionToken,
             deviceId = deviceId,
             alias = android.os.Build.MODEL,
-            deviceToken = effectiveToken,
             clientDeviceId = client.clientDeviceId.ifEmpty { clientId },
         )
 
@@ -709,10 +709,8 @@ class SyncViewModel(
 
         val inputData = SyncWorker.buildInputData(
             baseUrl = client.baseUrl,
-            sessionToken = client.sessionToken,
             deviceId = deviceId,
             alias = android.os.Build.MODEL,
-            deviceToken = effectiveToken,
             clientDeviceId = client.clientDeviceId.ifEmpty { clientId },
         )
 
