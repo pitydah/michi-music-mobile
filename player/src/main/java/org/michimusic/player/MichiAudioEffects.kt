@@ -49,6 +49,13 @@ class MichiAudioEffects(
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var currentSessionId: Int = 0
 
+    @Volatile
+    var isBypassedByMode: Boolean = false
+        set(value) {
+            field = value
+            applyBypassState()
+        }
+
     private val _effectsState = MutableStateFlow(AudioEffectsState())
     val effectsState: StateFlow<AudioEffectsState> = _effectsState.asStateFlow()
 
@@ -56,12 +63,25 @@ class MichiAudioEffects(
         initFallbackBands()
     }
 
+    private fun applyBypassState() {
+        val effectiveEnabled = !isBypassedByMode && prefs.getBoolean(KEY_EQ_ENABLED, true)
+        try {
+            equalizer?.enabled = effectiveEnabled
+            bassBoost?.enabled = effectiveEnabled
+            virtualizer?.enabled = effectiveEnabled
+            loudnessEnhancer?.enabled = effectiveEnabled
+        } catch (e: Exception) {
+            Log.w(TAG, "Error applying bypass state to audio effects", e)
+        }
+        _effectsState.value = _effectsState.value.copy(isEnabled = effectiveEnabled)
+    }
+
     fun bindAudioSession(sessionId: Int) {
         if (sessionId == 0 || sessionId == currentSessionId) return
         currentSessionId = sessionId
         releaseEffects()
 
-        val isMasterEnabled = prefs.getBoolean(KEY_EQ_ENABLED, true)
+        val isMasterEnabled = !isBypassedByMode && prefs.getBoolean(KEY_EQ_ENABLED, true)
 
         try {
             equalizer = Equalizer(0, sessionId).apply {
