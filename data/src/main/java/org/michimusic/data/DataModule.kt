@@ -14,13 +14,24 @@ val dataModule = module {
             androidContext(),
             MichiDatabase::class.java,
             "michi-sync.db",
-        ).addMigrations(MichiDatabase.MIGRATION_1_2, MichiDatabase.MIGRATION_2_3)
-            .build()
+        ).addMigrations(
+            MichiDatabase.MIGRATION_1_2,
+            MichiDatabase.MIGRATION_2_3,
+            MichiDatabase.MIGRATION_3_4,
+        ).build()
     }
     single { get<MichiDatabase>().trackDao() }
     single { get<MichiDatabase>().playlistDao() }
     single { get<MichiDatabase>().replayGainDao() }
     single { get<MichiDatabase>().appDao() }
+    single { get<MichiDatabase>().libraryDao() }
+    single { get<MichiDatabase>().trackIdentityDao() }
+    single { get<MichiDatabase>().trackLocationDao() }
+    single { get<MichiDatabase>().libraryMembershipDao() }
+    single { get<MichiDatabase>().normalizedPlaylistDao() }
+    single<org.michimusic.data.repository.MusicLibraryRepository> {
+        org.michimusic.data.repository.DefaultMusicLibraryRepository(get(), get(), get(), get())
+    }
     single { SyncedTrackRepository(get(), get()) }
     single { LocalMediaRepository(androidContext(), get()) }
     single { PlaylistRepository(get(), get(), get()) }
