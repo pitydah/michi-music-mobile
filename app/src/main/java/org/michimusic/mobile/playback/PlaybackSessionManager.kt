@@ -547,7 +547,8 @@ class PlaybackSessionManager(
 
                     onResult(true, "Sesión de audio y transmisión RTP activa en ${target.name}")
                 }.onFailure { err ->
-                    // Honest UI: Do not report success on real failure
+                    // Honest UI & Sink safety: Do not leave local audio in an inconsistent state on failure
+                    org.michimusic.player.PlayerDependencies.stopPcmStreaming()
                     onResult(false, "Fallo al crear sesión ReceiverLite en ${target.name}: ${err.message}")
                 }
             }
@@ -571,8 +572,8 @@ class PlaybackSessionManager(
                     val resolvedTrackIds = mutableListOf<String>()
 
                     for (track in q) {
-                        // Ya pertenece al catálogo remoto
-                        if (track.source == TrackSource.STREAMING && track.id.isNotEmpty()) {
+                        // Ya pertenece al catálogo remoto (identificador de catálogo del servidor)
+                        if (track.source == TrackSource.STREAMING && track.id.isNotEmpty() && !track.id.startsWith("content://")) {
                             resolvedTrackIds.add(track.id)
                             continue
                         }

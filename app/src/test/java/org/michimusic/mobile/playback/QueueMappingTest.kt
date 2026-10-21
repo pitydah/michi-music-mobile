@@ -278,4 +278,60 @@ class QueueMappingTest {
         assertTrue(resultMessage.contains("algunas pistas locales no existen"))
         coVerify(exactly = 0) { linkClient.transferQueue(any()) }
     }
+
+    @Test
+    fun contentUriTrackIsNeverSentDirectlyAsRemoteTrackId() = runTest(testDispatcher) {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        every { linkClient.baseUrl } returns "http://192.168.1.100:8400"
+        // Return not found so it cannot match
+        coEvery { linkClient.search(any()) } returns Result.success(emptyList())
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
+        }
+        connectionManager.updateState("server_1", SyncConnectionState.CONNECTED)
+
+        // Track with content:// URI as id marked as STREAMING erroneously or maliciously
+        val leakedTrack = Track(
+            id = "content://media/external/audio/media/12345",
+            title = "Secret Local Song",
+            source = TrackSource.STREAMING,
+            filepath = "content://media/external/audio/media/12345"
+        )
+
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState(queue = listOf(leakedTrack), queueIndex = 0))
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val serverEndpoint = PlaybackEndpoint(
+            id = "server_1",
+            name = "Michi Server",
+            type = EndpointType.SERVER,
+            isLocal = false,
+            capabilities = setOf("PLAYBACK", "REMOTE_CONTROL")
+        )
+
+        var handoffResult = true
+        var resultMessage = ""
+        manager.handoffTo(serverEndpoint) { success, msg ->
+            handoffResult = success
+            resultMessage = msg
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Must abort and not send content:// to transferQueue
+        assertFalse("Handoff debe fallar y no enviar uri content://", handoffResult)
+        coVerify(exactly = 0) { linkClient.transferQueue(any()) }
+    }
 }

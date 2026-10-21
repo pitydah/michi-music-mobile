@@ -13,6 +13,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackIdentity
 import org.michimusic.core.models.TrackLocation
 import org.michimusic.core.models.TrackLocationType
+import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.LibraryDao
 import org.michimusic.data.cache.LibraryEntity
 import org.michimusic.data.cache.LibraryMembershipDao
@@ -224,13 +225,21 @@ class DefaultMusicLibraryRepository(
 
 object LegacyTrackMapper {
     fun toLegacyTrack(resolved: ResolvedTrack): Track {
+        val prefLoc = resolved.preferredLocation
+        val source = when (prefLoc?.type) {
+            TrackLocationType.REMOTE_URL -> TrackSource.STREAMING
+            TrackLocationType.SYNCED_MANAGED -> TrackSource.SYNCED
+            else -> TrackSource.LOCAL
+        }
         return Track(
             id = resolved.identity.id,
             title = resolved.identity.title,
             artist = resolved.identity.artist,
             album = resolved.identity.album,
             duration = resolved.identity.durationMs,
-            filepath = resolved.preferredLocation?.uri ?: "",
+            filepath = prefLoc?.uri ?: "",
+            source = source,
+            contentHash = resolved.identity.contentHash ?: "",
         )
     }
 
@@ -241,12 +250,20 @@ object LegacyTrackMapper {
             artist = track.artist,
             album = track.album,
             durationMs = track.duration,
+            contentHash = track.contentHash.ifEmpty { null },
         )
+        val locationType = when {
+            track.source == TrackSource.STREAMING || track.filepath.startsWith("http://") || track.filepath.startsWith("https://") -> TrackLocationType.REMOTE_URL
+            track.source == TrackSource.SYNCED -> TrackLocationType.SYNCED_MANAGED
+            track.filepath.startsWith("content://") -> TrackLocationType.MEDIASTORE
+            else -> TrackLocationType.SAF
+        }
         val location = TrackLocation(
             id = "loc_${track.id}",
             trackId = track.id,
-            type = if (track.filepath.startsWith("content://")) TrackLocationType.MEDIASTORE else TrackLocationType.SAF,
+            type = locationType,
             uri = track.filepath,
+            remoteTrackId = if (locationType == TrackLocationType.REMOTE_URL) track.id else null,
             availability = LocationAvailability.AVAILABLE,
         )
         return identity to location
