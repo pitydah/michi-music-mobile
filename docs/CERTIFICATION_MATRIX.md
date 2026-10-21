@@ -1,6 +1,6 @@
 # Matriz de Certificación y Validación Física — Michi Music Mobile (M12)
 
-Fecha de auditoría: 21 de Octubre de 2026  
+Fecha de auditoría y certificación: 21 de Octubre de 2026 (Sprint KILLCRITIC)  
 Versión base: `0.1.0-alpha` / `0.1.0-alpha-fdroid`  
 Objetivo: Certificación rigurosa, auditable y veraz de capacidades móviles, compatibilidad de hardware y límites operativos conforme al roadmap maestro.
 
