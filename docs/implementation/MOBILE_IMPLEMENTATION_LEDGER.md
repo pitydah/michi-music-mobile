@@ -16,7 +16,7 @@
 | M9 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 88669ac | AirCat Mobile consumer contract, FakeAirCatPeer harness, USB feasibility |
 | M10 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 248c5a9 | Catálogos remotos y ReceiverLite Stream |
 | M11 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 73e54d6 | UI Premium, Settings jerárquico, Android Auto y Diagnósticos expurgados |
-| M12 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | CI, seguridad, certificación y release |
+| M12 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a6bb44b | CI ampliado, migraciones Room, matriz física verificable y release gates |
 | M13 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | IA musical optativa |
 
 ---
@@ -375,6 +375,46 @@ ROLLBACK_PLAN:
 BLOCKERS:
   Pruebas E2E físicas bloqueadas por implementación upstream en repo Michi Devices (BLOCKED_UPSTREAM reportado honestamente).
 NEXT_BLOCK: M10 (Catálogos remotos, control distribuido y ReceiverLite Stream)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque N (M12)
+
+```text
+BLOCK_ID: M12
+MASTER_BASE_SHA: 4bbab1db9e76fa9e1d8a4369a19c5c163013d2f9
+FILES_CHANGED:
+  - .github/workflows/ci.yml
+  - docs/CERTIFICATION_MATRIX.md
+  - RELEASE_BLOCKERS.md
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  El pipeline de CI (.github/workflows/ci.yml) ejecutaba cinco jobs básicos sin verificar explícitamente las migraciones
+  de esquema Room v3→v4 ni la generación/empaquetado de artefactos release (assembleNormalRelease con R8/ProGuard);
+  el Quality Gate no requería la validación de persistencia ni la ausencia de fallas en compilación release;
+  la matriz de validación física no estaba estructurada ni versionada en docs/, dificultando auditorías de hardware real;
+  RELEASE_BLOCKERS.md no reflejaba la auditoría de expurgo de seguridad ni el estado de aislamiento de Android Auto.
+PRODUCTION_BEHAVIOR_AFTER:
+  CI ampliado y endurecido con job dedicado de migraciones Room (Migration3To4Test) y assembleNormalRelease en Quality Gate;
+  publicada la matriz integral docs/CERTIFICATION_MATRIX.md que cataloga pruebas funcionales por capa, modelo de amenazas,
+  auditoría de privacidad y validación física auditable (PENDING_HARDWARE y BLOCKED_UPSTREAM reportados honestamente);
+  RELEASE_BLOCKERS.md actualizado con las resoluciones de seguridad y confirmación de release candidate;
+  compilación release con ProGuard/R8 y shrinkResources verificada y libre de errores.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks)
+BUILD_TARGETS_EXECUTED:
+  ./gradlew assembleNormalDebug assembleFdroidDebug assembleNormalRelease (PASSED - 330 actionable tasks)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin dispositivo/emulador conectado en sesión de desarrollo)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Verificada exclusión de claves en Android Backup (data_extraction_rules.xml), reglas ProGuard activas,
+  MediaLibraryService no exportado (android:exported="false"), y ausencia total de credenciales en repositorio o logs.
+ROLLBACK_PLAN:
+  git reset --hard 4bbab1db9e76fa9e1d8a4369a19c5c163013d2f9
+BLOCKERS: Ninguno para M12.
+NEXT_BLOCK: M13 (IA Musical Móvil optativa; fases principales M0 a M12 completadas)
 ```
 
 ---
