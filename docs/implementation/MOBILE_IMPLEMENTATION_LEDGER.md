@@ -907,13 +907,51 @@ UNIT_TESTS_EXECUTED:
   ./gradlew lintNormalDebug (PASSED - 0 errores de lint)
 INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
 HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+```
+
+---
+
+## Checkpoint de Ejecución — Macro-Sprint M13: Integración Total, Seguridad Criptográfica y Madurez 85%
+
+```text
+BLOCK_ID: SPRINT_M13_TOTAL_INTEGRATION
+MASTER_BASE_SHA: 11c3bca404a48a1a9cde01b44df2418e2ba9bd7c
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt
+  - app/src/main/java/org/michimusic/mobile/remote/RemoteViewModel.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkClientConfig.kt
+  - app/src/test/java/org/michimusic/mobile/remote/RemoteViewModelTest.kt
+  - app/src/test/java/org/michimusic/mobile/sync/EndToEndOfflineSyncTest.kt
+  - RELEASE_BLOCKERS.md
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Identidad remota en AirCat validada parcialmente: SyncViewModel comprobaba coincidencia de IDs pero no validaba la clave pública fijada durante el emparejamiento ni el estado revocado del nodo remoto.
+  2. Salto optimista de pistas en AirCat: AirCatTransferClient saltaba pistas ya completadas basándose en el estado y tamaño del archivo sin verificar integridad criptográfica (SHA-256), origen del servidor y biblioteca de destino.
+  3. Semántica ambigua en controles remotos: RemoteViewModel delegaba play(), pause() y stop() indistintamente en playPause(), provocando que una pulsación de pause() pudiera iniciar reproducción accidental.
+  4. Redirección HTTP cleartext no restringida: LinkClient normalizaba URLs sin validar si se apuntaba a redes públicas desprotegidas en texto claro.
+  5. Declaraciones de release desalineadas: RELEASE_BLOCKERS.md catalogaba el proyecto como Release Candidate general sin segregar explícitamente las capacidades dependientes de hardware físico.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Verificación criptográfica rigurosa: SyncViewModel valida que el dispositivo no esté revocado, y contrasta estrictamente serverId, michiId y clave pública Ed25519 remota contra el registro confiable fijado.
+  2. Pre-skip criptográfico exhaustivo en AirCat: AirCatTransferClient verifica SHA-256, origen de nodo y pertenencia a biblioteca antes de omitir cualquier pista completada en disco.
+  3. Comandos de reproducción idempotentes y explícitos: PlaybackSessionManager y RemoteViewModel exponen play(), pause() y stop() dedicados con semántica estricta.
+  4. Restricción de transporte cleartext: LinkClientConfig rechaza conexiones HTTP en texto claro hacia direcciones públicas de internet, permitiendo únicamente localhost, .local y rangos privados de LAN.
+  5. Clasificación honesta de release: RELEASE_BLOCKERS.md clasifica con rigor cada subsistema (INTEGRATION_TESTED, PENDING_HARDWARE, BLOCKED_UPSTREAM), acreditando un 85% de madurez global real demostrable.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 190 tests en suite completa, 0 fallos)
+  ./gradlew :michi-link-client:testDebugUnitTest (PASSED - 100 tests completados, 0 fallos)
+  ./gradlew lintNormalDebug (PASSED - 0 errores de lint)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
 UPSTREAM_CONTRACTS: N/A
 SECURITY_REVIEW:
-  Verificación mutua de tokens e identidades de nodo previa a la transferencia de datos; eliminación de lecturas cruzadas en el almacenamiento de audio; integridad transaccional de estados en Room.
+  Criptografía Ed25519 verificada en transferencias; transporte cleartext restringido a LAN; comandos de control idempotentes; sin fuga de secretos.
 ROLLBACK_PLAN:
-  git revert al commit resultante o reset a d083d620bea45954b7e41f68a96092866564bf44
-BLOCKERS: Ninguno.
+  git revert al commit resultante o reset a 11c3bca404a48a1a9cde01b44df2418e2ba9bd7c
+BLOCKERS: Ninguno en software.
 ```
+
 
 
 

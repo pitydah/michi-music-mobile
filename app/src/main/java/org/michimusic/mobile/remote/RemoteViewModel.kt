@@ -131,12 +131,12 @@ class RemoteViewModel(
         }
     }
 
-    fun play() { sessionManager.playPause() }
-    fun pause() { sessionManager.playPause() }
+    fun play() { sessionManager.play() }
+    fun pause() { sessionManager.pause() }
     fun togglePlayPause() { sessionManager.playPause() }
     fun next() { sessionManager.skipNext() }
     fun previous() { sessionManager.skipPrevious() }
-    fun stop() { sessionManager.playPause() }
+    fun stop() { sessionManager.stop() }
     fun seek(positionMs: Long) { sessionManager.seekTo(positionMs) }
     
     fun setVolume(volume: Int) {

@@ -89,8 +89,32 @@ class RemoteViewModelTest {
     }
 
     @Test
-    fun `play delegates to sessionManager playPause`() = runTest(testDispatcher) {
+    fun `play delegates to sessionManager play`() = runTest(testDispatcher) {
         viewModel.play()
+        runCurrent()
+
+        verify { sessionManager.play() }
+    }
+
+    @Test
+    fun `pause delegates to sessionManager pause`() = runTest(testDispatcher) {
+        viewModel.pause()
+        runCurrent()
+
+        verify { sessionManager.pause() }
+    }
+
+    @Test
+    fun `stop delegates to sessionManager stop`() = runTest(testDispatcher) {
+        viewModel.stop()
+        runCurrent()
+
+        verify { sessionManager.stop() }
+    }
+
+    @Test
+    fun `togglePlayPause delegates to sessionManager playPause`() = runTest(testDispatcher) {
+        viewModel.togglePlayPause()
         runCurrent()
 
         verify { sessionManager.playPause() }

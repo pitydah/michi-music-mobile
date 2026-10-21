@@ -206,10 +206,21 @@ class DefaultAirCatTransferClient(
 
                 // Check if track is already completed in persistent checkpoint and file exists on disk
                 val existingCp = checkpointRepository?.getCheckpoint(transferKey)
-                if (existingCp?.transferState == org.michimusic.core.models.TransferStatus.COMPLETED && finalCandidate.exists() && (item.size <= 0 || finalCandidate.length() == item.size)) {
-                    downloadedFiles.add(finalCandidate)
-                    transferredBytesAcc += finalCandidate.length()
-                    continue
+                if (existingCp?.transferState == org.michimusic.core.models.TransferStatus.COMPLETED &&
+                    finalCandidate.exists() &&
+                    existingCp.remoteDeviceId == intent.sourceMichiId &&
+                    existingCp.destinationLibraryId == intent.destinationLibraryId &&
+                    (item.size <= 0 || finalCandidate.length() == item.size)
+                ) {
+                    val verifiedHash = if (item.sha256.isNotEmpty()) {
+                        verifyChecksum(finalCandidate, item.sha256)
+                    } else true
+
+                    if (verifiedHash) {
+                        downloadedFiles.add(finalCandidate)
+                        transferredBytesAcc += finalCandidate.length()
+                        continue
+                    }
                 }
 
                 val downloadItem = DownloadItem(
@@ -447,5 +458,27 @@ class DefaultAirCatTransferClient(
         )
         _progressEvents.value = event
         onProgress?.invoke(event)
+    }
+
+    private fun verifyChecksum(file: File, expected: String): Boolean {
+        if (!file.exists()) return false
+        val hex = calculateSha256(file)
+        return hex.equals(expected.trim(), ignoreCase = true)
+    }
+
+    private fun calculateSha256(file: File): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            java.io.FileInputStream(file).use { fis ->
+                val buffer = ByteArray(8192)
+                var read: Int
+                while (fis.read(buffer).also { read = it } != -1) {
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            ""
+        }
     }
 }

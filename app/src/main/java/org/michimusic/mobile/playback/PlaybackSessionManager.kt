@@ -647,37 +647,89 @@ class PlaybackSessionManager(
         }
     }
 
-    fun playPause() {
+    fun play() {
         val activeEp = _sessionState.value.activeEndpoint
         if (_sessionState.value.isRemoteActive) {
             val client = connectionManager.getClient(activeEp.id)
-            val isPlaying = _sessionState.value.isPlaying
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
-                val willPause = isPlaying
                 scope.launch {
                     client?.patchReceiverLiteSession(
-                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = willPause),
+                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = false),
                         sessionToken = tok
                     )
-                    if (willPause) {
-                        org.michimusic.player.PlayerDependencies.pausePcmStreaming()
-                        audioController?.pause()
-                    } else {
-                        org.michimusic.player.PlayerDependencies.resumePcmStreaming()
-                        audioController?.play()
-                    }
-                    _sessionState.value = _sessionState.value.copy(isPlaying = !isPlaying)
+                    org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+                    audioController?.play()
+                    _sessionState.value = _sessionState.value.copy(isPlaying = true)
                 }
             } else {
                 scope.launch {
-                    client?.sendPlaybackCommand(if (isPlaying) "pause" else "play")
-                    _sessionState.value = _sessionState.value.copy(isPlaying = !isPlaying)
+                    client?.sendPlaybackCommand("play")
+                    _sessionState.value = _sessionState.value.copy(isPlaying = true)
                 }
             }
         } else {
-            if (audioController?.state?.value?.isPlaying == true) audioController.pause() else audioController?.play()
+            audioController?.play()
         }
+    }
+
+    fun pause() {
+        val activeEp = _sessionState.value.activeEndpoint
+        if (_sessionState.value.isRemoteActive) {
+            val client = connectionManager.getClient(activeEp.id)
+            if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
+                val tok = activeReceiverSessionToken
+                scope.launch {
+                    client?.patchReceiverLiteSession(
+                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = true),
+                        sessionToken = tok
+                    )
+                    org.michimusic.player.PlayerDependencies.pausePcmStreaming()
+                    audioController?.pause()
+                    _sessionState.value = _sessionState.value.copy(isPlaying = false)
+                }
+            } else {
+                scope.launch {
+                    client?.sendPlaybackCommand("pause")
+                    _sessionState.value = _sessionState.value.copy(isPlaying = false)
+                }
+            }
+        } else {
+            audioController?.pause()
+        }
+    }
+
+    fun stop() {
+        val activeEp = _sessionState.value.activeEndpoint
+        if (_sessionState.value.isRemoteActive) {
+            val client = connectionManager.getClient(activeEp.id)
+            if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
+                val tok = activeReceiverSessionToken
+                scope.launch {
+                    client?.patchReceiverLiteSession(
+                        org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = true),
+                        sessionToken = tok
+                    )
+                    org.michimusic.player.PlayerDependencies.stopPcmStreaming()
+                    audioController?.seekTo(0L)
+                    audioController?.pause()
+                    _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L)
+                }
+            } else {
+                scope.launch {
+                    client?.sendPlaybackCommand("stop")
+                    _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L)
+                }
+            }
+        } else {
+            audioController?.seekTo(0L)
+            audioController?.pause()
+        }
+    }
+
+    fun playPause() {
+        val isPlaying = _sessionState.value.isPlaying
+        if (isPlaying) pause() else play()
     }
 
     fun skipNext() {

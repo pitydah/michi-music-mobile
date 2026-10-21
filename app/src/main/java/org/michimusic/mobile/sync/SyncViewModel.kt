@@ -722,6 +722,11 @@ class SyncViewModel(
                     }
 
                 // Verify remote session trust, active connection, and peer identity consistency
+                if (device.isRevoked) {
+                    onResult(false, "El dispositivo $targetDeviceId ha sido revocado")
+                    return@launch
+                }
+
                 val serverInfoRes = effectiveClient.getServerInfo()
                 if (serverInfoRes.isFailure) {
                     onResult(false, "No se pudo verificar la sesión remota con $targetDeviceId: ${serverInfoRes.exceptionOrNull()?.message}")
@@ -729,9 +734,27 @@ class SyncViewModel(
                 }
                 val serverInfo = serverInfoRes.getOrThrow()
                 val remoteServerId = serverInfo.effectiveServerId
-                val remoteMichiId = serverInfo.michiId
-                if (targetDeviceId != remoteServerId && (device.michiId.isNotEmpty() && targetDeviceId != device.michiId && remoteMichiId != device.michiId)) {
-                    onResult(false, "Inconsistencia de identidad remota: esperado $targetDeviceId pero respondió $remoteServerId")
+                val remoteMichiId = serverInfo.michiId ?: ""
+                val remotePublicKey = serverInfo.publicKey ?: ""
+
+                // 1. Identity match validation
+                val expectedServerId = device.effectiveServerId
+                val expectedMichiId = device.effectiveMichiId
+                val expectedPublicKey = device.effectivePublicKey
+
+                if (expectedServerId.isNotEmpty() && remoteServerId.isNotEmpty() && expectedServerId != remoteServerId) {
+                    onResult(false, "Inconsistencia de serverId remoto: esperado $expectedServerId pero respondió $remoteServerId")
+                    return@launch
+                }
+
+                if (expectedMichiId.isNotEmpty() && remoteMichiId.isNotEmpty() && expectedMichiId != remoteMichiId) {
+                    onResult(false, "Inconsistencia de MichiId remoto: esperado $expectedMichiId pero respondió $remoteMichiId")
+                    return@launch
+                }
+
+                // 2. Cryptographic public key verification against pinned trusted registry
+                if (expectedPublicKey.isNotEmpty() && remotePublicKey.isNotEmpty() && expectedPublicKey != remotePublicKey) {
+                    onResult(false, "Inconsistencia criptográfica de clave pública para $targetDeviceId")
                     return@launch
                 }
 

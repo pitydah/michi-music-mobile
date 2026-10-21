@@ -766,9 +766,11 @@ class EndToEndOfflineSyncTest {
             )
         }
 
-        // Wait until at least track 1 finishes or is in progress
-        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")?.transferState != TransferStatus.COMPLETED) {
-            Thread.sleep(10)
+        // Wait with timeout until track 1 finishes
+        var attempts = 0
+        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")?.transferState != TransferStatus.COMPLETED && attempts < 200) {
+            Thread.sleep(15)
+            attempts++
         }
 
         // Pause transfer
@@ -781,9 +783,11 @@ class EndToEndOfflineSyncTest {
         // 2. Resume transfer
         aircatClient.resumeTransfer(transferId)
 
-        // Wait until completion
-        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_2")?.transferState != TransferStatus.COMPLETED) {
-            Thread.sleep(10)
+        // Wait with timeout until track 2 finishes
+        attempts = 0
+        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_2")?.transferState != TransferStatus.COMPLETED && attempts < 200) {
+            Thread.sleep(15)
+            attempts++
         }
 
         val cp1 = checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")
