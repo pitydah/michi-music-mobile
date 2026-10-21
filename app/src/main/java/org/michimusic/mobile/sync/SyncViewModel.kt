@@ -46,6 +46,8 @@ data class SyncUiState(
     val pairingStrategy: PairingStrategy = PairingStrategy.LEGACY,
     val error: String? = null,
     val syncProgress: SyncProgress = SyncProgress.Idle,
+    val airCatProgress: org.michimusic.mobile.devices.aircat.AirCatProgressEvent? = null,
+    val availableStorageBytes: Long = 0L,
 )
 
 class SyncViewModel(
@@ -55,6 +57,7 @@ class SyncViewModel(
     private val connectionManager: ConnectionManager,
     private val identity: org.michimusic.link.identity.MichiIdentity,
     private val trackRepository: SyncedTrackRepository,
+    private val airCatClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? = null,
 ) : ViewModel() {
 
     private val _connectionState = MutableStateFlow(SyncConnectionState.DISCONNECTED)
@@ -121,6 +124,9 @@ class SyncViewModel(
             )
         }
 
+        val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
+        val freeBytes = statFs?.availableBytes ?: 0L
+
         SyncUiState(
             state = connState,
             peers = peers,
@@ -128,11 +134,16 @@ class SyncViewModel(
             connectedPeer = peer,
             pairingStart = pairStart,
             pairingStrategy = strategy,
+            availableStorageBytes = freeBytes,
         )
     }.combine(
-        combine(_error, _syncProgress) { err, progress -> err to progress }
-    ) { state, (err, progress) ->
-        state.copy(error = err, syncProgress = progress)
+        combine(
+            _error,
+            _syncProgress,
+            airCatClient?.progressEvents ?: MutableStateFlow(null)
+        ) { err, progress, airCatEvt -> Triple(err, progress, airCatEvt) }
+    ) { state, (err, progress, airCatEvt) ->
+        state.copy(error = err, syncProgress = progress, airCatProgress = airCatEvt)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = _connectionState.value))
 
     private var clientId: String = ""
@@ -660,6 +671,108 @@ class SyncViewModel(
                         _syncProgress.value = SyncProgress.Downloading(current, total)
                     }
                 }
+        }
+    }
+
+    fun pauseAirCatTransfer(transferId: String) {
+        airCatClient?.pauseTransfer(transferId)
+    }
+
+    fun resumeAirCatTransfer(transferId: String) {
+        airCatClient?.resumeTransfer(transferId)
+    }
+
+    fun cancelAirCatTransfer(transferId: String) {
+        airCatClient?.cancelTransfer(transferId)
+    }
+
+    fun startAirCatTransfer(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val client = currentClient
+        val airCat = airCatClient
+        if (airCat == null) {
+            onResult(false, "Servicio AirCat no disponible")
+            return
+        }
+
+        val device = registry.getDevice(targetDeviceId)
+        if (device == null) {
+            onResult(false, "Dispositivo no encontrado")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val effectiveClient = client ?: LinkClient(
+                    baseUrl = device.lastUrl,
+                    sessionToken = device.deviceToken,
+                    deviceToken = device.deviceToken,
+                    clientDeviceId = identity.michiId,
+                )
+
+                // 1. Fetch manifest
+                val manifestRes = effectiveClient.fetchSyncManifest(targetDeviceId)
+                if (manifestRes.isFailure) {
+                    onResult(false, "Error al obtener catálogo: ${manifestRes.exceptionOrNull()?.message}")
+                    return@launch
+                }
+
+                val manifestDto = manifestRes.getOrThrow()
+                val tracks = manifestDto.effectiveTracks
+                if (tracks.isEmpty()) {
+                    onResult(true, "No hay pistas disponibles para transferir")
+                    return@launch
+                }
+
+                val transferId = "aircat_${System.currentTimeMillis()}"
+                val destLibId = "lib_synced_${targetDeviceId}"
+                val manifestItems = tracks.map { t ->
+                    org.michimusic.mobile.devices.aircat.AirCatManifestItem(
+                        logicalTrackId = t.trackId,
+                        remoteTrackId = t.trackId,
+                        title = t.title,
+                        artist = t.artist,
+                        album = t.album,
+                        format = t.format,
+                        size = t.size,
+                        sha256 = t.checksum ?: "",
+                    )
+                }
+
+                val aircatManifest = org.michimusic.mobile.devices.aircat.AirCatManifest(
+                    manifestVersion = 1,
+                    transferId = transferId,
+                    sourceDeviceId = targetDeviceId,
+                    totalTracks = manifestItems.size,
+                    totalBytes = manifestItems.sumOf { it.size },
+                    items = manifestItems,
+                )
+
+                val intent = org.michimusic.mobile.devices.aircat.TransferIntent(
+                    transferId = transferId,
+                    sourceMichiId = targetDeviceId,
+                    destinationMichiId = identity.michiId,
+                    sourceLibraryId = targetDeviceId,
+                    destinationLibraryId = destLibId,
+                )
+
+                val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
+                val freeBytes = statFs?.availableBytes ?: (10L * 1024 * 1024 * 1024)
+
+                val result = airCat.executeTransfer(
+                    intent = intent,
+                    manifest = aircatManifest,
+                    linkClient = effectiveClient,
+                    availableStorageBytes = freeBytes,
+                )
+
+                if (result.isSuccess) {
+                    onResult(true, "Transferencia AirCat completada (${result.getOrThrow().size} pistas)")
+                } else {
+                    onResult(false, "Transferencia AirCat falló: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                onResult(false, "Error en AirCat: ${e.message}")
+            }
         }
     }
 

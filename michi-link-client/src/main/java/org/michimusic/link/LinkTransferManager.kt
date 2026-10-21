@@ -75,10 +75,12 @@ class LinkTransferManager(
 
 
         // 2. Preflight checkpoint inspection: check in-memory or recover from persistent repository
+        val transferKey = item.effectiveTransferKey
         var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
-        var savedCheckpoint = _checkpoints.value[item.trackId]
+        var savedCheckpoint = _checkpoints.value[transferKey] ?: _checkpoints.value[item.trackId]
         if (savedCheckpoint == null && checkpointRepository != null) {
-            val persisted = checkpointRepository.getCheckpoint(item.trackId)
+            val persisted = checkpointRepository.getCheckpoint(transferKey)
+                ?: checkpointRepository.getLatestCheckpointForTrack(item.trackId)
             if (persisted != null) {
                 savedCheckpoint = TransferCheckpoint(
                     trackId = persisted.trackId,
@@ -99,7 +101,7 @@ class LinkTransferManager(
                     },
                     updatedAt = persisted.updatedAt,
                 )
-                _checkpoints.value = _checkpoints.value + (item.trackId to savedCheckpoint)
+                _checkpoints.value = _checkpoints.value + (transferKey to savedCheckpoint)
             }
         }
         val expectedEtag = savedCheckpoint?.etag?.ifEmpty { null }
@@ -133,7 +135,7 @@ class LinkTransferManager(
             )
         }
         checkpointRepository?.updateProgress(
-            transferKey = item.trackId,
+            transferKey = transferKey,
             receivedBytes = startOffset,
             verifiedBytes = startOffset,
             state = org.michimusic.core.models.TransferStatus.DOWNLOADING
@@ -300,7 +302,7 @@ class LinkTransferManager(
                 )
             }
             checkpointRepository?.updateProgress(
-                transferKey = item.trackId,
+                transferKey = transferKey,
                 receivedBytes = currentBytes,
                 verifiedBytes = currentBytes,
                 state = org.michimusic.core.models.TransferStatus.PAUSED
@@ -317,7 +319,7 @@ class LinkTransferManager(
                 )
             }
             checkpointRepository?.updateProgress(
-                transferKey = item.trackId,
+                transferKey = transferKey,
                 receivedBytes = currentBytes,
                 verifiedBytes = currentBytes,
                 state = org.michimusic.core.models.TransferStatus.FAILED

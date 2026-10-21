@@ -794,3 +794,49 @@ ROLLBACK_PLAN:
   git revert al commit resultante o reset a 0aa421a7f462aead8b46764dcc1ca8d260ff7da8
 BLOCKERS: Ninguno.
 ```
+
+---
+
+## Checkpoint de Ejecución — Auditoría KILLCRITIC y Consolidación de Madurez
+
+```text
+BLOCK_ID: SPRINT_KILLCRITIC_CONSOLIDATION
+MASTER_BASE_SHA: 1a199ec91ab0272510ecc9b260b59e607aa0bd59
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/AppModule.kt
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/sync/DeviceActionResolver.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DevicesScreen.kt
+  - app/src/test/java/org/michimusic/mobile/sync/EndToEndOfflineSyncTest.kt
+  - core/src/main/java/org/michimusic/core/models/SyncModels.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryDaos.kt
+  - data/src/main/java/org/michimusic/data/repository/RoomTransferCheckpointRepository.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkTransferManager.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. P0 - Colisión y desalineación de clave de checkpoint: LinkTransferManager indexaba y buscaba exclusivamente por trackId simple, mientras AirCat y Room utilizaban la clave compuesta ($remoteDeviceId:$destinationLibraryId:$trackId). Múltiples servidores con pistas de id idéntico colisionaban, provocando que preflight no encontrase checkpoints persistidos tras reinicio.
+  2. P0 - Inyección faltante en SyncWorker: LinkTransferManager(applicationContext) se instanciaba sin transferCheckpointRepository, impidiendo persistir checkpoints desde el Worker.
+  3. P0 - Inserciones corruptas en RoomTransferCheckpointRepository: el método updateProgress intentaba insertar registros con valores vacíos si la fila no existía previamente.
+  4. P1 - Ausencia de controles y visualización AirCat en DevicesScreen: la pantalla de dispositivos no mostraba el estado de transferencias AirCat, cuota de almacenamiento disponible, ni proveía controles de pausa, reanudación y cancelación.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Identidad unificada y aislada: DownloadItem incorpora remoteDeviceId, destinationLibraryId, transferKey y la propiedad effectiveTransferKey. LinkTransferManager busca y actualiza checkpoints en Room y memoria utilizando esta clave compuesta, con método getLatestCheckpointForTrack como retrocompatibilidad.
+  2. Inyección completa en SyncWorker: LinkTransferManager recibe checkpointRepo inyectado, y cada DownloadItem se mapea con sus atributos de servidor y biblioteca de destino.
+  3. Integridad en RoomTransferCheckpointRepository: se eliminó la inserción artificial con campos en blanco en updateProgress; los checkpoints son creados explícitamente mediante saveCheckpoint con todos sus metadatos antes de descargar.
+  4. UI completa en DevicesScreen: LocalDeviceCard exhibe almacenamiento disponible (GB libres), y se integró AirCatTransferCard con título de pista activa, barra de progreso porcentual, estado detallado y botones interactivos de Pausar, Reanudar y Cancelar.
+  5. Pruebas E2E completas: EndToEndOfflineSyncTest valida el aislamiento determinista entre dos servidores que comparten el mismo trackId, así como el control interactivo de pausa, reanudación y cancelación en AirCatTransferClient.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos en suite completa)
+  EndToEndOfflineSyncTest (5 tests PASSED: testCompleteOfflineSyncFlowWithRealRoomPersistence, testOfflineSyncResumesFromInterruptedCheckpoint, testTransactionIntegrityWhenLibraryRegistrationFails, testTwoServersWithSameTrackIdDoNotCollideInCheckpoints, testAirCatInteractivePauseResumeCancel)
+  ./gradlew lintNormalDebug (PASSED - 0 errores de lint)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Aislamiento criptográfico y multi-tenant garantizado por claves compuestas; validación previa de almacenamiento disponible; no se exponen tokens ni rutas temporales.
+ROLLBACK_PLAN:
+  git revert al commit resultante o reset a 1a199ec91ab0272510ecc9b260b59e607aa0bd59
+BLOCKERS: Ninguno.
+```
+

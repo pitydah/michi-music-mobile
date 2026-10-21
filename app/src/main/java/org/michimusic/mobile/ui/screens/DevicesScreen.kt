@@ -156,7 +156,21 @@ fun DevicesScreen(
             ) {
                 // Local Phone Card
                 item {
-                    LocalDeviceCard()
+                    LocalDeviceCard(availableStorageBytes = uiState.availableStorageBytes)
+                }
+
+                // AirCat Active Transfer Card
+                uiState.airCatProgress?.let { progress ->
+                    if (progress.state != org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED) {
+                        item {
+                            AirCatTransferCard(
+                                progress = progress,
+                                onPause = { viewModel.pauseAirCatTransfer(progress.transferId) },
+                                onResume = { viewModel.resumeAirCatTransfer(progress.transferId) },
+                                onCancel = { viewModel.cancelAirCatTransfer(progress.transferId) },
+                            )
+                        }
+                    }
                 }
 
                 // Add Device Actions Row
@@ -254,6 +268,11 @@ fun DevicesScreen(
                                         viewModel.syncLibrary(targetDeviceId = device.id)
                                         scope.launch {
                                             snackbarHostState.showSnackbar("Sincronización iniciada con ${device.name}")
+                                        }
+                                    }
+                                    org.michimusic.mobile.sync.DeviceActionType.AIRCAT_TRANSFER -> {
+                                        viewModel.startAirCatTransfer(targetDeviceId = device.id) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
                                         }
                                     }
                                     org.michimusic.mobile.sync.DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
@@ -493,7 +512,9 @@ private fun DevicesTopBar(
 }
 
 @Composable
-private fun LocalDeviceCard() {
+private fun LocalDeviceCard(
+    availableStorageBytes: Long = 0L,
+) {
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -528,8 +549,21 @@ private fun LocalDeviceCard() {
                     text = "Este teléfono",
                     style = MichiTypography.cardTitle,
                 )
+                val storageStr = if (availableStorageBytes > 0) {
+                    val gb = availableStorageBytes / (1024.0 * 1024.0 * 1024.0)
+                    String.format(java.util.Locale.US, "%.1f GB libres", gb)
+                } else {
+                    ""
+                }
+                val subtext = buildString {
+                    append("Reproducción local · ${android.os.Build.MODEL}")
+                    if (storageStr.isNotEmpty()) {
+                        append(" · ")
+                        append(storageStr)
+                    }
+                }
                 Text(
-                    text = "Reproducción local · ${android.os.Build.MODEL}",
+                    text = subtext,
                     style = MichiTypography.metadata,
                 )
             }
@@ -546,6 +580,141 @@ private fun LocalDeviceCard() {
                     color = TertiaryCyan,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AirCatTransferCard(
+    progress: org.michimusic.mobile.devices.aircat.AirCatProgressEvent,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("aircat_transfer_card"),
+        backgroundColor = SurfaceContainer.copy(alpha = 0.85f),
+        borderColor = TertiaryCyan.copy(alpha = 0.3f),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(MichiSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.WifiTethering,
+                        contentDescription = null,
+                        tint = TertiaryCyan,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        text = "Transferencia AirCat",
+                        style = MichiTypography.cardTitle,
+                        color = PureWhite,
+                    )
+                }
+
+                val statusLabel = when (progress.state) {
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.PENDING_AUTHORIZATION -> "Esperando autorización..."
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.NEGOTIATING -> "Negociando..."
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING -> "Transfiriendo"
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.VERIFYING -> "Verificando..."
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED -> "Pausado"
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED -> "Completado"
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED -> "Error"
+                    org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED -> "Cancelado"
+                }
+
+                Text(
+                    text = statusLabel,
+                    style = MichiTypography.microLabel,
+                    color = if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED) ErrorColor else TertiaryCyan,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Text(
+                text = progress.activeTrackTitle.ifBlank { "Archivo de audio" },
+                style = MichiTypography.trackTitle,
+                color = PureWhite,
+                maxLines = 1,
+            )
+
+            // Progress bar
+            val fraction = if (progress.totalBytes > 0) {
+                (progress.bytesTransferred.toFloat() / progress.totalBytes.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(CircleShape),
+                color = TertiaryCyan,
+                trackColor = SurfaceObsidian,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val transferredMb = progress.bytesTransferred / (1024.0 * 1024.0)
+                val totalMb = progress.totalBytes / (1024.0 * 1024.0)
+                val pct = (fraction * 100).toInt()
+
+                Text(
+                    text = String.format(java.util.Locale.US, "%.1f / %.1f MB (%d%%)", transferredMb, totalMb, pct),
+                    style = MichiTypography.metadata,
+                    color = TextMuted,
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING) {
+                        OutlinedButton(
+                            onClick = onPause,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Text(text = "Pausar", style = MichiTypography.microLabel)
+                        }
+                    } else if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED) {
+                        Button(
+                            onClick = onResume,
+                            colors = ButtonDefaults.buttonColors(containerColor = TertiaryCyan),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Text(text = "Reanudar", style = MichiTypography.microLabel, color = SurfaceObsidian)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onCancel,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
+                    }
+                }
             }
         }
     }

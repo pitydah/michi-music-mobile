@@ -167,6 +167,9 @@ interface TransferCheckpointDao {
     @Query("SELECT * FROM transfer_checkpoints WHERE transferKey = :key")
     suspend fun getCheckpoint(key: String): TransferCheckpointEntity?
 
+    @Query("SELECT * FROM transfer_checkpoints WHERE trackId = :trackId ORDER BY updatedAt DESC LIMIT 1")
+    suspend fun getLatestCheckpointForTrack(trackId: String): TransferCheckpointEntity?
+
     @Query("SELECT * FROM transfer_checkpoints WHERE remoteDeviceId = :remoteDeviceId ORDER BY updatedAt DESC")
     suspend fun getCheckpointsForDevice(remoteDeviceId: String): List<TransferCheckpointEntity>
 

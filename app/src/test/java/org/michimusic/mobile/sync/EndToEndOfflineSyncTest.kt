@@ -350,4 +350,149 @@ class EndToEndOfflineSyncTest {
         assertNotNull(cp)
         assertEquals("Checkpoint must be FAILED if library registration fails", TransferStatus.FAILED, cp?.transferState)
     }
+
+    @Test
+    fun testTwoServersWithSameTrackIdDoNotCollideInCheckpoints() = runBlocking {
+        val server1 = "server_alpha"
+        val server2 = "server_beta"
+        val destLibId = "lib_phone_synced"
+        val sharedTrackId = "trk_common_song_42"
+
+        val server1Data = "Server 1 audio payload version 1".toByteArray()
+        val server2Data = "Server 2 completely different audio bytes 2".toByteArray()
+
+        val peer1 = FakeAirCatPeer(server1)
+        peer1.setupTrackStreaming(sharedTrackId, server1Data)
+
+        val peer2 = FakeAirCatPeer(server2)
+        peer2.setupTrackStreaming(sharedTrackId, server2Data)
+
+        val item1 = DownloadItem(
+            trackId = sharedTrackId,
+            title = "Alpha Track",
+            format = "mp3",
+            checksum = sha256(server1Data),
+            size = server1Data.size.toLong(),
+            remoteDeviceId = server1,
+            destinationLibraryId = destLibId,
+            transferKey = "$server1:$destLibId:$sharedTrackId",
+        )
+
+        val item2 = DownloadItem(
+            trackId = sharedTrackId,
+            title = "Beta Track",
+            format = "mp3",
+            checksum = sha256(server2Data),
+            size = server2Data.size.toLong(),
+            remoteDeviceId = server2,
+            destinationLibraryId = destLibId,
+            transferKey = "$server2:$destLibId:$sharedTrackId",
+        )
+
+        // 1. Save separate initial checkpoints for both servers
+        checkpointRepo.saveCheckpoint(
+            PersistentCheckpoint(
+                transferKey = item1.effectiveTransferKey,
+                transferId = "xfer_server1",
+                remoteDeviceId = server1,
+                sourceLibraryId = "lib_server1",
+                destinationLibraryId = destLibId,
+                trackId = sharedTrackId,
+                remoteTrackId = "rem_shared_1",
+                tempFilePath = File(tempDir, "server1.part").absolutePath,
+                finalFilePath = File(tempDir, "server1.mp3").absolutePath,
+                expectedSize = server1Data.size.toLong(),
+                receivedBytes = 10L,
+                verifiedBytes = 10L,
+                expectedSha256 = item1.checksum,
+                transferState = TransferStatus.PAUSED,
+                updatedAt = 1000L,
+            )
+        )
+
+        checkpointRepo.saveCheckpoint(
+            PersistentCheckpoint(
+                transferKey = item2.effectiveTransferKey,
+                transferId = "xfer_server2",
+                remoteDeviceId = server2,
+                sourceLibraryId = "lib_server2",
+                destinationLibraryId = destLibId,
+                trackId = sharedTrackId,
+                remoteTrackId = "rem_shared_2",
+                tempFilePath = File(tempDir, "server2.part").absolutePath,
+                finalFilePath = File(tempDir, "server2.mp3").absolutePath,
+                expectedSize = server2Data.size.toLong(),
+                receivedBytes = 20L,
+                verifiedBytes = 20L,
+                expectedSha256 = item2.checksum,
+                transferState = TransferStatus.PAUSED,
+                updatedAt = 2000L,
+            )
+        )
+
+        // 2. Verify that checkpointRepository queries each specific checkpoint by effectiveTransferKey
+        val cp1 = checkpointRepo.getCheckpoint(item1.effectiveTransferKey)
+        val cp2 = checkpointRepo.getCheckpoint(item2.effectiveTransferKey)
+
+        assertNotNull(cp1)
+        assertNotNull(cp2)
+        assertEquals(10L, cp1?.receivedBytes)
+        assertEquals(20L, cp2?.receivedBytes)
+        assertEquals(server1, cp1?.remoteDeviceId)
+        assertEquals(server2, cp2?.remoteDeviceId)
+
+        // 3. Verify that updating progress for server 1 does not overwrite or mutate checkpoint 2
+        checkpointRepo.updateProgress(
+            transferKey = item1.effectiveTransferKey,
+            receivedBytes = server1Data.size.toLong(),
+            verifiedBytes = server1Data.size.toLong(),
+            state = TransferStatus.DOWNLOADING,
+        )
+
+        val refreshedCp1 = checkpointRepo.getCheckpoint(item1.effectiveTransferKey)
+        val refreshedCp2 = checkpointRepo.getCheckpoint(item2.effectiveTransferKey)
+
+        assertEquals(server1Data.size.toLong(), refreshedCp1?.receivedBytes)
+        assertEquals(20L, refreshedCp2?.receivedBytes)
+        assertEquals(TransferStatus.PAUSED, refreshedCp2?.transferState)
+    }
+
+    @Test
+    fun testAirCatInteractivePauseResumeCancel() = runBlocking {
+        val serverId = "desktop_node_aircat"
+        val destLibId = "lib_phone_aircat"
+
+        every { pairedRegistry.getDevice(serverId) } returns PairedDevice(
+            deviceId = serverId,
+            deviceName = "Desktop Master Hub",
+            deviceToken = "tok_master_aircat",
+            lastUrl = "http://192.168.1.130:8400",
+        )
+
+        val aircatClient = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val transferId = "xfer_pause_resume_cancel"
+
+        // Test pause, resume, cancel methods
+        aircatClient.pauseTransfer(transferId)
+        val pausedProgress = aircatClient.progressEvents.first()
+        assertNotNull(pausedProgress)
+        assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED, pausedProgress?.state)
+        assertEquals(transferId, pausedProgress?.transferId)
+
+        aircatClient.resumeTransfer(transferId)
+        val resumedProgress = aircatClient.progressEvents.first()
+        assertNotNull(resumedProgress)
+        assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING, resumedProgress?.state)
+
+        aircatClient.cancelTransfer(transferId)
+        val cancelledProgress = aircatClient.progressEvents.first()
+        assertNotNull(cancelledProgress)
+        assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED, cancelledProgress?.state)
+    }
 }

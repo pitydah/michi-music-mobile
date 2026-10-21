@@ -106,7 +106,8 @@ class SyncWorker(
         }
         val playlistDao = playlistDao
         val repository = SyncedTrackRepository(trackDao, playlistDao)
-        val transferManager = LinkTransferManager(applicationContext)
+        val checkpointRepo = org.michimusic.mobile.di.transferCheckpointRepository
+        val transferManager = LinkTransferManager(applicationContext, checkpointRepo)
 
         return try {
             val manifestResult = client.fetchSyncManifest(deviceId)
@@ -133,10 +134,17 @@ class SyncWorker(
             }
 
             val downloadedIds = repository.getDownloadedIds()
+            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
             val itemsToDownload = manifestTracks
                 .filter { it.trackId !in downloadedIds }
-                .map { it.toDownloadItem() }
+                .map { track ->
+                    track.toDownloadItem().copy(
+                        remoteDeviceId = deviceId,
+                        destinationLibraryId = destLibId,
+                        transferKey = "$deviceId:$destLibId:${track.trackId}",
+                    )
+                }
 
             val total = itemsToDownload.size
             if (total == 0) {
@@ -150,9 +158,7 @@ class SyncWorker(
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to 0))
 
             val libraryRepo = org.michimusic.mobile.di.musicLibraryRepository
-            val checkpointRepo = org.michimusic.mobile.di.transferCheckpointRepository
             val manifestTrackMap = manifestTracks.associateBy { it.trackId }
-            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
             // Save initial checkpoints for all tracks scheduled to download
             itemsToDownload.forEach { item ->

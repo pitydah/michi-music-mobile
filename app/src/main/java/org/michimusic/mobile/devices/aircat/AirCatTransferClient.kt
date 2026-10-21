@@ -160,19 +160,22 @@ class DefaultAirCatTransferClient(
                     onProgress = onProgress,
                 )
 
+                val transferKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
+                val ext = item.format.lowercase().ifEmpty { "mp3" }
+                val targetFileName = "${item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
+                val existingFile = transferManager.getTrackFile(item.logicalTrackId, ext)
+                val finalPath = existingFile?.absolutePath ?: File(transferManager.musicDir, targetFileName).absolutePath
+
                 val downloadItem = DownloadItem(
                     trackId = item.logicalTrackId,
                     title = item.title,
                     format = item.format,
                     checksum = item.sha256,
                     size = item.size,
+                    remoteDeviceId = intent.sourceMichiId,
+                    destinationLibraryId = intent.destinationLibraryId,
+                    transferKey = transferKey,
                 )
-
-                val transferKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
-                val ext = item.format.lowercase().ifEmpty { "mp3" }
-                val targetFileName = "${item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
-                val existingFile = transferManager.getTrackFile(item.logicalTrackId, ext)
-                val finalPath = existingFile?.absolutePath ?: File(transferManager.musicDir, targetFileName).absolutePath
 
                 // Record initial DOWNLOADING checkpoint in persistent repository
                 checkpointRepository?.saveCheckpoint(
@@ -277,14 +280,53 @@ class DefaultAirCatTransferClient(
 
     override fun pauseTransfer(transferId: String) {
         pausedTransferIds.add(transferId)
+        val current = _progressEvents.value
+        if (current != null && current.transferId == transferId) {
+            _progressEvents.value = current.copy(state = AirCatTransferState.PAUSED)
+        } else {
+            _progressEvents.value = AirCatProgressEvent(
+                transferId = transferId,
+                currentTrackIndex = 0,
+                totalTracks = 0,
+                bytesTransferred = 0L,
+                totalBytes = 0L,
+                state = AirCatTransferState.PAUSED,
+            )
+        }
     }
 
     override fun resumeTransfer(transferId: String) {
         pausedTransferIds.remove(transferId)
+        val current = _progressEvents.value
+        if (current != null && current.transferId == transferId) {
+            _progressEvents.value = current.copy(state = AirCatTransferState.TRANSFERRING)
+        } else {
+            _progressEvents.value = AirCatProgressEvent(
+                transferId = transferId,
+                currentTrackIndex = 0,
+                totalTracks = 0,
+                bytesTransferred = 0L,
+                totalBytes = 0L,
+                state = AirCatTransferState.TRANSFERRING,
+            )
+        }
     }
 
     override fun cancelTransfer(transferId: String) {
         cancelledTransferIds.add(transferId)
+        val current = _progressEvents.value
+        if (current != null && current.transferId == transferId) {
+            _progressEvents.value = current.copy(state = AirCatTransferState.CANCELLED)
+        } else {
+            _progressEvents.value = AirCatProgressEvent(
+                transferId = transferId,
+                currentTrackIndex = 0,
+                totalTracks = 0,
+                bytesTransferred = 0L,
+                totalBytes = 0L,
+                state = AirCatTransferState.CANCELLED,
+            )
+        }
     }
 
     override fun isTransferPaused(transferId: String): Boolean = pausedTransferIds.contains(transferId)

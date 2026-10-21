@@ -14,6 +14,10 @@ class RoomTransferCheckpointRepository(
         return checkpointDao.getCheckpoint(transferKey)?.toDomain()
     }
 
+    override suspend fun getLatestCheckpointForTrack(trackId: String): PersistentCheckpoint? {
+        return checkpointDao.getLatestCheckpointForTrack(trackId)?.toDomain()
+    }
+
     override suspend fun getCheckpointsForDevice(remoteDeviceId: String): List<PersistentCheckpoint> {
         return checkpointDao.getCheckpointsForDevice(remoteDeviceId).map { it.toDomain() }
     }
@@ -28,38 +32,13 @@ class RoomTransferCheckpointRepository(
         verifiedBytes: Long,
         state: TransferStatus
     ) {
-        val affected = checkpointDao.updateProgress(
+        checkpointDao.updateProgress(
             key = transferKey,
             received = receivedBytes,
             verified = verifiedBytes,
             state = state.name,
             updatedAt = System.currentTimeMillis()
         )
-        if (affected == 0) {
-            // Fallback: if row didn't exist, insert a basic record to avoid silent data loss
-            val now = System.currentTimeMillis()
-            checkpointDao.insertCheckpoint(
-                TransferCheckpointEntity(
-                    transferKey = transferKey,
-                    transferId = transferKey,
-                    remoteDeviceId = "",
-                    sourceLibraryId = "",
-                    destinationLibraryId = "",
-                    trackId = transferKey,
-                    remoteTrackId = transferKey,
-                    tempFilePath = "",
-                    finalFilePath = "",
-                    expectedSize = 0L,
-                    receivedBytes = receivedBytes,
-                    verifiedBytes = verifiedBytes,
-                    expectedSha256 = "",
-                    etag = "",
-                    transferState = state.name,
-                    createdAt = now,
-                    updatedAt = now
-                )
-            )
-        }
     }
 
     override suspend fun deleteCheckpoint(transferKey: String) {

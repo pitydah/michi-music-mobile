@@ -253,7 +253,19 @@ data class DownloadItem(
     val checksum: String = "",
     val size: Long = 0L,
     val downloadPath: String = "",
-)
+    val remoteDeviceId: String = "",
+    val destinationLibraryId: String = "",
+    val transferKey: String = "",
+) {
+    val effectiveTransferKey: String
+        get() = transferKey.ifEmpty {
+            if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
+                "$remoteDeviceId:$destinationLibraryId:$trackId"
+            } else {
+                trackId
+            }
+        }
+}
 
 // --- Strongly-typed Identity Domain Wrappers ---
 
@@ -320,6 +332,7 @@ data class PersistentCheckpoint(
 
 interface TransferCheckpointRepository {
     suspend fun getCheckpoint(transferKey: String): PersistentCheckpoint?
+    suspend fun getLatestCheckpointForTrack(trackId: String): PersistentCheckpoint? = null
     suspend fun getCheckpointsForDevice(remoteDeviceId: String): List<PersistentCheckpoint>
     suspend fun saveCheckpoint(checkpoint: PersistentCheckpoint)
     suspend fun updateProgress(transferKey: String, receivedBytes: Long, verifiedBytes: Long, state: TransferStatus)

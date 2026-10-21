@@ -8,6 +8,7 @@ enum class DeviceActionType {
     CONNECT,
     DISCONNECT,
     SYNC_LIBRARY,
+    AIRCAT_TRANSFER,
     BROWSE_LIBRARY,
     CONTROL_PLAYBACK,
     CONTINUE_PLAYBACK_HERE,
@@ -51,6 +52,7 @@ object DeviceActionResolver {
         }
         if (caps.isSyncHost) {
             actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar"))
+            actions.add(DeviceAction(DeviceActionType.AIRCAT_TRANSFER, "AirCat"))
         }
         if (caps.isPlaybackHost) {
             actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = !caps.isLibraryHost))

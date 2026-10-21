@@ -27,7 +27,8 @@ val appModule = module {
             registry =  get(),
             connectionManager = get(),
             identity = get(),
-            trackRepository = get()
+            trackRepository = get(),
+            airCatClient = getOrNull(),
         )
     }
     viewModelOf(::AlbumsViewModel)
