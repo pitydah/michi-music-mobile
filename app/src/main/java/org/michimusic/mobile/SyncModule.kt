@@ -1,9 +1,16 @@
 package org.michimusic.mobile
 
 import org.koin.dsl.module
+import org.michimusic.mobile.devices.aircat.AirCatTransferClient
+import org.michimusic.mobile.devices.aircat.DefaultAirCatTransferClient
 
 val syncModule = module {
-    // Sync module now delegates to linkModule from michi-link-client.
-    // LinkDiscovery, LinkSession, LinkTransferManager, TokenStore, etc.
-    // are registered in org.michimusic.link.linkModule.
+    single<AirCatTransferClient> {
+        DefaultAirCatTransferClient(
+            transferManager = get(),
+            pairedDeviceRegistry = get(),
+            libraryRepository = getOrNull(),
+        )
+    }
 }
+

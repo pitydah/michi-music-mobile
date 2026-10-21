@@ -82,5 +82,9 @@ sealed class AirCatException(message: String) : Exception(message) {
     class InsufficientStorage(required: Long, available: Long) : AirCatException("Espacio de almacenamiento insuficiente: requiere $required B, disponibles $available B")
     class ManifestVersionMismatch(expected: Int, actual: Int) : AirCatException("Versión de manifiesto inválida: esperado $expected, actual $actual")
     class DuplicatedTransfer(id: String) : AirCatException("Transferencia duplicada: $id")
+    class TransferExpired(expiresAt: Long, now: Long) : AirCatException("Transferencia expirada: vence $expiresAt, actual $now")
+    class TransferIdMismatch(expected: String, actual: String) : AirCatException("ID de transferencia no coincide: esperado $expected, actual $actual")
+    class SourceMismatch(expected: String, actual: String) : AirCatException("Origen no coincide con el manifiesto: esperado $expected, actual $actual")
+    class InvalidManifestStructure(reason: String) : AirCatException("Estructura de manifiesto inválida: $reason")
     class ProtocolError(msg: String) : AirCatException(msg)
 }

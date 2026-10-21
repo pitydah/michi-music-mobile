@@ -255,4 +255,171 @@ class AirCatContractTest {
             )
         }
     }
+
+    @Test
+    fun aircatRevokedPeerRejectedTest() = runBlocking {
+        val sourceId = "revoked_peer_1"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(
+            deviceId = sourceId,
+            deviceName = "Revoked Node",
+            deviceToken = "token",
+            isRevoked = true,
+        )
+
+        val intent = TransferIntent(
+            transferId = "xfer_revoked_1",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_source",
+            destinationLibraryId = "lib_dest",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_revoked_1",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 1000L,
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue("Revoked peer must be rejected", result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.RevokedPeer)
+    }
+
+    @Test
+    fun aircatExpiredIntentRejectedTest() = runBlocking {
+        var currentTime = 10_000L
+        aircatClient = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            clock = { currentTime }
+        )
+
+        val sourceId = "trusted_peer_exp"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_expired_1",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_source",
+            destinationLibraryId = "lib_dest",
+            expiresAt = 9_999L // Expired
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_expired_1",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 1000L,
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue("Expired transfer must fail", result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.TransferExpired)
+    }
+
+    @Test
+    fun aircatMismatchedTransferIdRejectedTest() = runBlocking {
+        val sourceId = "trusted_peer_mis"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_intent_id",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_source",
+            destinationLibraryId = "lib_dest",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_manifest_id_different",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 1000L,
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.TransferIdMismatch)
+    }
+
+    @Test
+    fun aircatInvalidManifestStructureRejectedTest() = runBlocking {
+        val sourceId = "trusted_peer_struct"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_bad_struct",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_source",
+            destinationLibraryId = "lib_dest",
+        )
+        // Declares 2 tracks and 2000 bytes, but provides 1 item with 1000 bytes
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_bad_struct",
+            sourceDeviceId = sourceId,
+            totalTracks = 2,
+            totalBytes = 2000L,
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun aircatPauseAndCancelTransferTest() = runBlocking {
+        val transferId = "xfer_cancel_1"
+        assertFalse(aircatClient.isTransferCancelled(transferId))
+        assertFalse(aircatClient.isTransferPaused(transferId))
+
+        aircatClient.pauseTransfer(transferId)
+        assertTrue(aircatClient.isTransferPaused(transferId))
+
+        aircatClient.resumeTransfer(transferId)
+        assertFalse(aircatClient.isTransferPaused(transferId))
+
+        aircatClient.cancelTransfer(transferId)
+        assertTrue(aircatClient.isTransferCancelled(transferId))
+    }
 }

@@ -30,13 +30,17 @@ interface AirCatTransferClient {
     ): Result<List<File>>
 
     fun pauseTransfer(transferId: String)
+    fun resumeTransfer(transferId: String)
     fun cancelTransfer(transferId: String)
+    fun isTransferPaused(transferId: String): Boolean
+    fun isTransferCancelled(transferId: String): Boolean
 }
 
 class DefaultAirCatTransferClient(
     private val transferManager: LinkTransferManager,
     private val pairedDeviceRegistry: PairedDeviceRegistry,
     private val libraryRepository: MusicLibraryRepository?,
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) : AirCatTransferClient {
 
     private val _progressEvents = MutableStateFlow<AirCatProgressEvent?>(null)
@@ -45,7 +49,8 @@ class DefaultAirCatTransferClient(
     private val _processedTransferIds = MutableStateFlow<Set<String>>(emptySet())
     override val processedTransferIds: StateFlow<Set<String>> = _processedTransferIds.asStateFlow()
 
-    private var isCancelled = false
+    private val cancelledTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val pausedTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun executeTransfer(
         intent: TransferIntent,
@@ -54,29 +59,55 @@ class DefaultAirCatTransferClient(
         availableStorageBytes: Long,
         onProgress: ((AirCatProgressEvent) -> Unit)?,
     ): Result<List<File>> = withContext(Dispatchers.IO) {
-        isCancelled = false
+        cancelledTransferIds.remove(intent.transferId)
+        pausedTransferIds.remove(intent.transferId)
 
         // 1. Check idempotency
         if (intent.transferId in _processedTransferIds.value) {
             return@withContext Result.failure(AirCatException.DuplicatedTransfer(intent.transferId))
         }
 
-        // 2. Peer trust & authorization validation
+        // 2. Check Intent expiration with injectable clock
+        val now = clock()
+        if (intent.expiresAt in 1..now) {
+            val err = AirCatException.TransferExpired(intent.expiresAt, now)
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // 3. Peer trust & authorization validation
         val sourceDevice = pairedDeviceRegistry.getDevice(intent.sourceMichiId)
         if (sourceDevice == null) {
             val err = AirCatException.UnauthorizedPeer(intent.sourceMichiId)
             emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
             return@withContext Result.failure(err)
         }
+        if (sourceDevice.isRevoked) {
+            val err = AirCatException.RevokedPeer(intent.sourceMichiId)
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
 
-        // 3. Manifest version check
+        // 4. Validate transferId and source consistency between intent and manifest
+        if (intent.transferId != manifest.transferId) {
+            val err = AirCatException.TransferIdMismatch(intent.transferId, manifest.transferId)
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+        if (intent.sourceMichiId != manifest.sourceDeviceId) {
+            val err = AirCatException.SourceMismatch(intent.sourceMichiId, manifest.sourceDeviceId)
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // 5. Manifest version check
         if (manifest.manifestVersion != intent.manifestVersion) {
             val err = AirCatException.ManifestVersionMismatch(intent.manifestVersion, manifest.manifestVersion)
             emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
             return@withContext Result.failure(err)
         }
 
-        // 4. Storage check with safety margin (100MB minimum reserved)
+        // 6. Storage check with safety margin (100MB minimum reserved)
         val safetyMargin = 100L * 1024 * 1024
         val requiredBytes = manifest.totalBytes + safetyMargin
         if (availableStorageBytes < requiredBytes) {
@@ -85,7 +116,22 @@ class DefaultAirCatTransferClient(
             return@withContext Result.failure(err)
         }
 
-        // 5. Transfer execution
+        // 7. Validate manifest structure (track count and byte totals consistency when items provided)
+        if (manifest.items.isNotEmpty()) {
+            if (manifest.items.size != manifest.totalTracks) {
+                val err = AirCatException.InvalidManifestStructure("Items declarados (${manifest.items.size}) no coinciden con totalTracks (${manifest.totalTracks})")
+                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                return@withContext Result.failure(err)
+            }
+            val itemsSumBytes = manifest.items.sumOf { it.size }
+            if (manifest.totalBytes > 0 && itemsSumBytes != manifest.totalBytes) {
+                val err = AirCatException.InvalidManifestStructure("Suma de bytes (${itemsSumBytes}B) no coincide con totalBytes (${manifest.totalBytes}B)")
+                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                return@withContext Result.failure(err)
+            }
+        }
+
+        // 8. Transfer execution
         val downloadedFiles = mutableListOf<File>()
         var transferredBytesAcc = 0L
 
@@ -93,9 +139,13 @@ class DefaultAirCatTransferClient(
 
         try {
             for ((index, item) in manifest.items.withIndex()) {
-                if (isCancelled) {
+                if (cancelledTransferIds.contains(intent.transferId)) {
                     emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.CANCELLED, onProgress = onProgress)
                     return@withContext Result.failure(AirCatException.ProtocolError("Transferencia cancelada por el usuario"))
+                }
+                if (pausedTransferIds.contains(intent.transferId)) {
+                    emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.PAUSED, onProgress = onProgress)
+                    return@withContext Result.failure(AirCatException.ProtocolError("Transferencia pausada"))
                 }
 
                 emitEvent(
@@ -128,8 +178,8 @@ class DefaultAirCatTransferClient(
                 downloadedFiles.add(finalFile)
                 transferredBytesAcc += finalFile.length()
 
-                // Register into Multi-Library domain
-                val identity = TrackIdentity(
+                // Register into Multi-Library domain transactionally
+                val trackIdentity = TrackIdentity(
                     id = item.logicalTrackId,
                     title = item.title,
                     artist = item.artist,
@@ -138,7 +188,7 @@ class DefaultAirCatTransferClient(
                     contentHash = item.sha256.ifEmpty { null },
                 )
                 val location = TrackLocation(
-                    id = "loc_aircat_${item.logicalTrackId}",
+                    id = "loc_aircat_${intent.destinationLibraryId}_${item.logicalTrackId}",
                     trackId = item.logicalTrackId,
                     type = TrackLocationType.SYNCED_MANAGED,
                     uri = finalFile.absolutePath,
@@ -147,12 +197,20 @@ class DefaultAirCatTransferClient(
                     availability = LocationAvailability.AVAILABLE,
                 )
 
-                libraryRepository?.registerTrackWithLocation(
-                    identity = identity,
-                    location = location,
-                    libraryId = intent.destinationLibraryId,
-                    origin = "AIRC_AT",
-                )
+                if (libraryRepository != null) {
+                    try {
+                        libraryRepository.registerTrackWithLocation(
+                            identity = trackIdentity,
+                            location = location,
+                            libraryId = intent.destinationLibraryId,
+                            origin = "AIRC_AT",
+                        )
+                    } catch (e: Exception) {
+                        // Compensate: do not report completed if library registration fails
+                        emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = "Fallo al registrar en biblioteca: ${e.message}", onProgress = onProgress)
+                        return@withContext Result.failure(e)
+                    }
+                }
             }
 
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
@@ -169,12 +227,20 @@ class DefaultAirCatTransferClient(
     }
 
     override fun pauseTransfer(transferId: String) {
-        isCancelled = true
+        pausedTransferIds.add(transferId)
+    }
+
+    override fun resumeTransfer(transferId: String) {
+        pausedTransferIds.remove(transferId)
     }
 
     override fun cancelTransfer(transferId: String) {
-        isCancelled = true
+        cancelledTransferIds.add(transferId)
     }
+
+    override fun isTransferPaused(transferId: String): Boolean = pausedTransferIds.contains(transferId)
+
+    override fun isTransferCancelled(transferId: String): Boolean = cancelledTransferIds.contains(transferId)
 
     private fun emitEvent(
         transferId: String,
