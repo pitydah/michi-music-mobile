@@ -277,8 +277,9 @@ class PlayerController(
             currentTrack = tracks.getOrNull(startIndex),
             queue = tracks,
             queueIndex = startIndex,
-            isPlaying = true,
+            isPlaying = false,
             duration = tracks.getOrNull(startIndex)?.duration ?: 0L,
+            playbackStatus = PlaybackStatus.Buffering,
         )
         _state.value = state
         player.prepare()

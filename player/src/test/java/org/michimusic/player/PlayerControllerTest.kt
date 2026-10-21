@@ -54,7 +54,8 @@ class PlayerControllerTest {
         val state = controller.state.value
         assertEquals(2, state.queue.size)
         assertEquals("1", state.currentTrack?.id)
-        assertTrue(state.isPlaying)
+        // Signal Truth: isPlaying must NOT be optimistically set to true before player confirmation
+        assertEquals(PlaybackStatus.Buffering, state.playbackStatus)
         assertEquals(0, state.queueIndex)
     }
 
