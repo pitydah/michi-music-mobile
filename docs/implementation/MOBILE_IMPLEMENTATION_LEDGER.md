@@ -11,7 +11,7 @@
 | M4 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 7eee54d | Hi-Res, DSP/Transparente, ReplayGain multi-formato, Signal Truth, DSD/DoP Feasibility |
 | M5 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 5bc5ab4 | Multi-Library Room v3->v4, DAOs, identidades/ubicaciones desacopladas y repositorios de dominio |
 | M6 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 7bedf68 | UI Multi-Library, favoritos persistentes, búsqueda federada y Home |
-| M7 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Link identidad, Keystore recovery, Home trust |
+| M7 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c81a126 | Michi Link identidad, Keystore recovery, Home trust, WorkManager creds removal |
 | M8 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Sync resumable downloads y profiles |
 | M9 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | AirCat Mobile consumer contract y Devices UI |
 | M10 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Catálogos remotos y ReceiverLite Stream |
@@ -215,6 +215,58 @@ ROLLBACK_PLAN:
   git reset --hard 36b30869d6bf37f6a6ca7006886e80b2a74c207d
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M7 (Michi Link, Identidad, Home Trust y Seguridad Android)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque H (M7)
+
+```text
+BLOCK_ID: M7
+MASTER_BASE_SHA: aeddc6d5c0daf8d32934a46f34bdd45b52ab852d
+FILES_CHANGED:
+  - app/src/main/AndroidManifest.xml
+  - app/src/main/java/org/michimusic/mobile/di/KoinAccessors.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/res/xml/backup_rules.xml
+  - app/src/main/res/xml/data_extraction_rules.xml
+  - app/src/main/res/xml/network_security_config.xml
+  - michi-link-client/src/main/java/org/michimusic/link/identity/IdentityStorageRecovery.kt
+  - michi-link-client/src/main/java/org/michimusic/link/identity/MichiIdentity.kt
+  - michi-link-client/src/test/java/org/michimusic/link/identity/Ed25519KeyLoadingTest.kt
+  - michi-link-client/src/test/java/org/michimusic/link/identity/IdentityStorageRecoveryTest.kt
+  - michi-link-client/src/test/java/org/michimusic/link/identity/MichiIdentityTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  La inicialización de MichiIdentity podía fallar de forma irrecuperable ante corrupción de Android Keystore;
+  las preferencias cifradas (EncryptedSharedPreferences) no estaban excluidas de Google Cloud Backup ni
+  device-to-device transfer, provocando AEADBadTagException al restaurar en otro hardware con distinta MasterKey;
+  network_security_config.xml contenía sintaxis CIDR no admitida en <domain> de Android;
+  SyncWorker persistía tokens de sesión y device tokens en la base de datos de WorkManager en texto plano;
+  SyncViewModel utilizaba un UUID efímero generado aleatoriamente para clientId en vez de la identidad Ed25519 canónica.
+PRODUCTION_BEHAVIOR_AFTER:
+  IdentityStorageRecovery proporciona recuperación con reintento y borrado transaccional de clave corrupta;
+  backup_rules.xml y data_extraction_rules.xml excluyen michi_identity y paired_devices_secure de respaldos automáticos;
+  network_security_config.xml elimina notaciones CIDR inválidas preservando dominios claros permitidos en debug/local;
+  SyncWorker resuelve tokens desde PairedDeviceRegistry/TokenStore en runtime abortando si falta credencial;
+  SyncViewModel converge clientId a identity.michiId;
+  Suite completa de pruebas unitarias para recuperación de identidad, generación y carga de claves Ed25519.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks ejecutadas en :michi-link-client, :app, :data, :player, :core)
+  IdentityStorageRecoveryTest (5 tests: basic read, recovery on error, double failure throws, writes succeed, corrupted key - PASSED)
+  Ed25519KeyLoadingTest (4 tests: valid key, regenerated invalid key, consistent ID, storage recovery invocation - PASSED)
+  MichiIdentityTest (2 tests: getOrCreateIdentity, signing and verification - PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere dispositivo Android físico para pruebas con chip Keystore hardware-backed real)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Exclusión de copias de seguridad de claves privadas y tokens; eliminación de credenciales en inputData de WorkManager;
+  recuperación resiliente sin filtración de material criptográfico.
+ROLLBACK_PLAN:
+  git reset --hard aeddc6d5c0daf8d32934a46f34bdd45b52ab852d
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M8 (Michi Sync: descargas transaccionales, reanudación y perfiles de sincronización)
 ```
 
 ---
