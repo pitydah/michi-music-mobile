@@ -48,6 +48,7 @@ data class SearchAlbumResult(
 data class SearchTrackResult(
     val track: Track,
     val source: String,
+    val availableLocations: List<String> = emptyList(),
 )
 
 data class StructuredSearchResults(
@@ -159,11 +160,11 @@ class SearchViewModel(
             )
         }
 
-        // Deduplicate using unique key (id or title+artist+album)
+        // Deduplicate tracks preserving distinct masters (different sampleRate/bitDepth/format)
         val combined = localTracks + convertedSynced
         return combined.distinctBy { track ->
-            val key = "${track.title.trim().lowercase()}___${track.artist.trim().lowercase()}___${track.album.trim().lowercase()}"
-            if (key.length > 6) key else track.id
+            val key = "${track.title.trim().lowercase()}___${track.artist.trim().lowercase()}___${track.album.trim().lowercase()}___${track.sampleRate ?: 0}___${track.format.lowercase()}"
+            if (key.length > 8) key else track.id
         }
     }
 
@@ -218,9 +219,15 @@ class SearchViewModel(
                 it.title.lowercase().contains(lower) && (it.filepath.isNotEmpty() || it.source == TrackSource.LOCAL)
             }
         }.map { track ->
+            val locations = mutableListOf<String>()
+            if (track.filepath.startsWith("content://")) locations.add("MediaStore")
+            else if (track.filepath.startsWith("file://") || track.source == TrackSource.SYNCED) locations.add("Sincronizada")
+            else if (track.filepath.isNotEmpty()) locations.add("Local")
+
             SearchTrackResult(
                 track = track,
                 source = if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local",
+                availableLocations = locations,
             )
         }.take(30)
 
