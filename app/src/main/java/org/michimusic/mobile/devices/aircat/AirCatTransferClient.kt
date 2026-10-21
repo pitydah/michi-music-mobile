@@ -40,6 +40,7 @@ class DefaultAirCatTransferClient(
     private val transferManager: LinkTransferManager,
     private val pairedDeviceRegistry: PairedDeviceRegistry,
     private val libraryRepository: MusicLibraryRepository?,
+    private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : AirCatTransferClient {
 
@@ -167,9 +168,43 @@ class DefaultAirCatTransferClient(
                     size = item.size,
                 )
 
+                val transferKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
+                val ext = item.format.lowercase().ifEmpty { "mp3" }
+                val targetFileName = "${item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
+                val existingFile = transferManager.getTrackFile(item.logicalTrackId, ext)
+                val finalPath = if (existingFile != null) existingFile.absolutePath else targetFileName
+
+                // Record initial DOWNLOADING checkpoint in persistent repository
+                checkpointRepository?.saveCheckpoint(
+                    org.michimusic.core.models.PersistentCheckpoint(
+                        transferKey = transferKey,
+                        transferId = intent.transferId,
+                        remoteDeviceId = intent.sourceMichiId,
+                        sourceLibraryId = intent.sourceLibraryId,
+                        destinationLibraryId = intent.destinationLibraryId,
+                        trackId = item.logicalTrackId,
+                        remoteTrackId = item.remoteTrackId,
+                        tempFilePath = "$finalPath.part",
+                        finalFilePath = finalPath,
+                        expectedSize = item.size,
+                        receivedBytes = 0L,
+                        verifiedBytes = 0L,
+                        expectedSha256 = item.sha256,
+                        transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                )
+
                 val downloadResult = transferManager.downloadTrack(linkClient, downloadItem)
                 if (downloadResult.isFailure) {
                     val ex = downloadResult.exceptionOrNull() ?: Exception("Error descargando pista ${item.logicalTrackId}")
+                    checkpointRepository?.updateProgress(
+                        transferKey = transferKey,
+                        receivedBytes = 0L,
+                        verifiedBytes = 0L,
+                        state = org.michimusic.core.models.TransferStatus.FAILED
+                    )
                     emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = ex.message, onProgress = onProgress)
                     return@withContext Result.failure(ex)
                 }
@@ -177,6 +212,14 @@ class DefaultAirCatTransferClient(
                 val finalFile = downloadResult.getOrThrow()
                 downloadedFiles.add(finalFile)
                 transferredBytesAcc += finalFile.length()
+
+                // Update persistent checkpoint to COMPLETED
+                checkpointRepository?.updateProgress(
+                    transferKey = transferKey,
+                    receivedBytes = finalFile.length(),
+                    verifiedBytes = finalFile.length(),
+                    state = org.michimusic.core.models.TransferStatus.COMPLETED
+                )
 
                 // Register into Multi-Library domain transactionally
                 val trackIdentity = TrackIdentity(

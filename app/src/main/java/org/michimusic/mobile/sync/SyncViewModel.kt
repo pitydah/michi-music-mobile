@@ -631,8 +631,9 @@ class SyncViewModel(
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
 
+        val workName = "michi_sync_${remoteDeviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
         WorkManager.getInstance(context)
-            .enqueueUniqueWork("michi_sync", ExistingWorkPolicy.REPLACE, workRequest)
+            .enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, workRequest)
 
         viewModelScope.launch {
             WorkManager.getInstance(context)
@@ -764,8 +765,9 @@ class SyncViewModel(
             .setInputData(inputData)
             .build()
 
+        val periodicWorkName = "michi_sync_periodic_${target.replace(Regex("[^A-Za-z0-9_]"), "_")}"
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork("michi_sync_periodic", ExistingPeriodicWorkPolicy.KEEP, workRequest)
+            .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.KEEP, workRequest)
     }
 
     override fun onCleared() {

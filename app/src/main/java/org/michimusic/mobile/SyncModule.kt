@@ -10,6 +10,7 @@ val syncModule = module {
             transferManager = get(),
             pairedDeviceRegistry = get(),
             libraryRepository = getOrNull(),
+            checkpointRepository = getOrNull(),
         )
     }
 }

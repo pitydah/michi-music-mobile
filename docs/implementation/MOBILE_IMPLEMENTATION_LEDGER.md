@@ -734,3 +734,52 @@ ROLLBACK_PLAN:
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M2 (Capa de medios locales, SAF multi-directorio y ReplayGain offline/online)
 ```
+
+---
+
+## Checkpoint de Ejecución — Sprint Avance 65% → 75% (Bloques A, B, C, D, E, F)
+
+```text
+BLOCK_ID: SPRINT_65_75_ADVANCE
+MASTER_BASE_SHA: 0aa421a7f462aead8b46764dcc1ca8d260ff7da8
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/SyncModule.kt
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/di/KoinAccessors.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/test/java/org/michimusic/mobile/sync/EndToEndOfflineSyncTest.kt
+  - core/src/main/java/org/michimusic/core/models/SyncModels.kt
+  - data/schemas/org.michimusic.data.cache.MichiDatabase/5.json
+  - data/src/main/java/org/michimusic/data/DataModule.kt
+  - data/src/main/java/org/michimusic/data/cache/MichiDatabase.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryDaos.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryEntities.kt
+  - data/src/main/java/org/michimusic/data/repository/RoomTransferCheckpointRepository.kt
+  - data/src/test/java/org/michimusic/data/cache/Migration4To5Test.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Identidad y alcance de sincronización: WorkManager encolaba tareas genéricas globales sin scoping por dispositivo remoto, arriesgando colisiones en transferencias concurrentes;
+  2. Persistencia de checkpoints: Room solo contemplaba hasta versión 4 sin persistencia formal de checkpoints de transferencia duraderos;
+  3. Desacoplamiento de AirCat: DefaultAirCatTransferClient operaba con memoria volátil sin respaldar checkpoints en base de datos Room;
+  4. SyncWorker completaba descargas sin registrar progresos transaccionales por clave compuesta ($deviceId:$libraryId:$trackId).
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Encolamiento estricto en WorkManager con clave única saneada por dispositivo remoto para tareas one-time y periódicas;
+  2. Room v5 con TransferCheckpointEntity, índices optimizados y MIGRATION_4_5 implementada y verificada mediante Migration4To5Test;
+  3. RoomTransferCheckpointRepository registrado en DataModule e inyectado en AirCatTransferClient y SyncWorker;
+  4. Persistencia transaccional de estados de transferencia (DOWNLOADING, COMPLETED, FAILED) con clave compuesta;
+  5. Test integral end-to-end EndToEndOfflineSyncTest ejecutado exitosamente verificando flujo offline completo, almacenamiento, hash SHA-256, persistencia de checkpoints y registro multi-biblioteca;
+  6. Suite de pruebas unitarias y linters verificados sin regresiones.
+UNIT_TESTS_EXECUTED:
+  :data:testDebugUnitTest (PASSED - Migration4To5Test, Migration3To4Test)
+  :app:testNormalDebugUnitTest (PASSED - EndToEndOfflineSyncTest, AirCatContractTest, SyncWorkerSecurityTest, SyncIdentitySeparationTest)
+  ./gradlew lintNormalDebug (BUILD SUCCESSFUL)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Cero filtración de credenciales en WorkManager Data o logs de transferencias; control de integridad criptográfica SHA-256 antes de confirmación; validación de permisos de almacenamiento.
+ROLLBACK_PLAN:
+  git revert al commit resultante o reset a 0aa421a7f462aead8b46764dcc1ca8d260ff7da8
+BLOCKERS: Ninguno.
+```

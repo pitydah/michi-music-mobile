@@ -164,12 +164,21 @@ class SyncWorker(
             var downloaded = 0
             var errors = 0
             val libraryRepo = org.michimusic.mobile.di.musicLibraryRepository
+            val checkpointRepo = org.michimusic.mobile.di.transferCheckpointRepository
             val manifestTrackMap = manifestTracks.associateBy { it.trackId }
+            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
             results.forEach { (id, result) ->
+                val transferKey = "$deviceId:$destLibId:$id"
                 result.fold(
                     onSuccess = { file ->
                         trackDao.markDownloadedWithPath(id, file.absolutePath)
+                        checkpointRepo?.updateProgress(
+                            transferKey = transferKey,
+                            receivedBytes = file.length(),
+                            verifiedBytes = file.length(),
+                            state = org.michimusic.core.models.TransferStatus.COMPLETED
+                        )
                         manifestTrackMap[id]?.let { meta ->
                             val identity = org.michimusic.core.models.TrackIdentity(
                                 id = meta.trackId,
@@ -192,14 +201,22 @@ class SyncWorker(
                                 libraryRepo?.registerTrackWithLocation(
                                     identity = identity,
                                     location = location,
-                                    libraryId = "lib_synced_${deviceId.ifEmpty { "node" }}",
+                                    libraryId = destLibId,
                                     origin = "SYNCED",
                                 )
                             }
                         }
                         downloaded++
                     },
-                    onFailure = { errors++ },
+                    onFailure = {
+                        checkpointRepo?.updateProgress(
+                            transferKey = transferKey,
+                            receivedBytes = 0L,
+                            verifiedBytes = 0L,
+                            state = org.michimusic.core.models.TransferStatus.FAILED
+                        )
+                        errors++
+                    },
                 )
             }
 

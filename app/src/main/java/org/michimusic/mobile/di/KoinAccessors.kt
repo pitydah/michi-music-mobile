@@ -34,3 +34,8 @@ val musicLibraryRepository: org.michimusic.data.repository.MusicLibraryRepositor
     runCatching { KoinJavaComponent.get<org.michimusic.data.repository.MusicLibraryRepository>(org.michimusic.data.repository.MusicLibraryRepository::class.java) }.getOrNull()
 }
 
+val transferCheckpointRepository: org.michimusic.core.models.TransferCheckpointRepository? by lazy {
+    runCatching { KoinJavaComponent.get<org.michimusic.core.models.TransferCheckpointRepository>(org.michimusic.core.models.TransferCheckpointRepository::class.java) }.getOrNull()
+}
+
+

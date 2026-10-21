@@ -246,8 +246,6 @@ data class SearchResponse(
     val query: String = "",
 )
 
-// --- Download model ---
-
 data class DownloadItem(
     val trackId: String,
     val title: String,
@@ -256,3 +254,75 @@ data class DownloadItem(
     val size: Long = 0L,
     val downloadPath: String = "",
 )
+
+// --- Strongly-typed Identity Domain Wrappers ---
+
+@JvmInline
+value class LocalMichiId(val value: String) {
+    init { require(value.isNotEmpty()) { "LocalMichiId no puede ser vacío" } }
+}
+
+@JvmInline
+value class RemoteMichiId(val value: String) {
+    init { require(value.isNotEmpty()) { "RemoteMichiId no puede ser vacío" } }
+}
+
+@JvmInline
+value class RemoteServerId(val value: String) {
+    init { require(value.isNotEmpty()) { "RemoteServerId no puede ser vacío" } }
+}
+
+@JvmInline
+value class PairedClientDeviceId(val value: String) {
+    init { require(value.isNotEmpty()) { "PairedClientDeviceId no puede ser vacío" } }
+}
+
+@JvmInline
+value class AuthorizedEndpoint(val url: String) {
+    init { require(url.startsWith("http://") || url.startsWith("https://")) { "AuthorizedEndpoint inválido: $url" } }
+}
+
+@JvmInline
+value class SyncProfileId(val value: String)
+
+// --- Persistent Transfer Checkpoint Domain Model ---
+
+enum class TransferStatus {
+    PENDING,
+    DOWNLOADING,
+    PAUSED,
+    VERIFYING,
+    COMMITTING,
+    COMPLETED,
+    FAILED,
+    CANCELLED,
+}
+
+data class PersistentCheckpoint(
+    val transferKey: String, // composite stable key: "$remoteDeviceId:$destinationLibraryId:$trackId"
+    val transferId: String,
+    val remoteDeviceId: String,
+    val sourceLibraryId: String,
+    val destinationLibraryId: String,
+    val trackId: String,
+    val remoteTrackId: String,
+    val tempFilePath: String,
+    val finalFilePath: String,
+    val expectedSize: Long,
+    val receivedBytes: Long = 0L,
+    val verifiedBytes: Long = 0L,
+    val expectedSha256: String = "",
+    val etag: String = "",
+    val transferState: TransferStatus = TransferStatus.PENDING,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
+interface TransferCheckpointRepository {
+    suspend fun getCheckpoint(transferKey: String): PersistentCheckpoint?
+    suspend fun getCheckpointsForDevice(remoteDeviceId: String): List<PersistentCheckpoint>
+    suspend fun saveCheckpoint(checkpoint: PersistentCheckpoint)
+    suspend fun updateProgress(transferKey: String, receivedBytes: Long, verifiedBytes: Long, state: TransferStatus)
+    suspend fun deleteCheckpoint(transferKey: String)
+    suspend fun clearCompletedCheckpoints(remoteDeviceId: String)
+}

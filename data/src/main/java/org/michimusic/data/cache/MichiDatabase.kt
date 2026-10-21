@@ -24,8 +24,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistEntryEntity::class,
         SyncProfileEntity::class,
         SyncManifestEntity::class,
+        TransferCheckpointEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -40,6 +41,7 @@ abstract class MichiDatabase : RoomDatabase() {
     abstract fun normalizedPlaylistDao(): NormalizedPlaylistDao
     abstract fun syncProfileDao(): SyncProfileDao
     abstract fun syncManifestDao(): SyncManifestDao
+    abstract fun transferCheckpointDao(): TransferCheckpointDao
 
 
     companion object {
@@ -228,6 +230,34 @@ abstract class MichiDatabase : RoomDatabase() {
             } catch (e: Exception) {
                 android.util.Log.w("MichiDatabase", "Error migrando cached_playlists a playlist_entries", e)
             }
+        }
+
+        val MIGRATION_4_5 = Migration(4, 5) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `transfer_checkpoints` (
+                    `transferKey` TEXT NOT NULL,
+                    `transferId` TEXT NOT NULL,
+                    `remoteDeviceId` TEXT NOT NULL,
+                    `sourceLibraryId` TEXT NOT NULL,
+                    `destinationLibraryId` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `remoteTrackId` TEXT NOT NULL,
+                    `tempFilePath` TEXT NOT NULL,
+                    `finalFilePath` TEXT NOT NULL,
+                    `expectedSize` INTEGER NOT NULL,
+                    `receivedBytes` INTEGER NOT NULL,
+                    `verifiedBytes` INTEGER NOT NULL,
+                    `expectedSha256` TEXT NOT NULL,
+                    `etag` TEXT NOT NULL,
+                    `transferState` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`transferKey`)
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_checkpoints_remoteDeviceId` ON `transfer_checkpoints` (`remoteDeviceId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_checkpoints_remoteDeviceId_destinationLibraryId` ON `transfer_checkpoints` (`remoteDeviceId`, `destinationLibraryId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_checkpoints_trackId` ON `transfer_checkpoints` (`trackId`)")
         }
     }
 }

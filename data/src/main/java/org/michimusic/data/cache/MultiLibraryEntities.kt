@@ -170,3 +170,32 @@ data class SyncManifestEntity(
     val version: Int = 1,
     val createdAt: Long = System.currentTimeMillis(),
 )
+
+@Entity(
+    tableName = "transfer_checkpoints",
+    indices = [
+        Index("remoteDeviceId"),
+        Index(value = ["remoteDeviceId", "destinationLibraryId"]),
+        Index("trackId"),
+    ],
+)
+data class TransferCheckpointEntity(
+    @PrimaryKey
+    val transferKey: String, // "$remoteDeviceId:$destinationLibraryId:$trackId"
+    val transferId: String,
+    val remoteDeviceId: String,
+    val sourceLibraryId: String,
+    val destinationLibraryId: String,
+    val trackId: String,
+    val remoteTrackId: String,
+    val tempFilePath: String,
+    val finalFilePath: String,
+    val expectedSize: Long,
+    val receivedBytes: Long = 0L,
+    val verifiedBytes: Long = 0L,
+    val expectedSha256: String = "",
+    val etag: String = "",
+    val transferState: String = "PENDING",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)

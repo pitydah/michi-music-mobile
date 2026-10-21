@@ -162,3 +162,24 @@ interface SyncManifestDao {
     suspend fun deleteManifest(jobId: String)
 }
 
+@Dao
+interface TransferCheckpointDao {
+    @Query("SELECT * FROM transfer_checkpoints WHERE transferKey = :key")
+    suspend fun getCheckpoint(key: String): TransferCheckpointEntity?
+
+    @Query("SELECT * FROM transfer_checkpoints WHERE remoteDeviceId = :remoteDeviceId ORDER BY updatedAt DESC")
+    suspend fun getCheckpointsForDevice(remoteDeviceId: String): List<TransferCheckpointEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCheckpoint(checkpoint: TransferCheckpointEntity)
+
+    @Query("UPDATE transfer_checkpoints SET receivedBytes = :received, verifiedBytes = :verified, transferState = :state, updatedAt = :updatedAt WHERE transferKey = :key")
+    suspend fun updateProgress(key: String, received: Long, verified: Long, state: String, updatedAt: Long)
+
+    @Query("DELETE FROM transfer_checkpoints WHERE transferKey = :key")
+    suspend fun deleteCheckpoint(key: String)
+
+    @Query("DELETE FROM transfer_checkpoints WHERE remoteDeviceId = :remoteDeviceId AND transferState = 'COMPLETED'")
+    suspend fun clearCompletedCheckpoints(remoteDeviceId: String)
+}
+
