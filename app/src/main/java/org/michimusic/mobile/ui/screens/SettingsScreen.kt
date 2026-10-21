@@ -81,13 +81,34 @@ import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.ReplayGainMode
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessibilityNew
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.SecondaryPurple
+
 private const val SETTINGS_PREFS = "michi_settings"
 private const val KEY_RG_MODE = "replaygain_mode"
 private const val KEY_RG_PREAMP_WITH = "replaygain_preamp_with"
 private const val KEY_RG_PREAMP_WITHOUT = "replaygain_preamp_without"
 private const val KEY_DOWNLOAD_ARTWORK = "download_artwork"
 private const val KEY_AUTO_SCAN_LIBRARY = "auto_scan_library"
+private const val KEY_HIGH_CONTRAST = "high_contrast_enabled"
+private const val KEY_REDUCED_MOTION = "reduced_motion_enabled"
 private const val DB_LISTENING_HISTORY_ENABLED = "listening_history_enabled"
+
+enum class SettingsSection {
+    ROOT,
+    AUDIO_QUALITY,
+    LIBRARY_STORAGE,
+    ACCESSIBILITY,
+    PRIVACY,
+}
 
 @Composable
 fun SettingsScreen(
@@ -98,9 +119,13 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
+    var currentSection by remember { mutableStateOf(SettingsSection.ROOT) }
+
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
     var listeningHistory by remember { mutableStateOf(true) }
+    var highContrast by remember { mutableStateOf(prefs.getBoolean(KEY_HIGH_CONTRAST, false)) }
+    var reducedMotion by remember { mutableStateOf(prefs.getBoolean(KEY_REDUCED_MOTION, false)) }
 
     var selectedMode by remember {
         mutableStateOf(
@@ -118,6 +143,10 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) {
         listeningHistory = appDao.getSetting(DB_LISTENING_HISTORY_ENABLED) != "false"
+    }
+
+    BackHandler(enabled = currentSection != SettingsSection.ROOT) {
+        currentSection = SettingsSection.ROOT
     }
 
     Box(
@@ -141,7 +170,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = MichiSpacing.screenHorizontal)
                 .verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(16.dp))
@@ -154,375 +183,444 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
-                    Text(
-                        text = "AJUSTES",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TertiaryCyan,
-                        letterSpacing = 2.sp,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "Preferencias & Audio",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = PureWhite,
-                            letterSpacing = (-0.5).sp,
-                        ),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // 1. Audio & Salidas
-            SettingsSectionCard(
-                icon = Icons.Default.GraphicEq,
-                title = "Audio & Procesamiento",
-                subtitle = "Ecualización, Salidas y ReplayGain",
-                accent = TertiaryCyan,
-            ) {
-                // Audio Route & Equalizer Cards
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    GlassCard(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(72.dp),
-                        backgroundColor = GlassFillLow,
-                        borderColor = GlassBorderLow,
-                        onClick = { showEqualizerDialog = true },
-                    ) {
-                        Row(
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (currentSection != SettingsSection.ROOT) {
+                        IconButton(
+                            onClick = { currentSection = SettingsSection.ROOT },
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                .size(MichiSpacing.minTouchTarget)
+                                .testTag("settings_back_button"),
                         ) {
-                            Icon(Icons.Default.Tune, contentDescription = null, tint = PrimaryPink, modifier = Modifier.size(22.dp))
-                            Column {
-                                Text("Ecualizador", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                Text("5 Bandas & 3D", color = TextMuted, fontSize = 10.sp)
-                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Volver",
+                                tint = PureWhite,
+                            )
                         }
+                        Spacer(Modifier.width(8.dp))
                     }
-
-                    GlassCard(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(72.dp),
-                        backgroundColor = GlassFillLow,
-                        borderColor = GlassBorderLow,
-                        onClick = { showAudioRouteDialog = true },
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Icon(Icons.Default.Headphones, contentDescription = null, tint = TertiaryCyan, modifier = Modifier.size(22.dp))
-                            Column {
-                                Text("Salidas de Audio", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                Text("DAC USB & Enrutamiento", color = TextMuted, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                Text(
-                    text = "Modo de Normalización ReplayGain",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary,
-                )
-
-                Spacer(Modifier.height(10.dp))
-
-                // ReplayGain 2x2 Mode Selection
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(ReplayGainMode.OFF, ReplayGainMode.TRACK).forEach { mode ->
-                            val isSelected = selectedMode == mode
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(42.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
-                                    .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        selectedMode = mode
-                                        prefs.edit { putString(KEY_RG_MODE, mode.name) }
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = when (mode) {
-                                        ReplayGainMode.OFF -> "Desactivado"
-                                        ReplayGainMode.TRACK -> "Pista"
-                                        else -> mode.name
-                                    },
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) TertiaryCyan else TextSecondary,
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(ReplayGainMode.ALBUM, ReplayGainMode.DYNAMIC).forEach { mode ->
-                            val isSelected = selectedMode == mode
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(42.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
-                                    .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        selectedMode = mode
-                                        prefs.edit { putString(KEY_RG_MODE, mode.name) }
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = when (mode) {
-                                        ReplayGainMode.ALBUM -> "Álbum"
-                                        ReplayGainMode.DYNAMIC -> "Dinámico"
-                                        else -> mode.name
-                                    },
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) TertiaryCyan else TextSecondary,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // 2. Audio Avanzado (Preamp)
-            SettingsSectionCard(
-                icon = Icons.Default.Tune,
-                title = "Pre-amplificación ReplayGain",
-                subtitle = "Ajuste de decibelios con y sin tags RG",
-                accent = PrimaryPink,
-            ) {
-                // Preamp with Tags
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("Pre-amp con tags RG", fontSize = 13.sp, color = TextPrimary)
-                        Text(String.format("%.1f dB", preAmpWith.floatValue), fontSize = 13.sp, color = TertiaryCyan, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    org.michimusic.mobile.ui.components.MichiFineSlider(
-                        value = preAmpWith.floatValue,
-                        onValueChange = {
-                            preAmpWith.floatValue = it
-                            prefs.edit { putFloat(KEY_RG_PREAMP_WITH, it) }
-                        },
-                        valueRange = -15f..15f,
-                        steps = 29,
-                        accentColor = TertiaryCyan,
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                // Preamp without Tags
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("Pre-amp sin tags RG", fontSize = 13.sp, color = TextPrimary)
-                        Text(String.format("%.1f dB", preAmpWithout.floatValue), fontSize = 13.sp, color = PrimaryPink, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    org.michimusic.mobile.ui.components.MichiFineSlider(
-                        value = preAmpWithout.floatValue,
-                        onValueChange = {
-                            preAmpWithout.floatValue = it
-                            prefs.edit { putFloat(KEY_RG_PREAMP_WITHOUT, it) }
-                        },
-                        valueRange = -15f..15f,
-                        steps = 29,
-                        accentColor = PrimaryPink,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            // 3. Biblioteca & Almacenamiento
-            SettingsSectionCard(
-                icon = Icons.Default.FolderSpecial,
-                title = "Biblioteca & Almacenamiento",
-                subtitle = "Escaneo, carátulas e importación",
-                accent = TertiaryCyan,
-            ) {
-                var importedCount by remember { mutableStateOf<Int?>(null) }
-                val safMediaRepository: org.michimusic.data.repository.SafMediaRepository = koinInject()
-                val openDocLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-                    androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
-                ) { uris ->
-                    if (uris.isNotEmpty()) {
-                        scope.launch {
-                            var imported = 0
-                            for (uri in uris) {
-                                val track = safMediaRepository.importAudioUri(uri)
-                                if (track != null) imported++
-                            }
-                            importedCount = imported
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassFillLow)
-                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                        .clickable { openDocLauncher.launch(arrayOf("audio/*", "application/ogg")) }
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column {
                         Text(
-                            text = "Importar audio (SAF)",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = PureWhite,
-                            ),
+                            text = "AJUSTES",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TertiaryCyan,
+                            letterSpacing = 2.sp,
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = if (importedCount != null) {
-                                "$importedCount pista(s) importada(s)"
-                            } else {
-                                "Seleccionar archivos locales o de almacenamiento externo"
+                            text = when (currentSection) {
+                                SettingsSection.ROOT -> "Preferencias & Audio"
+                                SettingsSection.AUDIO_QUALITY -> "Calidad de Audio & DSP"
+                                SettingsSection.LIBRARY_STORAGE -> "Biblioteca & Almacenamiento"
+                                SettingsSection.ACCESSIBILITY -> "Accesibilidad & Visual"
+                                SettingsSection.PRIVACY -> "Privacidad & Datos"
                             },
-                            style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = PureWhite,
+                                letterSpacing = (-0.5).sp,
+                            ),
                         )
                     }
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        tint = TertiaryCyan,
-                        modifier = Modifier.size(20.dp),
-                    )
                 }
-
-                Spacer(Modifier.height(12.dp))
-
-                SettingSwitchRow(
-                    title = "Escanear al iniciar",
-                    subtitle = "Detectar nueva música automáticamente al abrir la app",
-                    checked = autoScanLibrary,
-                    onCheckedChange = {
-                        autoScanLibrary = it
-                        prefs.edit { putBoolean(KEY_AUTO_SCAN_LIBRARY, it) }
-                    },
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                SettingSwitchRow(
-                    title = "Descargar carátulas",
-                    subtitle = "Obtener portadas en alta resolución si faltan",
-                    checked = downloadArtwork,
-                    onCheckedChange = {
-                        downloadArtwork = it
-                        prefs.edit { putBoolean(KEY_DOWNLOAD_ARTWORK, it) }
-                    },
-                )
             }
 
             Spacer(Modifier.height(16.dp))
 
-            // 4. Privacidad
-            SettingsSectionCard(
-                icon = Icons.Default.Security,
-                title = "Privacidad",
-                subtitle = "Historial local y datos del dispositivo",
-                accent = PrimaryPink,
-            ) {
-                SettingSwitchRow(
-                    title = "Historial de reproducción",
-                    subtitle = "Registrar canciones reproducidas para listas automáticas",
-                    checked = listeningHistory,
-                    onCheckedChange = { isChecked ->
-                        listeningHistory = isChecked
-                        scope.launch {
-                            appDao.setSetting(
-                                org.michimusic.data.cache.SettingsEntity(
-                                    key = DB_LISTENING_HISTORY_ENABLED,
-                                    value = if (isChecked) "true" else "false",
-                                ),
+            AnimatedContent(
+                targetState = currentSection,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "settings_hierarchy",
+            ) { target ->
+                when (target) {
+                    SettingsSection.ROOT -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.GraphicEq,
+                                title = "Calidad de Audio & DSP",
+                                subtitle = "ReplayGain, pre-amp, ecualizador y rutas DAC",
+                                accent = TertiaryCyan,
+                                onClick = { currentSection = SettingsSection.AUDIO_QUALITY },
+                            )
+
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.FolderSpecial,
+                                title = "Biblioteca & Almacenamiento",
+                                subtitle = "Importación SAF, escaneo automático y carátulas",
+                                accent = PrimaryPink,
+                                onClick = { currentSection = SettingsSection.LIBRARY_STORAGE },
+                            )
+
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.AccessibilityNew,
+                                title = "Accesibilidad & Visual",
+                                subtitle = "Contraste alto, animación reducida y objetivos táctiles",
+                                accent = TertiaryCyan,
+                                onClick = { currentSection = SettingsSection.ACCESSIBILITY },
+                            )
+
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.Security,
+                                title = "Privacidad",
+                                subtitle = "Historial local y datos de reproducción",
+                                accent = SecondaryPurple,
+                                onClick = { currentSection = SettingsSection.PRIVACY },
+                            )
+
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.BugReport,
+                                title = "Diagnóstico del Sistema",
+                                subtitle = "Auditoría de red, Media3 HAL y telemetría expurgada",
+                                accent = TertiaryCyan,
+                                onClick = onNavigateToDiagnostics,
                             )
                         }
-                    },
-                )
-            }
+                    }
 
-            Spacer(Modifier.height(16.dp))
+                    SettingsSection.AUDIO_QUALITY -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SettingsSectionCard(
+                                icon = Icons.Default.GraphicEq,
+                                title = "Procesamiento de Audio",
+                                subtitle = "Ecualización, Salidas y ReplayGain",
+                                accent = TertiaryCyan,
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    GlassCard(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(72.dp),
+                                        backgroundColor = GlassFillLow,
+                                        borderColor = GlassBorderLow,
+                                        onClick = { showEqualizerDialog = true },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Icon(Icons.Default.Tune, contentDescription = null, tint = PrimaryPink, modifier = Modifier.size(22.dp))
+                                            Column {
+                                                Text("Ecualizador", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                Text("5 Bandas & 3D", color = TextMuted, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
 
-            // 5. Diagnóstico & Sistema
-            SettingsSectionCard(
-                icon = Icons.Default.Info,
-                title = "Sistema & Diagnóstico",
-                subtitle = "Herramientas técnicas y estado del sistema",
-                accent = TertiaryCyan,
-            ) {
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    backgroundColor = GlassFillLow,
-                    borderColor = GlassBorderLow,
-                    onClick = onNavigateToDiagnostics,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Icon(Icons.Default.BugReport, contentDescription = null, tint = TertiaryCyan, modifier = Modifier.size(24.dp))
-                            Column {
-                                Text("Diagnóstico del Sistema", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Verificar Media3, Koin, Room y Audio HAL", color = TextSecondary, fontSize = 11.sp)
+                                    GlassCard(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(72.dp),
+                                        backgroundColor = GlassFillLow,
+                                        borderColor = GlassBorderLow,
+                                        onClick = { showAudioRouteDialog = true },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Icon(Icons.Default.Headphones, contentDescription = null, tint = TertiaryCyan, modifier = Modifier.size(22.dp))
+                                            Column {
+                                                Text("Salidas de Audio", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                Text("DAC USB & Enrutamiento", color = TextMuted, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(Modifier.height(16.dp))
+
+                                Text(
+                                    text = "Modo de Normalización ReplayGain",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary,
+                                )
+
+                                Spacer(Modifier.height(10.dp))
+
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        listOf(ReplayGainMode.OFF, ReplayGainMode.TRACK).forEach { mode ->
+                                            val isSelected = selectedMode == mode
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(42.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
+                                                    .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
+                                                    .clickable {
+                                                        selectedMode = mode
+                                                        prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                                    },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = when (mode) {
+                                                        ReplayGainMode.OFF -> "Desactivado"
+                                                        ReplayGainMode.TRACK -> "Pista"
+                                                        else -> mode.name
+                                                    },
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) TertiaryCyan else TextSecondary,
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        listOf(ReplayGainMode.ALBUM, ReplayGainMode.DYNAMIC).forEach { mode ->
+                                            val isSelected = selectedMode == mode
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(42.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
+                                                    .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
+                                                    .clickable {
+                                                        selectedMode = mode
+                                                        prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                                    },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = when (mode) {
+                                                        ReplayGainMode.ALBUM -> "Álbum"
+                                                        ReplayGainMode.DYNAMIC -> "Dinámico"
+                                                        else -> mode.name
+                                                    },
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) TertiaryCyan else TextSecondary,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            SettingsSectionCard(
+                                icon = Icons.Default.Tune,
+                                title = "Pre-amplificación ReplayGain",
+                                subtitle = "Ajuste de decibelios con y sin tags RG",
+                                accent = PrimaryPink,
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text("Pre-amp con tags RG", fontSize = 13.sp, color = TextPrimary)
+                                        Text(String.format("%.1f dB", preAmpWith.floatValue), fontSize = 13.sp, color = TertiaryCyan, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    org.michimusic.mobile.ui.components.MichiFineSlider(
+                                        value = preAmpWith.floatValue,
+                                        onValueChange = {
+                                            preAmpWith.floatValue = it
+                                            prefs.edit { putFloat(KEY_RG_PREAMP_WITH, it) }
+                                        },
+                                        valueRange = -15f..15f,
+                                        steps = 29,
+                                        accentColor = TertiaryCyan,
+                                    )
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text("Pre-amp sin tags RG", fontSize = 13.sp, color = TextPrimary)
+                                        Text(String.format("%.1f dB", preAmpWithout.floatValue), fontSize = 13.sp, color = PrimaryPink, fontWeight = FontWeight.Bold)
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    org.michimusic.mobile.ui.components.MichiFineSlider(
+                                        value = preAmpWithout.floatValue,
+                                        onValueChange = {
+                                            preAmpWithout.floatValue = it
+                                            prefs.edit { putFloat(KEY_RG_PREAMP_WITHOUT, it) }
+                                        },
+                                        valueRange = -15f..15f,
+                                        steps = 29,
+                                        accentColor = PrimaryPink,
+                                    )
+                                }
                             }
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                    }
+
+                    SettingsSection.LIBRARY_STORAGE -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SettingsSectionCard(
+                                icon = Icons.Default.FolderSpecial,
+                                title = "Biblioteca & Almacenamiento",
+                                subtitle = "Escaneo, carátulas e importación",
+                                accent = TertiaryCyan,
+                            ) {
+                                var importedCount by remember { mutableStateOf<Int?>(null) }
+                                val safMediaRepository: org.michimusic.data.repository.SafMediaRepository = koinInject()
+                                val openDocLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                                    androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+                                ) { uris ->
+                                    if (uris.isNotEmpty()) {
+                                        scope.launch {
+                                            var imported = 0
+                                            for (uri in uris) {
+                                                val track = safMediaRepository.importAudioUri(uri)
+                                                if (track != null) imported++
+                                            }
+                                            importedCount = imported
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(GlassFillLow)
+                                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
+                                        .clickable { openDocLauncher.launch(arrayOf("audio/*", "application/ogg")) }
+                                        .padding(14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Importar audio (SAF)",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = PureWhite,
+                                            ),
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = if (importedCount != null) {
+                                                "$importedCount pista(s) importada(s)"
+                                            } else {
+                                                "Seleccionar archivos locales o de almacenamiento externo"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = null,
+                                        tint = TertiaryCyan,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                SettingSwitchRow(
+                                    title = "Escanear al iniciar",
+                                    subtitle = "Detectar nueva música automáticamente al abrir la app",
+                                    checked = autoScanLibrary,
+                                    onCheckedChange = {
+                                        autoScanLibrary = it
+                                        prefs.edit { putBoolean(KEY_AUTO_SCAN_LIBRARY, it) }
+                                    },
+                                )
+
+                                Spacer(Modifier.height(12.dp))
+
+                                SettingSwitchRow(
+                                    title = "Descargar carátulas",
+                                    subtitle = "Obtener portadas en alta resolución si faltan",
+                                    checked = downloadArtwork,
+                                    onCheckedChange = {
+                                        downloadArtwork = it
+                                        prefs.edit { putBoolean(KEY_DOWNLOAD_ARTWORK, it) }
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    SettingsSection.ACCESSIBILITY -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SettingsSectionCard(
+                                icon = Icons.Default.AccessibilityNew,
+                                title = "Accesibilidad & Interfaz",
+                                subtitle = "Optimización visual y de movimiento",
+                                accent = TertiaryCyan,
+                            ) {
+                                SettingSwitchRow(
+                                    title = "Alto contraste",
+                                    subtitle = "Resaltar bordes y texto para mayor legibilidad",
+                                    checked = highContrast,
+                                    onCheckedChange = {
+                                        highContrast = it
+                                        prefs.edit { putBoolean(KEY_HIGH_CONTRAST, it) }
+                                    },
+                                )
+
+                                Spacer(Modifier.height(12.dp))
+
+                                SettingSwitchRow(
+                                    title = "Reducir animaciones",
+                                    subtitle = "Disminuir transiciones y movimiento en pantallas",
+                                    checked = reducedMotion,
+                                    onCheckedChange = {
+                                        reducedMotion = it
+                                        prefs.edit { putBoolean(KEY_REDUCED_MOTION, it) }
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    SettingsSection.PRIVACY -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SettingsSectionCard(
+                                icon = Icons.Default.Security,
+                                title = "Privacidad",
+                                subtitle = "Historial local y datos del dispositivo",
+                                accent = PrimaryPink,
+                            ) {
+                                SettingSwitchRow(
+                                    title = "Historial de reproducción",
+                                    subtitle = "Registrar canciones reproducidas para listas automáticas",
+                                    checked = listeningHistory,
+                                    onCheckedChange = { isChecked ->
+                                        listeningHistory = isChecked
+                                        scope.launch {
+                                            appDao.setSetting(
+                                                org.michimusic.data.cache.SettingsEntity(
+                                                    key = DB_LISTENING_HISTORY_ENABLED,
+                                                    value = if (isChecked) "true" else "false",
+                                                ),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -536,6 +634,51 @@ fun SettingsScreen(
 
         if (showAudioRouteDialog) {
             AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
+        }
+    }
+}
+
+@Composable
+private fun SettingsCategoryNavCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    GlassCard(
+        modifier = Modifier.fillMaxWidth(),
+        backgroundColor = SurfaceObsidian.copy(alpha = 0.7f),
+        borderColor = GlassBorderLow,
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(MichiShapes.sm)
+                        .background(accent.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
+                }
+                Column {
+                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(subtitle, color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
         }
     }
 }
