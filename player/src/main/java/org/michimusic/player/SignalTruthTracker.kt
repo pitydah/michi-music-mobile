@@ -1,6 +1,8 @@
 package org.michimusic.player
 
+import androidx.annotation.OptIn
 import androidx.media3.common.Format
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -82,6 +84,7 @@ class SignalTruthTracker(
         recompute()
     }
 
+    @OptIn(UnstableApi::class)
     fun onAudioTrackInitialized(sampleRate: Int, channelCount: Int, encoding: Int) {
         val bits = when (encoding) {
             androidx.media3.common.C.ENCODING_PCM_16BIT -> 16
