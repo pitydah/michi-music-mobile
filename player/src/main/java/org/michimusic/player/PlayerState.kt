@@ -7,9 +7,11 @@ data class PlayerState(
     val queue: List<Track> = emptyList(),
     val queueIndex: Int = -1,
     val isPlaying: Boolean = false,
+    val playbackStatus: PlaybackStatus = PlaybackStatus.Idle,
     val position: Long = 0L,
     val duration: Long = 0L,
     val repeatMode: Int = 0,
     val shuffleMode: Boolean = false,
     val sleepTimerRemainingMs: Long = 0L,
+    val lastError: PlaybackStatus.Error? = null,
 )

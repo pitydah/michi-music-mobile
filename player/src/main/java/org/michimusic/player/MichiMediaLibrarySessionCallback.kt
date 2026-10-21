@@ -87,27 +87,33 @@ class MichiMediaLibrarySessionCallback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo,
     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-        val saved = stateStore.restore()
-        if (saved.mediaIds.isEmpty()) {
-            return Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
-            )
+        val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+        scope.launch {
+            try {
+                val saved = stateStore.restore()
+                if (saved.mediaIds.isEmpty()) {
+                    future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                    return@launch
+                }
+                libraryProvider.ensureLoaded()
+                val items = saved.mediaIds.mapNotNull { libraryProvider.getItem(it) }
+                if (items.isEmpty()) {
+                    future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                    return@launch
+                }
+                val resolved = libraryProvider.resolveForPlayback(items)
+                future.set(
+                    MediaSession.MediaItemsWithStartPosition(
+                        resolved,
+                        saved.startIndex.coerceIn(0, resolved.lastIndex.coerceAtLeast(0)),
+                        saved.positionMs,
+                    )
+                )
+            } catch (_: Exception) {
+                future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+            }
         }
-        scope.launch { libraryProvider.refresh() }
-        val items = saved.mediaIds.mapNotNull { libraryProvider.getItem(it) }
-        if (items.isEmpty()) {
-            return Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
-            )
-        }
-        val resolved = libraryProvider.resolveForPlayback(items)
-        return Futures.immediateFuture(
-            MediaSession.MediaItemsWithStartPosition(
-                resolved,
-                saved.startIndex.coerceIn(0, resolved.lastIndex),
-                saved.positionMs,
-            )
-        )
+        return future
     }
 
     override fun onAddMediaItems(
@@ -118,14 +124,11 @@ class MichiMediaLibrarySessionCallback(
         val future = SettableFuture.create<List<MediaItem>>()
         scope.launch {
             try {
-                // Guarantees LibraryProvider's cache is populated before resolving - the
-                // browsing-only callbacks that used to populate it (onGetLibraryRoot,
-                // onPlaybackResumption) are never invoked by a plain MediaController client.
                 libraryProvider.ensureLoaded()
                 val resolved = libraryProvider.resolveForPlayback(mediaItems)
-                future.set(if (resolved.isNotEmpty()) resolved else mediaItems)
+                future.set(resolved)
             } catch (_: Exception) {
-                future.set(mediaItems)
+                future.set(emptyList())
             }
         }
         return future
@@ -141,8 +144,6 @@ class MichiMediaLibrarySessionCallback(
         val future = SettableFuture.create<MediaItemsWithStartPosition>()
         scope.launch {
             try {
-                // Same guarantee as onAddMediaItems: ensure the cache is populated before
-                // either the single-item expansion path or resolveForPlayback read it.
                 libraryProvider.ensureLoaded()
 
                 if (mediaItems.size == 1) {
@@ -154,7 +155,8 @@ class MichiMediaLibrarySessionCallback(
                 }
 
                 val resolved = libraryProvider.resolveForPlayback(mediaItems)
-                future.set(MediaItemsWithStartPosition(resolved, startIndex, startPositionMs))
+                val safeIndex = if (resolved.isNotEmpty()) startIndex.coerceIn(0, resolved.lastIndex) else 0
+                future.set(MediaItemsWithStartPosition(resolved, safeIndex, startPositionMs))
             } catch (_: Exception) {
                 future.set(MediaItemsWithStartPosition(emptyList(), startIndex, startPositionMs))
             }
@@ -162,7 +164,7 @@ class MichiMediaLibrarySessionCallback(
         return future
     }
 
-    private fun maybeExpandSingleItem(
+    private suspend fun maybeExpandSingleItem(
         mediaItem: MediaItem,
         startIndex: Int,
         startPositionMs: Long,

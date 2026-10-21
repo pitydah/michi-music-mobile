@@ -105,6 +105,12 @@ class MichiPlaybackService : MediaLibraryService() {
                         "onPlayerError errorCode=${error.errorCode} message=${error.message} " +
                             "mediaId=${exoPlayer.currentMediaItem?.mediaId} mediaItemCount=${exoPlayer.mediaItemCount}",
                     )
+                    // If track is unplayable/missing/corrupted and there are remaining items in the queue, skip forward to avoid stall
+                    if (exoPlayer.hasNextMediaItem()) {
+                        exoPlayer.seekToNextMediaItem()
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                    }
                 }
             })
         } catch (e: Exception) {

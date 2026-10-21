@@ -29,13 +29,13 @@ private const val TAG = "MichiAudio"
 class AudioController(
     private val context: Context,
     private val scope: CoroutineScope,
-) {
+) : LocalPlaybackGateway {
     private var mediaController: MediaController? = null
     private var connectStarted = false
     private val _state = MutableStateFlow(PlayerState())
-    val state: StateFlow<PlayerState> = _state.asStateFlow()
+    override val state: StateFlow<PlayerState> = _state.asStateFlow()
     private val _isReady = MutableStateFlow(false)
-    val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
+    override val isReady: StateFlow<Boolean> = _isReady.asStateFlow()
     private var positionJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var lastRecordedTrackId: String? = null
@@ -47,7 +47,21 @@ class AudioController(
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            _state.value = _state.value.copy(isPlaying = isPlaying)
+            val ctrl = mediaController
+            val status = if (isPlaying) {
+                PlaybackStatus.Playing
+            } else {
+                when (ctrl?.playbackState) {
+                    Player.STATE_BUFFERING -> PlaybackStatus.Buffering
+                    Player.STATE_ENDED -> PlaybackStatus.Ended
+                    Player.STATE_IDLE -> ctrl.playerError?.let { PlaybackErrorMapper.mapPlaybackError(it) } ?: PlaybackStatus.Idle
+                    else -> PlaybackStatus.Paused
+                }
+            }
+            _state.value = _state.value.copy(
+                isPlaying = isPlaying,
+                playbackStatus = status,
+            )
             if (isPlaying) startPositionUpdates() else stopPositionUpdates()
         }
 
@@ -55,24 +69,57 @@ class AudioController(
             val ctrl = mediaController ?: return
             val queue = _state.value.queue
             val index = ctrl.currentMediaItemIndex
-            if (index in queue.indices) {
-                val track = queue[index]
+            val track = if (index in queue.indices) queue[index] else {
+                mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }?.let { id ->
+                    queue.find { it.id == id }
+                }
+            }
+            if (track != null) {
                 _state.value = _state.value.copy(
                     currentTrack = track,
-                    queueIndex = index,
+                    queueIndex = if (index >= 0) index else queue.indexOf(track),
                     position = 0L,
                 )
                 recordPlayback(track)
+            } else if (mediaItem == null && ctrl.mediaItemCount == 0) {
+                _state.value = _state.value.copy(
+                    currentTrack = null,
+                    queueIndex = -1,
+                    position = 0L,
+                    isPlaying = false,
+                    playbackStatus = PlaybackStatus.Idle,
+                )
             }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             val ctrl = mediaController ?: return
-            if (playbackState == Player.STATE_READY) {
-                _state.value = _state.value.copy(
-                    duration = ctrl.duration.coerceAtLeast(0L),
-                )
+            val isPlaying = ctrl.isPlaying
+            val status = when (playbackState) {
+                Player.STATE_IDLE -> {
+                    val err = ctrl.playerError?.let { PlaybackErrorMapper.mapPlaybackError(it) }
+                    err ?: PlaybackStatus.Idle
+                }
+                Player.STATE_BUFFERING -> PlaybackStatus.Buffering
+                Player.STATE_READY -> if (isPlaying) PlaybackStatus.Playing else PlaybackStatus.Paused
+                Player.STATE_ENDED -> PlaybackStatus.Ended
+                else -> PlaybackStatus.Idle
             }
+            _state.value = _state.value.copy(
+                playbackStatus = status,
+                isPlaying = isPlaying,
+                duration = if (playbackState == Player.STATE_READY) ctrl.duration.coerceAtLeast(0L) else _state.value.duration,
+            )
+        }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val mapped = PlaybackErrorMapper.mapPlaybackError(error)
+            _state.value = _state.value.copy(
+                isPlaying = false,
+                playbackStatus = mapped,
+                lastError = mapped,
+            )
+            stopPositionUpdates()
         }
 
         override fun onRepeatModeChanged(repeatMode: Int) {
@@ -132,36 +179,36 @@ class AudioController(
         positionJob = null
     }
 
-    fun play() {
+    override fun play() {
         ensureConnected()
         Log.d(TAG, "play requested")
         mediaController?.play()
     }
 
-    fun pause() {
+    override fun pause() {
         ensureConnected()
         Log.d(TAG, "pause requested")
         mediaController?.pause()
     }
 
-    fun seekTo(position: Long) {
+    override fun seekTo(position: Long) {
         ensureConnected()
         mediaController?.seekTo(position)
         _state.value = _state.value.copy(position = position)
     }
 
-    fun skipNext() {
+    override fun skipNext() {
         ensureConnected()
         Log.d(TAG, "skipNext requested")
         mediaController?.seekToNextMediaItem()
     }
 
-    fun skipPrevious() {
+    override fun skipPrevious() {
         ensureConnected()
         mediaController?.seekToPreviousMediaItem()
     }
 
-    fun skipToQueueIndex(index: Int) {
+    override fun skipToQueueIndex(index: Int) {
         ensureConnected()
         if (index in _state.value.queue.indices) {
             mediaController?.seekTo(index, 0L)
@@ -173,17 +220,17 @@ class AudioController(
         }
     }
 
-    fun setRepeatMode(mode: Int) {
+    override fun setRepeatMode(mode: Int) {
         ensureConnected()
         mediaController?.repeatMode = mode
     }
 
-    fun setShuffleMode(enabled: Boolean) {
+    override fun setShuffleMode(enabled: Boolean) {
         ensureConnected()
         mediaController?.shuffleModeEnabled = enabled
     }
 
-    fun cycleRepeatMode() {
+    override fun cycleRepeatMode() {
         val current = _state.value.repeatMode
         val next = when (current) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
@@ -193,12 +240,12 @@ class AudioController(
         setRepeatMode(next)
     }
 
-    fun toggleShuffle() {
+    override fun toggleShuffle() {
         ensureConnected()
         mediaController?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
     }
 
-    fun setSleepTimer(durationMs: Long) {
+    override fun setSleepTimer(durationMs: Long) {
         sleepTimerJob?.cancel()
         if (durationMs <= 0L) {
             _state.value = _state.value.copy(sleepTimerRemainingMs = 0L)
@@ -222,11 +269,11 @@ class AudioController(
         }
     }
 
-    fun cancelSleepTimer() {
+    override fun cancelSleepTimer() {
         setSleepTimer(0L)
     }
 
-    fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+    override fun playQueue(tracks: List<Track>, startIndex: Int) {
         val sleepTimerRemainingMs = _state.value.sleepTimerRemainingMs
         val startTrack = tracks.getOrNull(startIndex)
         Log.d(TAG, "playQueue requested")
@@ -239,7 +286,8 @@ class AudioController(
                 currentTrack = startTrack,
                 queue = tracks,
                 queueIndex = startIndex,
-                isPlaying = true,
+                isPlaying = false,
+                playbackStatus = PlaybackStatus.Preparing,
                 duration = startTrack?.duration ?: 0L,
                 sleepTimerRemainingMs = sleepTimerRemainingMs,
             )
@@ -281,7 +329,8 @@ class AudioController(
             currentTrack = startTrack,
             queue = tracks,
             queueIndex = startIndex,
-            isPlaying = autoPlay,
+            isPlaying = false,
+            playbackStatus = PlaybackStatus.Preparing,
             duration = startTrack?.duration ?: 0L,
             sleepTimerRemainingMs = sleepTimerRemainingMs,
         )
@@ -290,7 +339,7 @@ class AudioController(
         if (autoPlay) mediaController?.play()
     }
 
-    fun addToQueue(track: Track) {
+    override fun addToQueue(track: Track) {
         ensureConnected()
         val newQueue = _state.value.queue + track
         mediaController?.addMediaItem(
@@ -309,7 +358,7 @@ class AudioController(
         saveCurrentQueueToDb()
     }
 
-    fun removeFromQueue(index: Int) {
+    override fun removeFromQueue(index: Int) {
         ensureConnected()
         val newQueue = _state.value.queue.toMutableList()
         if (index in newQueue.indices) {
@@ -320,7 +369,7 @@ class AudioController(
         }
     }
 
-    fun clearQueue() {
+    override fun clearQueue() {
         ensureConnected()
         Log.d(TAG, "clearQueue requested")
         pendingQueueTracks = null

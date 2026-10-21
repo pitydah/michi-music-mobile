@@ -29,6 +29,7 @@ class MichiApp : Application() {
             PlayerDependencies.replayGainDao = michiReplayGainDao
             PlayerDependencies.appDao = michiAppDao
             val koin = org.koin.core.context.GlobalContext.get()
+            PlayerDependencies.trackDao = koin.getOrNull()
             PlayerDependencies.audioEffects = koin.getOrNull()
             PlayerDependencies.usbDacManager = koin.getOrNull()
         } catch (e: Exception) {

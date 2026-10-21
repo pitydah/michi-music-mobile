@@ -99,7 +99,20 @@ class PlayerController(
     init {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _state.value = _state.value.copy(isPlaying = isPlaying)
+                val status = if (isPlaying) {
+                    PlaybackStatus.Playing
+                } else {
+                    when (player.playbackState) {
+                        Player.STATE_BUFFERING -> PlaybackStatus.Buffering
+                        Player.STATE_ENDED -> PlaybackStatus.Ended
+                        Player.STATE_IDLE -> player.playerError?.let { PlaybackErrorMapper.mapPlaybackError(it) } ?: PlaybackStatus.Idle
+                        else -> PlaybackStatus.Paused
+                    }
+                }
+                _state.value = _state.value.copy(
+                    isPlaying = isPlaying,
+                    playbackStatus = status,
+                )
                 if (isPlaying) startPositionUpdates() else stopPositionUpdates()
             }
 
@@ -119,11 +132,32 @@ class PlayerController(
                 if (playbackState == Player.STATE_READY) {
                     _state.value = _state.value.copy(
                         duration = player.duration.coerceAtLeast(0L),
+                        playbackStatus = if (_state.value.isPlaying) PlaybackStatus.Playing else PlaybackStatus.Paused,
                     )
                     if (player.audioSessionId != 0) {
                         audioEffects?.bindAudioSession(player.audioSessionId)
                     }
+                } else if (playbackState == Player.STATE_BUFFERING) {
+                    _state.value = _state.value.copy(playbackStatus = PlaybackStatus.Buffering)
+                } else if (playbackState == Player.STATE_ENDED) {
+                    _state.value = _state.value.copy(playbackStatus = PlaybackStatus.Ended, isPlaying = false)
+                } else if (playbackState == Player.STATE_IDLE) {
+                    val err = player.playerError?.let { PlaybackErrorMapper.mapPlaybackError(it) }
+                    _state.value = _state.value.copy(
+                        playbackStatus = err ?: PlaybackStatus.Idle,
+                        isPlaying = false,
+                    )
                 }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val mapped = PlaybackErrorMapper.mapPlaybackError(error)
+                _state.value = _state.value.copy(
+                    isPlaying = false,
+                    playbackStatus = mapped,
+                    lastError = mapped,
+                )
+                stopPositionUpdates()
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) {

@@ -265,7 +265,7 @@ class LibraryProvider(
         return null
     }
 
-    fun resolveForPlayback(mediaItems: List<MediaItem>): List<MediaItem> {
+    suspend fun resolveForPlayback(mediaItems: List<MediaItem>): List<MediaItem> {
         val resolved = mutableListOf<MediaItem>()
         for (item in mediaItems) {
             val mediaId = item.mediaId
@@ -337,7 +337,9 @@ class LibraryProvider(
                 }
                 extractSongId(mediaId) != null -> {
                     extractSongId(mediaId)?.let { songId ->
-                        cachedTracks.firstOrNull { it.id == songId }?.let { track ->
+                        val track = cachedTracks.firstOrNull { it.id == songId }
+                            ?: PlayerDependencies.trackDao?.getTrackById(songId)?.toTrack()
+                        if (track != null) {
                             resolved.add(track.toPlayableSong())
                         }
                     }
@@ -411,3 +413,20 @@ class LibraryProvider(
             .build()
     }
 }
+
+private fun org.michimusic.data.cache.CachedTrack.toTrack(): Track = Track(
+    id = id,
+    title = title,
+    artist = artist,
+    album = album,
+    duration = duration,
+    size = size,
+    format = format,
+    bitrate = bitrate,
+    sampleRate = sampleRate,
+    channels = channels,
+    coverId = coverId,
+    trackNumber = trackNumber,
+    year = year,
+    filepath = filepath,
+)

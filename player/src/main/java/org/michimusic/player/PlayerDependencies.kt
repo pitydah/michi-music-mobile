@@ -9,6 +9,8 @@ import org.michimusic.data.cache.ReplayGainDao
 
 object PlayerDependencies {
     @JvmStatic
+    var trackDao: org.michimusic.data.cache.TrackDao? = null
+    @JvmStatic
     var replayGainDao: ReplayGainDao? = null
     @JvmStatic
     var appDao: AppDao? = null
