@@ -92,6 +92,22 @@ class PlaylistsViewModelTest {
     }
 
     @Test
+    fun loadPlaylistDetail_repositoryError_emitsError() = runTest(testDispatcher) {
+        val failingRepo = object : FakePlaylistRepo() {
+            override suspend fun getById(id: String): Playlist? {
+                throw java.io.IOException("DB disk read failure")
+            }
+        }
+        val vm = PlaylistsViewModel(failingRepo, LocalMediaRepository(), testDispatcher)
+        vm.loadPlaylistDetail("p1")
+        advanceUntilIdle()
+
+        val state = vm.selectedPlaylistState.value
+        assertTrue(state is PlaylistDetailUiState.Error)
+        assertEquals("DB disk read failure", (state as PlaylistDetailUiState.Error).message)
+    }
+
+    @Test
     fun loadPlaylistDetail_resolvesTracksInStoredOrder() = runTest(testDispatcher) {
         val orderedIds = listOf("trackC", "trackA", "trackB")
         val tracksByOrder = orderedIds.mapIndexed { idx, id -> Track(id = id, title = "T$idx") }

@@ -10,6 +10,8 @@ import org.michimusic.data.cache.TrackDao
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class MoveDirection { UP, DOWN }
 
@@ -18,6 +20,8 @@ open class PlaylistRepository(
     private val trackDao: TrackDao,
     private val localMediaRepository: LocalMediaRepository,
 ) {
+    private val writeMutex = kotlinx.coroutines.sync.Mutex()
+
     open suspend fun getAllPlaylists(): List<Playlist> {
         if (playlistDao == null) return emptyList()
         val cached = playlistDao.getAllPlaylists()
@@ -27,20 +31,21 @@ open class PlaylistRepository(
     }
 
     open suspend fun getById(id: String): Playlist? {
-        val cached = playlistDao?.getAllPlaylists()?.find { it.id == id } ?: return null
+        val cached = playlistDao?.getById(id) ?: playlistDao?.getAllPlaylists()?.find { it.id == id } ?: return null
         return Playlist(id = cached.id, name = cached.name, trackIds = parseTrackIds(cached.trackIds), trackCount = cached.trackCount)
     }
 
-    open suspend fun createPlaylist(name: String, trackIds: List<String> = emptyList()): Playlist {
+    open suspend fun createPlaylist(name: String, trackIds: List<String> = emptyList()): Playlist = writeMutex.withLock {
         val id = "playlist_${java.util.UUID.randomUUID().toString().take(8)}"
+        val cleanIds = trackIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         val entity = CachedPlaylist(
             id = id,
             name = name.trim(),
-            trackIds = trackIds.filter { it.isNotBlank() }.joinToString(","),
-            trackCount = trackIds.size,
+            trackIds = cleanIds.joinToString(","),
+            trackCount = cleanIds.size,
         )
         playlistDao?.insert(entity)
-        return Playlist(id = id, name = name.trim(), trackIds = trackIds.filter { it.isNotBlank() }, trackCount = trackIds.size)
+        return@withLock Playlist(id = id, name = name.trim(), trackIds = cleanIds, trackCount = cleanIds.size)
     }
 
     // New Flow-based observation of playlists
@@ -58,30 +63,22 @@ open class PlaylistRepository(
     }
 
     // New method: add tracks to existing playlist
-    open suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) {
-        if (playlistDao == null) return
-        val cached = playlistDao.getAllPlaylists().find { it.id == id } ?: return
+    open suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) = writeMutex.withLock {
+        if (playlistDao == null) return@withLock
+        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
         val existingIds = parseTrackIds(cached.trackIds)
         val incomingIds = newTrackIds.map { it.trim() }.filter { it.isNotBlank() }
         val combined = (existingIds + incomingIds).distinct()
-        val updated = cached.copy(
-            trackIds = combined.joinToString(","),
-            trackCount = combined.size,
-        )
-        playlistDao.insert(updated)
+        playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
     }
 
     // New method: remove a single track from playlist
-    open suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
-        if (playlistDao == null) return
-        val cached = playlistDao.getAllPlaylists().find { it.id == id } ?: return
+    open suspend fun removeTrackFromPlaylist(id: String, trackId: String) = writeMutex.withLock {
+        if (playlistDao == null) return@withLock
+        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
         val target = trackId.trim()
         val existingIds = parseTrackIds(cached.trackIds).filter { it != target }
-        val updated = cached.copy(
-            trackIds = existingIds.joinToString(","),
-            trackCount = existingIds.size,
-        )
-        playlistDao.insert(updated)
+        playlistDao.updateTrackIdsAndCount(id, existingIds.joinToString(","), existingIds.size)
     }
 
     open suspend fun deletePlaylist(id: String) {

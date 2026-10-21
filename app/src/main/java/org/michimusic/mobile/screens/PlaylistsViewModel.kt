@@ -26,6 +26,7 @@ sealed interface PlaylistDetailUiState {
     data object Loading : PlaylistDetailUiState
     data class Found(val playlist: PlaylistItem) : PlaylistDetailUiState
     data object NotFound : PlaylistDetailUiState
+    data class Error(val message: String) : PlaylistDetailUiState
 }
 
 class PlaylistsViewModel(
@@ -141,7 +142,9 @@ class PlaylistsViewModel(
                 _addTracksError.value = e.message ?: "No se pudieron añadir las canciones"
             } finally {
                 _isAddingTracks.value = false
-                onComplete(success)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    onComplete(success)
+                }
             }
         }
     }
@@ -187,7 +190,9 @@ class PlaylistsViewModel(
                 _addTracksError.value = e.message ?: "No se pudo eliminar la playlist"
             } finally {
                 _isDeletingPlaylist.value = false
-                onComplete(success)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    onComplete(success)
+                }
             }
         }
     }
@@ -234,7 +239,9 @@ class PlaylistsViewModel(
                 _addTracksError.value = e.message ?: "No se pudo renombrar la playlist"
             } finally {
                 _isRenamingPlaylist.value = false
-                onComplete(success)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    onComplete(success)
+                }
             }
         }
     }
@@ -257,8 +264,8 @@ class PlaylistsViewModel(
             } else {
                 PlaylistDetailUiState.NotFound
             }
-        } catch (_: Exception) {
-            PlaylistDetailUiState.NotFound
+        } catch (e: Exception) {
+            PlaylistDetailUiState.Error(e.message ?: "No se pudo cargar la playlist")
         }
     }
 }

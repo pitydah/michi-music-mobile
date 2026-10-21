@@ -2,6 +2,8 @@ package org.michimusic.data.repository
 
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -39,6 +41,38 @@ class PlaylistRepositoryTest {
         val all = repository.getAllPlaylists()
         assertEquals(1, all.size)
         assertEquals(created.id, all.first().id)
+    }
+
+    @Test
+    fun createPlaylist_normalizesIdsAndComputesTrackCount() = runTest {
+        val created = repository.createPlaylist("Clean Mix", listOf("a", " ", "a", "b"))
+        assertEquals(listOf("a", "b"), created.trackIds)
+        assertEquals(2, created.trackCount)
+
+        val retrieved = repository.getById(created.id)
+        assertNotNull(retrieved)
+        assertEquals(listOf("a", "b"), retrieved?.trackIds)
+        assertEquals(2, retrieved?.trackCount)
+    }
+
+    @Test
+    fun concurrentWriters_preserveAllTracks() = runTest {
+        val created = repository.createPlaylist("Concurrent Test")
+        coroutineScope {
+            val job1 = async {
+                repository.addTracksToPlaylist(created.id, listOf("t1", "t2"))
+            }
+            val job2 = async {
+                repository.addTracksToPlaylist(created.id, listOf("t3", "t4"))
+            }
+            job1.await()
+            job2.await()
+        }
+
+        val updated = repository.getById(created.id)
+        assertNotNull(updated)
+        assertEquals(4, updated?.trackCount)
+        assertTrue(updated!!.trackIds.containsAll(listOf("t1", "t2", "t3", "t4")))
     }
 
     @Test
@@ -644,6 +678,8 @@ private class TestPlaylistDao : PlaylistDao {
         playlists.removeAll { it.id == id }
     }
 
+    override suspend fun getById(id: String): CachedPlaylist? = playlists.find { it.id == id }
+
     override suspend fun renameById(id: String, name: String) {
         val index = playlists.indexOfFirst { it.id == id }
         if (index >= 0) playlists[index] = playlists[index].copy(name = name)
@@ -652,6 +688,11 @@ private class TestPlaylistDao : PlaylistDao {
     override suspend fun updateTrackIds(id: String, trackIds: String) {
         val index = playlists.indexOfFirst { it.id == id }
         if (index >= 0) playlists[index] = playlists[index].copy(trackIds = trackIds)
+    }
+
+    override suspend fun updateTrackIdsAndCount(id: String, trackIds: String, trackCount: Int) {
+        val index = playlists.indexOfFirst { it.id == id }
+        if (index >= 0) playlists[index] = playlists[index].copy(trackIds = trackIds, trackCount = trackCount)
     }
 
     override suspend fun deleteAll() {

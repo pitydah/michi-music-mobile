@@ -183,6 +183,7 @@ fun PlaylistDetailScreen(
                         text = when (val state = uiState) {
                             is PlaylistDetailUiState.Found -> state.playlist.name
                             PlaylistDetailUiState.NotFound -> "Playlist no encontrada"
+                            is PlaylistDetailUiState.Error -> "Error"
                             PlaylistDetailUiState.Loading -> "Cargando..."
                         },
                         style = MaterialTheme.typography.headlineSmall.copy(
@@ -320,6 +321,13 @@ fun PlaylistDetailScreen(
 
                 PlaylistDetailUiState.NotFound -> {
                     PlaylistNotFoundState()
+                }
+
+                is PlaylistDetailUiState.Error -> {
+                    PlaylistErrorState(
+                        message = state.message,
+                        onRetry = { viewModel.loadPlaylistDetail(playlistId) },
+                    )
                 }
             }
         }
@@ -596,6 +604,49 @@ private fun PlaylistNotFoundState() {
                 style = MaterialTheme.typography.bodySmall,
                 color = TextMuted,
             )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistErrorState(
+    message: String,
+    onRetry: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("playlist_detail_error_state"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                Icons.Filled.SearchOff,
+                contentDescription = null,
+                tint = TextMuted,
+                modifier = Modifier.size(56.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Error al cargar la playlist",
+                style = MaterialTheme.typography.titleMedium,
+                color = PureWhite,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextMuted,
+            )
+            Spacer(Modifier.height(16.dp))
+            androidx.compose.material3.Button(
+                onClick = onRetry,
+                modifier = Modifier.testTag("playlist_detail_retry_button"),
+            ) {
+                Text("Reintentar")
+            }
         }
     }
 }
