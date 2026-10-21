@@ -840,3 +840,41 @@ ROLLBACK_PLAN:
 BLOCKERS: Ninguno.
 ```
 
+---
+
+## Checkpoint de Ejecución — Aislamiento Físico de Archivos, Resolución Estricta y Control Cooperativo Real
+
+```text
+BLOCK_ID: SPRINT_KILLCRITIC_PHYSICAL_ISOLATION_AND_CONTROL
+MASTER_BASE_SHA: dd095591e4a0b85d842d4bf5c759147e853f0e84
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/test/java/org/michimusic/mobile/sync/EndToEndOfflineSyncTest.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkTransferManager.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. P0 - Colisión física de archivos en disco: LinkTransferManager nombraba archivos físicos en disco y buffers temporales exclusivamente como "${trackId}.${ext}" y "${trackId}.${ext}.part". Si dos servidores distintos (o bibliotecas diferentes) sincronizaban la misma pista de audio, colisionaban físicamente sobreescribiéndose o corrompiendo el archivo parcial .part.
+  2. P0 - Resolución no estricta de sesión en AirCat: SyncViewModel.startAirCatTransfer utilizaba el cliente activo global (currentClient) de forma laxa sin verificar que su baseUrl y credenciales correspondieran al targetDeviceId objetivo, arriesgando el envío de solicitudes y tokens cruzados hacia dispositivos erróneos.
+  3. P1 - Ausencia de cancelación e interrupción activa de sockets/red en AirCat: pauseTransfer y cancelTransfer actualizaban colecciones en memoria e interceptaban iteraciones entre pistas, pero no interrumpían la coroutine ni el streaming de red en curso para la pista activa.
+  4. P1 - Sobrecarga de búsqueda física getTrackFile: no admitía discriminación por remoteDeviceId y destinationLibraryId, imposibilitando la resolución atómica de pistas multi-servidor en el almacenamiento local.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Aislamiento físico absoluto en disco: LinkTransferManager, SyncWorker y AirCatTransferClient formatean de forma unificada los archivos finales y temporales como "${safeFileName(remoteDeviceId)}_${safeFileName(destinationLibraryId)}_${safeFileName(trackId)}.${ext}" y ".part". getTrackFile incorpora sobrecarga con remoteDeviceId y destinationLibraryId preservando fallback transparente retrocompatible.
+  2. Resolución estricta de sesión AirCat: SyncViewModel.startAirCatTransfer valida credenciales y URL del targetDeviceId, resolviendo el cliente mediante connectionManager.getClient(targetDeviceId) o instanciando un LinkClient dedicado y configurado específicamente con el token y clientDeviceId asignado para dicho nodo.
+  3. Control cooperativo e interrupción activa en tiempo real: AirCatTransferClient mantiene un registro concurrente de activeJobs indexado por transferId. Las llamadas a pauseTransfer o cancelTransfer cancelan inmediatamente el Job activo interrumpiendo el flujo de red/socket y emitiendo los estados terminales PAUSED / CANCELLED sin catalogarlos espuriamente como fallos.
+  4. Suite de pruebas E2E ampliada: EndToEndOfflineSyncTest incorpora testDualServerPhysicalFileIsolation (dos servidores descargando en paralelo el mismo trackId sin colisión física de archivos ni de claves) y testAirCatRealtimeStreamingCancellation (verificación de interrupción reactiva inmediata del streaming de red).
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 186 tests completados exitosamente, 0 fallos)
+  ./gradlew lintNormalDebug (PASSED - 0 errores de lint)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Aislamiento multi-tenant integral tanto en persistencia relacional (Room) como en el sistema de archivos (ext4/F2FS); verificación estricta de tokens antes del inicio de transferencias AirCat para prevenir ataques de suplantación entre nodos emparejados.
+ROLLBACK_PLAN:
+  git revert al commit resultante o reset a dd095591e4a0b85d842d4bf5c759147e853f0e84
+BLOCKERS: Ninguno.
+```
+
+

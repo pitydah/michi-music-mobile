@@ -702,12 +702,24 @@ class SyncViewModel(
 
         viewModelScope.launch {
             try {
-                val effectiveClient = client ?: LinkClient(
-                    baseUrl = device.lastUrl,
-                    sessionToken = device.deviceToken,
-                    deviceToken = device.deviceToken,
-                    clientDeviceId = identity.michiId,
-                )
+                if (device.deviceToken.isEmpty() || device.lastUrl.isEmpty()) {
+                    onResult(false, "El dispositivo $targetDeviceId no posee credenciales o URL válidas")
+                    return@launch
+                }
+
+                // Strictly resolve client matching targetDeviceId to avoid cross-device token collision
+                val effectiveClient = connectionManager.getClient(targetDeviceId)
+                    ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
+                        client
+                    } else {
+                        LinkClient(
+                            baseUrl = device.lastUrl,
+                            sessionToken = device.deviceToken,
+                            deviceToken = device.deviceToken,
+                            clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
+                            pairedClientDeviceId = device.pairedClientDeviceId,
+                        )
+                    }
 
                 // 1. Fetch manifest
                 val manifestRes = effectiveClient.fetchSyncManifest(targetDeviceId)

@@ -164,8 +164,11 @@ class SyncWorker(
             itemsToDownload.forEach { item ->
                 val transferKey = "$deviceId:$destLibId:${item.trackId}"
                 val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-                val targetFileName = "${item.trackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
-                val existingFile = transferManager.getTrackFile(item.trackId, ext)
+                val safeDev = deviceId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
+                val safeLib = destLibId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
+                val safeTrack = item.trackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
+                val targetFileName = "${safeDev}_${safeLib}_${safeTrack}.$ext"
+                val existingFile = transferManager.getTrackFile(item.trackId, ext, remoteDeviceId = deviceId, destinationLibraryId = destLibId)
                 val finalPath = existingFile?.absolutePath ?: java.io.File(transferManager.musicDir, targetFileName).absolutePath
 
                 checkpointRepo?.saveCheckpoint(

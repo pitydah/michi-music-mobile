@@ -5,7 +5,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -494,5 +496,149 @@ class EndToEndOfflineSyncTest {
         val cancelledProgress = aircatClient.progressEvents.first()
         assertNotNull(cancelledProgress)
         assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED, cancelledProgress?.state)
+    }
+
+    @Test
+    fun testDualServerPhysicalFileIsolation() = runBlocking {
+        val server1 = "desktop_studio_hub"
+        val server2 = "laptop_travel_node"
+        val destLib1 = "lib_destination_studio"
+        val destLib2 = "lib_destination_travel"
+        val sharedTrackId = "trk_coltrane_giant_steps"
+
+        val server1Audio = "Giant Steps 24-bit 192kHz Master (Studio Studio Hub)".toByteArray()
+        val server2Audio = "Giant Steps 16-bit 44.1kHz Vinyl Rip (Laptop Node)".toByteArray()
+
+        val peer1 = FakeAirCatPeer(server1)
+        peer1.setupTrackStreaming(sharedTrackId, server1Audio)
+
+        val peer2 = FakeAirCatPeer(server2)
+        peer2.setupTrackStreaming(sharedTrackId, server2Audio)
+
+        val item1 = DownloadItem(
+            trackId = sharedTrackId,
+            title = "Giant Steps Studio",
+            format = "flac",
+            checksum = sha256(server1Audio),
+            size = server1Audio.size.toLong(),
+            remoteDeviceId = server1,
+            destinationLibraryId = destLib1,
+            transferKey = "$server1:$destLib1:$sharedTrackId",
+        )
+
+        val item2 = DownloadItem(
+            trackId = sharedTrackId,
+            title = "Giant Steps Vinyl",
+            format = "flac",
+            checksum = sha256(server2Audio),
+            size = server2Audio.size.toLong(),
+            remoteDeviceId = server2,
+            destinationLibraryId = destLib2,
+            transferKey = "$server2:$destLib2:$sharedTrackId",
+        )
+
+        // Download both tracks with identical logical trackId from both servers
+        val client1 = peer1.mockClient
+        val client2 = peer2.mockClient
+
+        val file1Result = transferManager.downloadTrack(client1, item1)
+        val file2Result = transferManager.downloadTrack(client2, item2)
+
+        assertTrue("File 1 download must succeed", file1Result.isSuccess)
+        assertTrue("File 2 download must succeed", file2Result.isSuccess)
+
+        val file1 = file1Result.getOrThrow()
+        val file2 = file2Result.getOrThrow()
+
+        // 1. Files must have distinct isolated names on disk
+        assertTrue("Files must have distinct paths on disk", file1.absolutePath != file2.absolutePath)
+        assertTrue("File 1 name must contain server1 identity", file1.name.contains(server1))
+        assertTrue("File 2 name must contain server2 identity", file2.name.contains(server2))
+
+        // 2. Both files must exist simultaneously without overwriting each other
+        assertTrue("File 1 must exist", file1.exists())
+        assertTrue("File 2 must exist", file2.exists())
+        assertEquals(server1Audio.size.toLong(), file1.length())
+        assertEquals(server2Audio.size.toLong(), file2.length())
+
+        // 3. getTrackFile with isolation must resolve precisely each target file
+        val resolvedFile1 = transferManager.getTrackFile(sharedTrackId, "flac", remoteDeviceId = server1, destinationLibraryId = destLib1)
+        val resolvedFile2 = transferManager.getTrackFile(sharedTrackId, "flac", remoteDeviceId = server2, destinationLibraryId = destLib2)
+        assertEquals(file1.absolutePath, resolvedFile1?.absolutePath)
+        assertEquals(file2.absolutePath, resolvedFile2?.absolutePath)
+    }
+
+    @Test
+    fun testAirCatRealtimeStreamingCancellation() = runBlocking {
+        val serverId = "active_stream_server"
+        val destLibId = "lib_phone_active"
+        val trackId = "trk_infinite_stream"
+
+        val massiveStream = ByteArray(1024 * 1024) { (it % 255).toByte() }
+
+        val peer = FakeAirCatPeer(serverId)
+        peer.setupTrackStreaming(trackId, massiveStream)
+
+        every { pairedRegistry.getDevice(serverId) } returns PairedDevice(
+            deviceId = serverId,
+            deviceName = "Stream Server",
+            deviceToken = "tok_stream_123",
+            lastUrl = "http://192.168.1.140:8400",
+        )
+
+        val aircatClient = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val transferId = "xfer_realtime_cancel_test"
+        val intent = TransferIntent(
+            transferId = transferId,
+            sourceMichiId = serverId,
+            destinationMichiId = "client_me",
+            sourceLibraryId = "lib_source_remote",
+            destinationLibraryId = destLibId,
+        )
+
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = transferId,
+            sourceDeviceId = serverId,
+            totalTracks = 1,
+            totalBytes = massiveStream.size.toLong(),
+            items = listOf(
+                AirCatManifestItem(
+                    logicalTrackId = trackId,
+                    remoteTrackId = trackId,
+                    title = "Heavy Symphonic Movement",
+                    artist = "Orchestra",
+                    album = "Symphony No. 9",
+                    format = "flac",
+                    size = massiveStream.size.toLong(),
+                    sha256 = sha256(massiveStream),
+                )
+            ),
+        )
+
+        // Launch transfer and immediately cancel it
+        val job = launch(Dispatchers.IO) {
+            aircatClient.executeTransfer(
+                intent = intent,
+                manifest = manifest,
+                linkClient = peer.mockClient,
+                availableStorageBytes = 200L * 1024 * 1024,
+            )
+        }
+
+        // Cancel transfer while active
+        aircatClient.cancelTransfer(transferId)
+        job.join()
+
+        // Transfer must be marked as CANCELLED
+        val latestProgress = aircatClient.progressEvents.first()
+        assertNotNull(latestProgress)
+        assertEquals(org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED, latestProgress?.state)
     }
 }

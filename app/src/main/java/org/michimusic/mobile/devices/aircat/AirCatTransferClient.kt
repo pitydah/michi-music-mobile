@@ -52,6 +52,7 @@ class DefaultAirCatTransferClient(
 
     private val cancelledTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val pausedTransferIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val activeJobs = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
     override suspend fun executeTransfer(
         intent: TransferIntent,
@@ -60,8 +61,15 @@ class DefaultAirCatTransferClient(
         availableStorageBytes: Long,
         onProgress: ((AirCatProgressEvent) -> Unit)?,
     ): Result<List<File>> = withContext(Dispatchers.IO) {
-        cancelledTransferIds.remove(intent.transferId)
-        pausedTransferIds.remove(intent.transferId)
+        if (!cancelledTransferIds.contains(intent.transferId)) {
+            cancelledTransferIds.remove(intent.transferId)
+        }
+        if (!pausedTransferIds.contains(intent.transferId)) {
+            pausedTransferIds.remove(intent.transferId)
+        }
+        kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.let { job ->
+            activeJobs[intent.transferId] = job
+        }
 
         // 1. Check idempotency
         if (intent.transferId in _processedTransferIds.value) {
@@ -162,8 +170,16 @@ class DefaultAirCatTransferClient(
 
                 val transferKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
                 val ext = item.format.lowercase().ifEmpty { "mp3" }
-                val targetFileName = "${item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
-                val existingFile = transferManager.getTrackFile(item.logicalTrackId, ext)
+                val safeDev = intent.sourceMichiId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
+                val safeLib = intent.destinationLibraryId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
+                val safeTrack = item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
+                val targetFileName = "${safeDev}_${safeLib}_${safeTrack}.$ext"
+                val existingFile = transferManager.getTrackFile(
+                    item.logicalTrackId,
+                    ext,
+                    remoteDeviceId = intent.sourceMichiId,
+                    destinationLibraryId = intent.destinationLibraryId,
+                )
                 val finalPath = existingFile?.absolutePath ?: File(transferManager.musicDir, targetFileName).absolutePath
 
                 val downloadItem = DownloadItem(
@@ -200,8 +216,24 @@ class DefaultAirCatTransferClient(
                 )
 
                 val downloadResult = transferManager.downloadTrack(linkClient, downloadItem)
+                if (cancelledTransferIds.contains(intent.transferId)) {
+                    emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.CANCELLED, onProgress = onProgress)
+                    return@withContext Result.failure(AirCatException.ProtocolError("Transferencia cancelada por el usuario"))
+                }
+                if (pausedTransferIds.contains(intent.transferId)) {
+                    emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.PAUSED, onProgress = onProgress)
+                    return@withContext Result.failure(AirCatException.ProtocolError("Transferencia pausada"))
+                }
                 if (downloadResult.isFailure) {
                     val ex = downloadResult.exceptionOrNull() ?: Exception("Error descargando pista ${item.logicalTrackId}")
+                    if (ex is CancellationException || cancelledTransferIds.contains(intent.transferId)) {
+                        emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.CANCELLED, onProgress = onProgress)
+                        return@withContext Result.failure(AirCatException.ProtocolError("Transferencia cancelada por el usuario"))
+                    }
+                    if (pausedTransferIds.contains(intent.transferId)) {
+                        emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.PAUSED, onProgress = onProgress)
+                        return@withContext Result.failure(AirCatException.ProtocolError("Transferencia pausada"))
+                    }
                     checkpointRepository?.updateProgress(
                         transferKey = transferKey,
                         receivedBytes = 0L,
@@ -270,16 +302,28 @@ class DefaultAirCatTransferClient(
             Result.success(downloadedFiles)
 
         } catch (ce: CancellationException) {
-            emitEvent(intent.transferId, downloadedFiles.size, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.PAUSED, onProgress = onProgress)
+            val state = if (cancelledTransferIds.contains(intent.transferId)) AirCatTransferState.CANCELLED else AirCatTransferState.PAUSED
+            emitEvent(intent.transferId, downloadedFiles.size, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, state, onProgress = onProgress)
             throw ce
         } catch (e: Exception) {
-            emitEvent(intent.transferId, downloadedFiles.size, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = e.message, onProgress = onProgress)
-            Result.failure(e)
+            if (cancelledTransferIds.contains(intent.transferId)) {
+                emitEvent(intent.transferId, downloadedFiles.size, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.CANCELLED, onProgress = onProgress)
+                Result.failure(AirCatException.ProtocolError("Transferencia cancelada por el usuario"))
+            } else if (pausedTransferIds.contains(intent.transferId)) {
+                emitEvent(intent.transferId, downloadedFiles.size, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.PAUSED, onProgress = onProgress)
+                Result.failure(AirCatException.ProtocolError("Transferencia pausada"))
+            } else {
+                emitEvent(intent.transferId, downloadedFiles.size, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = e.message, onProgress = onProgress)
+                Result.failure(e)
+            }
+        } finally {
+            activeJobs.remove(intent.transferId)
         }
     }
 
     override fun pauseTransfer(transferId: String) {
         pausedTransferIds.add(transferId)
+        activeJobs[transferId]?.cancel()
         val current = _progressEvents.value
         if (current != null && current.transferId == transferId) {
             _progressEvents.value = current.copy(state = AirCatTransferState.PAUSED)
@@ -314,6 +358,7 @@ class DefaultAirCatTransferClient(
 
     override fun cancelTransfer(transferId: String) {
         cancelledTransferIds.add(transferId)
+        activeJobs[transferId]?.cancel()
         val current = _progressEvents.value
         if (current != null && current.transferId == transferId) {
             _progressEvents.value = current.copy(state = AirCatTransferState.CANCELLED)

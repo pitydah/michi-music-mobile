@@ -46,7 +46,11 @@ class LinkTransferManager(
         item: DownloadItem,
     ): Result<File> = withContext(Dispatchers.IO) {
         val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val fileName = "${safeFileName(item.trackId)}.$ext"
+        val fileName = if (item.remoteDeviceId.isNotEmpty() && item.destinationLibraryId.isNotEmpty()) {
+            "${safeFileName(item.remoteDeviceId)}_${safeFileName(item.destinationLibraryId)}_${safeFileName(item.trackId)}.$ext"
+        } else {
+            "${safeFileName(item.trackId)}.$ext"
+        }
         val file = File(musicDir, fileName)
         val tempFile = File(musicDir, "$fileName.part")
 
@@ -55,7 +59,7 @@ class LinkTransferManager(
             val len = file.length()
             if (item.checksum.isEmpty() || verifyChecksum(file, item.checksum)) {
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(len))
-                updateCheckpoint(item.trackId) {
+                updateCheckpoint(item.effectiveTransferKey) {
                     TransferCheckpoint(
                         trackId = item.trackId,
                         tempPath = tempFile.absolutePath,
@@ -77,10 +81,12 @@ class LinkTransferManager(
         // 2. Preflight checkpoint inspection: check in-memory or recover from persistent repository
         val transferKey = item.effectiveTransferKey
         var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
-        var savedCheckpoint = _checkpoints.value[transferKey] ?: _checkpoints.value[item.trackId]
+        var savedCheckpoint = _checkpoints.value[transferKey] ?: if (item.remoteDeviceId.isEmpty() || item.destinationLibraryId.isEmpty()) _checkpoints.value[item.trackId] else null
         if (savedCheckpoint == null && checkpointRepository != null) {
             val persisted = checkpointRepository.getCheckpoint(transferKey)
-                ?: checkpointRepository.getLatestCheckpointForTrack(item.trackId)
+                ?: if (item.remoteDeviceId.isEmpty() || item.destinationLibraryId.isEmpty()) {
+                    checkpointRepository.getLatestCheckpointForTrack(item.trackId)
+                } else null
             if (persisted != null) {
                 savedCheckpoint = TransferCheckpoint(
                     trackId = persisted.trackId,
@@ -121,7 +127,7 @@ class LinkTransferManager(
         }
 
         _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(startOffset))
-        updateCheckpoint(item.trackId) {
+        updateCheckpoint(transferKey) {
             TransferCheckpoint(
                 trackId = item.trackId,
                 tempPath = tempFile.absolutePath,
@@ -195,7 +201,7 @@ class LinkTransferManager(
                 val error = streamResult.exceptionOrNull() ?: Exception("Unknown error")
                 // On failure, if it was an ETag mismatch or partial content error, we can handle it
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(error.message ?: "Download failed"))
-                updateCheckpoint(item.trackId) {
+                updateCheckpoint(transferKey) {
                     it?.copy(state = TransferState.FAILED) ?: TransferCheckpoint(
                         trackId = item.trackId,
                         tempPath = tempFile.absolutePath,
@@ -238,7 +244,7 @@ class LinkTransferManager(
 
             // 3. Verifying stage
             val downloadedLength = tempFile.length()
-            updateCheckpoint(item.trackId) {
+            updateCheckpoint(transferKey) {
                 it?.copy(
                     bytesVerified = downloadedLength,
                     etag = responseEtag,
@@ -252,7 +258,7 @@ class LinkTransferManager(
                 tempFile.delete()
                 val err = TransferSizeMismatchException(item.trackId, item.size, downloadedLength)
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Size mismatch"))
-                updateCheckpoint(item.trackId) { it?.copy(state = TransferState.FAILED) }
+                updateCheckpoint(transferKey) { it?.copy(state = TransferState.FAILED) }
                 return@withContext Result.failure(err)
             }
 
@@ -264,24 +270,24 @@ class LinkTransferManager(
                     val actualHex = calculateSha256(tempFile)
                     val err = TransferChecksumMismatchException(item.trackId, item.checksum, actualHex)
                     _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
-                    updateCheckpoint(item.trackId) { it?.copy(state = TransferState.FAILED) }
+                    updateCheckpoint(transferKey) { it?.copy(state = TransferState.FAILED) }
                     return@withContext Result.failure(err)
                 }
             }
 
             // 4. Committing stage: Atomic promotion
-            updateCheckpoint(item.trackId) { it?.copy(state = TransferState.COMMITTING) }
+            updateCheckpoint(transferKey) { it?.copy(state = TransferState.COMMITTING) }
             val promoted = promoteDownload(tempFile, file)
             if (!promoted) {
                 val err = TransferPromotionException(item.trackId, "Atomic rename/replace failed")
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Unable to finalize download"))
-                updateCheckpoint(item.trackId) { it?.copy(state = TransferState.FAILED) }
+                updateCheckpoint(transferKey) { it?.copy(state = TransferState.FAILED) }
                 return@withContext Result.failure(err)
             }
 
             // 5. Completed
             _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(file.length()))
-            updateCheckpoint(item.trackId) {
+            updateCheckpoint(transferKey) {
                 it?.copy(
                     bytesVerified = file.length(),
                     state = TransferState.COMPLETED,
@@ -294,7 +300,7 @@ class LinkTransferManager(
             // Cancel preserves safe .part for later resume
             val currentBytes = if (tempFile.exists()) tempFile.length() else 0L
             _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Cancelled"))
-            updateCheckpoint(item.trackId) {
+            updateCheckpoint(transferKey) {
                 it?.copy(
                     bytesVerified = currentBytes,
                     state = TransferState.PAUSED,
@@ -311,7 +317,7 @@ class LinkTransferManager(
         } catch (e: Exception) {
             val currentBytes = if (tempFile.exists()) tempFile.length() else 0L
             _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(e.message ?: "Error"))
-            updateCheckpoint(item.trackId) {
+            updateCheckpoint(transferKey) {
                 it?.copy(
                     bytesVerified = currentBytes,
                     state = TransferState.FAILED,
@@ -359,10 +365,28 @@ class LinkTransferManager(
         results
     }
 
-    fun getTrackFile(trackId: String, format: String): File? {
+    fun getTrackFile(
+        trackId: String,
+        format: String,
+        remoteDeviceId: String = "",
+        destinationLibraryId: String = "",
+    ): File? {
         val ext = format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val file = File(musicDir, "${safeFileName(trackId)}.$ext")
-        return file.takeIf { it.exists() }
+        val fileName = if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
+            "${safeFileName(remoteDeviceId)}_${safeFileName(destinationLibraryId)}_${safeFileName(trackId)}.$ext"
+        } else {
+            "${safeFileName(trackId)}.$ext"
+        }
+        val file = File(musicDir, fileName)
+        if (file.exists()) return file
+
+        // Fallback to legacy single-track filename if isolated filename not found
+        if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
+            val legacyFile = File(musicDir, "${safeFileName(trackId)}.$ext")
+            if (legacyFile.exists()) return legacyFile
+        }
+
+        return null
     }
 
     fun clearDownloads() {
