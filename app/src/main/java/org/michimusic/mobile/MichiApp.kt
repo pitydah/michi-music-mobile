@@ -21,9 +21,11 @@ import org.michimusic.player.PlayerDependencies
 class MichiApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        startKoin {
-            androidContext(this@MichiApp)
-            modules(appModule, dataModule, playerModule, remoteModule, syncModule)
+        if (org.koin.core.context.GlobalContext.getOrNull() == null) {
+            startKoin {
+                androidContext(this@MichiApp)
+                modules(appModule, dataModule, playerModule, remoteModule, syncModule)
+            }
         }
         try {
             PlayerDependencies.replayGainDao = michiReplayGainDao

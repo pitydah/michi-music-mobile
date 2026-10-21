@@ -172,7 +172,7 @@ class DefaultAirCatTransferClient(
                 val ext = item.format.lowercase().ifEmpty { "mp3" }
                 val targetFileName = "${item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
                 val existingFile = transferManager.getTrackFile(item.logicalTrackId, ext)
-                val finalPath = if (existingFile != null) existingFile.absolutePath else targetFileName
+                val finalPath = existingFile?.absolutePath ?: File(transferManager.musicDir, targetFileName).absolutePath
 
                 // Record initial DOWNLOADING checkpoint in persistent repository
                 checkpointRepository?.saveCheckpoint(
@@ -213,15 +213,7 @@ class DefaultAirCatTransferClient(
                 downloadedFiles.add(finalFile)
                 transferredBytesAcc += finalFile.length()
 
-                // Update persistent checkpoint to COMPLETED
-                checkpointRepository?.updateProgress(
-                    transferKey = transferKey,
-                    receivedBytes = finalFile.length(),
-                    verifiedBytes = finalFile.length(),
-                    state = org.michimusic.core.models.TransferStatus.COMPLETED
-                )
-
-                // Register into Multi-Library domain transactionally
+                // Register into Multi-Library domain transactionally BEFORE setting checkpoint to COMPLETED
                 val trackIdentity = TrackIdentity(
                     id = item.logicalTrackId,
                     title = item.title,
@@ -249,11 +241,25 @@ class DefaultAirCatTransferClient(
                             origin = "AIRC_AT",
                         )
                     } catch (e: Exception) {
-                        // Compensate: do not report completed if library registration fails
+                        // Compensate: mark checkpoint as FAILED so it does not report completed inconsistently
+                        checkpointRepository?.updateProgress(
+                            transferKey = transferKey,
+                            receivedBytes = finalFile.length(),
+                            verifiedBytes = finalFile.length(),
+                            state = org.michimusic.core.models.TransferStatus.FAILED
+                        )
                         emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = "Fallo al registrar en biblioteca: ${e.message}", onProgress = onProgress)
                         return@withContext Result.failure(e)
                     }
                 }
+
+                // Update persistent checkpoint to COMPLETED only after verified file download AND successful library registration
+                checkpointRepository?.updateProgress(
+                    transferKey = transferKey,
+                    receivedBytes = finalFile.length(),
+                    verifiedBytes = finalFile.length(),
+                    state = org.michimusic.core.models.TransferStatus.COMPLETED
+                )
             }
 
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId

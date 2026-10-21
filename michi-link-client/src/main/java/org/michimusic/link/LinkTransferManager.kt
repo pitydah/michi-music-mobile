@@ -30,6 +30,7 @@ import java.security.MessageDigest
 
 class LinkTransferManager(
     private val context: Context,
+    private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
 ) {
     private val _downloads = MutableStateFlow<Map<String, DownloadProgress>>(emptyMap())
     val downloads: StateFlow<Map<String, DownloadProgress>> = _downloads.asStateFlow()
@@ -37,7 +38,7 @@ class LinkTransferManager(
     private val _checkpoints = MutableStateFlow<Map<String, TransferCheckpoint>>(emptyMap())
     val checkpoints: StateFlow<Map<String, TransferCheckpoint>> = _checkpoints.asStateFlow()
 
-    private val musicDir: File
+    val musicDir: File
         get() = File(context.filesDir, "synced_music").also { it.mkdirs() }
 
     suspend fun downloadTrack(
@@ -73,9 +74,34 @@ class LinkTransferManager(
         }
 
 
-        // 2. Preflight checkpoint inspection
+        // 2. Preflight checkpoint inspection: check in-memory or recover from persistent repository
         var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
-        val savedCheckpoint = _checkpoints.value[item.trackId]
+        var savedCheckpoint = _checkpoints.value[item.trackId]
+        if (savedCheckpoint == null && checkpointRepository != null) {
+            val persisted = checkpointRepository.getCheckpoint(item.trackId)
+            if (persisted != null) {
+                savedCheckpoint = TransferCheckpoint(
+                    trackId = persisted.trackId,
+                    tempPath = persisted.tempFilePath,
+                    finalPath = persisted.finalFilePath,
+                    bytesVerified = persisted.verifiedBytes,
+                    expectedSize = persisted.expectedSize,
+                    etag = persisted.etag,
+                    sha256Expected = persisted.expectedSha256,
+                    resumeMode = if (persisted.verifiedBytes > 0) ResumeMode.RESUMED_FROM_OFFSET else ResumeMode.NOT_APPLICABLE,
+                    state = when (persisted.transferState) {
+                        org.michimusic.core.models.TransferStatus.DOWNLOADING -> TransferState.DOWNLOADING
+                        org.michimusic.core.models.TransferStatus.COMPLETED -> TransferState.COMPLETED
+                        org.michimusic.core.models.TransferStatus.PAUSED -> TransferState.PAUSED
+                        org.michimusic.core.models.TransferStatus.VERIFYING -> TransferState.VERIFYING
+                        org.michimusic.core.models.TransferStatus.COMMITTING -> TransferState.COMMITTING
+                        else -> TransferState.FAILED
+                    },
+                    updatedAt = persisted.updatedAt,
+                )
+                _checkpoints.value = _checkpoints.value + (item.trackId to savedCheckpoint)
+            }
+        }
         val expectedEtag = savedCheckpoint?.etag?.ifEmpty { null }
 
         var startOffset = 0L
@@ -106,6 +132,12 @@ class LinkTransferManager(
                 state = TransferState.DOWNLOADING,
             )
         }
+        checkpointRepository?.updateProgress(
+            transferKey = item.trackId,
+            receivedBytes = startOffset,
+            verifiedBytes = startOffset,
+            state = org.michimusic.core.models.TransferStatus.DOWNLOADING
+        )
 
         try {
             var actualResumeMode = if (startOffset > 0) ResumeMode.RESUMED_FROM_OFFSET else ResumeMode.NOT_APPLICABLE
@@ -267,6 +299,12 @@ class LinkTransferManager(
                     updatedAt = System.currentTimeMillis(),
                 )
             }
+            checkpointRepository?.updateProgress(
+                transferKey = item.trackId,
+                receivedBytes = currentBytes,
+                verifiedBytes = currentBytes,
+                state = org.michimusic.core.models.TransferStatus.PAUSED
+            )
             throw ce
         } catch (e: Exception) {
             val currentBytes = if (tempFile.exists()) tempFile.length() else 0L
@@ -278,6 +316,12 @@ class LinkTransferManager(
                     updatedAt = System.currentTimeMillis(),
                 )
             }
+            checkpointRepository?.updateProgress(
+                transferKey = item.trackId,
+                receivedBytes = currentBytes,
+                verifiedBytes = currentBytes,
+                state = org.michimusic.core.models.TransferStatus.FAILED
+            )
             Result.failure(e)
         }
     }

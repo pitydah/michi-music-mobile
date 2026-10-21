@@ -149,6 +149,41 @@ class SyncWorker(
 
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to 0))
 
+            val libraryRepo = org.michimusic.mobile.di.musicLibraryRepository
+            val checkpointRepo = org.michimusic.mobile.di.transferCheckpointRepository
+            val manifestTrackMap = manifestTracks.associateBy { it.trackId }
+            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
+
+            // Save initial checkpoints for all tracks scheduled to download
+            itemsToDownload.forEach { item ->
+                val transferKey = "$deviceId:$destLibId:${item.trackId}"
+                val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
+                val targetFileName = "${item.trackId.replace(Regex("[^A-Za-z0-9._-]"), "_")}.$ext"
+                val existingFile = transferManager.getTrackFile(item.trackId, ext)
+                val finalPath = existingFile?.absolutePath ?: java.io.File(transferManager.musicDir, targetFileName).absolutePath
+
+                checkpointRepo?.saveCheckpoint(
+                    org.michimusic.core.models.PersistentCheckpoint(
+                        transferKey = transferKey,
+                        transferId = "sync_${deviceId}_${item.trackId}",
+                        remoteDeviceId = deviceId,
+                        sourceLibraryId = deviceId,
+                        destinationLibraryId = destLibId,
+                        trackId = item.trackId,
+                        remoteTrackId = item.trackId,
+                        tempFilePath = "$finalPath.part",
+                        finalFilePath = finalPath,
+                        expectedSize = item.size,
+                        receivedBytes = 0L,
+                        verifiedBytes = 0L,
+                        expectedSha256 = item.checksum,
+                        transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                )
+            }
+
             val results = transferManager.downloadTracks(
                 client = client,
                 items = itemsToDownload,
@@ -163,41 +198,31 @@ class SyncWorker(
 
             var downloaded = 0
             var errors = 0
-            val libraryRepo = org.michimusic.mobile.di.musicLibraryRepository
-            val checkpointRepo = org.michimusic.mobile.di.transferCheckpointRepository
-            val manifestTrackMap = manifestTracks.associateBy { it.trackId }
-            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
             results.forEach { (id, result) ->
                 val transferKey = "$deviceId:$destLibId:$id"
                 result.fold(
                     onSuccess = { file ->
-                        trackDao.markDownloadedWithPath(id, file.absolutePath)
-                        checkpointRepo?.updateProgress(
-                            transferKey = transferKey,
-                            receivedBytes = file.length(),
-                            verifiedBytes = file.length(),
-                            state = org.michimusic.core.models.TransferStatus.COMPLETED
-                        )
-                        manifestTrackMap[id]?.let { meta ->
-                            val identity = org.michimusic.core.models.TrackIdentity(
-                                id = meta.trackId,
-                                title = meta.title,
-                                artist = meta.artist,
-                                album = meta.album,
-                                durationMs = meta.duration.toLong(),
-                                contentHash = meta.checksum?.ifEmpty { null },
-                            )
-                            val location = org.michimusic.core.models.TrackLocation(
-                                id = "loc_synced_${meta.trackId}",
-                                trackId = meta.trackId,
-                                type = org.michimusic.core.models.TrackLocationType.SYNCED_MANAGED,
-                                uri = file.absolutePath,
-                                sourceDeviceId = deviceId,
-                                remoteTrackId = meta.trackId,
-                                availability = org.michimusic.core.models.LocationAvailability.AVAILABLE,
-                            )
-                            runCatching {
+                        val regResult = runCatching {
+                            trackDao.markDownloadedWithPath(id, file.absolutePath)
+                            manifestTrackMap[id]?.let { meta ->
+                                val identity = org.michimusic.core.models.TrackIdentity(
+                                    id = meta.trackId,
+                                    title = meta.title,
+                                    artist = meta.artist,
+                                    album = meta.album,
+                                    durationMs = meta.duration.toLong(),
+                                    contentHash = meta.checksum?.ifEmpty { null },
+                                )
+                                val location = org.michimusic.core.models.TrackLocation(
+                                    id = "loc_synced_${meta.trackId}",
+                                    trackId = meta.trackId,
+                                    type = org.michimusic.core.models.TrackLocationType.SYNCED_MANAGED,
+                                    uri = file.absolutePath,
+                                    sourceDeviceId = deviceId,
+                                    remoteTrackId = meta.trackId,
+                                    availability = org.michimusic.core.models.LocationAvailability.AVAILABLE,
+                                )
                                 libraryRepo?.registerTrackWithLocation(
                                     identity = identity,
                                     location = location,
@@ -206,7 +231,24 @@ class SyncWorker(
                                 )
                             }
                         }
-                        downloaded++
+
+                        if (regResult.isSuccess) {
+                            checkpointRepo?.updateProgress(
+                                transferKey = transferKey,
+                                receivedBytes = file.length(),
+                                verifiedBytes = file.length(),
+                                state = org.michimusic.core.models.TransferStatus.COMPLETED
+                            )
+                            downloaded++
+                        } else {
+                            checkpointRepo?.updateProgress(
+                                transferKey = transferKey,
+                                receivedBytes = file.length(),
+                                verifiedBytes = file.length(),
+                                state = org.michimusic.core.models.TransferStatus.FAILED
+                            )
+                            errors++
+                        }
                     },
                     onFailure = {
                         checkpointRepo?.updateProgress(

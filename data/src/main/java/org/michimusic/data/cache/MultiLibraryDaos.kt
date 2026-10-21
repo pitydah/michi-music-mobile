@@ -174,7 +174,7 @@ interface TransferCheckpointDao {
     suspend fun insertCheckpoint(checkpoint: TransferCheckpointEntity)
 
     @Query("UPDATE transfer_checkpoints SET receivedBytes = :received, verifiedBytes = :verified, transferState = :state, updatedAt = :updatedAt WHERE transferKey = :key")
-    suspend fun updateProgress(key: String, received: Long, verified: Long, state: String, updatedAt: Long)
+    suspend fun updateProgress(key: String, received: Long, verified: Long, state: String, updatedAt: Long): Int
 
     @Query("DELETE FROM transfer_checkpoints WHERE transferKey = :key")
     suspend fun deleteCheckpoint(key: String)

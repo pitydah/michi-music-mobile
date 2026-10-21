@@ -28,13 +28,38 @@ class RoomTransferCheckpointRepository(
         verifiedBytes: Long,
         state: TransferStatus
     ) {
-        checkpointDao.updateProgress(
+        val affected = checkpointDao.updateProgress(
             key = transferKey,
             received = receivedBytes,
             verified = verifiedBytes,
             state = state.name,
             updatedAt = System.currentTimeMillis()
         )
+        if (affected == 0) {
+            // Fallback: if row didn't exist, insert a basic record to avoid silent data loss
+            val now = System.currentTimeMillis()
+            checkpointDao.insertCheckpoint(
+                TransferCheckpointEntity(
+                    transferKey = transferKey,
+                    transferId = transferKey,
+                    remoteDeviceId = "",
+                    sourceLibraryId = "",
+                    destinationLibraryId = "",
+                    trackId = transferKey,
+                    remoteTrackId = transferKey,
+                    tempFilePath = "",
+                    finalFilePath = "",
+                    expectedSize = 0L,
+                    receivedBytes = receivedBytes,
+                    verifiedBytes = verifiedBytes,
+                    expectedSha256 = "",
+                    etag = "",
+                    transferState = state.name,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+        }
     }
 
     override suspend fun deleteCheckpoint(transferKey: String) {

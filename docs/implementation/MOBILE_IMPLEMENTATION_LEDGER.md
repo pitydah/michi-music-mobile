@@ -743,6 +743,7 @@ NEXT_BLOCK: M2 (Capa de medios locales, SAF multi-directorio y ReplayGain offlin
 BLOCK_ID: SPRINT_65_75_ADVANCE
 MASTER_BASE_SHA: 0aa421a7f462aead8b46764dcc1ca8d260ff7da8
 FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/MichiApp.kt
   - app/src/main/java/org/michimusic/mobile/SyncModule.kt
   - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
   - app/src/main/java/org/michimusic/mobile/di/KoinAccessors.kt
@@ -757,23 +758,33 @@ FILES_CHANGED:
   - data/src/main/java/org/michimusic/data/cache/MultiLibraryEntities.kt
   - data/src/main/java/org/michimusic/data/repository/RoomTransferCheckpointRepository.kt
   - data/src/test/java/org/michimusic/data/cache/Migration4To5Test.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkModule.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkTransferManager.kt
   - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
 PRODUCTION_BEHAVIOR_BEFORE:
   1. Identidad y alcance de sincronización: WorkManager encolaba tareas genéricas globales sin scoping por dispositivo remoto, arriesgando colisiones en transferencias concurrentes;
   2. Persistencia de checkpoints: Room solo contemplaba hasta versión 4 sin persistencia formal de checkpoints de transferencia duraderos;
   3. Desacoplamiento de AirCat: DefaultAirCatTransferClient operaba con memoria volátil sin respaldar checkpoints en base de datos Room;
-  4. SyncWorker completaba descargas sin registrar progresos transaccionales por clave compuesta ($deviceId:$libraryId:$trackId).
+  4. P0 - Marcado prematuro de COMPLETED: AirCatTransferClient marcaba checkpoints como COMPLETED antes de asegurar el registro en MultiLibraryRepository; si fallaba Room, el checkpoint quedaba falsamente completado;
+  5. P0 - SyncWorker actualizaba checkpoints inexistentes: llamaba a updateProgress sin inserción previa (saveCheckpoint), afectando 0 filas silenciosamente en el DAO;
+  6. P1 - LinkTransferManager mantenía estado volátil en _checkpoints sin inyección ni recuperación desde TransferCheckpointRepository ante muerte de proceso;
+  7. P1 - Ruta final inválida: AirCatTransferClient usaba nombre relativo cuando el archivo aún no existía en disco, generando rutas fuera del directorio canónico de música.
 PRODUCTION_BEHAVIOR_AFTER:
   1. Encolamiento estricto en WorkManager con clave única saneada por dispositivo remoto para tareas one-time y periódicas;
   2. Room v5 con TransferCheckpointEntity, índices optimizados y MIGRATION_4_5 implementada y verificada mediante Migration4To5Test;
-  3. RoomTransferCheckpointRepository registrado en DataModule e inyectado en AirCatTransferClient y SyncWorker;
+  3. RoomTransferCheckpointRepository registrado en DataModule e inyectado en AirCatTransferClient, LinkTransferManager y SyncWorker;
   4. Persistencia transaccional de estados de transferencia (DOWNLOADING, COMPLETED, FAILED) con clave compuesta;
-  5. Test integral end-to-end EndToEndOfflineSyncTest ejecutado exitosamente verificando flujo offline completo, almacenamiento, hash SHA-256, persistencia de checkpoints y registro multi-biblioteca;
-  6. Suite de pruebas unitarias y linters verificados sin regresiones.
+  5. P0 corregido: AirCatTransferClient confirma primero libraryRepository.registerTrackWithLocation; solo tras éxito en Room se asienta COMPLETED (y ante excepción se marca FAILED);
+  6. P0 corregido: SyncWorker invoca saveCheckpoint con estado DOWNLOADING antes de comenzar las descargas, y RoomTransferCheckpointRepository.updateProgress incluye fallback de inserción defensiva si las filas afectadas son 0;
+  7. P1 corregido: LinkTransferManager inyecta TransferCheckpointRepository, expone musicDir canónico y recupera checkpoints persistidos en SQLite durante preflight tras un reinicio de proceso;
+  8. P1 corregido: AirCatTransferClient y SyncWorker resuelven finalPath usando siempre transferManager.musicDir absoluto;
+  9. Test de integración honesto (EndToEndOfflineSyncTest) clasificado como INTEGRATION_SIMULATED: utiliza base de datos Room in-memory real (sin mocks en la capa de datos), verificando persistencia SQLite real de checkpoints, registro en biblioteca y recuperación tras interrupción de proceso;
+  10. Suite completa ./gradlew test (342 tareas) y ./gradlew lintNormalDebug pasan sin fallos.
 UNIT_TESTS_EXECUTED:
   :data:testDebugUnitTest (PASSED - Migration4To5Test, Migration3To4Test)
-  :app:testNormalDebugUnitTest (PASSED - EndToEndOfflineSyncTest, AirCatContractTest, SyncWorkerSecurityTest, SyncIdentitySeparationTest)
-  ./gradlew lintNormalDebug (BUILD SUCCESSFUL)
+  :app:testNormalDebugUnitTest (PASSED - EndToEndOfflineSyncTest [INTEGRATION_SIMULATED], AirCatContractTest, SyncWorkerSecurityTest, SyncIdentitySeparationTest)
+  ./gradlew test (BUILD SUCCESSFUL - 342 actionable tasks)
+  ./gradlew lintNormalDebug (BUILD SUCCESSFUL - 0 lint errors)
 INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
 HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
 UPSTREAM_CONTRACTS: N/A
