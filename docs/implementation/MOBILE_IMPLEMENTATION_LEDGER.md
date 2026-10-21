@@ -9,7 +9,7 @@
 | M2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | bb2c3fc3 | Medios locales tipados MediaResult, SAF SafMediaRepository, ReplayGain SeekableAudioSource/ContentResolver |
 | M3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | ef003543 | USB DAC Route Truth, OutputDescriptor, AudioRouteObserver, hotplug auto-pausa y UI veraz |
 | M4 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 7eee54d | Hi-Res, DSP/Transparente, ReplayGain multi-formato, Signal Truth, DSD/DoP Feasibility |
-| M5 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | Multi-Library Room v3->v4 y dominio relacional |
+| M5 | VERIFIED | VERIFIED | PENDING_ENV | N/A | 5bc5ab4 | Multi-Library Room v3->v4, DAOs, identidades/ubicaciones desacopladas y repositorios de dominio |
 | M6 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | UI Multi-Library, favoritos, búsqueda |
 | M7 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Link identidad, Keystore recovery, Home trust |
 | M8 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Michi Sync resumable downloads y profiles |
@@ -114,6 +114,55 @@ ROLLBACK_PLAN:
   git reset --hard 2a2ec287e07ae510bc49a75d1645e9a4440058b7
 BLOCKERS: Ninguno.
 NEXT_BLOCK: M5 (Multi-Library Core: Room schema v3->v4, DAOs, relational domain)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque F (M5)
+
+```text
+BLOCK_ID: M5
+MASTER_BASE_SHA: 5ead81fc7ceebdaae2e7616d61f76269ebf58fc2
+FILES_CHANGED:
+  - core/src/main/java/org/michimusic/core/models/MultiLibraryModels.kt
+  - data/build.gradle.kts
+  - data/schemas/org.michimusic.data.cache.MichiDatabase/3.json
+  - data/schemas/org.michimusic.data.cache.MichiDatabase/4.json
+  - data/src/main/java/org/michimusic/data/DataModule.kt
+  - data/src/main/java/org/michimusic/data/cache/MichiDatabase.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryDaos.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryEntities.kt
+  - data/src/main/java/org/michimusic/data/repository/MusicLibraryRepository.kt
+  - data/src/test/java/org/michimusic/data/cache/Migration3To4Test.kt
+  - data/src/test/java/org/michimusic/data/repository/MultiLibraryRepositoryTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  El esquema Room v3 mezclaba pistas locales y sincronizadas como una única entidad plana `cached_tracks`;
+  no existía el concepto de múltiples bibliotecas ni identidades lógicas desacopladas de URIs físicas;
+  las playlists almacenaban IDs en formato CSV `trackIds TEXT` propensas a corrupción o truncado en concurrencia;
+  exportSchema estaba desactivado (`exportSchema = false`) impidiendo auditoría y verificación formal de migraciones;
+  no existía política de resolución de ubicación preferida entre SAF, MediaStore y sincronizadas.
+PRODUCTION_BEHAVIOR_AFTER:
+  Esquema Room v4 aditivo con `exportSchema = true` y versionado de schemas JSON; MIGRATION_3_4 crea tablas
+  `libraries`, `track_identities`, `track_locations`, `library_tracks`, `playlist_headers`, `playlist_entries`,
+  `sync_profiles` y `sync_manifests` sin eliminar datos legacy; migración atómica de playlists CSV a entradas
+  posicionales preservando orden exacto e IDs huérfanos; biblioteca predeterminada `DEVICE_LOCAL` ('Este teléfono')
+  inicializada; MusicLibraryRepository implementa resolución preferente desacoplada (SAF > MediaStore > Synced > Remoto)
+  y membresías n-a-n sin duplicación de identidad.
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks ejecutadas en :data, :player, :core, :michi-link-client, :app)
+  Migration3To4Test (verificación formal de upgrade v3->v4, playlists intactas, DEVICE_LOCAL - PASSED)
+  MultiLibraryRepositoryTest (creación de bibliotecas custom, resolución SAF prioritario, membresía n-a-n - PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: N/A
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Migraciones transaccionales con escape de comillas simples; eliminación de bibliotecas de usuario protegida para
+  no permitir borrado de la biblioteca predeterminada del sistema ni eliminación destructiva de archivos en disco.
+ROLLBACK_PLAN:
+  git reset --hard 5ead81fc7ceebdaae2e7616d61f76269ebf58fc2
+BLOCKERS: Ninguno.
+NEXT_BLOCK: M6 (UI Multi-Library, favoritos, búsqueda y Home)
 ```
 
 ---
