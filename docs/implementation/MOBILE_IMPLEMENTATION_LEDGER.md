@@ -14,7 +14,7 @@
 | M7 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c81a126 | Michi Link identidad, Keystore recovery, Home trust, WorkManager creds removal |
 | M8 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | b4bf34f | Michi Sync resumable downloads, checksums, atomic promotion y profiles |
 | M9 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 88669ac | AirCat Mobile consumer contract, FakeAirCatPeer harness, USB feasibility |
-| M10 | NOT_STARTED | NOT_STARTED | NOT_STARTED | BLOCKED_UPSTREAM | - | Catálogos remotos y ReceiverLite Stream |
+| M10 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 248c5a9 | Catálogos remotos y ReceiverLite Stream |
 | M11 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | UI Premium, Settings jerárquico, Android Auto |
 | M12 | NOT_STARTED | NOT_STARTED | NOT_STARTED | PENDING_HARDWARE | - | CI, seguridad, certificación y release |
 | M13 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | IA musical optativa |
@@ -375,6 +375,50 @@ ROLLBACK_PLAN:
 BLOCKERS:
   Pruebas E2E físicas bloqueadas por implementación upstream en repo Michi Devices (BLOCKED_UPSTREAM reportado honestamente).
 NEXT_BLOCK: M10 (Catálogos remotos, control distribuido y ReceiverLite Stream)
+```
+
+---
+
+## Checkpoint de Ejecución — Bloque K (M10)
+
+```text
+BLOCK_ID: M10
+MASTER_BASE_SHA: 68865bc595b1e6268ea846a89c93a0b3f86e3f05
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/test/java/org/michimusic/mobile/playback/QueueMappingTest.kt
+  - data/src/main/java/org/michimusic/data/repository/MusicLibraryRepository.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  LegacyTrackMapper mapeaba todas las pistas como locales (MEDIASTORE o SAF) omitiendo fuentes STREAMING y SYNCED,
+  sin asociar TrackLocationType.REMOTE_URL a URLs remotas;
+  SyncViewModel forzaba estrategia PairingStrategy.RECEIVER_BUTTON para cualquier dispositivo con deviceType receiver/stream,
+  incluso si la preprovisión o el perfil de red confiable anunciaba auth.required = false;
+  PlaybackSessionManager no limpiaba el estado de audio tap (stopPcmStreaming) de manera explícita si la creación
+  de sesión de ReceiverLite fallaba de forma remota, arriesgando muting residual;
+  no existía test garantizando que una pista con URI `content://` fuera rechazada y nunca enviada a un servidor remoto.
+PRODUCTION_BEHAVIOR_AFTER:
+  LegacyTrackMapper asigna fielmente TrackLocationType.REMOTE_URL y TrackSource.STREAMING a pistas de catálogo remoto,
+  preservando contentHash y remoteTrackId;
+  SyncViewModel respeta auth.required = false en receptores y hardware preprovisionado permitiendo enlace sin botón;
+  PlaybackSessionManager garantiza restauración del sink local (stopPcmStreaming) ante fallo de creación de sesión en receptor;
+  garantía de seguridad anti-fuga: URIs `content://` locales nunca se envían como track IDs remotos;
+  QueueMappingTest ampliado y verificado con prueba unitaria específica;
+  suite completa `./gradlew test` (342 tareas) ejecutada con éxito (BUILD SUCCESSFUL).
+UNIT_TESTS_EXECUTED:
+  ./gradlew test (PASSED - 342 actionable tasks en :app, :data, :player, :core, :michi-link-client)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin dispositivo/emulador conectado en sesión de desarrollo)
+HARDWARE_TESTS_EXECUTED: BLOCKED_UPSTREAM (requiere hardware receptor Michi Stream físico en red)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Previene fuga de URIs de almacenamiento local privado (content://) hacia servidores remotos.
+  Negociación estricta de capacidades de audio y tokens efímeros para ReceiverLite.
+ROLLBACK_PLAN:
+  git reset --hard 68865bc595b1e6268ea846a89c93a0b3f86e3f05
+BLOCKERS:
+  Validación en hardware físico dependiente de disponibilidad de receptor Michi Stream físico (BLOCKED_UPSTREAM).
+NEXT_BLOCK: M11 (UI/UX Premium, Settings jerárquico, Android Auto y Diagnósticos)
 ```
 
 ---
