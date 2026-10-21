@@ -31,6 +31,7 @@ data class PairedDevice(
     val remoteMichiId: String = "",
     val remotePublicKey: String = "",
     val pairedClientDeviceId: String = "",
+    val isRevoked: Boolean = false,
     val featuresMap: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
 ) {
     val effectiveServerId: String get() = remoteServerId.ifEmpty { serverId.ifEmpty { deviceId } }

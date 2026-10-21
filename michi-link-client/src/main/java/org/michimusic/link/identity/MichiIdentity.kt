@@ -35,6 +35,12 @@ internal fun loadOrGenerateEd25519Key(prefs: SharedPreferences): Ed25519PrivateK
     }
 }
 
+enum class IdentityStatus {
+    VALID,
+    RECOVERED_NEW_KEY,
+    UNRECOVERABLE,
+}
+
 class MichiIdentity(private val context: Context) {
 
     private companion object {
@@ -43,6 +49,8 @@ class MichiIdentity(private val context: Context) {
 
     private var privateKey: Ed25519PrivateKeyParameters? = null
     private var publicKey: Ed25519PublicKeyParameters? = null
+    var identityStatus: IdentityStatus = IdentityStatus.VALID
+        private set
 
     init {
         loadOrGenerateKeys()
@@ -58,7 +66,8 @@ class MichiIdentity(private val context: Context) {
         IdentityStorageRecovery.openWithRecovery(
             deleteCorruptedStorage = {
                 Log.w(TAG, "Encrypted identity store unreadable (Keystore/keyset mismatch) - " +
-                    "deleting local identity storage and generating a new identity")
+                    "deleting local identity storage and generating a new identity. Re-pairing will be required.")
+                identityStatus = IdentityStatus.RECOVERED_NEW_KEY
                 context.deleteSharedPreferences(IDENTITY_PREFS_FILE_NAME)
             },
             createStore = { createEncryptedPrefs() },

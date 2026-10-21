@@ -54,15 +54,26 @@ class SyncWorker(
         val alias = inputData.getString("alias") ?: ""
         val clientDeviceId = inputData.getString("clientDeviceId") ?: ""
 
-        // Security: resolve credentials from encrypted keystore/prefs at runtime
+        // Security: resolve credentials strictly for target device from encrypted registry
         val pairedDevice = org.michimusic.mobile.di.pairedDeviceRegistry?.getDevice(deviceId)
-        val legacyStore = org.michimusic.mobile.di.tokenStore
-        val resolvedDeviceToken = pairedDevice?.deviceToken?.ifEmpty { null }
-            ?: legacyStore?.getDeviceToken()?.ifEmpty { null }
-            ?: ""
+        if (pairedDevice == null || pairedDevice.isRevoked) {
+            // Unregistered or explicitly revoked device: reject immediately
+            return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+        }
 
+        // Endpoint validation: Ensure target host belongs to authorized peer
+        if (pairedDevice.lastUrl.isNotEmpty()) {
+            val registeredHost = java.net.URI(pairedDevice.lastUrl).host
+            val targetHost = java.net.URI(baseUrl).host
+            if (registeredHost != null && targetHost != null && registeredHost != targetHost && targetHost != "127.0.0.1" && targetHost != "localhost") {
+                // Host altered/mismatched from authorized registration
+                return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+            }
+        }
+
+        val resolvedDeviceToken = pairedDevice.deviceToken.ifEmpty { "" }
         if (resolvedDeviceToken.isEmpty()) {
-            // Unauthenticated or revoked device: do not proceed with unauthenticated sync
+            // Unauthenticated: do not proceed without valid scoped token
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
 

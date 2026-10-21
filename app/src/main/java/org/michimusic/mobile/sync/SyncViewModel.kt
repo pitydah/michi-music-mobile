@@ -588,21 +588,41 @@ class SyncViewModel(
         _syncProgress.value = SyncProgress.Idle
     }
 
-    fun syncLibrary() {
-        val client = currentClient ?: return
+    fun syncLibrary(targetDeviceId: String? = null) {
         val currentState = uiState.value
         val pairConfirm = currentState.pairingConfirm
+        val connectedPeer = currentState.connectedPeer
 
-        val deviceId = pairConfirm?.deviceId ?: clientId
-        val effectiveToken = client.deviceToken.ifEmpty { client.sessionToken }
+        // Resolve remote server deviceId strictly: targetDeviceId -> pairConfirm -> connectedPeer -> registry
+        val remoteDeviceId = targetDeviceId
+            ?: pairConfirm?.deviceId
+            ?: connectedPeer?.deviceId?.ifEmpty { null }
+            ?: registry.getAllDevices().firstOrNull()?.effectiveServerId
+            ?: return
+
+        val pairedDevice = registry.getDevice(remoteDeviceId)
+        if (pairedDevice != null && pairedDevice.isRevoked) {
+            _error.value = "Dispositivo remoto revocado"
+            return
+        }
+
+        val baseUrl = currentClient?.baseUrl
+            ?: pairedDevice?.lastUrl?.ifEmpty { null }
+            ?: (if (connectedPeer != null) "http://${connectedPeer.ip}:${connectedPeer.port}" else return)
+
+        // Cryptographic separation: local phone identity vs remote target vs paired client device ID
+        val localMichiId = identity.michiId
+        val pairedClientDeviceId = pairedDevice?.effectiveClientDeviceId?.ifEmpty { null }
+            ?: currentClient?.pairedClientDeviceId?.ifEmpty { null }
+            ?: localMichiId
 
         _syncProgress.value = SyncProgress.Downloading(0, 0)
 
         val inputData = SyncWorker.buildInputData(
-            baseUrl = client.baseUrl,
-            deviceId = deviceId,
+            baseUrl = baseUrl,
+            deviceId = remoteDeviceId,
             alias = android.os.Build.MODEL,
-            clientDeviceId = client.clientDeviceId.ifEmpty { clientId },
+            clientDeviceId = pairedClientDeviceId,
         )
 
         val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
@@ -706,18 +726,26 @@ class SyncViewModel(
 
     fun clearError() { _error.value = null }
 
-    fun schedulePeriodicSyncIfEnabled() {
+    fun schedulePeriodicSyncIfEnabled(targetDeviceId: String? = null) {
         val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("auto_sync", false)) return
-        val client = currentClient ?: return
-        val deviceId = uiState.value.pairingConfirm?.deviceId ?: clientId
-        val effectiveToken = client.deviceToken.ifEmpty { client.sessionToken }
+        val target = targetDeviceId
+            ?: uiState.value.pairingConfirm?.deviceId
+            ?: uiState.value.connectedPeer?.deviceId
+            ?: registry.getAllDevices().firstOrNull { !it.isRevoked }?.effectiveServerId
+            ?: return
+
+        val pairedDevice = registry.getDevice(target)
+        if (pairedDevice == null || pairedDevice.isRevoked) return
+
+        val baseUrl = currentClient?.baseUrl ?: pairedDevice.lastUrl.ifEmpty { return }
+        val pairedClientDeviceId = pairedDevice.effectiveClientDeviceId.ifEmpty { identity.michiId }
 
         val inputData = SyncWorker.buildInputData(
-            baseUrl = client.baseUrl,
-            deviceId = deviceId,
+            baseUrl = baseUrl,
+            deviceId = target,
             alias = android.os.Build.MODEL,
-            clientDeviceId = client.clientDeviceId.ifEmpty { clientId },
+            clientDeviceId = pairedClientDeviceId,
         )
 
         val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(12, TimeUnit.HOURS)

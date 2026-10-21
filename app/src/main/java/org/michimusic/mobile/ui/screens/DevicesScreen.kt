@@ -251,7 +251,7 @@ fun DevicesScreen(
                                     }
                                     org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnectDevice(device.id)
                                     org.michimusic.mobile.sync.DeviceActionType.SYNC_LIBRARY -> {
-                                        viewModel.syncLibrary()
+                                        viewModel.syncLibrary(targetDeviceId = device.id)
                                         scope.launch {
                                             snackbarHostState.showSnackbar("Sincronización iniciada con ${device.name}")
                                         }
