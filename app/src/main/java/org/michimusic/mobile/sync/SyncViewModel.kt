@@ -255,11 +255,17 @@ class SyncViewModel(
         viewModelScope.launch {
             val serverInfo = client.getServerInfo().getOrNull()
             val resolvedDeviceId = resolveServerDeviceId(client, peer)
-            val strategy = serverInfo?.effectiveAuthStrategy ?: (
-                if (peer.deviceType.lowercase() in listOf("receiver", "stream")) PairingStrategy.RECEIVER_BUTTON
-                else if (peer.authRequired) PairingStrategy.SERVER_CODE
-                else PairingStrategy.ED25519_CHALLENGE
-            )
+            val strategy = when {
+                serverInfo?.auth?.required == false -> PairingStrategy.ED25519_CHALLENGE
+                serverInfo != null && serverInfo.auth?.strategy?.isNotEmpty() == true -> serverInfo.effectiveAuthStrategy
+                peer.deviceType.lowercase() in listOf("receiver", "stream") -> {
+                    // Preprovisioned or trust-network receivers without explicit auth requirements don't demand button press
+                    if (!peer.authRequired && serverInfo?.auth?.required != true) PairingStrategy.ED25519_CHALLENGE
+                    else PairingStrategy.RECEIVER_BUTTON
+                }
+                peer.authRequired -> PairingStrategy.SERVER_CODE
+                else -> PairingStrategy.ED25519_CHALLENGE
+            }
             _pairingStrategy.value = strategy
 
             val existingDevice = registry.getDevice(resolvedDeviceId)
