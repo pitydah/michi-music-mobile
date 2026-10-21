@@ -320,5 +320,75 @@ class ResumableTransferTest {
         assertTrue("Good old file must be preserved", finalFile.exists())
         assertEquals(goodOldHash, sha256(finalFile.readBytes()))
     }
+
+    @Test
+    fun rangeNotSatisfiableRecoversGracefullyTest() = runBlocking {
+        val fullData = "Recovered From 416 Audio Stream".toByteArray()
+        val totalSize = fullData.size.toLong()
+        val expectedHash = sha256(fullData)
+        val trackId = "track_416_recovery"
+
+        // Existing .part file with 20 bytes (offset 20)
+        val partFile = File(File(tempDir, "synced_music").also { it.mkdirs() }, "$trackId.mp3.part")
+        partFile.writeBytes(fullData.sliceArray(0 until 20))
+
+        val mockClient = mockk<LinkClient>()
+        // Server rejects Range request with 416 Range Not Satisfiable
+        every {
+            runBlocking {
+                mockClient.streamTrackRange(
+                    trackId = trackId,
+                    outputStream = any(),
+                    startBytes = 20L,
+                    expectedEtag = any(),
+                    bufferSize = any(),
+                    onProgress = any(),
+                )
+            }
+        } returns Result.failure(org.michimusic.link.errors.LinkException.RangeNotSatisfiable)
+
+        // Resumed from 0L succeeds
+        every {
+            runBlocking {
+                mockClient.streamTrackRange(
+                    trackId = trackId,
+                    outputStream = any(),
+                    startBytes = 0L,
+                    expectedEtag = any(),
+                    bufferSize = any(),
+                    onProgress = any(),
+                )
+            }
+        } answers {
+            val os = secondArg<OutputStream>()
+            os.write(fullData)
+            Result.success(
+                StreamRangeResult(
+                    bytesRead = fullData.size.toLong(),
+                    statusCode = 200,
+                    isPartialContent = false,
+                    etag = "etag-full-clean",
+                )
+            )
+        }
+
+        val item = DownloadItem(
+            trackId = trackId,
+            title = "416 Recovery Track",
+            format = "mp3",
+            size = totalSize,
+            checksum = expectedHash,
+        )
+
+        val result = transferManager.downloadTrack(mockClient, item)
+        assertTrue("Transfer must recover from 416 by restarting honestly", result.isSuccess)
+        val finalFile = result.getOrThrow()
+        assertEquals(totalSize, finalFile.length())
+        assertEquals(expectedHash, sha256(finalFile.readBytes()))
+
+        val checkpoint = transferManager.checkpoints.value[trackId]
+        assertEquals(ResumeMode.RESTARTED_FROM_ZERO, checkpoint?.resumeMode)
+        assertEquals(TransferState.COMPLETED, checkpoint?.state)
+    }
 }
 

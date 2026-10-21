@@ -12,4 +12,5 @@ sealed class LinkException(message: String) : Exception(message) {
     data class NetworkError(override val message: String) : LinkException(message)
     data object TokenExpired : LinkException("Token expirado")
     data object Incompatible : LinkException("Versión incompatible del servidor")
+    data object RangeNotSatisfiable : LinkException("Rango HTTP solicitado no satisfacible (416)")
 }

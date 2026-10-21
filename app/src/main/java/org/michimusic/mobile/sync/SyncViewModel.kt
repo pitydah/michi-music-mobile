@@ -8,6 +8,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.BackoffPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -642,7 +643,18 @@ class SyncViewModel(
                     val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
                     val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
                     if (info.state.isFinished) {
-                        _syncProgress.value = SyncProgress.Complete(total, current)
+                        if (info.state == WorkInfo.State.SUCCEEDED) {
+                            val output = info.outputData
+                            val downloaded = output.getInt(SyncWorker.RESULT_DOWNLOADED, current)
+                            val errors = output.getInt(SyncWorker.RESULT_ERROR, 0)
+                            _syncProgress.value = SyncProgress.Complete(tracks = total, downloaded = downloaded, errors = errors)
+                        } else if (info.state == WorkInfo.State.FAILED) {
+                            val output = info.outputData
+                            val errors = output.getInt(SyncWorker.RESULT_ERROR, 1)
+                            _syncProgress.value = SyncProgress.Error("Sincronización fallida ($errors error(es))")
+                        } else if (info.state == WorkInfo.State.CANCELLED) {
+                            _syncProgress.value = SyncProgress.Error("Sincronización cancelada")
+                        }
                     } else {
                         _syncProgress.value = SyncProgress.Downloading(current, total)
                     }

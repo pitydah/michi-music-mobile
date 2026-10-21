@@ -112,7 +112,7 @@ class LinkTransferManager(
             var responseEtag = expectedEtag ?: ""
 
             // Stream track with Range support
-            val streamResult = try {
+            var streamResult = try {
                 // If append mode, write to existing file; otherwise create new
                 FileOutputStream(tempFile, shouldAppend).use { outputStream ->
                     client.streamTrackRange(
@@ -129,6 +129,32 @@ class LinkTransferManager(
                 throw ce
             } catch (ex: Exception) {
                 Result.failure(ex)
+            }
+
+            // If 416 Range Not Satisfiable (e.g. file size changed or corrupt local offset >= server size),
+            // reset and restart honestly from 0
+            if (streamResult.isFailure && startOffset > 0 && streamResult.exceptionOrNull() is org.michimusic.link.errors.LinkException.RangeNotSatisfiable) {
+                tempFile.delete()
+                startOffset = 0L
+                shouldAppend = false
+                actualResumeMode = ResumeMode.RESTARTED_FROM_ZERO
+                _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(0L))
+
+                streamResult = try {
+                    FileOutputStream(tempFile, false).use { outputStream ->
+                        client.streamTrackRange(
+                            trackId = item.trackId,
+                            outputStream = outputStream,
+                            startBytes = 0L,
+                        ) { bytesRead, _ ->
+                            _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Downloading(bytesRead))
+                        }
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (ex: Exception) {
+                    Result.failure(ex)
+                }
             }
 
             if (streamResult.isFailure) {

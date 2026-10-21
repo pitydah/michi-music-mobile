@@ -186,6 +186,7 @@ class LinkClient(
         this == HttpStatusCode.Forbidden -> LinkException.Revoked
         this == HttpStatusCode.Conflict -> LinkException.SessionConflict
         this == HttpStatusCode.NotImplemented -> LinkException.NotImplemented
+        this == HttpStatusCode.RequestedRangeNotSatisfiable -> LinkException.RangeNotSatisfiable
         value >= 400 -> body?.let { parseError(it) } ?: LinkException.ServerError("$value", "HTTP $value")
         else -> null
     }
