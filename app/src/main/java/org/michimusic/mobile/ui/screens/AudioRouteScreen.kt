@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,16 @@ fun AudioRouteScreen() {
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     } ?: return
+    val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching {
+        org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>()
+    }.getOrNull()
+    val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember {
+        mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice)
+    })
+    val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember {
+        mutableStateOf(org.michimusic.player.UsbDacInfo())
+    })
+
     var route by remember { mutableStateOf(detectRoute(audioManager)) }
 
     DisposableEffect(Unit) {
@@ -113,6 +124,21 @@ fun AudioRouteScreen() {
                             style = MaterialTheme.typography.bodyLarge,
                             color = AccentCoral,
                         )
+                        if (dacInfo.isConnected) {
+                            val statusLabel = when (routeStatus) {
+                                is org.michimusic.player.AudioRouteStatus.Confirmed -> "Confirmada en hardware"
+                                is org.michimusic.player.AudioRouteStatus.Requested -> "Solicitada (esperando confirmación)"
+                                is org.michimusic.player.AudioRouteStatus.Detected -> "Detectada"
+                                is org.michimusic.player.AudioRouteStatus.Failed -> "Fallo de enrutamiento"
+                                is org.michimusic.player.AudioRouteStatus.Unknown -> "No verificable"
+                                org.michimusic.player.AudioRouteStatus.NoDevice -> "No conectada"
+                            }
+                            Text(
+                                text = "Estado USB: $statusLabel",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                            )
+                        }
                     }
                 }
             }
@@ -156,7 +182,7 @@ fun AudioRouteScreen() {
             Spacer(Modifier.height(8.dp))
             Text(
                 text = when (route) {
-                    is AudioRoute.UsbDac -> "USB DAC detectado. La salida se enruta directamente al hardware de audio USB conectado."
+                    is AudioRoute.UsbDac -> "USB DAC presente. La salida efectiva depende del enrutamiento activo de Android y Media3."
                     is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
                     is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
                     is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."
@@ -170,7 +196,7 @@ fun AudioRouteScreen() {
 
 private fun routeName(route: AudioRoute): String = when (route) {
     is AudioRoute.InternalSpeaker -> "Altavoz interno"
-    is AudioRoute.UsbDac -> "USB DAC"
+    is AudioRoute.UsbDac -> "USB Audio"
     is AudioRoute.Bluetooth -> "Bluetooth (${route.codec})"
     is AudioRoute.Unknown -> "Desconocido"
 }

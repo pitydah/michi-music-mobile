@@ -1100,6 +1100,7 @@ fun AudioRouteDialog(
     val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
     val selectedId by (usbDacManager?.selectedDeviceId?.collectAsState() ?: remember { mutableStateOf(null) })
+    val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice) })
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -1283,6 +1284,20 @@ fun AudioRouteDialog(
 
                         if (dacInfo.isConnected) {
                             item {
+                                val statusLabel = when (routeStatus) {
+                                    is org.michimusic.player.AudioRouteStatus.Confirmed -> "CONFIRMADO"
+                                    is org.michimusic.player.AudioRouteStatus.Requested -> "SOLICITADO"
+                                    is org.michimusic.player.AudioRouteStatus.Detected -> "DETECTADO"
+                                    is org.michimusic.player.AudioRouteStatus.Failed -> "ERROR DE RUTA"
+                                    is org.michimusic.player.AudioRouteStatus.Unknown -> "NO VERIFICABLE"
+                                    org.michimusic.player.AudioRouteStatus.NoDevice -> "DESCONECTADO"
+                                }
+                                val ratesStr = if (dacInfo.sampleRates.isNotEmpty()) {
+                                    "Frecuencias declaradas: " + dacInfo.sampleRates.joinToString(", ") { "${it / 1000.0} kHz" }
+                                } else {
+                                    "Frecuencias: No especificadas"
+                                }
+
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1303,10 +1318,15 @@ fun AudioRouteDialog(
                                         )
                                         Column {
                                             Text(
-                                                text = "DAC USB DIRECTO: ${dacInfo.deviceName}",
+                                                text = "DAC USB: ${dacInfo.deviceName} ($statusLabel)",
                                                 color = TertiaryCyan,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
+                                            )
+                                            Text(
+                                                text = ratesStr,
+                                                color = TextSecondary,
+                                                fontSize = 9.sp,
                                             )
                                         }
                                     }

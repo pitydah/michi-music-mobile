@@ -34,10 +34,113 @@ data class UsbDacInfo(
     val deviceId: Int = 0,
 )
 
+/**
+ * Fuente por defecto basada en AudioManager del sistema.
+ */
+class SystemAudioDeviceSource(
+    private val audioManager: AudioManager?,
+) : AudioDeviceSource {
+
+    private val listeners = mutableListOf<AudioDeviceSource.DeviceChangeListener>()
+
+    private val callback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+            notifyChanged()
+        }
+
+        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+            notifyChanged()
+        }
+    }
+
+    private var registered = false
+
+    init {
+        try {
+            audioManager?.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+            registered = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Error registering AudioDeviceCallback", e)
+        }
+    }
+
+    private fun notifyChanged() {
+        synchronized(listeners) {
+            listeners.toList()
+        }.forEach { it.onDevicesChanged() }
+    }
+
+    override fun getOutputDevices(): List<OutputDescriptor> {
+        val am = audioManager ?: return emptyList()
+        return try {
+            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { dev ->
+                OutputDescriptor(
+                    androidDeviceId = dev.id,
+                    name = dev.productName?.toString().takeIf { !it.isNullOrBlank() }
+                        ?: resolveFallbackDeviceName(dev.type),
+                    androidType = dev.type,
+                    announcedSampleRates = dev.sampleRates.toList(),
+                    announcedChannelCounts = dev.channelCounts.toList(),
+                    announcedEncodings = dev.encodings.toList(),
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error fetching output devices", e)
+            emptyList()
+        }
+    }
+
+    override fun addListener(listener: AudioDeviceSource.DeviceChangeListener) {
+        synchronized(listeners) {
+            listeners.add(listener)
+        }
+    }
+
+    override fun removeListener(listener: AudioDeviceSource.DeviceChangeListener) {
+        synchronized(listeners) {
+            listeners.remove(listener)
+        }
+    }
+
+    fun release() {
+        if (registered) {
+            try {
+                audioManager?.unregisterAudioDeviceCallback(callback)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error unregistering AudioDeviceCallback", e)
+            }
+            registered = false
+        }
+        synchronized(listeners) {
+            listeners.clear()
+        }
+    }
+
+    private fun resolveFallbackDeviceName(type: Int): String {
+        return when (type) {
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY -> "DAC USB Audio"
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_HEARING_AID -> "Auriculares Bluetooth"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares Cableados"
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Altavoz del Dispositivo"
+            else -> "Salida de Audio"
+        }
+    }
+}
+
 class UsbDacManager(
-    private val context: Context,
+    context: Context,
+    deviceSource: AudioDeviceSource? = null,
+    private val routeObserver: AudioRouteObserver = DefaultAudioRouteObserver(),
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+
+    private val source: AudioDeviceSource = deviceSource ?: SystemAudioDeviceSource(audioManager)
 
     private val _dacState = MutableStateFlow(UsbDacInfo())
     val dacState: StateFlow<UsbDacInfo> = _dacState.asStateFlow()
@@ -51,106 +154,121 @@ class UsbDacManager(
     private val _preferredDeviceFlow = MutableStateFlow<AudioDeviceInfo?>(null)
     val preferredDeviceFlow: StateFlow<AudioDeviceInfo?> = _preferredDeviceFlow.asStateFlow()
 
+    val routeStatus: StateFlow<AudioRouteStatus> = routeObserver.routeStatus
+
+    /**
+     * Listener invocado cuando un dispositivo de salida USB se desconecta.
+     * Utilizado para pausar la reproducción de inmediato y prevenir sonido abrupto por el altavoz.
+     */
+    var onUsbDisconnectedListener: (() -> Unit)? = null
+
     private var preferredUsbDevice: AudioDeviceInfo? = null
+    private var lastKnownUsbDeviceId: Int? = null
 
-    private val deviceCallback = object : AudioDeviceCallback() {
-        override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-            scanDevices()
-        }
-
-        override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+    private val deviceChangeListener = object : AudioDeviceSource.DeviceChangeListener {
+        override fun onDevicesChanged() {
             scanDevices()
         }
     }
 
     init {
-        try {
-            audioManager?.registerAudioDeviceCallback(deviceCallback, Handler(Looper.getMainLooper()))
-            scanDevices()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error registering AudioDeviceCallback", e)
-        }
+        source.addListener(deviceChangeListener)
+        scanDevices()
     }
 
+    fun getAudioRouteObserver(): AudioRouteObserver = routeObserver
+
     fun scanDevices() {
+        val descriptors = source.getOutputDevices()
         val am = audioManager
-        if (am == null) {
-            _outputDevices.value = listOf(
-                AudioOutputDevice(
-                    id = 1,
-                    name = "Altavoz del Dispositivo",
-                    type = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
-                    isSelected = true,
-                    isSpeaker = true,
-                ),
-            )
-            return
+        val nativeDevices = try {
+            am?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.toList() ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
         }
-        val devices = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        val usbDevice = devices.firstOrNull { isUsbAudioDevice(it) }
 
-        if (usbDevice != null) {
-            preferredUsbDevice = usbDevice
-            val reportedSampleRates = usbDevice.sampleRates.toList()
-            val channels = usbDevice.channelCounts.toList()
-            val encodings = usbDevice.encodings.toList()
+        val usbDescriptor = descriptors.firstOrNull { isUsbAudioType(it.androidType) }
+        val usbNativeDevice = nativeDevices.firstOrNull { isUsbAudioType(it.type) }
 
+        // Detección de desconexión de USB para auto-pausa
+        if (usbDescriptor == null && lastKnownUsbDeviceId != null) {
+            val wasSelected = _selectedDeviceId.value == lastKnownUsbDeviceId || _selectedDeviceId.value == null
+            lastKnownUsbDeviceId = null
+            preferredUsbDevice = null
+            _dacState.value = UsbDacInfo(isConnected = false)
+            _selectedDeviceId.value = null
+            routeObserver.onRoutingFailed(null, RouteFailure.DISCONNECTED)
+            if (wasSelected) {
+                try {
+                    onUsbDisconnectedListener?.invoke()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error invoking onUsbDisconnectedListener", e)
+                }
+            }
+        }
+
+        if (usbDescriptor != null) {
+            lastKnownUsbDeviceId = usbDescriptor.androidDeviceId
+            preferredUsbDevice = usbNativeDevice
             _dacState.value = UsbDacInfo(
                 isConnected = true,
-                deviceName = usbDevice.productName?.toString().takeIf { !it.isNullOrBlank() } ?: "DAC USB Externo",
-                sampleRates = reportedSampleRates,
-                channelCounts = channels,
-                encodings = encodings,
-                deviceId = usbDevice.id,
+                deviceName = usbDescriptor.name.takeIf { it.isNotBlank() } ?: "DAC USB Externo",
+                sampleRates = usbDescriptor.announcedSampleRates,
+                channelCounts = usbDescriptor.announcedChannelCounts,
+                encodings = usbDescriptor.announcedEncodings,
+                deviceId = usbDescriptor.androidDeviceId,
             )
-        } else {
+            routeObserver.onDeviceDetected(usbDescriptor)
+        } else if (lastKnownUsbDeviceId == null) {
             preferredUsbDevice = null
             _dacState.value = UsbDacInfo(isConnected = false)
         }
 
         val currentSelectedId = _selectedDeviceId.value
         val targetPreferredDevice = if (currentSelectedId != null) {
-            devices.firstOrNull { it.id == currentSelectedId }
+            nativeDevices.firstOrNull { it.id == currentSelectedId }
         } else {
-            usbDevice
+            usbNativeDevice
         }
         _preferredDeviceFlow.value = targetPreferredDevice
 
-        val deviceList = devices.map { dev ->
-            val isUsb = isUsbAudioDevice(dev)
-            val isBt = dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                dev.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                dev.type == AudioDeviceInfo.TYPE_HEARING_AID
-            val isWired = dev.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                dev.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-            val isSpk = dev.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
-                dev.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+        val selectedDescriptor = if (currentSelectedId != null) {
+            descriptors.firstOrNull { it.androidDeviceId == currentSelectedId }
+        } else {
+            usbDescriptor
+        }
+        if (selectedDescriptor != null) {
+            routeObserver.onDeviceRequested(selectedDescriptor)
+        } else if (descriptors.isEmpty() && lastKnownUsbDeviceId == null && _dacState.value.isConnected) {
+            routeObserver.onDeviceRequested(null)
+        }
 
-            val name = when {
-                !dev.productName.isNullOrBlank() -> dev.productName.toString()
-                isUsb -> "DAC USB Audio"
-                isBt -> "Auriculares Bluetooth"
-                isWired -> "Auriculares Cableados"
-                isSpk -> "Altavoz del Dispositivo"
-                else -> "Salida de Audio"
-            }
+        val deviceList = descriptors.map { desc ->
+            val isUsb = isUsbAudioType(desc.androidType)
+            val isBt = desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                desc.androidType == AudioDeviceInfo.TYPE_HEARING_AID
+            val isWired = desc.androidType == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                desc.androidType == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+            val isSpk = desc.androidType == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+                desc.androidType == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
 
             val isSelected = when {
-                currentSelectedId != null -> dev.id == currentSelectedId
-                usbDevice != null -> dev.id == usbDevice.id
+                currentSelectedId != null -> desc.androidDeviceId == currentSelectedId
+                usbDescriptor != null -> desc.androidDeviceId == usbDescriptor.androidDeviceId
                 else -> isSpk || isWired || isBt
             }
 
             AudioOutputDevice(
-                id = dev.id,
-                name = name,
-                type = dev.type,
+                id = desc.androidDeviceId,
+                name = desc.name,
+                type = desc.androidType,
                 isSelected = isSelected,
                 isUsbDac = isUsb,
                 isBluetooth = isBt,
                 isWired = isWired,
                 isSpeaker = isSpk,
-                sampleRates = dev.sampleRates.toList(),
+                sampleRates = desc.announcedSampleRates,
             )
         }
 
@@ -182,16 +300,20 @@ class UsbDacManager(
     fun getPreferredUsbDevice(): AudioDeviceInfo? = preferredUsbDevice
 
     fun isUsbAudioDevice(device: AudioDeviceInfo): Boolean {
-        return device.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
-            device.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
-            device.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
+        return isUsbAudioType(device.type)
+    }
+
+    private fun isUsbAudioType(type: Int): Boolean {
+        return type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+            type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+            type == AudioDeviceInfo.TYPE_USB_ACCESSORY
     }
 
     fun release() {
-        try {
-            audioManager?.unregisterAudioDeviceCallback(deviceCallback)
-        } catch (e: Exception) {
-            Log.w(TAG, "Error unregistering AudioDeviceCallback", e)
+        source.removeListener(deviceChangeListener)
+        if (source is SystemAudioDeviceSource) {
+            source.release()
         }
+        routeObserver.release()
     }
 }

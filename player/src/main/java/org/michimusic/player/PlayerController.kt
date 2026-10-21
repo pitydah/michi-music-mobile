@@ -51,17 +51,27 @@ class PlayerController(
     private val repository = replayGainDao?.let { LocalMediaRepository(context, it) }
         ?: LocalMediaRepository(context, createNoopReplayGainDao())
 
+    private val routeObserver = usbDacManager?.getAudioRouteObserver()
+
+    private val audioTrackProvider = DefaultAudioSink.AudioTrackProvider { config, attr, sessionId ->
+        val track = DefaultAudioSink.AudioTrackProvider.DEFAULT.getAudioTrack(config, attr, sessionId)
+        routeObserver?.attachAudioTrack(track)
+        track
+    }
+
     private val audioSink = try {
+        val builder = DefaultAudioSink.Builder(context)
+            .setAudioTrackProvider(audioTrackProvider)
         if (audioProcessors.isNotEmpty()) {
-            DefaultAudioSink.Builder(context)
-                .setAudioProcessors(audioProcessors.toTypedArray())
-                .build()
+            builder.setAudioProcessors(audioProcessors.toTypedArray()).build()
         } else {
-            DefaultAudioSink.Builder(context).build()
+            builder.build()
         }
     } catch (e: Exception) {
         Log.w(TAG, "Failed to create custom AudioSink with processors; falling back to default", e)
-        DefaultAudioSink.Builder(context).build()
+        DefaultAudioSink.Builder(context)
+            .setAudioTrackProvider(audioTrackProvider)
+            .build()
     }
 
     private val renderersFactory = RenderersFactory { handler, _, audioListener, _, _ ->
@@ -180,6 +190,12 @@ class PlayerController(
         }
 
         if (usbDacManager != null) {
+            usbDacManager.onUsbDisconnectedListener = {
+                if (player.isPlaying) {
+                    Log.i(TAG, "USB desconectado durante reproducción; pausando para evitar audio por altavoz")
+                    pause()
+                }
+            }
             controllerScope.launch {
                 usbDacManager.preferredDeviceFlow.collect { preferredDevice ->
                     try {
@@ -312,6 +328,8 @@ class PlayerController(
 
     fun release() {
         stopPositionUpdates()
+        usbDacManager?.onUsbDisconnectedListener = null
+        routeObserver?.detachAudioTrack()
         controllerJob.cancel()
         player.release()
     }
