@@ -1,7 +1,9 @@
 package org.michimusic.link.identity
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.bouncycastle.crypto.AsymmetricCipherKeyPair
@@ -13,18 +15,30 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import java.security.SecureRandom
 
+private const val IDENTITY_PREFS_FILE_NAME = "michi_identity_store"
+private const val PRIVATE_KEY_PREF = "private_key"
+
+internal fun loadOrGenerateEd25519Key(prefs: SharedPreferences): Ed25519PrivateKeyParameters {
+    val privKeyBase64 = prefs.getString(PRIVATE_KEY_PREF, null)
+    return if (privKeyBase64 != null) {
+        val privBytes = Base64.decode(privKeyBase64, Base64.DEFAULT)
+        Ed25519PrivateKeyParameters(privBytes, 0)
+    } else {
+        val generator = Ed25519KeyPairGenerator()
+        generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
+        val keyPair: AsymmetricCipherKeyPair = generator.generateKeyPair()
+        val priv = keyPair.private as Ed25519PrivateKeyParameters
+        prefs.edit()
+            .putString(PRIVATE_KEY_PREF, Base64.encodeToString(priv.encoded, Base64.DEFAULT))
+            .apply()
+        priv
+    }
+}
+
 class MichiIdentity(private val context: Context) {
-    private val prefs by lazy {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        EncryptedSharedPreferences.create(
-            context,
-            "michi_identity_store",
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+
+    private companion object {
+        private const val TAG = "MichiIdentity"
     }
 
     private var privateKey: Ed25519PrivateKeyParameters? = null
@@ -35,23 +49,32 @@ class MichiIdentity(private val context: Context) {
     }
 
     private fun loadOrGenerateKeys() {
-        val privKeyBase64 = prefs.getString("private_key", null)
-        if (privKeyBase64 != null) {
-            val privBytes = Base64.decode(privKeyBase64, Base64.DEFAULT)
-            privateKey = Ed25519PrivateKeyParameters(privBytes, 0)
-            publicKey = privateKey!!.generatePublicKey()
-        } else {
-            val generator = Ed25519KeyPairGenerator()
-            generator.init(Ed25519KeyGenerationParameters(SecureRandom()))
-            val keyPair: AsymmetricCipherKeyPair = generator.generateKeyPair()
-            
-            privateKey = keyPair.private as Ed25519PrivateKeyParameters
-            publicKey = keyPair.public as Ed25519PublicKeyParameters
+        val prefs = openIdentityPrefs()
+        privateKey = loadOrGenerateEd25519Key(prefs)
+        publicKey = privateKey!!.generatePublicKey()
+    }
 
-            prefs.edit()
-                .putString("private_key", Base64.encodeToString(privateKey!!.encoded, Base64.DEFAULT))
-                .apply()
-        }
+    private fun openIdentityPrefs(): SharedPreferences =
+        IdentityStorageRecovery.openWithRecovery(
+            deleteCorruptedStorage = {
+                Log.w(TAG, "Encrypted identity store unreadable (Keystore/keyset mismatch) - " +
+                    "deleting local identity storage and generating a new identity")
+                context.deleteSharedPreferences(IDENTITY_PREFS_FILE_NAME)
+            },
+            createStore = { createEncryptedPrefs() },
+        )
+
+    private fun createEncryptedPrefs(): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            IDENTITY_PREFS_FILE_NAME,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
     }
 
     val publicKeyBase64Url: String
