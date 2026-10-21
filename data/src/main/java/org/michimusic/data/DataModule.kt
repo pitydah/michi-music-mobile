@@ -29,6 +29,8 @@ val dataModule = module {
     single { get<MichiDatabase>().trackLocationDao() }
     single { get<MichiDatabase>().libraryMembershipDao() }
     single { get<MichiDatabase>().normalizedPlaylistDao() }
+    single { get<MichiDatabase>().syncProfileDao() }
+    single { get<MichiDatabase>().syncManifestDao() }
     single<org.michimusic.data.repository.MusicLibraryRepository> {
         org.michimusic.data.repository.DefaultMusicLibraryRepository(get(), get(), get(), get())
     }

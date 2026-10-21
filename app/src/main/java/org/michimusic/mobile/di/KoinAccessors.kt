@@ -29,3 +29,8 @@ val pairedDeviceRegistry: org.michimusic.link.PairedDeviceRegistry? by lazy {
 val tokenStore: org.michimusic.link.TokenStore? by lazy {
     runCatching { KoinJavaComponent.get<org.michimusic.link.TokenStore>(org.michimusic.link.TokenStore::class.java) }.getOrNull()
 }
+
+val musicLibraryRepository: org.michimusic.data.repository.MusicLibraryRepository? by lazy {
+    runCatching { KoinJavaComponent.get<org.michimusic.data.repository.MusicLibraryRepository>(org.michimusic.data.repository.MusicLibraryRepository::class.java) }.getOrNull()
+}
+

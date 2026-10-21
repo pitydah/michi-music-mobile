@@ -38,6 +38,9 @@ abstract class MichiDatabase : RoomDatabase() {
     abstract fun trackLocationDao(): TrackLocationDao
     abstract fun libraryMembershipDao(): LibraryMembershipDao
     abstract fun normalizedPlaylistDao(): NormalizedPlaylistDao
+    abstract fun syncProfileDao(): SyncProfileDao
+    abstract fun syncManifestDao(): SyncManifestDao
+
 
     companion object {
         const val DEFAULT_DEVICE_LIBRARY_ID = "lib_device_local"

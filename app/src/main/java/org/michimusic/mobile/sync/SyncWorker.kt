@@ -152,10 +152,40 @@ class SyncWorker(
 
             var downloaded = 0
             var errors = 0
+            val libraryRepo = org.michimusic.mobile.di.musicLibraryRepository
+            val manifestTrackMap = manifestTracks.associateBy { it.trackId }
+
             results.forEach { (id, result) ->
                 result.fold(
                     onSuccess = { file ->
                         trackDao.markDownloadedWithPath(id, file.absolutePath)
+                        manifestTrackMap[id]?.let { meta ->
+                            val identity = org.michimusic.core.models.TrackIdentity(
+                                id = meta.trackId,
+                                title = meta.title,
+                                artist = meta.artist,
+                                album = meta.album,
+                                durationMs = meta.duration.toLong(),
+                                contentHash = meta.checksum?.ifEmpty { null },
+                            )
+                            val location = org.michimusic.core.models.TrackLocation(
+                                id = "loc_synced_${meta.trackId}",
+                                trackId = meta.trackId,
+                                type = org.michimusic.core.models.TrackLocationType.SYNCED_MANAGED,
+                                uri = file.absolutePath,
+                                sourceDeviceId = deviceId,
+                                remoteTrackId = meta.trackId,
+                                availability = org.michimusic.core.models.LocationAvailability.AVAILABLE,
+                            )
+                            runCatching {
+                                libraryRepo?.registerTrackWithLocation(
+                                    identity = identity,
+                                    location = location,
+                                    libraryId = "lib_synced_${deviceId.ifEmpty { "node" }}",
+                                    origin = "SYNCED",
+                                )
+                            }
+                        }
                         downloaded++
                     },
                     onFailure = { errors++ },

@@ -37,6 +37,7 @@ interface MusicLibraryRepository {
         identity: TrackIdentity,
         location: TrackLocation,
         libraryId: String = MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID,
+        origin: String = "LOCAL",
     ): Result<Unit>
 }
 
@@ -135,6 +136,7 @@ class DefaultMusicLibraryRepository(
         identity: TrackIdentity,
         location: TrackLocation,
         libraryId: String,
+        origin: String,
     ): Result<Unit> = runCatching {
         identityDao.insertIdentity(identity.toEntity())
         locationDao.insertLocation(location.toEntity())
@@ -143,7 +145,7 @@ class DefaultMusicLibraryRepository(
                 libraryId = libraryId,
                 trackId = identity.id,
                 addedAt = System.currentTimeMillis(),
-                origin = "LOCAL",
+                origin = origin,
             )
         )
     }

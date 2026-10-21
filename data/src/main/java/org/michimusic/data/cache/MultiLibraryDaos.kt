@@ -128,3 +128,37 @@ interface NormalizedPlaylistDao {
         insertEntries(entries)
     }
 }
+
+@Dao
+interface SyncProfileDao {
+    @Query("SELECT * FROM sync_profiles ORDER BY createdAt ASC")
+    fun observeProfiles(): Flow<List<SyncProfileEntity>>
+
+    @Query("SELECT * FROM sync_profiles WHERE id = :id")
+    suspend fun getProfileById(id: String): SyncProfileEntity?
+
+    @Query("SELECT * FROM sync_profiles WHERE sourceLibraryId = :sourceId AND destinationLibraryId = :destId LIMIT 1")
+    suspend fun getProfileForLibraries(sourceId: String, destId: String): SyncProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertProfile(profile: SyncProfileEntity)
+
+    @Query("DELETE FROM sync_profiles WHERE id = :id")
+    suspend fun deleteProfile(id: String)
+}
+
+@Dao
+interface SyncManifestDao {
+    @Query("SELECT * FROM sync_manifests WHERE profileId = :profileId ORDER BY version DESC LIMIT 1")
+    suspend fun getLatestManifest(profileId: String): SyncManifestEntity?
+
+    @Query("SELECT * FROM sync_manifests WHERE jobId = :jobId")
+    suspend fun getManifestByJobId(jobId: String): SyncManifestEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertManifest(manifest: SyncManifestEntity)
+
+    @Query("DELETE FROM sync_manifests WHERE jobId = :jobId")
+    suspend fun deleteManifest(jobId: String)
+}
+
