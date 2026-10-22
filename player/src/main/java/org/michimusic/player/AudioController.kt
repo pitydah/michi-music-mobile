@@ -156,6 +156,7 @@ class AudioController(
                 _isReady.value = true
                 Log.d(TAG, "MediaController ready")
                 executePendingPlayQueue()
+                executePendingCommands()
             } catch (_: Exception) {
                 _isReady.value = false
             }
@@ -339,10 +340,38 @@ class AudioController(
         if (autoPlay) mediaController?.play()
     }
 
+    private sealed interface PendingQueueCommand {
+        data class Add(val track: Track) : PendingQueueCommand
+        data class PlayNext(val track: Track) : PendingQueueCommand
+        data class Move(val fromIndex: Int, val toIndex: Int) : PendingQueueCommand
+        data class Remove(val index: Int) : PendingQueueCommand
+    }
+    private val pendingCommands = mutableListOf<PendingQueueCommand>()
+
+    private fun executePendingCommands() {
+        val ctrl = mediaController ?: return
+        if (pendingCommands.isEmpty()) return
+        val commands = pendingCommands.toList()
+        pendingCommands.clear()
+        commands.forEach { cmd ->
+            when (cmd) {
+                is PendingQueueCommand.Add -> addToQueue(cmd.track)
+                is PendingQueueCommand.PlayNext -> playNext(cmd.track)
+                is PendingQueueCommand.Move -> moveQueueItem(cmd.fromIndex, cmd.toIndex)
+                is PendingQueueCommand.Remove -> removeFromQueue(cmd.index)
+            }
+        }
+    }
+
     override fun addToQueue(track: Track) {
-        ensureConnected()
+        val ctrl = mediaController
+        if (ctrl == null) {
+            pendingCommands.add(PendingQueueCommand.Add(track))
+            ensureConnected()
+            return
+        }
         val newQueue = _state.value.queue + track
-        mediaController?.addMediaItem(
+        ctrl.addMediaItem(
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
                 .setUri(track.filepath)
@@ -359,11 +388,16 @@ class AudioController(
     }
 
     override fun playNext(track: Track) {
-        ensureConnected()
+        val ctrl = mediaController
+        if (ctrl == null) {
+            pendingCommands.add(PendingQueueCommand.PlayNext(track))
+            ensureConnected()
+            return
+        }
         val currentQueue = _state.value.queue.toMutableList()
-        val insertIndex = (_state.value.queueIndex + 1).coerceIn(0, currentQueue.size)
+        val insertIndex = (ctrl.currentMediaItemIndex + 1).coerceIn(0, currentQueue.size)
         currentQueue.add(insertIndex, track)
-        mediaController?.addMediaItem(
+        ctrl.addMediaItem(
             insertIndex,
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
@@ -381,30 +415,36 @@ class AudioController(
     }
 
     override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
-        ensureConnected()
+        val ctrl = mediaController
+        if (ctrl == null) {
+            pendingCommands.add(PendingQueueCommand.Move(fromIndex, toIndex))
+            ensureConnected()
+            return
+        }
         val currentQueue = _state.value.queue.toMutableList()
         if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
             val item = currentQueue.removeAt(fromIndex)
             currentQueue.add(toIndex, item)
-            mediaController?.moveMediaItem(fromIndex, toIndex)
-            val newCurrentIndex = when (_state.value.queueIndex) {
-                fromIndex -> toIndex
-                in (fromIndex + 1)..toIndex -> _state.value.queueIndex - 1
-                in toIndex until fromIndex -> _state.value.queueIndex + 1
-                else -> _state.value.queueIndex
-            }
-            _state.value = _state.value.copy(queue = currentQueue, queueIndex = newCurrentIndex)
+            ctrl.moveMediaItem(fromIndex, toIndex)
+            val activeIndex = ctrl.currentMediaItemIndex
+            _state.value = _state.value.copy(queue = currentQueue, queueIndex = activeIndex)
             saveCurrentQueueToDb()
         }
     }
 
     override fun removeFromQueue(index: Int) {
-        ensureConnected()
+        val ctrl = mediaController
+        if (ctrl == null) {
+            pendingCommands.add(PendingQueueCommand.Remove(index))
+            ensureConnected()
+            return
+        }
         val newQueue = _state.value.queue.toMutableList()
         if (index in newQueue.indices) {
             newQueue.removeAt(index)
-            mediaController?.removeMediaItem(index)
-            _state.value = _state.value.copy(queue = newQueue)
+            ctrl.removeMediaItem(index)
+            val activeIndex = ctrl.currentMediaItemIndex
+            _state.value = _state.value.copy(queue = newQueue, queueIndex = activeIndex)
             saveCurrentQueueToDb()
         }
     }

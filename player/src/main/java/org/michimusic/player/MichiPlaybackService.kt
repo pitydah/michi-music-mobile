@@ -123,15 +123,17 @@ class MichiPlaybackService : MediaLibraryService() {
 
                 private var consecutiveErrorCount = 0
                 private var playbackSuccessJob: kotlinx.coroutines.Job? = null
+                private var lastFailedTrackId: String? = null
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     playbackSuccessJob?.cancel()
                     if (isPlaying) {
                         // Avoid resetting consecutiveErrorCount on transient isPlaying transitions.
-                        // Only reset if playback sustains for at least 2.5 seconds without error.
-                        playbackSuccessJob = saveScope.launch {
+                        // Only reset if playback sustains on the main thread for at least 2.5 seconds without error.
+                        playbackSuccessJob = serviceScope.launch {
                             kotlinx.coroutines.delay(2500L)
                             consecutiveErrorCount = 0
+                            lastFailedTrackId = null
                         }
                     } else {
                         deferSave()
@@ -140,21 +142,25 @@ class MichiPlaybackService : MediaLibraryService() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     playbackSuccessJob?.cancel()
+                    val currentTrackId = exoPlayer.currentMediaItem?.mediaId
                     consecutiveErrorCount++
+                    lastFailedTrackId = currentTrackId
                     android.util.Log.e(
                         "MichiPlaybackService",
                         "onPlayerError errorCode=${error.errorCode} message=${error.message} consecutiveErrors=$consecutiveErrorCount " +
-                            "mediaId=${exoPlayer.currentMediaItem?.mediaId} mediaItemCount=${exoPlayer.mediaItemCount}",
+                            "mediaId=$currentTrackId mediaItemCount=${exoPlayer.mediaItemCount}",
                     )
-                    // If track is unplayable/missing/corrupted and there are remaining items in the queue, skip forward to avoid stall
+                    // If track is unplayable/missing/corrupted and there are remaining items in the queue, skip forward safely
                     // Stop skipping if 3 consecutive tracks failed to prevent runaway battery/CPU loops
-                    if (consecutiveErrorCount <= 3 && exoPlayer.hasNextMediaItem()) {
-                        exoPlayer.seekToNextMediaItem()
-                        exoPlayer.prepare()
-                        exoPlayer.play()
-                    } else if (consecutiveErrorCount > 3) {
-                        android.util.Log.w("MichiPlaybackService", "Deteniendo reproducción tras 3 fallos consecutivos de pista")
-                        exoPlayer.pause()
+                    serviceScope.launch {
+                        if (consecutiveErrorCount <= 3 && exoPlayer.hasNextMediaItem()) {
+                            exoPlayer.seekToNextMediaItem()
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        } else if (consecutiveErrorCount > 3) {
+                            android.util.Log.w("MichiPlaybackService", "Deteniendo reproducción tras 3 fallos consecutivos de pista")
+                            exoPlayer.pause()
+                        }
                     }
                 }
             })

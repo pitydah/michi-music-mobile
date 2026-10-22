@@ -126,4 +126,28 @@ class PlayerControllerTest {
         val state = controller.state.value
         assertEquals(listOf("2", "3", "1"), state.queue.map { it.id })
     }
+
+    @Test
+    fun `moveQueueItem boundary tests with invalid indices or single item do not alter queue`() {
+        val track1 = Track(id = "1", title = "T1", filepath = "http://fake.url/1.mp3")
+        controller.playQueue(listOf(track1), startIndex = 0)
+
+        // Invalid moves on single item queue
+        controller.moveQueueItem(0, 0)
+        controller.moveQueueItem(0, 1)
+        controller.moveQueueItem(-1, 0)
+
+        assertEquals(1, controller.state.value.queue.size)
+        assertEquals("1", controller.state.value.queue.first().id)
+    }
+
+    @Test
+    fun `playNext with empty queue creates single track queue at index 0`() {
+        val track1 = Track(id = "1", title = "T1", filepath = "http://fake.url/1.mp3")
+        controller.playNext(track1)
+
+        val state = controller.state.value
+        assertEquals(1, state.queue.size)
+        assertEquals("1", state.queue.first().id)
+    }
 }
