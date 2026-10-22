@@ -140,15 +140,17 @@ class DefaultMusicLibraryRepository(
         libraryId: String,
         origin: String,
     ): Result<Unit> = runCatching {
-        identityDao.insertIdentity(identity.toEntity())
-        locationDao.insertLocation(location.toEntity())
-        membershipDao.addMembership(
-            LibraryTrackCrossRef(
+        membershipDao.registerTrackWithLocationAtomic(
+            identityDao = identityDao,
+            locationDao = locationDao,
+            identity = identity.toEntity(),
+            location = location.toEntity(),
+            crossRef = LibraryTrackCrossRef(
                 libraryId = libraryId,
                 trackId = identity.id,
                 addedAt = System.currentTimeMillis(),
                 origin = origin,
-            )
+            ),
         )
     }
 

@@ -214,4 +214,37 @@ class MultiLibraryRepositoryTest {
         assertEquals(TrackLocationType.MEDIASTORE, preferred?.type)
         assertEquals(validMediaLoc.uri, preferred?.uri)
     }
+
+    @Test
+    fun `registerTrackWithLocation atomically commits identity, location, and membership`() = runTest {
+        val trackId = "track_atomic_1"
+        val identity = TrackIdentity(
+            id = trackId,
+            title = "Atomic Song",
+            artist = "Atomic Artist",
+            album = "Atomic Album",
+            durationMs = 210000L,
+        )
+        val location = TrackLocation(
+            id = "loc_atomic_1",
+            trackId = trackId,
+            type = TrackLocationType.SAF,
+            uri = "/storage/emulated/0/Music/atomic.mp3",
+            availability = LocationAvailability.AVAILABLE,
+        )
+
+        val result = repository.registerTrackWithLocation(identity, location, libraryId = MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID)
+        assertTrue(result.isSuccess)
+
+        val retrievedIdentity = db.trackIdentityDao().getTrackIdentity(trackId)
+        assertNotNull(retrievedIdentity)
+        assertEquals("Atomic Song", retrievedIdentity?.title)
+
+        val retrievedLocations = db.trackLocationDao().getLocationsForTrack(trackId)
+        assertEquals(1, retrievedLocations.size)
+        assertEquals("loc_atomic_1", retrievedLocations.first().locationId)
+
+        val retrievedLibs = db.libraryMembershipDao().getLibrariesForTrack(trackId)
+        assertEquals(listOf(MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID), retrievedLibs)
+    }
 }

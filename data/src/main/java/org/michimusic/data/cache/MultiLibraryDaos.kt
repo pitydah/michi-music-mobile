@@ -83,6 +83,19 @@ interface LibraryMembershipDao {
 
     @Query("DELETE FROM library_tracks WHERE libraryId = :libraryId AND trackId = :trackId")
     suspend fun removeMembership(libraryId: String, trackId: String)
+
+    @Transaction
+    suspend fun registerTrackWithLocationAtomic(
+        identityDao: TrackIdentityDao,
+        locationDao: TrackLocationDao,
+        identity: TrackIdentityEntity,
+        location: TrackLocationEntity,
+        crossRef: LibraryTrackCrossRef,
+    ) {
+        identityDao.insertIdentity(identity)
+        locationDao.insertLocation(location)
+        addMembership(crossRef)
+    }
 }
 
 @Dao
