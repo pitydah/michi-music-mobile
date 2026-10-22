@@ -157,8 +157,11 @@ class MichiPlaybackService : MediaLibraryService() {
                             exoPlayer.seekToNextMediaItem()
                             exoPlayer.prepare()
                             exoPlayer.play()
-                        } else if (consecutiveErrorCount > 3) {
-                            android.util.Log.w("MichiPlaybackService", "Deteniendo reproducción tras 3 fallos consecutivos de pista")
+                        } else {
+                            android.util.Log.w(
+                                "MichiPlaybackService",
+                                "Deteniendo reproducción: consecutiveErrors=$consecutiveErrorCount hasNext=${exoPlayer.hasNextMediaItem()}"
+                            )
                             exoPlayer.pause()
                         }
                     }

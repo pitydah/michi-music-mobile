@@ -150,4 +150,19 @@ class PlayerControllerTest {
         assertEquals(1, state.queue.size)
         assertEquals("1", state.queue.first().id)
     }
+
+    @Test
+    fun `timeline synchronization updates state queue when player items are modified directly`() {
+        val track1 = Track(id = "1", title = "T1", filepath = "http://fake.url/1.mp3")
+        val track2 = Track(id = "2", title = "T2", filepath = "http://fake.url/2.mp3")
+        controller.playQueue(listOf(track1, track2))
+
+        val exo = controller.getExoPlayer()
+        assertEquals(2, exo.mediaItemCount)
+
+        // Directly remove media item from ExoPlayer to verify onTimelineChanged sync
+        exo.removeMediaItem(0)
+        assertEquals(1, controller.state.value.queue.size)
+        assertEquals("2", controller.state.value.queue.first().id)
+    }
 }

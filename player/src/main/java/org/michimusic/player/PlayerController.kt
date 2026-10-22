@@ -144,7 +144,47 @@ class PlayerController(
                 if (isPlaying) startPositionUpdates() else stopPositionUpdates()
             }
 
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                val count = player.mediaItemCount
+                if (count == 0) {
+                    if (_state.value.queue.isNotEmpty()) {
+                        _state.value = _state.value.copy(queue = emptyList(), queueIndex = -1)
+                    }
+                    return
+                }
+                val currentQueue = _state.value.queue
+                val queueById = currentQueue.associateBy { it.id }
+                val reconciled = mutableListOf<Track>()
+                for (i in 0 until count) {
+                    val item = player.getMediaItemAt(i)
+                    val existing = queueById[item.mediaId]
+                    if (existing != null) {
+                        reconciled.add(existing)
+                    } else {
+                        reconciled.add(
+                            Track(
+                                id = item.mediaId,
+                                title = item.mediaMetadata.title?.toString() ?: "",
+                                artist = item.mediaMetadata.artist?.toString() ?: "",
+                                album = item.mediaMetadata.albumTitle?.toString() ?: "",
+                                filepath = item.localConfiguration?.uri?.toString() ?: "",
+                                duration = 0L,
+                            )
+                        )
+                    }
+                }
+                if (reconciled != currentQueue) {
+                    val activeIndex = player.currentMediaItemIndex
+                    _state.value = _state.value.copy(
+                        queue = reconciled,
+                        queueIndex = activeIndex,
+                        currentTrack = reconciled.getOrNull(activeIndex) ?: _state.value.currentTrack,
+                    )
+                }
+            }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val count = player.mediaItemCount
                 val queue = _state.value.queue
                 val index = player.currentMediaItemIndex
                 if (index in queue.indices) {

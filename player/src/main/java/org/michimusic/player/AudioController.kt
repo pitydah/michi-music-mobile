@@ -65,8 +65,14 @@ class AudioController(
             if (isPlaying) startPositionUpdates() else stopPositionUpdates()
         }
 
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            val ctrl = mediaController ?: return
+            reconcileQueueFromController(ctrl)
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val ctrl = mediaController ?: return
+            reconcileQueueFromController(ctrl)
             val queue = _state.value.queue
             val index = ctrl.currentMediaItemIndex
             val track = if (index in queue.indices) queue[index] else {
@@ -340,11 +346,58 @@ class AudioController(
         if (autoPlay) mediaController?.play()
     }
 
+    private fun reconcileQueueFromController(ctrl: MediaController) {
+        val count = ctrl.mediaItemCount
+        if (count == 0) {
+            if (_state.value.queue.isNotEmpty()) {
+                _state.value = _state.value.copy(queue = emptyList(), queueIndex = -1)
+                saveCurrentQueueToDb()
+            }
+            return
+        }
+        val currentQueue = _state.value.queue
+        val queueById = currentQueue.associateBy { it.id }
+        val reconciled = mutableListOf<Track>()
+        var modified = false
+
+        for (i in 0 until count) {
+            val item = ctrl.getMediaItemAt(i)
+            val trackId = LibraryProvider.extractSongId(item.mediaId) ?: item.mediaId
+            val existing = queueById[trackId]
+            if (existing != null) {
+                reconciled.add(existing)
+            } else {
+                reconciled.add(
+                    Track(
+                        id = trackId,
+                        title = item.mediaMetadata.title?.toString() ?: "",
+                        artist = item.mediaMetadata.artist?.toString() ?: "",
+                        album = item.mediaMetadata.albumTitle?.toString() ?: "",
+                        filepath = item.localConfiguration?.uri?.toString() ?: "",
+                        duration = 0L,
+                    )
+                )
+                modified = true
+            }
+        }
+
+        if (modified || reconciled != currentQueue) {
+            val activeIndex = ctrl.currentMediaItemIndex
+            val currentTrack = if (activeIndex in reconciled.indices) reconciled[activeIndex] else null
+            _state.value = _state.value.copy(
+                queue = reconciled,
+                queueIndex = activeIndex,
+                currentTrack = currentTrack ?: _state.value.currentTrack
+            )
+            saveCurrentQueueToDb()
+        }
+    }
+
     private sealed interface PendingQueueCommand {
         data class Add(val track: Track) : PendingQueueCommand
         data class PlayNext(val track: Track) : PendingQueueCommand
-        data class Move(val fromIndex: Int, val toIndex: Int) : PendingQueueCommand
-        data class Remove(val index: Int) : PendingQueueCommand
+        data class Move(val trackId: String, val toIndex: Int) : PendingQueueCommand
+        data class Remove(val trackId: String) : PendingQueueCommand
     }
     private val pendingCommands = mutableListOf<PendingQueueCommand>()
 
@@ -357,8 +410,18 @@ class AudioController(
             when (cmd) {
                 is PendingQueueCommand.Add -> addToQueue(cmd.track)
                 is PendingQueueCommand.PlayNext -> playNext(cmd.track)
-                is PendingQueueCommand.Move -> moveQueueItem(cmd.fromIndex, cmd.toIndex)
-                is PendingQueueCommand.Remove -> removeFromQueue(cmd.index)
+                is PendingQueueCommand.Move -> {
+                    val currentIndex = _state.value.queue.indexOfFirst { it.id == cmd.trackId }
+                    if (currentIndex >= 0) {
+                        moveQueueItem(currentIndex, cmd.toIndex)
+                    }
+                }
+                is PendingQueueCommand.Remove -> {
+                    val currentIndex = _state.value.queue.indexOfFirst { it.id == cmd.trackId }
+                    if (currentIndex >= 0) {
+                        removeFromQueue(currentIndex)
+                    }
+                }
             }
         }
     }
@@ -417,7 +480,10 @@ class AudioController(
     override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         val ctrl = mediaController
         if (ctrl == null) {
-            pendingCommands.add(PendingQueueCommand.Move(fromIndex, toIndex))
+            val trackId = _state.value.queue.getOrNull(fromIndex)?.id
+            if (trackId != null) {
+                pendingCommands.add(PendingQueueCommand.Move(trackId, toIndex))
+            }
             ensureConnected()
             return
         }
@@ -435,7 +501,10 @@ class AudioController(
     override fun removeFromQueue(index: Int) {
         val ctrl = mediaController
         if (ctrl == null) {
-            pendingCommands.add(PendingQueueCommand.Remove(index))
+            val trackId = _state.value.queue.getOrNull(index)?.id
+            if (trackId != null) {
+                pendingCommands.add(PendingQueueCommand.Remove(trackId))
+            }
             ensureConnected()
             return
         }
