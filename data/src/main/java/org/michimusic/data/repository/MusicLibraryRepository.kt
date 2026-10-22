@@ -47,6 +47,7 @@ class DefaultMusicLibraryRepository(
     private val identityDao: TrackIdentityDao,
     private val locationDao: TrackLocationDao,
     private val membershipDao: LibraryMembershipDao,
+    private val uriResolver: ((String) -> Boolean)? = null,
 ) : MusicLibraryRepository {
 
     override fun observeLibraries(): Flow<List<MusicLibrary>> {
@@ -155,11 +156,15 @@ class DefaultMusicLibraryRepository(
         val availableLocations = locations.filter { loc ->
             val u = loc.uri
             if (loc.availability != LocationAvailability.AVAILABLE || u.isNullOrBlank()) return@filter false
-            // Verify physical existence if it points to a local file path
+            uriResolver?.let { resolver ->
+                return@filter resolver(u)
+            }
+            // Verify physical existence if it points to a local filesystem path
             if (u.startsWith("/") || u.startsWith("file://")) {
                 val path = if (u.startsWith("file://")) u.removePrefix("file://") else u
                 java.io.File(path).exists()
             } else {
+                // Non-file URIs (content://, saf://, https://) are considered available if availability flag says so
                 true
             }
         }

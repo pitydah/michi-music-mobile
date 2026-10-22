@@ -169,4 +169,49 @@ class MultiLibraryRepositoryTest {
         assertEquals(1, tracksInCustomLib.size)
         assertEquals("Blue Train", tracksInCustomLib.first().identity.title)
     }
+
+    @Test
+    fun `resolvePreferredLocation skips non-existent local file and falls back to media store`() = runTest {
+        val trackId = "track_fallback_test"
+        val identity = TrackIdentity(
+            id = trackId,
+            title = "Missing File Song",
+            artist = "Michi Band",
+            album = "Test Album",
+            durationMs = 180000L,
+        )
+
+        val nonExistentLocalLoc = TrackLocation(
+            id = "loc_missing_file",
+            trackId = trackId,
+            type = TrackLocationType.SAF,
+            uri = "/storage/emulated/0/Music/non_existent_file.flac",
+            availability = LocationAvailability.AVAILABLE,
+        )
+
+        val validMediaLoc = TrackLocation(
+            id = "loc_media_fallback",
+            trackId = trackId,
+            type = TrackLocationType.MEDIASTORE,
+            uri = "content://media/external/audio/media/9999",
+            availability = LocationAvailability.AVAILABLE,
+        )
+
+        repository.registerTrackWithLocation(identity, nonExistentLocalLoc)
+        db.trackLocationDao().insertLocation(
+            org.michimusic.data.cache.TrackLocationEntity(
+                locationId = validMediaLoc.id,
+                trackId = trackId,
+                kind = validMediaLoc.type.name,
+                uri = validMediaLoc.uri,
+                availability = validMediaLoc.availability.name,
+            )
+        )
+
+        // Non-existent file path /storage/... will fail java.io.File.exists(), falling back to content:// MEDIASTORE
+        val preferred = repository.resolvePreferredLocation(trackId)
+        assertNotNull(preferred)
+        assertEquals(TrackLocationType.MEDIASTORE, preferred?.type)
+        assertEquals(validMediaLoc.uri, preferred?.uri)
+    }
 }
