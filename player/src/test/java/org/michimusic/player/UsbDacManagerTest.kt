@@ -278,4 +278,58 @@ class UsbDacManagerTest {
         assertTrue(dacDev.isUsbDac)
         assertFalse(dacDev.isUsbHeadset)
     }
+
+    @Test
+    fun simultaneousUsbHeadsetAndDacPriorityTest() {
+        val observer = FakeAudioRouteObserver()
+        val fakeSource = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, fakeSource, observer)
+
+        val dac = OutputDescriptor(androidDeviceId = 101, name = "Chord Mojo 2", androidType = AudioDeviceInfo.TYPE_USB_DEVICE)
+        val headset = OutputDescriptor(androidDeviceId = 102, name = "Pixel USB-C Earbuds", androidType = AudioDeviceInfo.TYPE_USB_HEADSET)
+
+        fakeSource.updateDevices(listOf(dac, headset))
+        assertEquals(2, manager.outputDevices.value.size)
+        // First USB device is selected by default
+        assertEquals(101, observer.lastRequested?.androidDeviceId)
+
+        // Switch manually to USB headset
+        manager.selectDevice(102)
+        assertEquals(102, manager.selectedDeviceId.value)
+        assertEquals(102, observer.lastRequested?.androidDeviceId)
+    }
+
+    @Test
+    fun disconnectDuringPlaybackPausesAndEmitsDisconnectedStatusTest() {
+        val observer = FakeAudioRouteObserver()
+        val fakeSource = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, fakeSource, observer)
+
+        var paused = false
+        manager.onUsbDisconnectedListener = { paused = true }
+
+        val dac = OutputDescriptor(androidDeviceId = 50, name = "iFi Zen DAC", androidType = AudioDeviceInfo.TYPE_USB_DEVICE)
+        fakeSource.updateDevices(listOf(dac))
+        assertTrue(manager.dacState.value.isConnected)
+
+        // Disconnect
+        fakeSource.updateDevices(emptyList())
+        assertFalse(manager.dacState.value.isConnected)
+        assertTrue(paused)
+        assertTrue(observer.lastFailedReason == RouteFailure.DISCONNECTED)
+    }
+
+    @Test
+    fun dacPresentDoesNotDeclareBitPerfectAutomaticallyTest() {
+        val observer = FakeAudioRouteObserver()
+        val fakeSource = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, fakeSource, observer)
+
+        val dac = OutputDescriptor(androidDeviceId = 99, name = "Luxury DAC 768kHz 32bit", androidType = AudioDeviceInfo.TYPE_USB_DEVICE)
+        fakeSource.updateDevices(listOf(dac))
+
+        // Simply having a DAC name with "768kHz" does not make it Confirmed or Bit-Perfect verified
+        assertFalse(manager.routeStatus.value is AudioRouteStatus.Confirmed)
+        assertEquals(AudioRouteStatus.Requested(dac), manager.routeStatus.value)
+    }
 }

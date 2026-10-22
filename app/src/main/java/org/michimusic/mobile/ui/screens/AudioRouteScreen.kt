@@ -71,21 +71,32 @@ fun AudioRouteScreen() {
         mutableStateOf(org.michimusic.player.UsbDacInfo())
     })
 
-    var route by remember { mutableStateOf(detectRoute(audioManager)) }
+    val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember {
+        mutableStateOf(emptyList())
+    })
 
-    DisposableEffect(Unit) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                route = detectRoute(audioManager)
+    var systemDevices by remember {
+        mutableStateOf(audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList())
+    }
+
+    DisposableEffect(audioManager) {
+        val callback = object : android.media.AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                systemDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+            }
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                systemDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
             }
         }
-        val filter = IntentFilter().apply {
-            addAction(AudioManager.ACTION_HEADSET_PLUG)
-            addAction("android.media.action.HDMI_AUDIO_PLUG")
-            addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED")
+        audioManager.registerAudioDeviceCallback(callback, android.os.Handler(android.os.Looper.getMainLooper()))
+        onDispose {
+            audioManager.unregisterAudioDeviceCallback(callback)
         }
-        context.registerReceiver(receiver, filter)
-        onDispose { context.unregisterReceiver(receiver) }
+    }
+
+    val route = remember(systemDevices, routeStatus) {
+        resolveHonestRoute(systemDevices, routeStatus)
     }
 
     PremiumScreen {
@@ -125,47 +136,53 @@ fun AudioRouteScreen() {
                             style = MaterialTheme.typography.bodyLarge,
                             color = AccentCoral,
                         )
-                        if (dacInfo.isConnected) {
-                            val statusLabel = when (routeStatus) {
-                                is org.michimusic.player.AudioRouteStatus.Confirmed -> "Confirmada en hardware"
-                                is org.michimusic.player.AudioRouteStatus.Requested -> "Solicitada (esperando confirmación)"
-                                is org.michimusic.player.AudioRouteStatus.Detected -> "Detectada"
-                                is org.michimusic.player.AudioRouteStatus.Failed -> "Fallo de enrutamiento"
-                                is org.michimusic.player.AudioRouteStatus.Unknown -> "No verificable"
-                                org.michimusic.player.AudioRouteStatus.NoDevice -> "No conectada"
-                            }
-                            Text(
-                                text = "Estado USB: $statusLabel",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
-                            )
+                        val statusLabel = when (routeStatus) {
+                            is org.michimusic.player.AudioRouteStatus.Confirmed -> "Ruta confirmada en pipeline"
+                            is org.michimusic.player.AudioRouteStatus.Requested -> "Salida solicitada (esperando uso en AudioTrack)"
+                            is org.michimusic.player.AudioRouteStatus.Detected -> "Dispositivo detectado (sin confirmación de reproducción)"
+                            is org.michimusic.player.AudioRouteStatus.Failed -> "Error en enrutamiento"
+                            is org.michimusic.player.AudioRouteStatus.Unknown -> "Estado no verificable por API"
+                            org.michimusic.player.AudioRouteStatus.NoDevice -> "Sin dispositivo externo"
                         }
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
                     }
                 }
             }
 
             Spacer(Modifier.height(16.dp))
 
-            Text("Detalles técnicos", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
+            Text("Dispositivos de audio observados", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
             Spacer(Modifier.height(8.dp))
 
-            val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            devices.forEach { device ->
-                val deviceName = device.productName?.toString() ?: "Desconocido"
+            systemDevices.forEach { device ->
+                val deviceName = device.productName?.toString().takeIf { !it.isNullOrBlank() } ?: "Dispositivo ${device.id}"
                 val typeName = when (device.type) {
-                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz interno"
-                    AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Auriculares con cable"
-                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares con cable"
+                    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz integrado"
+                    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Auricular telefónico integrado"
+                    AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Auriculares con cable (con micro)"
+                    AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares con cable (estéreo)"
                     AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth A2DP"
-                    AudioDeviceInfo.TYPE_USB_DEVICE -> "USB DAC"
-                    AudioDeviceInfo.TYPE_USB_HEADSET -> "USB Headset"
-                    AudioDeviceInfo.TYPE_DOCK -> "Dock"
+                    AudioDeviceInfo.TYPE_USB_DEVICE -> "Dispositivo USB (DAC / Interfaz)"
+                    AudioDeviceInfo.TYPE_USB_HEADSET -> "Auriculares USB"
+                    AudioDeviceInfo.TYPE_USB_ACCESSORY -> "Accesorio USB Audio"
+                    AudioDeviceInfo.TYPE_DOCK -> "Base / Dock de audio"
                     else -> "Tipo ${device.type}"
                 }
+                val sampleRatesStr = if (device.sampleRates.isNotEmpty()) {
+                    "Frecuencias declaradas: " + device.sampleRates.joinToString(", ") { "${it / 1000.0} kHz" }
+                } else {
+                    "Frecuencias: Según mixer de Android"
+                }
+
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(4.dp)) {
                         Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                         Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        Text(sampleRatesStr, style = MaterialTheme.typography.labelSmall, color = TextSecondary.copy(alpha = 0.7f))
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -176,18 +193,18 @@ fun AudioRouteScreen() {
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "Consejos",
+                text = "Observación de señal y fidelidad",
                 style = MaterialTheme.typography.titleMedium,
                 color = TextPrimary,
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = when (route) {
-                    is AudioRoute.UsbDac -> "DAC USB presente. Enrutamiento directo y soporte de alta resolución activo."
-                    is AudioRoute.UsbHeadset -> "Auriculares USB conectados vía puerto digital."
-                    is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
-                    is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
-                    is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."
+                    is AudioRoute.UsbDac -> "Dispositivo USB detectado. La ruta efectiva y la tasa de muestreo final dependen de AudioTrack y del mezclador de Android; la aplicación no declara bit-perfect salvo confirmación explícita."
+                    is AudioRoute.UsbHeadset -> "Auriculares USB conectados vía interfaz digital estándar."
+                    is AudioRoute.Bluetooth -> "Conexión Bluetooth activa (${route.codec}). Sujeto a compresión con pérdidas según el códec negociado."
+                    is AudioRoute.InternalSpeaker -> "Reproduciendo por altavoces o salida cableada del dispositivo."
+                    is AudioRoute.Unknown -> "No se pudo determinar el enrutamiento físico activo."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
@@ -197,11 +214,11 @@ fun AudioRouteScreen() {
 }
 
 private fun routeName(route: AudioRoute): String = when (route) {
-    is AudioRoute.InternalSpeaker -> "Altavoz interno"
-    is AudioRoute.UsbDac -> "DAC USB"
+    is AudioRoute.InternalSpeaker -> "Altavoz / Salida estándar"
+    is AudioRoute.UsbDac -> "Dispositivo USB (DAC / Interfaz)"
     is AudioRoute.UsbHeadset -> "Auriculares USB"
     is AudioRoute.Bluetooth -> "Bluetooth (${route.codec})"
-    is AudioRoute.Unknown -> "Desconocido"
+    is AudioRoute.Unknown -> "Salida no verificada"
 }
 
 private fun routeIcon(route: AudioRoute) = when (route) {
@@ -212,16 +229,30 @@ private fun routeIcon(route: AudioRoute) = when (route) {
     is AudioRoute.Unknown -> Icons.Rounded.Headphones
 }
 
-private fun detectRoute(audioManager: AudioManager): AudioRoute {
-    val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+private fun resolveHonestRoute(
+    devices: List<AudioDeviceInfo>,
+    routeStatus: org.michimusic.player.AudioRouteStatus,
+): AudioRoute {
+    if (routeStatus is org.michimusic.player.AudioRouteStatus.Confirmed) {
+        val dev = routeStatus.device
+        return when (dev.androidType) {
+            AudioDeviceInfo.TYPE_USB_HEADSET -> AudioRoute.UsbHeadset
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY,
+            AudioDeviceInfo.TYPE_DOCK -> AudioRoute.UsbDac
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> AudioRoute.Bluetooth(codec = dev.name)
+            else -> AudioRoute.InternalSpeaker
+        }
+    }
+
     return when {
         devices.any { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY || it.type == AudioDeviceInfo.TYPE_DOCK } ->
             AudioRoute.UsbDac
         devices.any { it.type == AudioDeviceInfo.TYPE_USB_HEADSET } ->
             AudioRoute.UsbHeadset
         devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP } -> {
-            val btDevice = devices.first { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
-            AudioRoute.Bluetooth(codec = btDevice.productName?.toString() ?: "A2DP")
+            val bt = devices.first { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+            AudioRoute.Bluetooth(codec = bt.productName?.toString() ?: "A2DP")
         }
         devices.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES } ->
             AudioRoute.InternalSpeaker
