@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -246,5 +247,65 @@ class MultiLibraryRepositoryTest {
 
         val retrievedLibs = db.libraryMembershipDao().getLibrariesForTrack(trackId)
         assertEquals(listOf(MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID), retrievedLibs)
+    }
+
+    @Test
+    fun `registerTrackWithLocation atomic rollback leaves no orphan records on constraint failure`() = runTest {
+        val trackId = "track_rollback_fail"
+        val identity = TrackIdentity(
+            id = trackId,
+            title = "Rollback Song",
+            artist = "Rollback Artist",
+            album = "Rollback Album",
+            durationMs = 180000L,
+        )
+        val location = TrackLocation(
+            id = "loc_rollback_fail",
+            trackId = trackId,
+            type = TrackLocationType.SAF,
+            uri = "/storage/emulated/0/Music/rollback.mp3",
+            availability = LocationAvailability.AVAILABLE,
+        )
+
+        // Attempt to register with a non-existent foreign library ID (violating foreign key constraint on library_tracks)
+        val invalidLibraryId = "non_existent_library_999"
+        val result = repository.registerTrackWithLocation(identity, location, libraryId = invalidLibraryId)
+
+        // Must fail with constraint exception
+        assertTrue(result.isFailure)
+
+        // Verify full transactional rollback: no identity or location record persisted
+        val retrievedIdentity = db.trackIdentityDao().getTrackIdentity(trackId)
+        assertNull("TrackIdentity must be rolled back on atomic failure", retrievedIdentity)
+
+        val retrievedLocations = db.trackLocationDao().getLocationsForTrack(trackId)
+        assertTrue("TrackLocation must be rolled back on atomic failure", retrievedLocations.isEmpty())
+
+        val retrievedLibs = db.libraryMembershipDao().getLibrariesForTrack(trackId)
+        assertTrue("Library membership must be empty", retrievedLibs.isEmpty())
+    }
+
+    @Test
+    fun `getTrackIdentity retrieves registered track identity correctly`() = runTest {
+        val trackId = "track_lookup_test"
+        val identity = TrackIdentity(
+            id = trackId,
+            title = "Lookup Title",
+            artist = "Lookup Artist",
+            album = "Lookup Album",
+            durationMs = 123456L,
+        )
+        val location = TrackLocation(
+            id = "loc_lookup_test",
+            trackId = trackId,
+            type = TrackLocationType.SAF,
+            uri = "/storage/emulated/0/Music/lookup.mp3",
+        )
+        repository.registerTrackWithLocation(identity, location)
+
+        val retrieved = repository.getTrackIdentity(trackId)
+        assertNotNull(retrieved)
+        assertEquals("Lookup Title", retrieved?.title)
+        assertEquals("Lookup Artist", retrieved?.artist)
     }
 }
