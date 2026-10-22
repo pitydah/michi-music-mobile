@@ -38,6 +38,12 @@ interface AirCatTransferClient {
     fun cancelTransfer(transferId: String)
     fun isTransferPaused(transferId: String): Boolean
     fun isTransferCancelled(transferId: String): Boolean
+
+    suspend fun recoverIncompleteTransfers(
+        remoteDeviceId: String,
+        linkClient: LinkClient,
+        onProgress: ((AirCatProgressEvent) -> Unit)? = null,
+    ): Result<List<File>>
 }
 
 class DefaultAirCatTransferClient(
@@ -429,6 +435,143 @@ class DefaultAirCatTransferClient(
     override fun isTransferPaused(transferId: String): Boolean = pausedTransferIds.contains(transferId)
 
     override fun isTransferCancelled(transferId: String): Boolean = cancelledTransferIds.contains(transferId)
+
+    override suspend fun recoverIncompleteTransfers(
+        remoteDeviceId: String,
+        linkClient: LinkClient,
+        onProgress: ((AirCatProgressEvent) -> Unit)?,
+    ): Result<List<File>> = withContext(Dispatchers.IO) {
+        val repo = checkpointRepository ?: return@withContext Result.success(emptyList())
+
+        // 1. Verify remote device trust
+        val pairedDevice = pairedDeviceRegistry.getDevice(remoteDeviceId)
+        if (pairedDevice == null) {
+            return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
+        }
+
+        val allCheckpoints = repo.getCheckpointsForDevice(remoteDeviceId)
+        val pendingCheckpoints = allCheckpoints.filter {
+            it.transferState == org.michimusic.core.models.TransferStatus.DOWNLOADING ||
+                it.transferState == org.michimusic.core.models.TransferStatus.PAUSED ||
+                it.transferState == org.michimusic.core.models.TransferStatus.PENDING
+        }
+
+        if (pendingCheckpoints.isEmpty()) {
+            return@withContext Result.success(emptyList())
+        }
+
+        val recoveredFiles = mutableListOf<File>()
+        val totalExpectedBytes = pendingCheckpoints.sumOf { it.expectedSize }
+        var bytesAccumulated = 0L
+
+        pendingCheckpoints.forEachIndexed { index, cp ->
+            val ext = cp.finalFilePath.substringAfterLast('.', "mp3")
+            val downloadItem = DownloadItem(
+                trackId = cp.trackId,
+                title = cp.trackId,
+                format = ext,
+                checksum = cp.expectedSha256,
+                size = cp.expectedSize,
+                remoteDeviceId = cp.remoteDeviceId,
+                destinationLibraryId = cp.destinationLibraryId,
+                transferKey = cp.transferKey,
+            )
+
+            emitEvent(
+                transferId = cp.transferId,
+                currentTrackIndex = index,
+                totalTracks = pendingCheckpoints.size,
+                bytesTransferred = bytesAccumulated,
+                totalBytes = totalExpectedBytes,
+                state = AirCatTransferState.TRANSFERRING,
+                activeTrackTitle = cp.trackId,
+                onProgress = onProgress,
+            )
+
+            val downloadResult = transferManager.downloadTrack(linkClient, downloadItem)
+            if (downloadResult.isFailure) {
+                val ex = downloadResult.exceptionOrNull() ?: Exception("Error reanudando ${cp.trackId}")
+                repo.updateProgress(
+                    transferKey = cp.transferKey,
+                    receivedBytes = 0L,
+                    verifiedBytes = 0L,
+                    state = org.michimusic.core.models.TransferStatus.FAILED
+                )
+                emitEvent(
+                    transferId = cp.transferId,
+                    currentTrackIndex = index,
+                    totalTracks = pendingCheckpoints.size,
+                    bytesTransferred = bytesAccumulated,
+                    totalBytes = totalExpectedBytes,
+                    state = AirCatTransferState.FAILED,
+                    error = ex.message,
+                    onProgress = onProgress,
+                )
+                return@withContext Result.failure(ex)
+            }
+
+            val finalFile = downloadResult.getOrThrow()
+            recoveredFiles.add(finalFile)
+            bytesAccumulated += finalFile.length()
+
+            // Register into Multi-Library domain transactionally
+            if (libraryRepository != null) {
+                val trackIdentity = TrackIdentity(
+                    id = cp.trackId,
+                    title = cp.trackId,
+                    artist = "Unknown",
+                    album = "Unknown",
+                    durationMs = 0L,
+                    contentHash = cp.expectedSha256.ifEmpty { null },
+                )
+                val location = TrackLocation(
+                    id = "loc_aircat_${cp.destinationLibraryId}_${cp.trackId}",
+                    trackId = cp.trackId,
+                    type = TrackLocationType.SYNCED_MANAGED,
+                    uri = finalFile.absolutePath,
+                    sourceDeviceId = cp.remoteDeviceId,
+                    remoteTrackId = cp.remoteTrackId,
+                    availability = LocationAvailability.AVAILABLE,
+                )
+                try {
+                    libraryRepository.registerTrackWithLocation(
+                        identity = trackIdentity,
+                        location = location,
+                        libraryId = cp.destinationLibraryId,
+                        origin = "AIRC_AT",
+                    )
+                } catch (e: Exception) {
+                    repo.updateProgress(
+                        transferKey = cp.transferKey,
+                        receivedBytes = finalFile.length(),
+                        verifiedBytes = finalFile.length(),
+                        state = org.michimusic.core.models.TransferStatus.FAILED
+                    )
+                    return@withContext Result.failure(e)
+                }
+            }
+
+            // Mark checkpoint completed
+            repo.updateProgress(
+                transferKey = cp.transferKey,
+                receivedBytes = finalFile.length(),
+                verifiedBytes = finalFile.length(),
+                state = org.michimusic.core.models.TransferStatus.COMPLETED
+            )
+        }
+
+        emitEvent(
+            transferId = pendingCheckpoints.first().transferId,
+            currentTrackIndex = pendingCheckpoints.size,
+            totalTracks = pendingCheckpoints.size,
+            bytesTransferred = totalExpectedBytes,
+            totalBytes = totalExpectedBytes,
+            state = AirCatTransferState.COMPLETED,
+            onProgress = onProgress,
+        )
+
+        Result.success(recoveredFiles)
+    }
 
     private fun emitEvent(
         transferId: String,

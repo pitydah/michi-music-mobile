@@ -494,4 +494,86 @@ class AirCatContractTest {
         assertEquals(completedFile.absolutePath, files.first().absolutePath)
         assertEquals(AirCatTransferState.COMPLETED, newAircatClient.progressEvents.value?.state)
     }
+
+    @Test
+    fun aircatRecoverIncompleteTransfersResumesPendingCheckpoints() = runBlocking {
+        val sourceId = "trusted_peer_resume"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
+
+        val trackData = "Incomplete recovered audio content".toByteArray()
+        val trackSha256 = sha256(trackData)
+        val transferKey = "$sourceId:lib_dest:trk_pending_resume"
+        val targetFile = File(transferManager.musicDir, "${sourceId}_lib_dest_trk_pending_resume.mp3")
+        targetFile.parentFile?.mkdirs()
+
+        val partFile = File("${targetFile.absolutePath}.part")
+        val halfSize = trackData.size / 2
+        partFile.writeBytes(trackData.copyOfRange(0, halfSize))
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val pendingCp = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = transferKey,
+            transferId = "xfer_incomplete_1",
+            remoteDeviceId = sourceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+            trackId = "trk_pending_resume",
+            remoteTrackId = "rem_pending_1",
+            tempFilePath = partFile.absolutePath,
+            finalFilePath = targetFile.absolutePath,
+            expectedSize = trackData.size.toLong(),
+            receivedBytes = halfSize.toLong(),
+            verifiedBytes = halfSize.toLong(),
+            expectedSha256 = trackSha256,
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 1000L,
+            updatedAt = 2000L,
+        )
+
+        coEvery { checkpointRepo.getCheckpointsForDevice(sourceId) } returns listOf(pendingCp)
+
+        // Mock linkClient streaming remaining part
+        val mockClient = mockk<org.michimusic.link.LinkClient>()
+        io.mockk.every {
+            kotlinx.coroutines.runBlocking {
+                mockClient.streamTrackRange(
+                    trackId = any(),
+                    outputStream = any(),
+                    startBytes = any(),
+                    expectedEtag = any(),
+                    bufferSize = any(),
+                    onProgress = any(),
+                )
+            }
+        } answers {
+            val out = secondArg<java.io.OutputStream>()
+            val offset = thirdArg<Long>()
+            val remaining = trackData.copyOfRange(offset.toInt(), trackData.size)
+            out.write(remaining)
+            Result.success(
+                org.michimusic.link.StreamRangeResult(
+                    bytesRead = remaining.size.toLong(),
+                    statusCode = 206,
+                    isPartialContent = true,
+                    etag = "etag-resume",
+                    contentLength = remaining.size.toLong(),
+                )
+            )
+        }
+
+        val client = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val recoveryResult = client.recoverIncompleteTransfers(sourceId, mockClient)
+        assertTrue("Expected recovery to succeed, but was: ${recoveryResult.exceptionOrNull()}", recoveryResult.isSuccess)
+        val files = recoveryResult.getOrThrow()
+        assertEquals(1, files.size)
+        assertEquals(targetFile.absolutePath, files.first().absolutePath)
+        assertTrue(targetFile.exists())
+        assertEquals(trackData.size.toLong(), targetFile.length())
+    }
 }
