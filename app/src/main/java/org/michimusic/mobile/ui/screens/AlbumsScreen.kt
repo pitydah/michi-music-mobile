@@ -772,7 +772,14 @@ fun AlbumsScreen(
         }
 
         albumToAddToPlaylist?.let { targetAlbum ->
-            androidx.compose.ui.window.Dialog(onDismissRequest = { albumToAddToPlaylist = null }) {
+            var isAddingToPlaylist by remember { mutableStateOf(false) }
+            var addError by remember { mutableStateOf<String?>(null) }
+
+            androidx.compose.ui.window.Dialog(onDismissRequest = {
+                if (!isAddingToPlaylist) {
+                    albumToAddToPlaylist = null
+                }
+            }) {
                 androidx.compose.material3.Surface(
                     shape = RoundedCornerShape(20.dp),
                     color = SurfaceObsidian,
@@ -795,7 +802,35 @@ fun AlbumsScreen(
                             color = TextSecondary,
                         )
 
-                        if (playlists.isEmpty()) {
+                        if (addError != null) {
+                            Text(
+                                text = addError.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                            )
+                        }
+
+                        if (isAddingToPlaylist) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = PrimaryPink,
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Añadiendo canciones...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                )
+                            }
+                        } else if (playlists.isEmpty()) {
                             Text(
                                 text = "No tienes playlists creadas. Pulsa el botón '+' arriba para crear una.",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -815,8 +850,18 @@ fun AlbumsScreen(
                                         backgroundColor = GlassFillLow,
                                         borderColor = GlassBorderLow,
                                         onClick = {
-                                            viewModel.addAlbumToPlaylist(pl.id, targetAlbum.tracks)
-                                            albumToAddToPlaylist = null
+                                            if (!isAddingToPlaylist) {
+                                                isAddingToPlaylist = true
+                                                addError = null
+                                                viewModel.addAlbumToPlaylist(pl.id, targetAlbum.tracks) { success ->
+                                                    isAddingToPlaylist = false
+                                                    if (success) {
+                                                        albumToAddToPlaylist = null
+                                                    } else {
+                                                        addError = "No se pudieron añadir las canciones a la playlist"
+                                                    }
+                                                }
+                                            }
                                         },
                                     ) {
                                         Row(
@@ -847,7 +892,10 @@ fun AlbumsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End,
                         ) {
-                            androidx.compose.material3.TextButton(onClick = { albumToAddToPlaylist = null }) {
+                            androidx.compose.material3.TextButton(
+                                onClick = { albumToAddToPlaylist = null },
+                                enabled = !isAddingToPlaylist,
+                            ) {
                                 Text("Cancelar", color = TextSecondary)
                             }
                         }

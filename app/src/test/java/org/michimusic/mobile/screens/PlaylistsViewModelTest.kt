@@ -695,10 +695,25 @@ private class RecordingPlaylistRepo(
 
     override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = currentTracks
 
-    override suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) {
+    override suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>): PlaylistRepository.PlaylistAddResult {
         addTracksCalledWith = id to newTrackIds
         if (shouldFail) throw RuntimeException("boom")
+        val before = currentTracks.size
         currentTracks = currentTracks + newTrackIds.map { Track(id = it, title = "Title-$it") }
+        return PlaylistRepository.PlaylistAddResult.Success(
+            addedCount = currentTracks.size - before,
+            totalCount = currentTracks.size,
+        )
+    }
+
+    override suspend fun addAlbumToPlaylist(id: String, albumTracks: List<Track>): PlaylistRepository.PlaylistAddResult {
+        if (shouldFail) throw RuntimeException("boom")
+        val before = currentTracks.size
+        currentTracks = currentTracks + albumTracks
+        return PlaylistRepository.PlaylistAddResult.Success(
+            addedCount = currentTracks.size - before,
+            totalCount = currentTracks.size,
+        )
     }
 
     override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {

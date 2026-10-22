@@ -647,12 +647,29 @@ class PlaylistRepositoryTest {
             Track(id = "trk_alb_1", title = "Album Song 1"),
             Track(id = "trk_alb_2", title = "Album Song 2"),
         )
-        repository.addAlbumToPlaylist(created.id, albumTracks)
+        val result = repository.addAlbumToPlaylist(created.id, albumTracks)
+        assertTrue(result is PlaylistRepository.PlaylistAddResult.Success)
+        assertEquals(2, (result as PlaylistRepository.PlaylistAddResult.Success).addedCount)
+        assertEquals(3, result.totalCount)
 
         val updated = repository.getById(created.id)
         assertNotNull(updated)
         assertEquals(listOf("t_init", "trk_alb_1", "trk_alb_2"), updated?.trackIds)
         assertEquals(3, updated?.trackCount)
+    }
+
+    @Test
+    fun addAlbumToPlaylist_playlistNotFound_returnsPlaylistNotFound() = runTest {
+        val albumTracks = listOf(Track(id = "trk_alb_1", title = "Album Song 1"))
+        val result = repository.addAlbumToPlaylist("non_existent_id", albumTracks)
+        assertEquals(PlaylistRepository.PlaylistAddResult.PlaylistNotFound, result)
+    }
+
+    @Test
+    fun addAlbumToPlaylist_emptyTracks_returnsEmptyTracks() = runTest {
+        val created = repository.createPlaylist("Album Dest", listOf("t_init"))
+        val result = repository.addAlbumToPlaylist(created.id, emptyList())
+        assertEquals(PlaylistRepository.PlaylistAddResult.EmptyTracks, result)
     }
 
 }

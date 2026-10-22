@@ -91,11 +91,16 @@ class PlaylistDetailScreenTest {
 
         override suspend fun getById(id: String): Playlist? = basePlaylist?.copy(name = name, trackCount = trackCount)
         override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = tracks
-        override suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) {
+        override suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>): PlaylistRepository.PlaylistAddResult {
             val existingIds = tracks.map { it.id }
             val toAdd = newTrackIds.filter { it !in existingIds }
+            val before = tracks.size
             tracks = tracks + toAdd.mapNotNull { trackId -> resolvableTracks.find { it.id == trackId } }
             trackCount = tracks.size
+            return PlaylistRepository.PlaylistAddResult.Success(
+                addedCount = tracks.size - before,
+                totalCount = tracks.size,
+            )
         }
         override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
             tracks = tracks.filter { it.id != trackId }

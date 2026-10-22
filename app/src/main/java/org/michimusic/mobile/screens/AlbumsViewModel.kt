@@ -140,10 +140,22 @@ class AlbumsViewModel(
         viewModelScope.launch(ioDispatcher) {
             var success = false
             try {
-                playlistRepo.addAlbumToPlaylist(playlistId, albumTracks)
-                val updated = playlistRepo.getAllPlaylists()
-                _playlists.value = updated
-                success = true
+                when (val result = playlistRepo.addAlbumToPlaylist(playlistId, albumTracks)) {
+                    is PlaylistRepository.PlaylistAddResult.Success -> {
+                        val updated = playlistRepo.getAllPlaylists()
+                        _playlists.value = updated
+                        success = true
+                    }
+                    is PlaylistRepository.PlaylistAddResult.PlaylistNotFound -> {
+                        _error.value = "La playlist seleccionada no existe"
+                    }
+                    is PlaylistRepository.PlaylistAddResult.EmptyTracks -> {
+                        _error.value = "El álbum no contiene pistas válidas para añadir"
+                    }
+                    is PlaylistRepository.PlaylistAddResult.Error -> {
+                        _error.value = "Error al añadir álbum: ${result.message}"
+                    }
+                }
             } catch (e: Exception) {
                 _error.value = "Error al añadir álbum a la playlist: ${e.message}"
             } finally {

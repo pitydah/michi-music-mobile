@@ -135,9 +135,21 @@ class PlaylistsViewModel(
             _addTracksError.value = null
             var success = false
             try {
-                repo.addTracksToPlaylist(playlistId, trackIds)
-                refreshPlaylistDetail(playlistId)
-                success = true
+                when (val result = repo.addTracksToPlaylist(playlistId, trackIds)) {
+                    is PlaylistRepository.PlaylistAddResult.Success -> {
+                        refreshPlaylistDetail(playlistId)
+                        success = true
+                    }
+                    is PlaylistRepository.PlaylistAddResult.PlaylistNotFound -> {
+                        _addTracksError.value = "La playlist especificada no existe"
+                    }
+                    is PlaylistRepository.PlaylistAddResult.EmptyTracks -> {
+                        _addTracksError.value = "No se seleccionaron canciones válidas"
+                    }
+                    is PlaylistRepository.PlaylistAddResult.Error -> {
+                        _addTracksError.value = result.message
+                    }
+                }
             } catch (e: Exception) {
                 _addTracksError.value = e.message ?: "No se pudieron añadir las canciones"
             } finally {
@@ -159,9 +171,21 @@ class PlaylistsViewModel(
             _addTracksError.value = null
             var success = false
             try {
-                repo.addAlbumToPlaylist(playlistId, albumTracks)
-                refreshPlaylistDetail(playlistId)
-                success = true
+                when (val result = repo.addAlbumToPlaylist(playlistId, albumTracks)) {
+                    is PlaylistRepository.PlaylistAddResult.Success -> {
+                        refreshPlaylistDetail(playlistId)
+                        success = true
+                    }
+                    is PlaylistRepository.PlaylistAddResult.PlaylistNotFound -> {
+                        _addTracksError.value = "La playlist especificada no existe"
+                    }
+                    is PlaylistRepository.PlaylistAddResult.EmptyTracks -> {
+                        _addTracksError.value = "El álbum no contiene canciones válidas"
+                    }
+                    is PlaylistRepository.PlaylistAddResult.Error -> {
+                        _addTracksError.value = result.message
+                    }
+                }
             } catch (e: Exception) {
                 _addTracksError.value = e.message ?: "No se pudo añadir el álbum"
             } finally {

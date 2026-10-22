@@ -62,24 +62,46 @@ open class PlaylistRepository(
         } ?: flowOf(emptyList())
     }
 
+    // Result of adding tracks/albums to a playlist
+    sealed interface PlaylistAddResult {
+        data class Success(val addedCount: Int, val totalCount: Int) : PlaylistAddResult
+        data object PlaylistNotFound : PlaylistAddResult
+        data object EmptyTracks : PlaylistAddResult
+        data class Error(val message: String) : PlaylistAddResult
+    }
+
     // New method: add tracks to existing playlist
-    open suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>) = writeMutex.withLock {
-        if (playlistDao == null) return@withLock
-        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
-        val existingIds = parseTrackIds(cached.trackIds)
+    open suspend fun addTracksToPlaylist(id: String, newTrackIds: List<String>): PlaylistAddResult = writeMutex.withLock {
+        if (playlistDao == null) return@withLock PlaylistAddResult.Error("PlaylistDao no disponible")
         val incomingIds = newTrackIds.map { it.trim() }.filter { it.isNotBlank() }
+        if (incomingIds.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
+
+        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id }
+            ?: return@withLock PlaylistAddResult.PlaylistNotFound
+
+        val existingIds = parseTrackIds(cached.trackIds)
         val combined = (existingIds + incomingIds).distinct()
+        val addedCount = combined.size - existingIds.size
         playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
+        return@withLock PlaylistAddResult.Success(addedCount = addedCount, totalCount = combined.size)
     }
 
     // Add all tracks of an album to existing playlist
-    open suspend fun addAlbumToPlaylist(id: String, albumTracks: List<Track>) = writeMutex.withLock {
-        if (playlistDao == null || albumTracks.isEmpty()) return@withLock
-        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
+    open suspend fun addAlbumToPlaylist(id: String, albumTracks: List<Track>): PlaylistAddResult = writeMutex.withLock {
+        if (playlistDao == null) return@withLock PlaylistAddResult.Error("PlaylistDao no disponible")
+        if (albumTracks.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
+
+        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id }
+            ?: return@withLock PlaylistAddResult.PlaylistNotFound
+
         val existingIds = parseTrackIds(cached.trackIds)
         val incomingIds = albumTracks.map { it.id.trim() }.filter { it.isNotBlank() }
+        if (incomingIds.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
+
         val combined = (existingIds + incomingIds).distinct()
+        val addedCount = combined.size - existingIds.size
         playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
+        return@withLock PlaylistAddResult.Success(addedCount = addedCount, totalCount = combined.size)
     }
 
     // New method: remove a single track from playlist
