@@ -737,25 +737,31 @@ class SyncViewModel(
                 val remoteMichiId = serverInfo.michiId ?: ""
                 val remotePublicKey = serverInfo.publicKey ?: ""
 
-                // 1. Identity match validation
+                // 1. Identity match validation: reject if expected attribute is present but missing or mismatched from peer
                 val expectedServerId = device.effectiveServerId
                 val expectedMichiId = device.effectiveMichiId
                 val expectedPublicKey = device.effectivePublicKey
 
-                if (expectedServerId.isNotEmpty() && remoteServerId.isNotEmpty() && expectedServerId != remoteServerId) {
-                    onResult(false, "Inconsistencia de serverId remoto: esperado $expectedServerId pero respondió $remoteServerId")
-                    return@launch
+                if (expectedServerId.isNotEmpty()) {
+                    if (remoteServerId.isEmpty() || expectedServerId != remoteServerId) {
+                        onResult(false, "Inconsistencia de serverId remoto: esperado $expectedServerId pero respondió ${remoteServerId.ifEmpty { "<vacio>" }}")
+                        return@launch
+                    }
                 }
 
-                if (expectedMichiId.isNotEmpty() && remoteMichiId.isNotEmpty() && expectedMichiId != remoteMichiId) {
-                    onResult(false, "Inconsistencia de MichiId remoto: esperado $expectedMichiId pero respondió $remoteMichiId")
-                    return@launch
+                if (expectedMichiId.isNotEmpty()) {
+                    if (remoteMichiId.isEmpty() || expectedMichiId != remoteMichiId) {
+                        onResult(false, "Inconsistencia de MichiId remoto: esperado $expectedMichiId pero respondió ${remoteMichiId.ifEmpty { "<vacio>" }}")
+                        return@launch
+                    }
                 }
 
                 // 2. Cryptographic public key verification against pinned trusted registry
-                if (expectedPublicKey.isNotEmpty() && remotePublicKey.isNotEmpty() && expectedPublicKey != remotePublicKey) {
-                    onResult(false, "Inconsistencia criptográfica de clave pública para $targetDeviceId")
-                    return@launch
+                if (expectedPublicKey.isNotEmpty()) {
+                    if (remotePublicKey.isEmpty() || expectedPublicKey != remotePublicKey) {
+                        onResult(false, "Inconsistencia criptográfica: clave pública remota ${if (remotePublicKey.isEmpty()) "no provista" else "no coincide"} para $targetDeviceId")
+                        return@launch
+                    }
                 }
 
                 // 1. Fetch manifest

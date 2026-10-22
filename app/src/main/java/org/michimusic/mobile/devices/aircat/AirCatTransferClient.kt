@@ -210,17 +210,12 @@ class DefaultAirCatTransferClient(
                     finalCandidate.exists() &&
                     existingCp.remoteDeviceId == intent.sourceMichiId &&
                     existingCp.destinationLibraryId == intent.destinationLibraryId &&
-                    (item.size <= 0 || finalCandidate.length() == item.size)
+                    item.size > 0 && finalCandidate.length() == item.size &&
+                    item.sha256.isNotEmpty() && verifyChecksum(finalCandidate, item.sha256)
                 ) {
-                    val verifiedHash = if (item.sha256.isNotEmpty()) {
-                        verifyChecksum(finalCandidate, item.sha256)
-                    } else true
-
-                    if (verifiedHash) {
-                        downloadedFiles.add(finalCandidate)
-                        transferredBytesAcc += finalCandidate.length()
-                        continue
-                    }
+                    downloadedFiles.add(finalCandidate)
+                    transferredBytesAcc += finalCandidate.length()
+                    continue
                 }
 
                 val downloadItem = DownloadItem(

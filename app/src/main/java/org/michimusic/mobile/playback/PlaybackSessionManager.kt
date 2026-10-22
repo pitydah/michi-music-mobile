@@ -654,18 +654,28 @@ class PlaybackSessionManager(
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
                 scope.launch {
-                    client?.patchReceiverLiteSession(
+                    val result = client?.patchReceiverLiteSession(
                         org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = false),
                         sessionToken = tok
                     )
-                    org.michimusic.player.PlayerDependencies.resumePcmStreaming()
-                    audioController?.play()
-                    _sessionState.value = _sessionState.value.copy(isPlaying = true)
+                    if (result != null && result.isSuccess) {
+                        org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+                        audioController?.play()
+                        _sessionState.value = _sessionState.value.copy(isPlaying = true, statusMessage = null)
+                    } else {
+                        val errMsg = result?.exceptionOrNull()?.message ?: "Cliente no disponible"
+                        _sessionState.value = _sessionState.value.copy(statusMessage = "Error reanudando audio en receptor: $errMsg")
+                    }
                 }
             } else {
                 scope.launch {
-                    client?.sendPlaybackCommand("play")
-                    _sessionState.value = _sessionState.value.copy(isPlaying = true)
+                    val result = client?.sendPlaybackCommand("play")
+                    if (result != null && result.isSuccess) {
+                        _sessionState.value = _sessionState.value.copy(isPlaying = true, statusMessage = null)
+                    } else {
+                        val errMsg = result?.exceptionOrNull()?.message ?: "Cliente remoto no conectado"
+                        _sessionState.value = _sessionState.value.copy(statusMessage = "Error al enviar comando play: $errMsg")
+                    }
                 }
             }
         } else {
@@ -680,18 +690,28 @@ class PlaybackSessionManager(
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
                 scope.launch {
-                    client?.patchReceiverLiteSession(
+                    val result = client?.patchReceiverLiteSession(
                         org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = true),
                         sessionToken = tok
                     )
-                    org.michimusic.player.PlayerDependencies.pausePcmStreaming()
-                    audioController?.pause()
-                    _sessionState.value = _sessionState.value.copy(isPlaying = false)
+                    if (result != null && result.isSuccess) {
+                        org.michimusic.player.PlayerDependencies.pausePcmStreaming()
+                        audioController?.pause()
+                        _sessionState.value = _sessionState.value.copy(isPlaying = false, statusMessage = null)
+                    } else {
+                        val errMsg = result?.exceptionOrNull()?.message ?: "Cliente no disponible"
+                        _sessionState.value = _sessionState.value.copy(statusMessage = "Error pausando audio en receptor: $errMsg")
+                    }
                 }
             } else {
                 scope.launch {
-                    client?.sendPlaybackCommand("pause")
-                    _sessionState.value = _sessionState.value.copy(isPlaying = false)
+                    val result = client?.sendPlaybackCommand("pause")
+                    if (result != null && result.isSuccess) {
+                        _sessionState.value = _sessionState.value.copy(isPlaying = false, statusMessage = null)
+                    } else {
+                        val errMsg = result?.exceptionOrNull()?.message ?: "Cliente remoto no conectado"
+                        _sessionState.value = _sessionState.value.copy(statusMessage = "Error al enviar comando pause: $errMsg")
+                    }
                 }
             }
         } else {
@@ -706,19 +726,29 @@ class PlaybackSessionManager(
             if (activeEp.type == EndpointType.STREAM_RECEIVER || activeEp.capabilities.contains("AUDIO_OUTPUT")) {
                 val tok = activeReceiverSessionToken
                 scope.launch {
-                    client?.patchReceiverLiteSession(
+                    val result = client?.patchReceiverLiteSession(
                         org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = true),
                         sessionToken = tok
                     )
-                    org.michimusic.player.PlayerDependencies.stopPcmStreaming()
-                    audioController?.seekTo(0L)
-                    audioController?.pause()
-                    _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L)
+                    if (result != null && result.isSuccess) {
+                        org.michimusic.player.PlayerDependencies.stopPcmStreaming()
+                        audioController?.seekTo(0L)
+                        audioController?.pause()
+                        _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L, statusMessage = null)
+                    } else {
+                        val errMsg = result?.exceptionOrNull()?.message ?: "Cliente no disponible"
+                        _sessionState.value = _sessionState.value.copy(statusMessage = "Error deteniendo sesión en receptor: $errMsg")
+                    }
                 }
             } else {
                 scope.launch {
-                    client?.sendPlaybackCommand("stop")
-                    _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L)
+                    val result = client?.sendPlaybackCommand("stop")
+                    if (result != null && result.isSuccess) {
+                        _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L, statusMessage = null)
+                    } else {
+                        val errMsg = result?.exceptionOrNull()?.message ?: "Cliente remoto no conectado"
+                        _sessionState.value = _sessionState.value.copy(statusMessage = "Error al enviar comando stop: $errMsg")
+                    }
                 }
             }
         } else {
