@@ -22,6 +22,7 @@
 | M14.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | d939f4d | Cierre funcional auditado: consecución error loop guard con delay, verdad de ruta USB DAC vs Headset en toda la UI, diálogo para añadir álbum a playlist en AlbumsScreen y targets táctiles de 44-48dp en cola |
 | M14.2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 4b06447 | Cierre técnico integral: AudioRouteScreen reactivo con AudioDeviceCallback, eliminación de asunciones Hi-Res, autoridad única Media3 con PendingQueueCommands y ServiceScope thread-safe, Playlists atómicas con confirmación explícita (PlaylistAddResult) y feedback en UI, resolución de ubicaciones físicas y fallback resiliente, recuperación persistente de transferencias AirCat ante recreación de proceso |
 | M14.3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | e50cc3e | Sincronización autoritativa de timeline en Media3 (onTimelineChanged), comandos pendientes basados en identidad de pista, transacciones Room atómicas en Multi-Library (registerTrackWithLocationAtomic), recuperación efectiva de transferencias AirCat incompletas con byte-range resume tras process death, menú unificado de acciones TrackActionBottomSheet |
+| M14.4 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | cbd270c | Auditoría KILLCRITIC superada: AirCat unwrap getOrThrow(), rechazo de pares revocados, preservación no destructiva de TrackIdentity, orquestación de recuperación en SyncWorker/SyncViewModel; Media3 preservación de pistas duplicadas en cola secuencial; Multi-Library rollback atómico con prueba unitaria; TrackActionBottomSheet y AddToPlaylistDialog conectados en QueueScreen, NowPlayingScreen y AlbumsScreen |
 
 ---
 
@@ -1009,6 +1010,68 @@ ROLLBACK_PLAN:
   git reset --hard 810b54773b9aea680e7a6d5b687d64e8167c9f81
 BLOCKERS: Ninguno en software.
 ```
+
+---
+
+## Checkpoint de Ejecución — Auditoría KILLCRITIC Cierre M14.4
+
+```text
+BLOCK_ID: M14.4
+MASTER_BASE_SHA: 43d9fb1bf5182e6ac8bde3ab985348612df36e84
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/di/KoinAccessors.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/ui/components/TrackActionMenu.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/QueueScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/NowPlayingScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/AlbumsScreen.kt
+  - app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatContractTest.kt
+  - data/src/main/java/org/michimusic/data/repository/MusicLibraryRepository.kt
+  - data/src/test/java/org/michimusic/data/repository/MultiLibraryRepositoryTest.kt
+  - player/src/main/java/org/michimusic/player/AudioController.kt
+  - player/src/main/java/org/michimusic/player/PlayerController.kt
+  - player/src/test/java/org/michimusic/player/PlayerControllerTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. AirCat Transfer / Recovery:
+     - registerTrackWithLocation retornaba Result<Unit> pero se ejecutaba sin .getOrThrow(), provocando que fallos de persistencia en Multi-Library marcaran silenciosamente el checkpoint como COMPLETED en lugar de FAILED.
+     - recoverIncompleteTransfers no validaba pairedDevice.isRevoked, permitiendo recuperar transferencias desde pares revocados.
+     - Durante la recuperación de transferencias se sobrescribía TrackIdentity con valores dummy ("Unknown") en lugar de preservar los metadatos existentes en base de datos.
+     - recoverIncompleteTransfers era un método huérfano desconectado de la sincronización periódica y de la UI.
+  2. Media3 Timeline Reconciliation:
+     - PlayerController y AudioController utilizaban currentQueue.associateBy { it.id }. Si una cola contenía la misma pista múltiples veces (duplicados intencionales), la lista colapsaba perdiendo elementos y desincronizando índices con ExoPlayer.
+  3. Multi-Library Transaction Rollback:
+     - registerTrackWithLocationAtomic en Room carecía de una prueba unitaria explícita verificando la reversión atómica de transacciones ante fallos de integridad referencial.
+  4. UI Track Actions:
+     - TrackActionBottomSheet estaba desconectado de las pantallas principales sin callbacks reales ni diálogos de inserción en playlists.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. AirCat Transfer / Recovery:
+     - Se aplicó .getOrThrow() tanto en executeTransfer como en recoverIncompleteTransfers, garantizando que cualquier fallo en Multi-Library desate rollback y marque FAILED en el checkpoint.
+     - Se valida estrictamente pairedDevice.isRevoked retornando AirCatTransferResult.UnauthorizedPeer si el dispositivo está revocado.
+     - Se consulta getTrackIdentity(cp.trackId) para preservar fielmente los metadatos previos antes de recurrir a fallback.
+     - Se integró la orquestación en SyncWorker (previo a encolar nuevas descargas) y en SyncViewModel.recoverIncompleteAirCatTransfers.
+  2. Media3 Timeline Reconciliation:
+     - Reconciliación secuencial mediante un pool mutable de pistas restantes (remainingQueueTracks.removeAt(indexOfFirst)), preservando pistas duplicadas en su orden y posición exactos.
+  3. Multi-Library Transaction Rollback:
+     - Test unitario exhaustivo en MultiLibraryRepositoryTest que demuestra que ante fallos en llaves foráneas ninguna entidad queda huérfana en la base de datos.
+  4. UI Track Actions:
+     - TrackActionBottomSheet y AddToPlaylistDialog integrados con menú MoreVert en QueueScreen, NowPlayingScreen y AlbumsScreen, soportando Reproducir ahora, Reproducir siguiente, Añadir a cola, Añadir a playlist, Favoritos y Signal Truth.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew testFdroidDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :data:test :player:test :core:test :michi-link-client:test (PASSED - 0 fallos)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Rechazo de dispositivos revocados en AirCat previene reanudación no autorizada de transferencias. Rollback atómico en Room garantiza consistencia de datos ante fallos.
+ROLLBACK_PLAN:
+  git reset --hard 43d9fb1bf5182e6ac8bde3ab985348612df36e84
+BLOCKERS: Ninguno.
+```
+
 
 
 
