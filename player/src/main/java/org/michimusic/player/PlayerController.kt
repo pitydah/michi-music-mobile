@@ -324,6 +324,42 @@ class PlayerController(
         _state.value = _state.value.copy(queue = newQueue)
     }
 
+    fun playNext(track: Track) {
+        val currentQueue = _state.value.queue.toMutableList()
+        val insertIndex = (_state.value.queueIndex + 1).coerceIn(0, currentQueue.size)
+        currentQueue.add(insertIndex, track)
+        player.addMediaItem(
+            insertIndex,
+            MediaItem.Builder()
+                .setMediaId(track.id)
+                .setUri(resolveUri(track))
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .build()
+                )
+                .build(),
+        )
+        _state.value = _state.value.copy(queue = currentQueue)
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val currentQueue = _state.value.queue.toMutableList()
+        if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
+            val item = currentQueue.removeAt(fromIndex)
+            currentQueue.add(toIndex, item)
+            player.moveMediaItem(fromIndex, toIndex)
+            val newCurrentIndex = when (_state.value.queueIndex) {
+                fromIndex -> toIndex
+                in (fromIndex + 1)..toIndex -> _state.value.queueIndex - 1
+                in toIndex until fromIndex -> _state.value.queueIndex + 1
+                else -> _state.value.queueIndex
+            }
+            _state.value = _state.value.copy(queue = currentQueue, queueIndex = newCurrentIndex)
+        }
+    }
+
     fun removeFromQueue(index: Int) {
         val newQueue = _state.value.queue.toMutableList()
         if (index in newQueue.indices) {

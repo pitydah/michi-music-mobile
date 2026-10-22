@@ -152,7 +152,17 @@ class DefaultMusicLibraryRepository(
     }
 
     private fun selectPreferredLocation(locations: List<TrackLocation>): PlayableLocation? {
-        val availableLocations = locations.filter { it.availability == LocationAvailability.AVAILABLE && !it.uri.isNullOrBlank() }
+        val availableLocations = locations.filter { loc ->
+            val u = loc.uri
+            if (loc.availability != LocationAvailability.AVAILABLE || u.isNullOrBlank()) return@filter false
+            // Verify physical existence if it points to a local file path
+            if (u.startsWith("/") || u.startsWith("file://")) {
+                val path = if (u.startsWith("file://")) u.removePrefix("file://") else u
+                java.io.File(path).exists()
+            } else {
+                true
+            }
+        }
         // Preference policy: SAF/MediaStore -> SYNCED_MANAGED -> REMOTE_URL
         val sorted = availableLocations.sortedBy { loc ->
             when (loc.type) {

@@ -14,6 +14,8 @@ interface LocalPlaybackGateway {
     fun skipToQueueIndex(index: Int)
     fun playQueue(tracks: List<Track>, startIndex: Int = 0)
     fun addToQueue(track: Track)
+    fun playNext(track: Track)
+    fun moveQueueItem(fromIndex: Int, toIndex: Int)
     fun removeFromQueue(index: Int)
     fun clearQueue()
     fun setRepeatMode(mode: Int)

@@ -21,6 +21,14 @@ object PlayerDependencies {
     @JvmStatic
     var rtpPcmAudioTap: RtpPcmAudioTap? = null
     @JvmStatic
+    var replayGainProcessor: ReplayGainAudioProcessor? = null
+
+    @JvmStatic
+    fun configureReplayGain(mode: ReplayGainMode, preAmp: ReplayGainPreAmp) {
+        replayGainProcessor?.configure(mode, preAmp)
+    }
+
+    @JvmStatic
     var audioModeManager: AudioModeManager? = null
     @JvmStatic
     var signalTruthTracker: SignalTruthTracker? = null

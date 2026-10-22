@@ -640,6 +640,21 @@ class PlaylistRepositoryTest {
         assertEquals(0, localMedia.loadTracksCallCount)
     }
 
+    @Test
+    fun addAlbumToPlaylist_appendsTracksToPlaylist() = runTest {
+        val created = repository.createPlaylist("Album Dest", listOf("t_init"))
+        val albumTracks = listOf(
+            Track(id = "trk_alb_1", title = "Album Song 1"),
+            Track(id = "trk_alb_2", title = "Album Song 2"),
+        )
+        repository.addAlbumToPlaylist(created.id, albumTracks)
+
+        val updated = repository.getById(created.id)
+        assertNotNull(updated)
+        assertEquals(listOf("t_init", "trk_alb_1", "trk_alb_2"), updated?.trackIds)
+        assertEquals(3, updated?.trackCount)
+    }
+
 }
 
 private fun cachedTrack(id: String, title: String) = CachedTrack(

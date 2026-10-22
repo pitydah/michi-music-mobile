@@ -37,6 +37,7 @@ class MichiPlaybackService : MediaLibraryService() {
         super.onCreate()
         try {
             replayGainProcessor = ReplayGainAudioProcessor()
+            PlayerDependencies.replayGainProcessor = replayGainProcessor
             stateStore = PlaybackStateStore(applicationContext)
 
             val mode = ReplayGainConfig.getMode()
@@ -120,21 +121,29 @@ class MichiPlaybackService : MediaLibraryService() {
                     if (state == Player.STATE_READY) deferSave()
                 }
 
+                private var consecutiveErrorCount = 0
+
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) consecutiveErrorCount = 0
                     if (!isPlaying) deferSave()
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    consecutiveErrorCount++
                     android.util.Log.e(
                         "MichiPlaybackService",
-                        "onPlayerError errorCode=${error.errorCode} message=${error.message} " +
+                        "onPlayerError errorCode=${error.errorCode} message=${error.message} consecutiveErrors=$consecutiveErrorCount " +
                             "mediaId=${exoPlayer.currentMediaItem?.mediaId} mediaItemCount=${exoPlayer.mediaItemCount}",
                     )
                     // If track is unplayable/missing/corrupted and there are remaining items in the queue, skip forward to avoid stall
-                    if (exoPlayer.hasNextMediaItem()) {
+                    // Stop skipping if 3 consecutive tracks failed to prevent runaway battery/CPU loops
+                    if (consecutiveErrorCount <= 3 && exoPlayer.hasNextMediaItem()) {
                         exoPlayer.seekToNextMediaItem()
                         exoPlayer.prepare()
                         exoPlayer.play()
+                    } else if (consecutiveErrorCount > 3) {
+                        android.util.Log.w("MichiPlaybackService", "Deteniendo reproducción tras 3 fallos consecutivos de pista")
+                        exoPlayer.pause()
                     }
                 }
             })

@@ -24,6 +24,8 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -305,6 +307,49 @@ fun QueueScreen() {
                                     fontSize = 11.sp,
                                     color = TextMuted,
                                 )
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    if (idx > 0) {
+                                        androidx.compose.material3.IconButton(
+                                            onClick = { controller.moveQueueItem(idx, idx - 1) },
+                                            modifier = Modifier.size(28.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowUp,
+                                                contentDescription = "Mover arriba",
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
+                                    }
+                                    if (idx < queue.lastIndex) {
+                                        androidx.compose.material3.IconButton(
+                                            onClick = { controller.moveQueueItem(idx, idx + 1) },
+                                            modifier = Modifier.size(28.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
+                                                contentDescription = "Mover abajo",
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                        }
+                                    }
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { controller.removeFromQueue(idx) },
+                                        modifier = Modifier.size(28.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Quitar de cola",
+                                            tint = PrimaryPink.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

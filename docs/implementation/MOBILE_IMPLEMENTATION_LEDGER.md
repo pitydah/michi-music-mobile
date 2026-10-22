@@ -17,7 +17,8 @@
 | M10 | VERIFIED | VERIFIED | PENDING_ENV | BLOCKED_UPSTREAM | 248c5a9 | Catálogos remotos y ReceiverLite Stream |
 | M11 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 73e54d6 | UI Premium, Settings jerárquico, Android Auto y Diagnósticos expurgados |
 | M12 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a6bb44b | CI ampliado, migraciones Room, matriz física verificable y release gates |
-| M13 | NOT_STARTED | NOT_STARTED | NOT_STARTED | N/A | - | IA musical optativa |
+| M13 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 2f77234e | Integración total de seguridad criptográfica y controles idempotentes |
+| M14 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | fda33bf | Macro-sprint integral: Media3 queue dinámica, error loop guard, DAC vs headset truth, physical location validation, playlists album append y RG UI |
 
 ---
 
@@ -949,6 +950,60 @@ SECURITY_REVIEW:
   Criptografía Ed25519 verificada en transferencias; transporte cleartext restringido a LAN; comandos de control idempotentes; sin fuga de secretos.
 ROLLBACK_PLAN:
   git revert al commit resultante o reset a 11c3bca404a48a1a9cde01b44df2418e2ba9bd7c
+BLOCKERS: Ninguno en software.
+```
+
+---
+
+## Checkpoint de Ejecución — Macro-Sprint M14: Avance Transversal e Integral de Madurez
+
+```text
+BLOCK_ID: SPRINT_M14_TRANSVERSAL_MATURITY
+MASTER_BASE_SHA: 810b54773b9aea680e7a6d5b687d64e8167c9f81
+FILES_CHANGED:
+  - player/src/main/java/org/michimusic/player/LocalPlaybackGateway.kt
+  - player/src/main/java/org/michimusic/player/PlayerController.kt
+  - player/src/main/java/org/michimusic/player/AudioController.kt
+  - player/src/main/java/org/michimusic/player/MichiPlaybackService.kt
+  - player/src/main/java/org/michimusic/player/PlayerDependencies.kt
+  - player/src/main/java/org/michimusic/player/UsbDacManager.kt
+  - player/src/test/java/org/michimusic/player/PlayerControllerTest.kt
+  - data/src/main/java/org/michimusic/data/repository/PlaylistRepository.kt
+  - data/src/main/java/org/michimusic/data/repository/MusicLibraryRepository.kt
+  - data/src/test/java/org/michimusic/data/repository/PlaylistRepositoryTest.kt
+  - app/src/main/java/org/michimusic/mobile/screens/PlaylistsViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/QueueScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/SettingsScreen.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkClientConfig.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+  - RELEASE_BLOCKERS.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Media3 Cola estática / incompleta: Sin operaciones de playNext ni reordenamiento de cola dinámico en tiempo real en ExoPlayer/MediaSession; falta de persistencia inmediata de la cola tras reorganizaciones manuales.
+  2. Bucle infinito en fallos de pistas: MichiPlaybackService intentaba saltar forward indefinidamente ante errores consecutivos de decodificación/red, provocando agotamiento de batería y loops descontrolados.
+  3. Indiferenciación USB DAC vs Headset: UsbDacManager trataba indistintamente adaptadores USB básicos (TYPE_USB_HEADSET) como DACs audiófilos (TYPE_USB_DEVICE / ACCESSORY).
+  4. Rutas físicas ciegas en Multi-Library: MusicLibraryRepository aceptaba URIs tipo archivo persistidas en Room sin verificar existencia real en el sistema de archivos del dispositivo.
+  5. Playlists carentes de agregado por álbum: PlaylistRepository solo soportaba añadir pistas unitarias, impidiendo operaciones atómicas de álbum completo.
+  6. ReplayGain UI desconectada de Media3: Los controles de Settings no actualizaban el procesador en caliente o causaban filtrado de dependencias internas de Media3.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Media3 Cola dinámica y persistente: playNext(track) inserta tras la pista actual en ExoPlayer; moveQueueItem(from, to) reordena en Media3 recalculando índice activo y persiste atómicamente la cola en Room.
+  2. Protección anti-bucle en servicio: MichiPlaybackService cuenta fallos consecutivos (consecutiveErrorCount); tras 3 fallos consecutivos detiene la reproducción y reporta error en lugar de entrar en bucle.
+  3. Distinción rigurosa DAC vs Headset: AudioOutputDevice incorpora isUsbHeadset e isUsbDac separados, reportando la verdad del hardware al observador de ruta.
+  4. Validación física en almacenamiento: MusicLibraryRepository valida que rutas locales existan físicamente en disco antes de seleccionarlas como ubicación preferida.
+  5. Adición de álbumes atómica a Playlists: PlaylistRepository y PlaylistsViewModel exponen addAlbumToPlaylist(id, albumTracks) con mutex atómico.
+  6. ReplayGain reactivo y desacoplado: PlayerDependencies.configureReplayGain(mode, preAmp) encapsula la configuración en caliente de Media3 sin filtrar classpath interno.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew testFdroidDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :data:testDebugUnitTest --tests "org.michimusic.data.cache.Migration3To4Test" (PASSED - 0 fallos)
+  ./gradlew :player:testDebugUnitTest (PASSED - tests de queue reorder, playNext, hotplug y route observer al 100%)
+  ./gradlew lintNormalDebug (PASSED - 0 errores de lint)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (catalogado y estructurado en docs/CERTIFICATION_MATRIX.md)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Validación rigurosa de hostnames y rangos privados en transporte LinkClient; validación física de rutas de archivo previniendo desincronizaciones de almacenamiento.
+ROLLBACK_PLAN:
+  git reset --hard 810b54773b9aea680e7a6d5b687d64e8167c9f81
 BLOCKERS: Ninguno en software.
 ```
 

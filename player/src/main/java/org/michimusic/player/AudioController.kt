@@ -358,6 +358,46 @@ class AudioController(
         saveCurrentQueueToDb()
     }
 
+    override fun playNext(track: Track) {
+        ensureConnected()
+        val currentQueue = _state.value.queue.toMutableList()
+        val insertIndex = (_state.value.queueIndex + 1).coerceIn(0, currentQueue.size)
+        currentQueue.add(insertIndex, track)
+        mediaController?.addMediaItem(
+            insertIndex,
+            MediaItem.Builder()
+                .setMediaId(LibraryProvider.buildSongId(track.id))
+                .setUri(track.filepath)
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .build()
+                )
+                .build(),
+        )
+        _state.value = _state.value.copy(queue = currentQueue)
+        saveCurrentQueueToDb()
+    }
+
+    override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        ensureConnected()
+        val currentQueue = _state.value.queue.toMutableList()
+        if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
+            val item = currentQueue.removeAt(fromIndex)
+            currentQueue.add(toIndex, item)
+            mediaController?.moveMediaItem(fromIndex, toIndex)
+            val newCurrentIndex = when (_state.value.queueIndex) {
+                fromIndex -> toIndex
+                in (fromIndex + 1)..toIndex -> _state.value.queueIndex - 1
+                in toIndex until fromIndex -> _state.value.queueIndex + 1
+                else -> _state.value.queueIndex
+            }
+            _state.value = _state.value.copy(queue = currentQueue, queueIndex = newCurrentIndex)
+            saveCurrentQueueToDb()
+        }
+    }
+
     override fun removeFromQueue(index: Int) {
         ensureConnected()
         val newQueue = _state.value.queue.toMutableList()

@@ -401,6 +401,13 @@ fun SettingsScreen(
                                                     .clickable {
                                                         selectedMode = mode
                                                         prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                                        org.michimusic.player.PlayerDependencies.configureReplayGain(
+                                                            mode,
+                                                            org.michimusic.player.ReplayGainPreAmp(
+                                                                with = preAmpWith.floatValue,
+                                                                without = preAmpWithout.floatValue,
+                                                            ),
+                                                        )
                                                     },
                                                 contentAlignment = Alignment.Center,
                                             ) {
@@ -440,6 +447,13 @@ fun SettingsScreen(
                                         onValueChange = {
                                             preAmpWith.floatValue = it
                                             prefs.edit { putFloat(KEY_RG_PREAMP_WITH, it) }
+                                            org.michimusic.player.PlayerDependencies.configureReplayGain(
+                                                selectedMode,
+                                                org.michimusic.player.ReplayGainPreAmp(
+                                                    with = it,
+                                                    without = preAmpWithout.floatValue,
+                                                ),
+                                            )
                                         },
                                         valueRange = -15f..15f,
                                         steps = 29,
@@ -463,6 +477,13 @@ fun SettingsScreen(
                                         onValueChange = {
                                             preAmpWithout.floatValue = it
                                             prefs.edit { putFloat(KEY_RG_PREAMP_WITHOUT, it) }
+                                            org.michimusic.player.PlayerDependencies.configureReplayGain(
+                                                selectedMode,
+                                                org.michimusic.player.ReplayGainPreAmp(
+                                                    with = preAmpWith.floatValue,
+                                                    without = it,
+                                                ),
+                                            )
                                         },
                                         valueRange = -15f..15f,
                                         steps = 29,

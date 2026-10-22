@@ -19,6 +19,7 @@ data class AudioOutputDevice(
     val type: Int,
     val isSelected: Boolean = false,
     val isUsbDac: Boolean = false,
+    val isUsbHeadset: Boolean = false,
     val isBluetooth: Boolean = false,
     val isWired: Boolean = false,
     val isSpeaker: Boolean = false,
@@ -244,7 +245,8 @@ class UsbDacManager(
         }
 
         val deviceList = descriptors.map { desc ->
-            val isUsb = isUsbAudioType(desc.androidType)
+            val isUsbDevice = desc.androidType == AudioDeviceInfo.TYPE_USB_DEVICE || desc.androidType == AudioDeviceInfo.TYPE_USB_ACCESSORY
+            val isUsbHeadset = desc.androidType == AudioDeviceInfo.TYPE_USB_HEADSET
             val isBt = desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                 desc.androidType == AudioDeviceInfo.TYPE_HEARING_AID
@@ -264,7 +266,8 @@ class UsbDacManager(
                 name = desc.name,
                 type = desc.androidType,
                 isSelected = isSelected,
-                isUsbDac = isUsb,
+                isUsbDac = isUsbDevice,
+                isUsbHeadset = isUsbHeadset,
                 isBluetooth = isBt,
                 isWired = isWired,
                 isSpeaker = isSpk,

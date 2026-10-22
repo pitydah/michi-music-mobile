@@ -98,4 +98,32 @@ class PlayerControllerTest {
         controller.toggleShuffle()
         assertEquals(!initial, controller.getExoPlayer().shuffleModeEnabled)
     }
+
+    @Test
+    fun `playNext inserts track directly after current index`() {
+        val track1 = Track(id = "1", title = "T1", filepath = "http://fake.url/1.mp3")
+        val track2 = Track(id = "2", title = "T2", filepath = "http://fake.url/2.mp3")
+        val trackNext = Track(id = "3", title = "T3", filepath = "http://fake.url/3.mp3")
+
+        controller.playQueue(listOf(track1, track2), startIndex = 0)
+        controller.playNext(trackNext)
+
+        val state = controller.state.value
+        assertEquals(3, state.queue.size)
+        assertEquals("3", state.queue[1].id)
+        assertEquals("2", state.queue[2].id)
+    }
+
+    @Test
+    fun `moveQueueItem swaps positions accurately in queue`() {
+        val track1 = Track(id = "1", title = "T1", filepath = "http://fake.url/1.mp3")
+        val track2 = Track(id = "2", title = "T2", filepath = "http://fake.url/2.mp3")
+        val track3 = Track(id = "3", title = "T3", filepath = "http://fake.url/3.mp3")
+
+        controller.playQueue(listOf(track1, track2, track3), startIndex = 0)
+        controller.moveQueueItem(0, 2)
+
+        val state = controller.state.value
+        assertEquals(listOf("2", "3", "1"), state.queue.map { it.id })
+    }
 }

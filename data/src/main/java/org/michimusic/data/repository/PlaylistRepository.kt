@@ -72,6 +72,16 @@ open class PlaylistRepository(
         playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
     }
 
+    // Add all tracks of an album to existing playlist
+    open suspend fun addAlbumToPlaylist(id: String, albumTracks: List<Track>) = writeMutex.withLock {
+        if (playlistDao == null || albumTracks.isEmpty()) return@withLock
+        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
+        val existingIds = parseTrackIds(cached.trackIds)
+        val incomingIds = albumTracks.map { it.id.trim() }.filter { it.isNotBlank() }
+        val combined = (existingIds + incomingIds).distinct()
+        playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
+    }
+
     // New method: remove a single track from playlist
     open suspend fun removeTrackFromPlaylist(id: String, trackId: String) = writeMutex.withLock {
         if (playlistDao == null) return@withLock
