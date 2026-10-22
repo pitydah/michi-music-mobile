@@ -21,6 +21,7 @@
 | M14 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | df032e44 | Macro-sprint integral: Media3 queue dinámica, error loop guard, DAC vs headset truth, physical location validation, playlists album append y RG UI |
 | M14.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | d939f4d | Cierre funcional auditado: consecución error loop guard con delay, verdad de ruta USB DAC vs Headset en toda la UI, diálogo para añadir álbum a playlist en AlbumsScreen y targets táctiles de 44-48dp en cola |
 | M14.2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 4b06447 | Cierre técnico integral: AudioRouteScreen reactivo con AudioDeviceCallback, eliminación de asunciones Hi-Res, autoridad única Media3 con PendingQueueCommands y ServiceScope thread-safe, Playlists atómicas con confirmación explícita (PlaylistAddResult) y feedback en UI, resolución de ubicaciones físicas y fallback resiliente, recuperación persistente de transferencias AirCat ante recreación de proceso |
+| M14.3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | e50cc3e | Sincronización autoritativa de timeline en Media3 (onTimelineChanged), comandos pendientes basados en identidad de pista, transacciones Room atómicas en Multi-Library (registerTrackWithLocationAtomic), recuperación efectiva de transferencias AirCat incompletas con byte-range resume tras process death, menú unificado de acciones TrackActionBottomSheet |
 
 ---
 
