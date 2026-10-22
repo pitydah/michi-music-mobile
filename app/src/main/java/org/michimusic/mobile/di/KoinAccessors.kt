@@ -38,4 +38,8 @@ val transferCheckpointRepository: org.michimusic.core.models.TransferCheckpointR
     runCatching { KoinJavaComponent.get<org.michimusic.core.models.TransferCheckpointRepository>(org.michimusic.core.models.TransferCheckpointRepository::class.java) }.getOrNull()
 }
 
+val airCatTransferClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? by lazy {
+    runCatching { KoinJavaComponent.get<org.michimusic.mobile.devices.aircat.AirCatTransferClient>(org.michimusic.mobile.devices.aircat.AirCatTransferClient::class.java) }.getOrNull()
+}
+
 

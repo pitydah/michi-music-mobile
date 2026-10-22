@@ -576,4 +576,128 @@ class AirCatContractTest {
         assertTrue(targetFile.exists())
         assertEquals(trackData.size.toLong(), targetFile.length())
     }
+
+    @Test
+    fun aircatRecoverIncompleteTransfersFailsWhenPeerIsRevoked() = runBlocking {
+        val revokedDeviceId = "revoked_node_123"
+        val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+
+        val revokedDevice = PairedDevice(
+            deviceId = revokedDeviceId,
+            deviceName = "Revoked Node",
+            deviceToken = "token_revoked",
+            lastUrl = "http://192.168.1.55:8400",
+            isRevoked = true,
+        )
+        every { pairedRegistry.getDevice(revokedDeviceId) } returns revokedDevice
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val client = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val result = client.recoverIncompleteTransfers(revokedDeviceId, mockClient)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+    }
+
+    @Test
+    fun aircatExecuteTransferFailsWhenLibraryRegistrationFails() = runBlocking {
+        val transferId = "aircat_fail_lib_reg"
+        val sourceId = "test_source_device_1"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
+
+        val trackData = "TestDataForFailedLibReg".toByteArray()
+        val expectedSha = sha256(trackData)
+        val peer = FakeAirCatPeer(sourceId)
+        peer.setupTrackStreaming("track_fail_reg", trackData)
+
+        val failingLibraryRepo = mockk<MusicLibraryRepository>()
+        coEvery {
+            failingLibraryRepo.registerTrackWithLocation(any(), any(), any(), any())
+        } returns Result.failure(IllegalStateException("Database constraint violation"))
+
+        val checkpointMap = mutableMapOf<String, org.michimusic.core.models.PersistentCheckpoint>()
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        coEvery { checkpointRepo.saveCheckpoint(any()) } answers {
+            val cp = firstArg<org.michimusic.core.models.PersistentCheckpoint>()
+            checkpointMap[cp.transferKey] = cp
+        }
+        coEvery { checkpointRepo.updateProgress(any(), any(), any(), any()) } answers {
+            val key = firstArg<String>()
+            val rec = secondArg<Long>()
+            val ver = thirdArg<Long>()
+            val state = arg<org.michimusic.core.models.TransferStatus>(3)
+            val old = checkpointMap[key]
+            if (old != null) {
+                checkpointMap[key] = old.copy(receivedBytes = rec, verifiedBytes = ver, transferState = state)
+            } else {
+                checkpointMap[key] = org.michimusic.core.models.PersistentCheckpoint(
+                    transferKey = key,
+                    transferId = "xfer",
+                    remoteDeviceId = sourceId,
+                    sourceLibraryId = "lib_src",
+                    destinationLibraryId = "lib_dest",
+                    trackId = "track_fail_reg",
+                    remoteTrackId = "track_fail_reg",
+                    tempFilePath = "",
+                    finalFilePath = "",
+                    expectedSize = 100L,
+                    receivedBytes = rec,
+                    verifiedBytes = ver,
+                    expectedSha256 = "",
+                    transferState = state,
+                )
+            }
+        }
+        coEvery { checkpointRepo.getCheckpoint(any()) } answers {
+            checkpointMap[firstArg()]
+        }
+
+        val testTransferManager = LinkTransferManager(mockContext, checkpointRepo)
+        val client = DefaultAirCatTransferClient(
+            transferManager = testTransferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = failingLibraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val manifestItem = AirCatManifestItem(
+            logicalTrackId = "track_fail_reg",
+            remoteTrackId = "track_fail_reg",
+            title = "Failed Registration Track",
+            artist = "Artist",
+            album = "Album",
+            format = "mp3",
+            size = trackData.size.toLong(),
+            sha256 = expectedSha,
+        )
+
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = transferId,
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = trackData.size.toLong(),
+            items = listOf(manifestItem),
+        )
+
+        val intent = TransferIntent(
+            transferId = transferId,
+            sourceMichiId = sourceId,
+            destinationMichiId = "dest_client",
+            sourceLibraryId = "lib_source",
+            destinationLibraryId = "lib_dest",
+        )
+
+        val result = client.executeTransfer(intent, manifest, peer.mockClient, availableStorageBytes = 10L * 1024 * 1024 * 1024)
+        assertTrue("executeTransfer should fail if library registration fails", result.isFailure)
+
+        // Checkpoint must NOT be marked COMPLETED
+        val checkpoint = checkpointRepo.getCheckpoint("$sourceId:lib_dest:track_fail_reg")
+        assertEquals(org.michimusic.core.models.TransferStatus.FAILED, checkpoint?.transferState)
+    }
 }

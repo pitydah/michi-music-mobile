@@ -133,6 +133,14 @@ class SyncWorker(
                 )
             }
 
+            // Recover incomplete/paused AirCat checkpoints first
+            val aircatClient = org.michimusic.mobile.di.airCatTransferClient
+            if (aircatClient != null) {
+                runCatching {
+                    aircatClient.recoverIncompleteTransfers(deviceId, client)
+                }
+            }
+
             val downloadedIds = repository.getDownloadedIds()
             val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 

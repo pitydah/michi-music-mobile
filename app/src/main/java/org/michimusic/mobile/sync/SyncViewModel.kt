@@ -686,6 +686,45 @@ class SyncViewModel(
         airCatClient?.cancelTransfer(transferId)
     }
 
+    fun recoverIncompleteAirCatTransfers(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        val client = currentClient
+        val airCat = airCatClient
+        if (airCat == null) {
+            onResult(false, "Servicio AirCat no disponible")
+            return
+        }
+        val device = registry.getDevice(targetDeviceId)
+        if (device == null || device.isRevoked) {
+            onResult(false, "Dispositivo no encontrado o revocado")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val effectiveClient = connectionManager.getClient(targetDeviceId)
+                    ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
+                        client
+                    } else {
+                        LinkClient(
+                            baseUrl = device.lastUrl,
+                            sessionToken = device.deviceToken,
+                            deviceToken = device.deviceToken,
+                            clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
+                            pairedClientDeviceId = device.pairedClientDeviceId,
+                        )
+                    }
+                val recoveryResult = airCat.recoverIncompleteTransfers(targetDeviceId, effectiveClient)
+                if (recoveryResult.isSuccess) {
+                    val count = recoveryResult.getOrThrow().size
+                    onResult(true, "Recuperación completada ($count pistas restauradas)")
+                } else {
+                    onResult(false, "Fallo en recuperación: ${recoveryResult.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                onResult(false, "Error durante recuperación: ${e.message}")
+            }
+        }
+    }
+
     fun startAirCatTransfer(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val client = currentClient
         val airCat = airCatClient

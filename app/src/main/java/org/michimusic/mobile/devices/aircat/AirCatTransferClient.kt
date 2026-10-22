@@ -316,7 +316,7 @@ class DefaultAirCatTransferClient(
                             location = location,
                             libraryId = intent.destinationLibraryId,
                             origin = "AIRC_AT",
-                        )
+                        ).getOrThrow()
                     } catch (e: Exception) {
                         // Compensate: mark checkpoint as FAILED so it does not report completed inconsistently
                         checkpointRepository?.updateProgress(
@@ -445,7 +445,7 @@ class DefaultAirCatTransferClient(
 
         // 1. Verify remote device trust
         val pairedDevice = pairedDeviceRegistry.getDevice(remoteDeviceId)
-        if (pairedDevice == null) {
+        if (pairedDevice == null || pairedDevice.isRevoked) {
             return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
         }
 
@@ -514,9 +514,10 @@ class DefaultAirCatTransferClient(
             recoveredFiles.add(finalFile)
             bytesAccumulated += finalFile.length()
 
-            // Register into Multi-Library domain transactionally
+            // Register into Multi-Library domain transactionally preserving existing identity
             if (libraryRepository != null) {
-                val trackIdentity = TrackIdentity(
+                val existingIdentity = libraryRepository.getTrackIdentity(cp.trackId)
+                val trackIdentity = existingIdentity ?: TrackIdentity(
                     id = cp.trackId,
                     title = cp.trackId,
                     artist = "Unknown",
@@ -539,7 +540,7 @@ class DefaultAirCatTransferClient(
                         location = location,
                         libraryId = cp.destinationLibraryId,
                         origin = "AIRC_AT",
-                    )
+                    ).getOrThrow()
                 } catch (e: Exception) {
                     repo.updateProgress(
                         transferKey = cp.transferKey,
