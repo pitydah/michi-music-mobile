@@ -254,4 +254,28 @@ class UsbDacManagerTest {
         assertEquals(0, fakeSource.listenerCount())
         assertTrue(observer.isReleased)
     }
+
+    @Test
+    fun usbHeadsetDifferentiatesFromDacTest() {
+        val observer = FakeAudioRouteObserver()
+        val fakeSource = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, fakeSource, observer)
+
+        val headset = OutputDescriptor(androidDeviceId = 77, name = "USB-C Earphones", androidType = AudioDeviceInfo.TYPE_USB_HEADSET)
+        fakeSource.updateDevices(listOf(headset))
+
+        assertTrue(manager.dacState.value.isConnected)
+        assertTrue(manager.dacState.value.isUsbHeadset)
+        val dev = manager.outputDevices.value.first()
+        assertTrue(dev.isUsbHeadset)
+        assertFalse(dev.isUsbDac)
+
+        val dac = OutputDescriptor(androidDeviceId = 88, name = "FiiO KA13", androidType = AudioDeviceInfo.TYPE_USB_DEVICE)
+        fakeSource.updateDevices(listOf(dac))
+        assertTrue(manager.dacState.value.isConnected)
+        assertFalse(manager.dacState.value.isUsbHeadset)
+        val dacDev = manager.outputDevices.value.first()
+        assertTrue(dacDev.isUsbDac)
+        assertFalse(dacDev.isUsbHeadset)
+    }
 }

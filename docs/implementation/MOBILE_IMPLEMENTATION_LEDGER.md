@@ -18,7 +18,8 @@
 | M11 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 73e54d6 | UI Premium, Settings jerárquico, Android Auto y Diagnósticos expurgados |
 | M12 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a6bb44b | CI ampliado, migraciones Room, matriz física verificable y release gates |
 | M13 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 2f77234e | Integración total de seguridad criptográfica y controles idempotentes |
-| M14 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | fda33bf | Macro-sprint integral: Media3 queue dinámica, error loop guard, DAC vs headset truth, physical location validation, playlists album append y RG UI |
+| M14 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | df032e44 | Macro-sprint integral: Media3 queue dinámica, error loop guard, DAC vs headset truth, physical location validation, playlists album append y RG UI |
+| M14.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre funcional auditado: consecución error loop guard con delay, verdad de ruta USB DAC vs Headset en toda la UI, diálogo para añadir álbum a playlist en AlbumsScreen y targets táctiles de 44-48dp en cola |
 
 ---
 

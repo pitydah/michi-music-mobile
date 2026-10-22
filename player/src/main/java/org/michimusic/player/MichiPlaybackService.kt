@@ -122,13 +122,24 @@ class MichiPlaybackService : MediaLibraryService() {
                 }
 
                 private var consecutiveErrorCount = 0
+                private var playbackSuccessJob: kotlinx.coroutines.Job? = null
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) consecutiveErrorCount = 0
-                    if (!isPlaying) deferSave()
+                    playbackSuccessJob?.cancel()
+                    if (isPlaying) {
+                        // Avoid resetting consecutiveErrorCount on transient isPlaying transitions.
+                        // Only reset if playback sustains for at least 2.5 seconds without error.
+                        playbackSuccessJob = saveScope.launch {
+                            kotlinx.coroutines.delay(2500L)
+                            consecutiveErrorCount = 0
+                        }
+                    } else {
+                        deferSave()
+                    }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    playbackSuccessJob?.cancel()
                     consecutiveErrorCount++
                     android.util.Log.e(
                         "MichiPlaybackService",

@@ -50,6 +50,7 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 private sealed class AudioRoute {
     data object InternalSpeaker : AudioRoute()
     data object UsbDac : AudioRoute()
+    data object UsbHeadset : AudioRoute()
     data class Bluetooth(val codec: String = "") : AudioRoute()
     data object Unknown : AudioRoute()
 }
@@ -182,7 +183,8 @@ fun AudioRouteScreen() {
             Spacer(Modifier.height(8.dp))
             Text(
                 text = when (route) {
-                    is AudioRoute.UsbDac -> "USB DAC presente. La salida efectiva depende del enrutamiento activo de Android y Media3."
+                    is AudioRoute.UsbDac -> "DAC USB presente. Enrutamiento directo y soporte de alta resolución activo."
+                    is AudioRoute.UsbHeadset -> "Auriculares USB conectados vía puerto digital."
                     is AudioRoute.Bluetooth -> "Bluetooth activo. Para mejor calidad, usa un codec LDAC o aptX HD."
                     is AudioRoute.InternalSpeaker -> "Usando altavoz interno. Conecta auriculares o un DAC USB para mejor experiencia."
                     is AudioRoute.Unknown -> "No se pudo detectar la salida de audio."
@@ -196,7 +198,8 @@ fun AudioRouteScreen() {
 
 private fun routeName(route: AudioRoute): String = when (route) {
     is AudioRoute.InternalSpeaker -> "Altavoz interno"
-    is AudioRoute.UsbDac -> "USB Audio"
+    is AudioRoute.UsbDac -> "DAC USB"
+    is AudioRoute.UsbHeadset -> "Auriculares USB"
     is AudioRoute.Bluetooth -> "Bluetooth (${route.codec})"
     is AudioRoute.Unknown -> "Desconocido"
 }
@@ -204,6 +207,7 @@ private fun routeName(route: AudioRoute): String = when (route) {
 private fun routeIcon(route: AudioRoute) = when (route) {
     is AudioRoute.InternalSpeaker -> Icons.Rounded.Speaker
     is AudioRoute.UsbDac -> Icons.Rounded.Usb
+    is AudioRoute.UsbHeadset -> Icons.Rounded.Headphones
     is AudioRoute.Bluetooth -> Icons.Rounded.BluetoothAudio
     is AudioRoute.Unknown -> Icons.Rounded.Headphones
 }
@@ -211,8 +215,10 @@ private fun routeIcon(route: AudioRoute) = when (route) {
 private fun detectRoute(audioManager: AudioManager): AudioRoute {
     val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
     return when {
-        devices.any { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_DOCK } ->
+        devices.any { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY || it.type == AudioDeviceInfo.TYPE_DOCK } ->
             AudioRoute.UsbDac
+        devices.any { it.type == AudioDeviceInfo.TYPE_USB_HEADSET } ->
+            AudioRoute.UsbHeadset
         devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP } -> {
             val btDevice = devices.first { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
             AudioRoute.Bluetooth(codec = btDevice.productName?.toString() ?: "A2DP")

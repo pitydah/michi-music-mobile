@@ -310,43 +310,43 @@ fun QueueScreen() {
 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
                                 ) {
                                     if (idx > 0) {
                                         androidx.compose.material3.IconButton(
                                             onClick = { controller.moveQueueItem(idx, idx - 1) },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(44.dp),
                                         ) {
                                             Icon(
                                                 imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowUp,
                                                 contentDescription = "Mover arriba",
                                                 tint = TextSecondary,
-                                                modifier = Modifier.size(16.dp),
+                                                modifier = Modifier.size(20.dp),
                                             )
                                         }
                                     }
                                     if (idx < queue.lastIndex) {
                                         androidx.compose.material3.IconButton(
                                             onClick = { controller.moveQueueItem(idx, idx + 1) },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(44.dp),
                                         ) {
                                             Icon(
                                                 imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
                                                 contentDescription = "Mover abajo",
                                                 tint = TextSecondary,
-                                                modifier = Modifier.size(16.dp),
+                                                modifier = Modifier.size(20.dp),
                                             )
                                         }
                                     }
                                     androidx.compose.material3.IconButton(
                                         onClick = { controller.removeFromQueue(idx) },
-                                        modifier = Modifier.size(28.dp),
+                                        modifier = Modifier.size(44.dp),
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Clear,
                                             contentDescription = "Quitar de cola",
                                             tint = PrimaryPink.copy(alpha = 0.8f),
-                                            modifier = Modifier.size(16.dp),
+                                            modifier = Modifier.size(18.dp),
                                         )
                                     }
                                 }

@@ -123,6 +123,8 @@ fun AlbumsScreen(
     var viewMode by remember { mutableStateOf(LibraryViewMode.LIST) }
     var currentCoverflowIndex by remember { mutableIntStateOf(0) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
+    var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
+    val playlists by viewModel.playlists.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadMedia()
@@ -558,24 +560,40 @@ fun AlbumsScreen(
                                                 )
                                             }
 
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(48.dp)
-                                                    .clip(CircleShape)
-                                                    .background(PrimaryPinkContainer)
-                                                    .clickable {
-                                                        if (currentAlbum.tracks.isNotEmpty()) {
-                                                            audioController.playQueue(currentAlbum.tracks, 0)
-                                                        }
-                                                    },
-                                                contentAlignment = Alignment.Center,
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
-                                                Icon(
-                                                    Icons.Default.PlayArrow,
-                                                    contentDescription = "Reproducir Álbum",
-                                                    tint = PureWhite,
-                                                    modifier = Modifier.size(24.dp),
-                                                )
+                                                IconButton(
+                                                    onClick = { albumToAddToPlaylist = currentAlbum },
+                                                    modifier = Modifier.size(44.dp),
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Add,
+                                                        contentDescription = "Añadir a playlist",
+                                                        tint = TextSecondary,
+                                                        modifier = Modifier.size(20.dp),
+                                                    )
+                                                }
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(48.dp)
+                                                        .clip(CircleShape)
+                                                        .background(PrimaryPinkContainer)
+                                                        .clickable {
+                                                            if (currentAlbum.tracks.isNotEmpty()) {
+                                                                audioController.playQueue(currentAlbum.tracks, 0)
+                                                            }
+                                                        },
+                                                    contentAlignment = Alignment.Center,
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.PlayArrow,
+                                                        contentDescription = "Reproducir Álbum",
+                                                        tint = PureWhite,
+                                                        modifier = Modifier.size(24.dp),
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -629,12 +647,37 @@ fun AlbumsScreen(
                                                 )
                                             }
 
-                                            Icon(
-                                                Icons.Default.PlayArrow,
-                                                contentDescription = "Reproducir",
-                                                tint = PrimaryPink,
-                                                modifier = Modifier.size(24.dp),
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                IconButton(
+                                                    onClick = { albumToAddToPlaylist = localAlbum },
+                                                    modifier = Modifier.size(44.dp),
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Add,
+                                                        contentDescription = "Añadir a playlist",
+                                                        tint = TextSecondary,
+                                                        modifier = Modifier.size(20.dp),
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        if (localAlbum.tracks.isNotEmpty()) {
+                                                            audioController.playQueue(localAlbum.tracks, 0)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(44.dp),
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.PlayArrow,
+                                                        contentDescription = "Reproducir",
+                                                        tint = PrimaryPink,
+                                                        modifier = Modifier.size(24.dp),
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -726,6 +769,91 @@ fun AlbumsScreen(
                 },
                 onDismiss = { showCreatePlaylist = false },
             )
+        }
+
+        albumToAddToPlaylist?.let { targetAlbum ->
+            androidx.compose.ui.window.Dialog(onDismissRequest = { albumToAddToPlaylist = null }) {
+                androidx.compose.material3.Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = SurfaceObsidian,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = "Añadir a playlist",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = PureWhite,
+                        )
+                        Text(
+                            text = "Selecciona una playlist para «${targetAlbum.album.title}» (${targetAlbum.tracks.size} pistas)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                        )
+
+                        if (playlists.isEmpty()) {
+                            Text(
+                                text = "No tienes playlists creadas. Pulsa el botón '+' arriba para crear una.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextMuted,
+                                modifier = Modifier.padding(vertical = 12.dp),
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height((playlists.size * 56).coerceAtMost(240).dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                items(playlists, key = { it.id }) { pl ->
+                                    GlassCard(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        backgroundColor = GlassFillLow,
+                                        borderColor = GlassBorderLow,
+                                        onClick = {
+                                            viewModel.addAlbumToPlaylist(pl.id, targetAlbum.tracks)
+                                            albumToAddToPlaylist = null
+                                        },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            Text(
+                                                text = pl.name,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = PureWhite,
+                                            )
+                                            Text(
+                                                text = "${pl.trackCount} temas",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextSecondary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            androidx.compose.material3.TextButton(onClick = { albumToAddToPlaylist = null }) {
+                                Text("Cancelar", color = TextSecondary)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

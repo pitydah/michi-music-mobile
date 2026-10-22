@@ -1391,6 +1391,7 @@ fun AudioRouteDialog(
                             val isCurrentSelected = (selectedId == device.id) || (selectedId == null && device.isSelected)
                             val icon = when {
                                 device.isUsbDac -> Icons.Filled.Usb
+                                device.isUsbHeadset -> Icons.Filled.Headphones
                                 device.isBluetooth -> Icons.Filled.Bluetooth
                                 device.isWired -> Icons.Filled.Headphones
                                 else -> Icons.Filled.Speaker

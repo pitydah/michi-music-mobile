@@ -132,5 +132,27 @@ class AlbumsViewModel(
         }
     }
 
+    fun addAlbumToPlaylist(playlistId: String, albumTracks: List<Track>, onComplete: (Boolean) -> Unit = {}) {
+        if (albumTracks.isEmpty()) {
+            onComplete(false)
+            return
+        }
+        viewModelScope.launch(ioDispatcher) {
+            var success = false
+            try {
+                playlistRepo.addAlbumToPlaylist(playlistId, albumTracks)
+                val updated = playlistRepo.getAllPlaylists()
+                _playlists.value = updated
+                success = true
+            } catch (e: Exception) {
+                _error.value = "Error al añadir álbum a la playlist: ${e.message}"
+            } finally {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    onComplete(success)
+                }
+            }
+        }
+    }
+
     fun clearError() { _error.value = null }
 }

@@ -33,6 +33,7 @@ data class UsbDacInfo(
     val channelCounts: List<Int> = emptyList(),
     val encodings: List<Int> = emptyList(),
     val deviceId: Int = 0,
+    val isUsbHeadset: Boolean = false,
 )
 
 /**
@@ -213,11 +214,12 @@ class UsbDacManager(
             preferredUsbDevice = usbNativeDevice
             _dacState.value = UsbDacInfo(
                 isConnected = true,
-                deviceName = usbDescriptor.name.takeIf { it.isNotBlank() } ?: "DAC USB Externo",
+                deviceName = usbDescriptor.name.takeIf { it.isNotBlank() } ?: if (usbDescriptor.androidType == AudioDeviceInfo.TYPE_USB_HEADSET) "Auriculares USB" else "DAC USB Externo",
                 sampleRates = usbDescriptor.announcedSampleRates,
                 channelCounts = usbDescriptor.announcedChannelCounts,
                 encodings = usbDescriptor.announcedEncodings,
                 deviceId = usbDescriptor.androidDeviceId,
+                isUsbHeadset = usbDescriptor.androidType == AudioDeviceInfo.TYPE_USB_HEADSET,
             )
             routeObserver.onDeviceDetected(usbDescriptor)
         } else if (lastKnownUsbDeviceId == null) {
