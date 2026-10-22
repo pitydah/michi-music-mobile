@@ -19,7 +19,8 @@
 | M12 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a6bb44b | CI ampliado, migraciones Room, matriz física verificable y release gates |
 | M13 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 2f77234e | Integración total de seguridad criptográfica y controles idempotentes |
 | M14 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | df032e44 | Macro-sprint integral: Media3 queue dinámica, error loop guard, DAC vs headset truth, physical location validation, playlists album append y RG UI |
-| M14.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre funcional auditado: consecución error loop guard con delay, verdad de ruta USB DAC vs Headset en toda la UI, diálogo para añadir álbum a playlist en AlbumsScreen y targets táctiles de 44-48dp en cola |
+| M14.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | d939f4d | Cierre funcional auditado: consecución error loop guard con delay, verdad de ruta USB DAC vs Headset en toda la UI, diálogo para añadir álbum a playlist en AlbumsScreen y targets táctiles de 44-48dp en cola |
+| M14.2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 4b06447 | Cierre técnico integral: AudioRouteScreen reactivo con AudioDeviceCallback, eliminación de asunciones Hi-Res, autoridad única Media3 con PendingQueueCommands y ServiceScope thread-safe, Playlists atómicas con confirmación explícita (PlaylistAddResult) y feedback en UI, resolución de ubicaciones físicas y fallback resiliente, recuperación persistente de transferencias AirCat ante recreación de proceso |
 
 ---
 
