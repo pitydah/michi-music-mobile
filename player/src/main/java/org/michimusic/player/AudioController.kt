@@ -356,16 +356,16 @@ class AudioController(
             return
         }
         val currentQueue = _state.value.queue
-        val queueById = currentQueue.associateBy { it.id }
+        val remainingQueueTracks = currentQueue.toMutableList()
         val reconciled = mutableListOf<Track>()
         var modified = false
 
         for (i in 0 until count) {
             val item = ctrl.getMediaItemAt(i)
             val trackId = LibraryProvider.extractSongId(item.mediaId) ?: item.mediaId
-            val existing = queueById[trackId]
-            if (existing != null) {
-                reconciled.add(existing)
+            val existingIndex = remainingQueueTracks.indexOfFirst { it.id == trackId }
+            if (existingIndex >= 0) {
+                reconciled.add(remainingQueueTracks.removeAt(existingIndex))
             } else {
                 reconciled.add(
                     Track(

@@ -153,13 +153,13 @@ class PlayerController(
                     return
                 }
                 val currentQueue = _state.value.queue
-                val queueById = currentQueue.associateBy { it.id }
+                val remainingQueueTracks = currentQueue.toMutableList()
                 val reconciled = mutableListOf<Track>()
                 for (i in 0 until count) {
                     val item = player.getMediaItemAt(i)
-                    val existing = queueById[item.mediaId]
-                    if (existing != null) {
-                        reconciled.add(existing)
+                    val existingIndex = remainingQueueTracks.indexOfFirst { it.id == item.mediaId }
+                    if (existingIndex >= 0) {
+                        reconciled.add(remainingQueueTracks.removeAt(existingIndex))
                     } else {
                         reconciled.add(
                             Track(

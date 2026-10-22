@@ -165,4 +165,25 @@ class PlayerControllerTest {
         assertEquals(1, controller.state.value.queue.size)
         assertEquals("2", controller.state.value.queue.first().id)
     }
+
+    @Test
+    fun `timeline synchronization preserves duplicate track entries without collapsing`() {
+        val trackA1 = Track(id = "repeat_id", title = "Song A", filepath = "http://fake.url/a.mp3")
+        val trackB = Track(id = "other_id", title = "Song B", filepath = "http://fake.url/b.mp3")
+        val trackA2 = Track(id = "repeat_id", title = "Song A", filepath = "http://fake.url/a.mp3")
+
+        controller.playQueue(listOf(trackA1, trackB, trackA2))
+
+        val state = controller.state.value
+        assertEquals(3, state.queue.size)
+        assertEquals(listOf("repeat_id", "other_id", "repeat_id"), state.queue.map { it.id })
+
+        val exo = controller.getExoPlayer()
+        assertEquals(3, exo.mediaItemCount)
+
+        // Trigger timeline update by moving media item
+        exo.moveMediaItem(1, 0)
+        assertEquals(3, controller.state.value.queue.size)
+        assertEquals(listOf("other_id", "repeat_id", "repeat_id"), controller.state.value.queue.map { it.id })
+    }
 }
