@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,15 +56,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
+import org.michimusic.data.repository.FavoritesRepository
 import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
 import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
@@ -124,6 +129,11 @@ fun AlbumsScreen(
     var currentCoverflowIndex by remember { mutableIntStateOf(0) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
+    var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
+    val favoritesRepo: FavoritesRepository = koinInject()
+    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
+    val coroutineScope = rememberCoroutineScope()
     val playlists by viewModel.playlists.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -490,6 +500,18 @@ fun AlbumsScreen(
                                                 text = formatTimeMillis(track.duration),
                                                 fontSize = 11.sp,
                                                 color = TextMuted,
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { selectedTrackForMenu = track },
+                                            modifier = Modifier.size(44.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Opciones",
+                                                tint = TextSecondary,
+                                                modifier = Modifier.size(20.dp),
                                             )
                                         }
                                     }
@@ -902,6 +924,39 @@ fun AlbumsScreen(
                     }
                 }
             }
+        }
+
+        selectedTrackForMenu?.let { track ->
+            TrackActionBottomSheet(
+                track = track,
+                isFavorite = favoriteIds.contains(track.id),
+                onDismiss = { selectedTrackForMenu = null },
+                onPlayNow = {
+                    val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                    audioController.playQueue(filteredTracks, idx)
+                },
+                onPlayNext = {
+                    audioController.playNext(track)
+                },
+                onAddToQueue = {
+                    audioController.addToQueue(track)
+                },
+                onAddToPlaylist = {
+                    trackToAddToPlaylist = track
+                },
+                onToggleFavorite = {
+                    coroutineScope.launch {
+                        favoritesRepo.toggleFavorite(track.id)
+                    }
+                },
+            )
+        }
+
+        trackToAddToPlaylist?.let { track ->
+            AddToPlaylistDialog(
+                tracks = listOf(track),
+                onDismiss = { trackToAddToPlaylist = null },
+            )
         }
     }
 }

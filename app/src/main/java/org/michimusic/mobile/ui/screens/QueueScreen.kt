@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
@@ -35,7 +36,15 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import org.michimusic.core.models.Track
+import org.michimusic.data.repository.FavoritesRepository
+import org.michimusic.mobile.ui.components.AddToPlaylistDialog
+import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,10 +81,16 @@ import org.michimusic.player.AudioController
 @Composable
 fun QueueScreen() {
     val controller: AudioController = koinInject()
+    val favoritesRepo: FavoritesRepository = koinInject()
+    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
+    val coroutineScope = rememberCoroutineScope()
     val state by controller.state.collectAsState()
     val isReady by controller.isReady.collectAsState()
     val queue = state.queue
     val currentIndex = state.queueIndex
+
+    var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
 
     Box(
         modifier = Modifier
@@ -349,6 +364,17 @@ fun QueueScreen() {
                                             modifier = Modifier.size(18.dp),
                                         )
                                     }
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { selectedTrackForMenu = track },
+                                        modifier = Modifier.size(44.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Opciones",
+                                            tint = TextSecondary,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -359,6 +385,39 @@ fun QueueScreen() {
                     }
                 }
             }
+        }
+
+        selectedTrackForMenu?.let { track ->
+            TrackActionBottomSheet(
+                track = track,
+                isFavorite = favoriteIds.contains(track.id),
+                onDismiss = { selectedTrackForMenu = null },
+                onPlayNow = {
+                    val idx = queue.indexOf(track).coerceAtLeast(0)
+                    controller.playQueue(queue, idx)
+                },
+                onPlayNext = {
+                    controller.playNext(track)
+                },
+                onAddToQueue = {
+                    controller.addToQueue(track)
+                },
+                onAddToPlaylist = {
+                    trackToAddToPlaylist = track
+                },
+                onToggleFavorite = {
+                    coroutineScope.launch {
+                        favoritesRepo.toggleFavorite(track.id)
+                    }
+                },
+            )
+        }
+
+        trackToAddToPlaylist?.let { track ->
+            AddToPlaylistDialog(
+                tracks = listOf(track),
+                onDismiss = { trackToAddToPlaylist = null },
+            )
         }
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -43,6 +44,11 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import org.michimusic.data.repository.FavoritesRepository
+import org.michimusic.mobile.ui.components.AddToPlaylistDialog
+import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -97,6 +103,9 @@ fun NowPlayingScreen(
     val activeEndpoint = sessionState.activeEndpoint
 
     val audioController: AudioController = koinInject()
+    val favoritesRepo: FavoritesRepository = koinInject()
+    val coroutineScope = rememberCoroutineScope()
+    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
     val playerState by audioController.state.collectAsState()
 
     val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
@@ -115,6 +124,8 @@ fun NowPlayingScreen(
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showAudioRouteDialog by remember { mutableStateOf(false) }
     var showSignalTruthDialog by remember { mutableStateOf(false) }
+    var showTrackActionMenu by remember { mutableStateOf(false) }
+    var showAddToPlaylistDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -221,6 +232,22 @@ fun NowPlayingScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = "Cola de Reproducción",
+                            tint = PureWhite,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showTrackActionMenu = true },
+                        modifier = Modifier
+                            .size(MichiSpacing.minTouchTarget)
+                            .clip(CircleShape)
+                            .background(GlassFillLow)
+                            .testTag("now_playing_more_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "Más opciones",
                             tint = PureWhite,
                             modifier = Modifier.size(22.dp),
                         )
@@ -564,6 +591,41 @@ fun NowPlayingScreen(
             SignalTruthDialog(
                 observation = signalObservation,
                 onDismiss = { showSignalTruthDialog = false },
+            )
+        }
+
+        if (showTrackActionMenu && currentTrack != null) {
+            TrackActionBottomSheet(
+                track = currentTrack,
+                isFavorite = favoriteIds.contains(currentTrack.id),
+                onDismiss = { showTrackActionMenu = false },
+                onPlayNow = {
+                    audioController.seekTo(0L)
+                },
+                onPlayNext = {
+                    audioController.playNext(currentTrack)
+                },
+                onAddToQueue = {
+                    audioController.addToQueue(currentTrack)
+                },
+                onAddToPlaylist = {
+                    showAddToPlaylistDialog = true
+                },
+                onToggleFavorite = {
+                    coroutineScope.launch {
+                        favoritesRepo.toggleFavorite(currentTrack.id)
+                    }
+                },
+                onViewSignalTruth = {
+                    showSignalTruthDialog = true
+                },
+            )
+        }
+
+        if (showAddToPlaylistDialog && currentTrack != null) {
+            AddToPlaylistDialog(
+                tracks = listOf(currentTrack),
+                onDismiss = { showAddToPlaylistDialog = false },
             )
         }
     }
