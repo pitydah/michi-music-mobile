@@ -422,4 +422,76 @@ class AirCatContractTest {
         aircatClient.cancelTransfer(transferId)
         assertTrue(aircatClient.isTransferCancelled(transferId))
     }
+
+    @Test
+    fun aircatPersistentCheckpointResumeAcrossRecreationTest() = runBlocking {
+        val sourceId = "trusted_peer_1"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
+
+        val trackData = "Recoverable audio content".toByteArray()
+        val trackSha256 = sha256(trackData)
+        val transferKey = "$sourceId:lib_dest:trk_recover_1"
+        val completedFile = File(transferManager.musicDir, "${sourceId}_lib_dest_trk_recover_1.mp3")
+        completedFile.parentFile?.mkdirs()
+        completedFile.writeBytes(trackData)
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        coEvery { checkpointRepo.getCheckpoint(transferKey) } returns org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = transferKey,
+            transferId = "xfer_persisted_1",
+            remoteDeviceId = sourceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+            trackId = "trk_recover_1",
+            remoteTrackId = "rem_1",
+            tempFilePath = "${completedFile.absolutePath}.part",
+            finalFilePath = completedFile.absolutePath,
+            expectedSize = trackData.size.toLong(),
+            receivedBytes = trackData.size.toLong(),
+            verifiedBytes = trackData.size.toLong(),
+            expectedSha256 = trackSha256,
+            transferState = org.michimusic.core.models.TransferStatus.COMPLETED,
+            createdAt = 1000L,
+            updatedAt = 2000L,
+        )
+
+        // Instantiate new client instance simulating application process recreation
+        val newAircatClient = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val intent = TransferIntent(
+            transferId = "xfer_persisted_1",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_persisted_1",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = trackData.size.toLong(),
+            items = listOf(
+                AirCatManifestItem("trk_recover_1", "rem_1", "Recovered Song", "Artist", "Album", "mp3", trackData.size.toLong(), trackSha256)
+            )
+        )
+
+        val result = newAircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue("Should succeed by resuming from checkpoint without re-downloading", result.isSuccess)
+        val files = result.getOrThrow()
+        assertEquals(1, files.size)
+        assertEquals(completedFile.absolutePath, files.first().absolutePath)
+        assertEquals(AirCatTransferState.COMPLETED, newAircatClient.progressEvents.value?.state)
+    }
 }
