@@ -758,5 +758,78 @@ class PlaybackSessionManagerTest {
         
         manager.clearQueue()
         verify { audioController.clearQueue() }
+
+        val testTrack = Track("t_local", "Local Title", "Artist")
+        manager.playNow(testTrack)
+        verify { audioController.playQueue(listOf(testTrack), 0) }
+
+        manager.playNext(testTrack)
+        verify { audioController.playNext(testTrack) }
+
+        manager.addToQueue(testTrack)
+        verify { audioController.addToQueue(testTrack) }
+
+        manager.moveQueueItem(0, 1)
+        verify { audioController.moveQueueItem(0, 1) }
+    }
+
+    @Test
+    fun authoritativeControls_remoteMode_routesToClientWithoutTouchingAudioController() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        // Select remote endpoint
+        val remoteEndpoint = PlaybackEndpoint("remote_1", "Remote Server", EndpointType.SERVER, isLocal = false)
+        manager.attachRemote(remoteEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(manager.sessionState.value.isRemoteActive)
+
+        val track = Track("track_123", "Remote Track", "Artist")
+
+        // 1. playNow
+        manager.playNow(track)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { linkClient.sendPlaybackCommand("play_track", "track_123") }
+        verify(exactly = 0) { audioController.playQueue(any(), any()) }
+
+        // 2. playNext
+        manager.playNext(track)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { linkClient.sendPlaybackCommand("play_next", "track_123") }
+        verify(exactly = 0) { audioController.playNext(any()) }
+        assertTrue(manager.sessionState.value.queue.contains(track))
+
+        // 3. addToQueue
+        val track2 = Track("track_456", "Second Track", "Artist")
+        manager.addToQueue(track2)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { linkClient.sendPlaybackCommand("add_to_queue", "track_456") }
+        verify(exactly = 0) { audioController.addToQueue(any()) }
+        assertTrue(manager.sessionState.value.queue.contains(track2))
+
+        // 4. moveQueueItem
+        manager.moveQueueItem(0, 1)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { linkClient.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = 0, toIndex = 1)) }
+        verify(exactly = 0) { audioController.moveQueueItem(any(), any()) }
     }
 }

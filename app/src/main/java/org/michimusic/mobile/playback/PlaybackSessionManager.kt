@@ -813,6 +813,68 @@ class PlaybackSessionManager(
         }
     }
 
+    fun playNow(track: Track) {
+        if (_sessionState.value.isRemoteActive) {
+            scope.launch {
+                val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
+                client?.sendPlaybackCommand("play_track", track.id)
+            }
+        } else {
+            val q = _sessionState.value.queue
+            val existingIdx = q.indexOfFirst { it.id == track.id }
+            if (existingIdx >= 0) {
+                skipToQueueIndex(existingIdx)
+            } else {
+                audioController?.playQueue(listOf(track), 0)
+            }
+        }
+    }
+
+    fun playNext(track: Track) {
+        if (_sessionState.value.isRemoteActive) {
+            val currentQ = _sessionState.value.queue.toMutableList()
+            val insertIdx = (_sessionState.value.queueIndex + 1).coerceIn(0, currentQ.size)
+            currentQ.add(insertIdx, track)
+            _sessionState.value = _sessionState.value.copy(queue = currentQ)
+            scope.launch {
+                val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
+                client?.sendPlaybackCommand("play_next", track.id)
+            }
+        } else {
+            audioController?.playNext(track)
+        }
+    }
+
+    fun addToQueue(track: Track) {
+        if (_sessionState.value.isRemoteActive) {
+            val currentQ = _sessionState.value.queue + track
+            _sessionState.value = _sessionState.value.copy(queue = currentQ)
+            scope.launch {
+                val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
+                client?.sendPlaybackCommand("add_to_queue", track.id)
+            }
+        } else {
+            audioController?.addToQueue(track)
+        }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        if (_sessionState.value.isRemoteActive) {
+            val currentQ = _sessionState.value.queue.toMutableList()
+            if (fromIndex in currentQ.indices && toIndex in currentQ.indices && fromIndex != toIndex) {
+                val item = currentQ.removeAt(fromIndex)
+                currentQ.add(toIndex, item)
+                _sessionState.value = _sessionState.value.copy(queue = currentQ)
+                scope.launch {
+                    val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
+                    client?.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = fromIndex, toIndex = toIndex))
+                }
+            }
+        } else {
+            audioController?.moveQueueItem(fromIndex, toIndex)
+        }
+    }
+
     fun clearQueue() {
         if (_sessionState.value.isRemoteActive) {
             _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)

@@ -600,13 +600,13 @@ fun NowPlayingScreen(
                 isFavorite = favoriteIds.contains(currentTrack.id),
                 onDismiss = { showTrackActionMenu = false },
                 onPlayNow = {
-                    audioController.seekTo(0L)
+                    sessionManager.playNow(currentTrack)
                 },
                 onPlayNext = {
-                    audioController.playNext(currentTrack)
+                    sessionManager.playNext(currentTrack)
                 },
                 onAddToQueue = {
-                    audioController.addToQueue(currentTrack)
+                    sessionManager.addToQueue(currentTrack)
                 },
                 onAddToPlaylist = {
                     showAddToPlaylistDialog = true
