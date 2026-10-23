@@ -1123,6 +1123,48 @@ ROLLBACK_PLAN:
 BLOCKERS: Ninguno.
 ```
 
+---
+
+```yaml
+SPRINT_ID: M15
+DATE: 2026-10-22
+AUTHOR: Antigravity + Gemini
+COMPONENT: michi-music-mobile
+COMMIT_HASH: 6c29c0ee6ef0314fbe933f2fec47bfedea8b786b
+TARGET_MATURITY: 89%
+MEASURED_MATURITY: 89%
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. DSD/DoP & Bit-Perfect Claims:
+     - El estudio DSD_DOP_FEASIBILITY.md figuraba con estado ambiguo de ingeniería sin exclusión formal para Mobile.
+     - SignalTruthDialog en NowPlayingScreen y SignalTruthTracker presentaban reclamos de "Bit-Perfect" (REQUESTED/UNVERIFIABLE) sin posibilidad de verificación física ni HAL bypass en Android.
+     - EqualizerDialog utilizaba el rótulo "Transparent" y prometía "máxima pureza", generando ambigüedad frente a los mezcladores de Android.
+  2. Lossless Filtering Flaw:
+     - AlbumsScreen consideraba Lossless cualquier pista con sampleRate >= 48000, clasificando falsamente archivos MP3, AAC u Opus con pérdida a 48 kHz como lossless.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. DSD/DoP & Bit-Perfect Archiving:
+     - Formalización de ADR-MOB-DSD-LEGACY en docs/contracts/ADR-MOB-DSD-LEGACY.md.
+     - DSD_DOP_FEASIBILITY.md archivado como ARCHIVED / OUT_OF_SCOPE_MOBILE (Decisión D-02).
+     - Eliminación de la fila "Bit-Perfect" de SignalTruthDialog en NowPlayingScreen.
+     - BitPerfectStatus en :core deprecado con @Deprecated por compatibilidad hacia atrás de esquemas compartidos, y SignalTruthTracker fijado en UNVERIFIABLE sin inferencias no probadas.
+     - Rótulo de AudioProcessingMode.TRANSPARENT en EqualizerDialog cambiado a "Sin efectos" con explicación honesta de neutralidad de DSP (Decisión D-03).
+  2. Genuine Lossless Classification:
+     - El filtro LOSSLESS en AlbumsScreen valida exclusivamente códecs reales sin pérdida (FLAC, ALAC, WAV, PCM). Archivos con compresión con pérdida a 48 kHz o superior (MP3, AAC, Opus) son correctamente rechazados.
+     - Se añadió la suite unitaria LibraryLosslessClassifierTest validando rigurosamente la taxonomía de códecs.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew testFdroidDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :data:test :player:test :core:test :michi-link-client:test (PASSED - 0 fallos)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Se elimina la superficie de riesgo acústico por streaming DoP no soportado y se garantizan afirmaciones de señal 100% verificables y honestas.
+ROLLBACK_PLAN:
+  git revert fdac694..HEAD
+BLOCKERS: Ninguno.
+```
+
+
 
 
 
