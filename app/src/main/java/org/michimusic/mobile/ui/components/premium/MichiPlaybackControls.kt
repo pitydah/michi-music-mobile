@@ -60,6 +60,11 @@ fun MichiPlaybackControls(
     onCycleRepeat: (() -> Unit)? = null,
     playButtonSize: Dp = 68.dp,
     secondaryButtonSize: Dp = MichiSpacing.minTouchTarget,
+    playPauseTestTag: String = "controls_play_pause",
+    prevTestTag: String = "controls_prev",
+    nextTestTag: String = "controls_next",
+    shuffleTestTag: String = "controls_shuffle",
+    repeatTestTag: String = "controls_repeat",
 ) {
     val reducedMotion = LocalVisualPreferences.current.reducedMotion
 
@@ -77,7 +82,7 @@ fun MichiPlaybackControls(
                 tint = if (state.isShuffleEnabled) TertiaryCyan else OnSurfaceVariant,
                 iconSize = 22.dp,
                 minTargetSize = secondaryButtonSize,
-                testTag = "controls_shuffle",
+                testTag = shuffleTestTag,
             )
         }
 
@@ -90,7 +95,7 @@ fun MichiPlaybackControls(
             tint = PureWhite,
             iconSize = 30.dp,
             minTargetSize = secondaryButtonSize,
-            testTag = "controls_prev",
+            testTag = prevTestTag,
         )
 
         // Primary Play / Pause
@@ -115,7 +120,7 @@ fun MichiPlaybackControls(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(bounded = true, color = PureWhite),
                 )
-                .testTag("controls_play_pause"),
+                .testTag(playPauseTestTag),
             contentAlignment = Alignment.Center,
         ) {
             if (state.isLoading) {
@@ -143,7 +148,7 @@ fun MichiPlaybackControls(
             tint = PureWhite,
             iconSize = 30.dp,
             minTargetSize = secondaryButtonSize,
-            testTag = "controls_next",
+            testTag = nextTestTag,
         )
 
         // Optional Repeat
@@ -156,7 +161,7 @@ fun MichiPlaybackControls(
                 tint = if (state.repeatMode != 0) TertiaryCyan else OnSurfaceVariant,
                 iconSize = 22.dp,
                 minTargetSize = secondaryButtonSize,
-                testTag = "controls_repeat",
+                testTag = repeatTestTag,
             )
         }
     }

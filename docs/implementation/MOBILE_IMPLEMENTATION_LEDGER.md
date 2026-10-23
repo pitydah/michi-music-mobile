@@ -26,6 +26,7 @@
 | M14.5 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | fdac694 | Acciones remotas playNow/playNext/addToQueue/moveQueueItem desacopladas, token binding dinámico AirCat, SyncWorker cancellation unwrap, AddToPlaylistDialog try-finally |
 | M15 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 69d70aa | ADR-MOB-DSD-LEGACY formalizado, DSD_DOP_FEASIBILITY archivado OUT_OF_SCOPE_MOBILE, BitPerfectStatus deprecado, SignalTruth sin bit-perfect claims, Equalizer "Sin efectos", Lossless filter fix y LibraryLosslessClassifierTest |
 | M16 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | dcdd3bd | VisualPreferences reactivo (highContrast/reducedMotion), MichiTheme adaptativo, MichiIconAction (>=48dp), MichiSurface, MichiBottomSheet, MichiPlaybackControls y specs UI/UX |
+| M17 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8bdc5ff | Adopción de MichiPlaybackControls en NowPlayingScreen y RemoteScreen, eliminación total de slider de volumen (D-05) y suite NowPlayingNoVolumeTest |
 
 ---
 
@@ -1214,6 +1215,47 @@ ROLLBACK_PLAN:
   git revert 69d70aa..HEAD
 BLOCKERS: Ninguno.
 ```
+
+---
+
+```yaml
+SPRINT_ID: M17
+DATE: 2026-10-22
+AUTHOR: Antigravity + Gemini
+COMPONENT: michi-music-mobile
+COMMIT_HASH: 8bdc5ff9515e9cd897121a0e89fa932a7b88fd09
+TARGET_MATURITY: 91%
+MEASURED_MATURITY: 91%
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Playback Controls Visual Inconsistency:
+     - NowPlayingScreen contenía botones con fondos circulares y un gran botón central rosa de 68dp (`PrimaryPinkContainer`) en lugar de iconos limpios sólidos sin círculos decorativos.
+     - RemoteScreen usaba un botón de Play/Pausa con gradiente llamativo `Brush.linearGradient(PrimaryPinkContainer, SecondaryPurpleDeep)`.
+  2. Volume Slider Violation (Decisión D-05):
+     - RemoteScreen incluía una tarjeta con `MichiFineSlider` para el volumen efectivo del reproductor remoto, contraviniendo la regla innegociable D-05 ("Sin slider de volumen en Now Playing ni en Control Remoto").
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Standardized Minimalist Playback Controls:
+     - Adopción de `MichiPlaybackControls` en `NowPlayingScreen`: iconos blancos sólidos sin fondos circulares en Skip Previous/Next, Shuffle y Repeat, manteniendo el área táctil mínima de 48dp y central Play/Pause accesible.
+     - Adopción de `MichiPlaybackControls` en `RemoteScreen`: unificando la gramática visual con NowPlayingScreen.
+     - Soporte para tags de test configurables en `MichiPlaybackControls` para interoperabilidad de pruebas automáticas.
+  2. Strict Volume Slider Removal (D-05):
+     - Eliminado definitivamente el slider de volumen (`MichiFineSlider` / VolumeDown / VolumeUp) de `RemoteScreen`.
+     - NowPlayingScreen se mantiene libre de cualquier slider de volumen.
+  3. Quality Gates:
+     - Creada suite unitaria `NowPlayingNoVolumeTest` que valida formalmente la ausencia de sliders de volumen en las pantallas de reproducción.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew testFdroidDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :data:test :player:test :core:test :michi-link-client:test (PASSED - 0 fallos)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Eliminación de sliders sin afectación a contratos de red o privilegios locales.
+ROLLBACK_PLAN:
+  git revert 3985867..HEAD
+BLOCKERS: Ninguno.
+```
+
 
 
 

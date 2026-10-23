@@ -405,101 +405,27 @@ fun NowPlayingScreen(
                 }
 
                 // Main Playback Controls
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Shuffle
-                    IconButton(
-                        onClick = { sessionManager.toggleShuffle() },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("now_playing_shuffle"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Shuffle,
-                            contentDescription = "Aleatorio",
-                            tint = if (isShuffle) TertiaryCyan else OnSurfaceVariant,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-
-                    // Skip Previous
-                    IconButton(
-                        onClick = { sessionManager.skipPrevious() },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
-                            .testTag("now_playing_prev"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.SkipPrevious,
-                            contentDescription = "Anterior",
-                            tint = PureWhite,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-
-                    // Center Play / Pause
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(CircleShape)
-                            .background(PrimaryPinkContainer)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(color = PureWhite),
-                                onClick = {
-                                    sessionManager.playPause()
-                                },
-                            )
-                            .testTag("now_playing_play_pause"),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pausa" else "Reproducir",
-                            tint = PureWhite,
-                            modifier = Modifier.size(36.dp),
-                        )
-                    }
-
-                    // Skip Next
-                    IconButton(
-                        onClick = { sessionManager.skipNext() },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
-                            .testTag("now_playing_next"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.SkipNext,
-                            contentDescription = "Siguiente",
-                            tint = PureWhite,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-
-                    // Repeat
-                    IconButton(
-                        onClick = { sessionManager.cycleRepeatMode() },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("now_playing_repeat"),
-                    ) {
-                        Icon(
-                            imageVector = if (repeatMode == 1) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
-                            contentDescription = "Repetir",
-                            tint = if (repeatMode != 0) TertiaryCyan else OnSurfaceVariant,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
+                org.michimusic.mobile.ui.components.premium.MichiPlaybackControls(
+                    state = org.michimusic.mobile.ui.components.premium.PlaybackControlUiState(
+                        isPlaying = isPlaying,
+                        canSkipPrevious = true,
+                        canSkipNext = true,
+                        isShuffleEnabled = isShuffle,
+                        repeatMode = repeatMode,
+                        isLoading = playerState.playbackStatus is org.michimusic.player.PlaybackStatus.Buffering,
+                    ),
+                    onPlayPause = { sessionManager.playPause() },
+                    onSkipPrevious = { sessionManager.skipPrevious() },
+                    onSkipNext = { sessionManager.skipNext() },
+                    onToggleShuffle = { sessionManager.toggleShuffle() },
+                    onCycleRepeat = { sessionManager.cycleRepeatMode() },
+                    playPauseTestTag = "now_playing_play_pause",
+                    prevTestTag = "now_playing_prev",
+                    nextTestTag = "now_playing_next",
+                    shuffleTestTag = "now_playing_shuffle",
+                    repeatTestTag = "now_playing_repeat",
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
 
                 // Bottom Pill Row
                 Row(

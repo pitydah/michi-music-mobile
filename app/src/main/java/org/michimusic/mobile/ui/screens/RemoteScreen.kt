@@ -315,80 +315,19 @@ fun RemoteScreen(
 
                     // Playback Controls
                     item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            IconButton(
-                                onClick = { viewModel.previous() },
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                Icon(Icons.Filled.SkipPrevious, contentDescription = "Anterior", tint = PureWhite, modifier = Modifier.size(32.dp))
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .size(68.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        Brush.linearGradient(listOf(PrimaryPinkContainer, SecondaryPurpleDeep)),
-                                    )
-                                    .clickable { viewModel.togglePlayPause() }
-                                    .testTag("remote_play_pause"),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(36.dp),
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { viewModel.next() },
-                                modifier = Modifier.size(48.dp),
-                            ) {
-                                Icon(Icons.Filled.SkipNext, contentDescription = "Siguiente", tint = PureWhite, modifier = Modifier.size(32.dp))
-                            }
-                        }
-                    }
-
-                    // Volume Slider
-                    item {
-                        GlassCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp),
-                            backgroundColor = GlassFillLow,
-                            borderColor = GlassBorderLow,
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.VolumeDown, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
-                                org.michimusic.mobile.ui.components.MichiFineSlider(
-                                    value = playerState.effectiveVolume.toFloat(),
-                                    onValueChange = { viewModel.setVolume(it.toInt()) },
-                                    valueRange = 0f..100f,
-                                    accentColor = TertiaryCyan,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
-                                Text(
-                                    text = "${playerState.effectiveVolume}%",
-                                    color = TertiaryCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.width(36.dp),
-                                )
-                            }
-                        }
+                        org.michimusic.mobile.ui.components.premium.MichiPlaybackControls(
+                            state = org.michimusic.mobile.ui.components.premium.PlaybackControlUiState(
+                                isPlaying = isPlaying,
+                                canSkipPrevious = true,
+                                canSkipNext = true,
+                            ),
+                            onPlayPause = { viewModel.togglePlayPause() },
+                            onSkipPrevious = { viewModel.previous() },
+                            onSkipNext = { viewModel.next() },
+                            playPauseTestTag = "remote_play_pause",
+                            prevTestTag = "remote_prev",
+                            nextTestTag = "remote_next",
+                        )
                     }
 
                     // Handoff to This Phone
