@@ -72,4 +72,78 @@ class AudioControllerTest {
 
         assertEquals("song/local_999", itemSlot.captured.mediaId)
     }
+
+    @Test
+    fun `pending move command with duplicate tracks targets exact index instance`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val audioController = AudioController(context, scope)
+
+        // Avoid SessionToken resolution failure in test environment
+        val connectField = AudioController::class.java.getDeclaredField("connectStarted")
+        connectField.isAccessible = true
+        connectField.set(audioController, true)
+
+        val trackA1 = Track(id = "track_dup", title = "Duplicate A")
+        val trackB = Track(id = "track_other", title = "Other B")
+        val trackA2 = Track(id = "track_dup", title = "Duplicate A")
+
+        // Set state before connection
+        val stateField = AudioController::class.java.getDeclaredField("_state")
+        stateField.isAccessible = true
+        val stateFlow = stateField.get(audioController) as kotlinx.coroutines.flow.MutableStateFlow<PlayerState>
+        stateFlow.value = PlayerState(queue = listOf(trackA1, trackB, trackA2))
+
+        // When mediaController is null, moveQueueItem buffers pending command with fromIndex=2
+        audioController.moveQueueItem(fromIndex = 2, toIndex = 0)
+
+        // Mock MediaController and inject it
+        val mediaControllerMock = mockk<MediaController>(relaxed = true)
+        val ctrlField = AudioController::class.java.getDeclaredField("mediaController")
+        ctrlField.isAccessible = true
+        ctrlField.set(audioController, mediaControllerMock)
+
+        // Execute pending commands
+        val executePendingMethod = AudioController::class.java.getDeclaredMethod("executePendingCommands")
+        executePendingMethod.isAccessible = true
+        executePendingMethod.invoke(audioController)
+
+        // Must move from index 2 to 0 (not index 0 to 0)
+        verify { mediaControllerMock.moveMediaItem(2, 0) }
+    }
+
+    @Test
+    fun `pending remove command with duplicate tracks targets exact index instance`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val audioController = AudioController(context, scope)
+
+        val connectField = AudioController::class.java.getDeclaredField("connectStarted")
+        connectField.isAccessible = true
+        connectField.set(audioController, true)
+
+        val trackA1 = Track(id = "track_dup", title = "Duplicate A")
+        val trackB = Track(id = "track_other", title = "Other B")
+        val trackA2 = Track(id = "track_dup", title = "Duplicate A")
+
+        val stateField = AudioController::class.java.getDeclaredField("_state")
+        stateField.isAccessible = true
+        val stateFlow = stateField.get(audioController) as kotlinx.coroutines.flow.MutableStateFlow<PlayerState>
+        stateFlow.value = PlayerState(queue = listOf(trackA1, trackB, trackA2))
+
+        // Buffers remove for the second duplicate at index 2
+        audioController.removeFromQueue(index = 2)
+
+        val mediaControllerMock = mockk<MediaController>(relaxed = true)
+        val ctrlField = AudioController::class.java.getDeclaredField("mediaController")
+        ctrlField.isAccessible = true
+        ctrlField.set(audioController, mediaControllerMock)
+
+        val executePendingMethod = AudioController::class.java.getDeclaredMethod("executePendingCommands")
+        executePendingMethod.isAccessible = true
+        executePendingMethod.invoke(audioController)
+
+        // Must remove index 2 (not index 0)
+        verify { mediaControllerMock.removeMediaItem(2) }
+    }
 }

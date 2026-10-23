@@ -396,8 +396,8 @@ class AudioController(
     private sealed interface PendingQueueCommand {
         data class Add(val track: Track) : PendingQueueCommand
         data class PlayNext(val track: Track) : PendingQueueCommand
-        data class Move(val trackId: String, val toIndex: Int) : PendingQueueCommand
-        data class Remove(val trackId: String) : PendingQueueCommand
+        data class Move(val trackId: String, val toIndex: Int, val fromIndex: Int = -1) : PendingQueueCommand
+        data class Remove(val trackId: String, val index: Int = -1) : PendingQueueCommand
     }
     private val pendingCommands = mutableListOf<PendingQueueCommand>()
 
@@ -411,15 +411,25 @@ class AudioController(
                 is PendingQueueCommand.Add -> addToQueue(cmd.track)
                 is PendingQueueCommand.PlayNext -> playNext(cmd.track)
                 is PendingQueueCommand.Move -> {
-                    val currentIndex = _state.value.queue.indexOfFirst { it.id == cmd.trackId }
-                    if (currentIndex >= 0) {
-                        moveQueueItem(currentIndex, cmd.toIndex)
+                    val queue = _state.value.queue
+                    val resolvedIndex = if (cmd.fromIndex in queue.indices && queue[cmd.fromIndex].id == cmd.trackId) {
+                        cmd.fromIndex
+                    } else {
+                        queue.indexOfFirst { it.id == cmd.trackId }
+                    }
+                    if (resolvedIndex >= 0) {
+                        moveQueueItem(resolvedIndex, cmd.toIndex)
                     }
                 }
                 is PendingQueueCommand.Remove -> {
-                    val currentIndex = _state.value.queue.indexOfFirst { it.id == cmd.trackId }
-                    if (currentIndex >= 0) {
-                        removeFromQueue(currentIndex)
+                    val queue = _state.value.queue
+                    val resolvedIndex = if (cmd.index in queue.indices && queue[cmd.index].id == cmd.trackId) {
+                        cmd.index
+                    } else {
+                        queue.indexOfFirst { it.id == cmd.trackId }
+                    }
+                    if (resolvedIndex >= 0) {
+                        removeFromQueue(resolvedIndex)
                     }
                 }
             }
@@ -482,7 +492,7 @@ class AudioController(
         if (ctrl == null) {
             val trackId = _state.value.queue.getOrNull(fromIndex)?.id
             if (trackId != null) {
-                pendingCommands.add(PendingQueueCommand.Move(trackId, toIndex))
+                pendingCommands.add(PendingQueueCommand.Move(trackId, toIndex, fromIndex = fromIndex))
             }
             ensureConnected()
             return
@@ -503,7 +513,7 @@ class AudioController(
         if (ctrl == null) {
             val trackId = _state.value.queue.getOrNull(index)?.id
             if (trackId != null) {
-                pendingCommands.add(PendingQueueCommand.Remove(trackId))
+                pendingCommands.add(PendingQueueCommand.Remove(trackId, index = index))
             }
             ensureConnected()
             return
