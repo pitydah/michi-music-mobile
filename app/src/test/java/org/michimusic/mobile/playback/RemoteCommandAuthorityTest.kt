@@ -165,7 +165,7 @@ class RemoteCommandAuthorityTest {
         every { connectionManager.getClient("desktop-node-1") } returns client
         every { client.baseUrl } returns "http://192.168.1.50:8400"
         every { client.deviceToken } returns "valid-token"
-        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.failure(Exception("Network timeout"))
+        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.failure(Exception("Action not supported"))
 
         sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
 
@@ -175,7 +175,7 @@ class RemoteCommandAuthorityTest {
         val lastCmd = sessionManager.sessionState.value.lastRemoteCommand
         assertNotNull(lastCmd)
         assertEquals(RemoteCommandStatus.REJECTED, lastCmd!!.status)
-        assertEquals("Network timeout", lastCmd.resultMessage)
+        assertEquals("Action not supported", lastCmd.resultMessage)
 
         // Queue must NOT have been optimistically modified
         assertEquals(0, sessionManager.sessionState.value.queue.size)
@@ -229,7 +229,7 @@ class RemoteCommandAuthorityTest {
     }
 
     @Test
-    fun remotePlayback_playNow_whenGetQueueFails_marksRejected() = runTest(testDispatcher) {
+    fun remotePlayback_playNow_whenGetQueueFails_marksAcceptedNotConfirmed() = runTest(testDispatcher) {
         val client = mockk<LinkClient>(relaxed = true)
         every { connectionManager.getClient("desktop-node-1") } returns client
         every { client.baseUrl } returns "http://192.168.1.50:8400"
@@ -247,9 +247,77 @@ class RemoteCommandAuthorityTest {
 
         val lastCmd = sessionManager.sessionState.value.lastRemoteCommand
         assertNotNull(lastCmd)
-        assertEquals(RemoteCommandStatus.REJECTED, lastCmd!!.status)
-        assertEquals("Remote queue fetch failed", lastCmd.resultMessage)
+        // Must NOT be CONFIRMED, but ACCEPTED because server did accept the command
+        assertEquals(RemoteCommandStatus.ACCEPTED, lastCmd!!.status)
+        org.junit.Assert.assertTrue(lastCmd.resultMessage!!.contains("sincronización de estado pendiente"))
         assertEquals(0, sessionManager.sessionState.value.queue.size)
+    }
+
+    @Test
+    fun remotePlayback_playNow_onTimeout_marksTimedOut() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        every { client.baseUrl } returns "http://192.168.1.50:8400"
+        every { client.deviceToken } returns "valid-token"
+        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.failure(java.net.SocketTimeoutException("Read timeout"))
+
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+
+        sessionManager.playNow(trackA)
+        advanceUntilIdle()
+
+        val lastCmd = sessionManager.sessionState.value.lastRemoteCommand
+        assertNotNull(lastCmd)
+        assertEquals(RemoteCommandStatus.TIMED_OUT, lastCmd!!.status)
+    }
+
+    @Test
+    fun remotePlayback_playNow_onDisconnect_marksDisconnected() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        every { client.baseUrl } returns "http://192.168.1.50:8400"
+        every { client.deviceToken } returns "valid-token"
+
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+
+        // Now simulate client disconnection
+        every { connectionManager.getClient("desktop-node-1") } returns null
+
+        sessionManager.playNow(trackA)
+        advanceUntilIdle()
+
+        val lastCmd = sessionManager.sessionState.value.lastRemoteCommand
+        assertNotNull(lastCmd)
+        assertEquals(RemoteCommandStatus.DISCONNECTED, lastCmd!!.status)
+    }
+
+    @Test
+    fun remotePlayback_setRepeatMode_nonOptimistic_onlyMutatesOnConfirmation() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        every { client.baseUrl } returns "http://192.168.1.50:8400"
+        every { client.deviceToken } returns "valid-token"
+
+        // Simulate failure on server
+        coEvery { client.setQueueRepeatMode("one") } returns Result.failure(Exception("Remote error"))
+
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+        assertEquals(0, sessionManager.sessionState.value.repeatMode)
+
+        sessionManager.setRepeatMode(1)
+        advanceUntilIdle()
+
+        // Local state should NOT have been optimistically changed to 1
+        assertEquals(0, sessionManager.sessionState.value.repeatMode)
+        assertEquals(RemoteCommandStatus.REJECTED, sessionManager.sessionState.value.lastRemoteCommand?.status)
+
+        // Now simulate success
+        coEvery { client.setQueueRepeatMode("all") } returns Result.success(org.michimusic.link.dto.QueueRepeatResponseDto(repeatMode = "all"))
+        sessionManager.setRepeatMode(2)
+        advanceUntilIdle()
+
+        assertEquals(2, sessionManager.sessionState.value.repeatMode)
+        assertEquals(RemoteCommandStatus.CONFIRMED, sessionManager.sessionState.value.lastRemoteCommand?.status)
     }
 
     @Test

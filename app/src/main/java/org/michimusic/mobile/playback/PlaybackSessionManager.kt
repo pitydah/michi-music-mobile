@@ -797,6 +797,29 @@ class PlaybackSessionManager(
         }
     }
 
+    private fun resolveFailureStatus(client: LinkClient?, result: Result<Any?>?): Pair<RemoteCommandStatus, String> {
+        if (client == null) {
+            return RemoteCommandStatus.DISCONNECTED to "Cliente no disponible o desconectado"
+        }
+        val ex = result?.exceptionOrNull()
+        val msg = ex?.message ?: "Comando rechazado por el endpoint"
+        return when {
+            ex is java.net.SocketTimeoutException ||
+            ex is java.util.concurrent.TimeoutException ||
+            msg.contains("timeout", ignoreCase = true) -> {
+                RemoteCommandStatus.TIMED_OUT to msg
+            }
+            ex is java.io.IOException ||
+            msg.contains("connect", ignoreCase = true) ||
+            msg.contains("broken pipe", ignoreCase = true) -> {
+                RemoteCommandStatus.DISCONNECTED to msg
+            }
+            else -> {
+                RemoteCommandStatus.REJECTED to msg
+            }
+        }
+    }
+
     fun removeFromQueue(index: Int) {
         if (_sessionState.value.isRemoteActive) {
             val targetEndpoint = _sessionState.value.activeEndpoint
@@ -828,10 +851,11 @@ class PlaybackSessionManager(
                         if (queueSynced) {
                             cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                         } else {
-                            cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                            cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                         }
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                        val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                        cmd.copy(status = failStatus, resultMessage = failMsg)
                     }
                     if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                         _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -885,10 +909,11 @@ class PlaybackSessionManager(
                     if (synced) {
                         cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = syncErr)
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($syncErr)")
                     }
                 } else {
-                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -933,10 +958,11 @@ class PlaybackSessionManager(
                     if (queueSynced) {
                         cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
                 } else {
-                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -975,10 +1001,11 @@ class PlaybackSessionManager(
                     if (queueSynced) {
                         cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
                 } else {
-                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -1017,10 +1044,11 @@ class PlaybackSessionManager(
                     if (queueSynced) {
                         cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
                 } else {
-                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -1049,7 +1077,8 @@ class PlaybackSessionManager(
                     }
                     cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                 } else {
-                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
                 }
                 if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
@@ -1061,13 +1090,34 @@ class PlaybackSessionManager(
     }
 
     fun setRepeatMode(mode: Int) {
-        _sessionState.value = _sessionState.value.copy(repeatMode = mode)
         if (_sessionState.value.isRemoteActive) {
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
             val repeatStr = when (mode) { 1 -> "one"; 2 -> "all"; else -> "off" }
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "set_repeat_mode",
+                param = repeatStr,
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.setQueueRepeatMode(repeatStr)
+                val result = client?.setQueueRepeatMode(repeatStr)
+                val outcome = if (result != null && result.isSuccess) {
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        _sessionState.value = _sessionState.value.copy(repeatMode = mode)
+                    }
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                }
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
+            _sessionState.value = _sessionState.value.copy(repeatMode = mode)
             audioController?.setRepeatMode(mode)
         }
     }
@@ -1083,12 +1133,33 @@ class PlaybackSessionManager(
     }
 
     fun setShuffleMode(mode: Int) {
-        _sessionState.value = _sessionState.value.copy(shuffleMode = mode)
         if (_sessionState.value.isRemoteActive) {
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "set_shuffle_mode",
+                param = mode.toString(),
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.setQueueShuffle(mode == 1)
+                val result = client?.setQueueShuffle(mode == 1)
+                val outcome = if (result != null && result.isSuccess) {
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        _sessionState.value = _sessionState.value.copy(shuffleMode = mode)
+                    }
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                }
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
+            _sessionState.value = _sessionState.value.copy(shuffleMode = mode)
             audioController?.setShuffleMode(mode == 1)
         }
     }

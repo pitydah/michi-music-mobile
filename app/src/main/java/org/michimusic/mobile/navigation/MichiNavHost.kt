@@ -1,6 +1,7 @@
 package org.michimusic.mobile.navigation
 
 import androidx.compose.foundation.layout.Box
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -94,6 +95,34 @@ fun MichiNavHost() {
                     DevicesScreen(
                         onNavigateToSettings = { navController.navigate("settings") },
                         onNavigateToSynced = { navController.navigate("synced") },
+                        onNavigateToSyncWizard = { deviceId -> navController.navigate("sync_wizard/$deviceId") },
+                    )
+                }
+                composable(
+                    route = "sync_wizard/{deviceId}",
+                    arguments = listOf(navArgument("deviceId") { type = NavType.StringType }),
+                ) { backStackEntry ->
+                    val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
+                    val syncVm: org.michimusic.mobile.sync.SyncViewModel = org.koin.androidx.compose.koinViewModel()
+                    val uiState by syncVm.uiState.collectAsStateWithLifecycle()
+                    val targetDevice = uiState.unifiedDevices.find { it.id == deviceId }
+                    val statFs = android.os.StatFs(androidx.compose.ui.platform.LocalContext.current.filesDir.absolutePath)
+                    val availableBytes = statFs.availableBytes
+                    val totalBytes = statFs.totalBytes
+
+                    org.michimusic.mobile.ui.screens.sync.SyncWizardScreen(
+                        endpointId = deviceId,
+                        endpointName = targetDevice?.name ?: "Micro Server",
+                        availableStorageBytes = availableBytes,
+                        totalStorageBytes = totalBytes,
+                        currentLocalMusicBytes = 150L * 1024 * 1024,
+                        candidateTracks = emptyList(),
+                        serverCapabilities = targetDevice?.features?.toSet() ?: emptySet(),
+                        onStartSync = { plan ->
+                            syncVm.syncPlannedLibrary(plan)
+                            navController.popBackStack()
+                        },
+                        onBack = { navController.popBackStack() },
                     )
                 }
                 composable("nowplaying") {

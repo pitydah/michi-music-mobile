@@ -77,6 +77,8 @@ data class QueueEntity(
     val positionMs: Long = 0L,
     val repeatMode: Int = 0,
     val shuffleMode: Boolean = false,
+    val entryIds: String = "",
+    val locationIds: String = "",
 )
 
 @Entity(tableName = "app_settings")

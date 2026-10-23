@@ -601,7 +601,27 @@ class SyncViewModel(
         _syncProgress.value = SyncProgress.Idle
     }
 
-    fun syncLibrary(targetDeviceId: String? = null) {
+    fun syncPlannedLibrary(plan: org.michimusic.core.models.SyncPlan) {
+        if (!plan.isExecutable) return
+        val targetDeviceId = plan.endpointId
+        val tracksToDownload = plan.items.filter {
+            it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
+            it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
+            it.action == org.michimusic.core.models.SyncItemAction.REPLACE_BETTER_QUALITY
+        }.map { it.trackId }
+
+        syncLibrary(
+            targetDeviceId = targetDeviceId,
+            selectedTrackIds = tracksToDownload,
+            profile = plan.deliveryChoice.profile.name,
+        )
+    }
+
+    fun syncLibrary(
+        targetDeviceId: String? = null,
+        selectedTrackIds: List<String> = emptyList(),
+        profile: String = "ORIGINAL",
+    ) {
         val currentState = uiState.value
         val pairConfirm = currentState.pairingConfirm
         val connectedPeer = currentState.connectedPeer
@@ -636,6 +656,8 @@ class SyncViewModel(
             deviceId = remoteDeviceId,
             alias = android.os.Build.MODEL,
             clientDeviceId = pairedClientDeviceId,
+            selectedTrackIds = selectedTrackIds.joinToString(","),
+            profile = profile,
         )
 
         val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()

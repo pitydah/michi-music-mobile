@@ -321,7 +321,7 @@ class AudioController(
     ) {
         val entries = tracks.mapIndexed { idx, t ->
             org.michimusic.core.models.QueueEntry(
-                entryId = "entry_${idx}_${t.id}",
+                entryId = java.util.UUID.randomUUID().toString(),
                 canonicalTrackId = t.id,
                 track = t,
                 position = idx,
@@ -400,7 +400,7 @@ class AudioController(
                     existingEntries.removeAt(matchIdx).copy(position = idx)
                 } else {
                     org.michimusic.core.models.QueueEntry(
-                        entryId = "reconciled_${idx}_${trk.id}",
+                        entryId = java.util.UUID.randomUUID().toString(),
                         canonicalTrackId = trk.id,
                         track = trk,
                         position = idx,
@@ -592,14 +592,25 @@ class AudioController(
         _state.value = PlayerState()
     }
 
-    fun restoreQueue(tracks: List<Track>, startIndex: Int, positionMs: Long, repeatMode: Int, shuffleMode: Boolean) {
+    fun restoreQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        positionMs: Long,
+        repeatMode: Int,
+        shuffleMode: Boolean,
+        entryIds: List<String> = emptyList(),
+        locationIds: List<String?> = emptyList(),
+    ) {
         if (tracks.isEmpty()) return
         val entries = tracks.mapIndexed { idx, t ->
+            val persistedEntryId = entryIds.getOrNull(idx)?.takeIf { it.isNotBlank() }
+            val persistedLocationId = locationIds.getOrNull(idx)?.takeIf { it.isNotBlank() }
             org.michimusic.core.models.QueueEntry(
-                entryId = "restored_${idx}_${t.id}",
+                entryId = persistedEntryId ?: java.util.UUID.randomUUID().toString(),
                 canonicalTrackId = t.id,
                 track = t,
                 position = idx,
+                locationId = persistedLocationId,
             )
         }
         _state.value = _state.value.copy(
@@ -634,6 +645,8 @@ class AudioController(
                         positionMs = s.position,
                         repeatMode = s.repeatMode,
                         shuffleMode = s.shuffleMode,
+                        entryIds = s.queueEntries.joinToString(",") { it.entryId },
+                        locationIds = s.queueEntries.joinToString(",") { it.locationId ?: "" },
                     )
                 )
             }

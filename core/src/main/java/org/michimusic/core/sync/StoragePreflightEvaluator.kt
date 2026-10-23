@@ -1,0 +1,100 @@
+package org.michimusic.core.sync
+
+import org.michimusic.core.models.IssueSeverity
+import org.michimusic.core.models.SyncItemAction
+import org.michimusic.core.models.SyncItemDecision
+import org.michimusic.core.models.SyncPreflightIssue
+import org.michimusic.core.models.SyncPreflightStatus
+
+object StoragePreflightEvaluator {
+
+    /**
+     * Strictly enforced 100 MB safety reserve. The sync preflight MUST NEVER allow
+     * filling the device beyond this safety boundary.
+     */
+    const val SAFETY_BUFFER_BYTES: Long = 100L * 1024L * 1024L // 100 MB
+
+    /**
+     * Buffer reserved for temp file atomic rename and directory metadata overhead.
+     * Calculated as max(10 MB, 5% of total download size).
+     */
+    const val MIN_ATOMIC_BUFFER_BYTES: Long = 10L * 1024L * 1024L // 10 MB
+
+    data class StorageEvaluationResult(
+        val totalDownloadBytes: Long,
+        val safetyBufferBytes: Long,
+        val atomicBufferBytes: Long,
+        val remainingAfterSyncBytes: Long,
+        val status: SyncPreflightStatus,
+        val issues: List<SyncPreflightIssue>,
+    )
+
+    fun calculateAtomicBuffer(totalDownloadBytes: Long): Long {
+        val proportional = (totalDownloadBytes * 0.05).toLong()
+        return maxOf(MIN_ATOMIC_BUFFER_BYTES, proportional)
+    }
+
+    fun evaluate(
+        availableBytes: Long,
+        items: List<SyncItemDecision>,
+    ): StorageEvaluationResult {
+        val totalDownloadBytes = items.sumOf { item ->
+            when (item.action) {
+                SyncItemAction.DOWNLOAD -> item.estimatedDownloadBytes
+                SyncItemAction.RESUME_PARTIAL -> item.estimatedDownloadBytes
+                SyncItemAction.REPLACE_BETTER_QUALITY -> item.estimatedDownloadBytes
+                SyncItemAction.SKIP_ALREADY_EXISTS -> 0L
+                SyncItemAction.BLOCKED_UNSUPPORTED -> 0L
+            }
+        }
+
+        val atomicBuffer = if (totalDownloadBytes > 0) calculateAtomicBuffer(totalDownloadBytes) else 0L
+        val totalRequiredPeak = totalDownloadBytes + SAFETY_BUFFER_BYTES + atomicBuffer
+        val remainingAfterPeak = availableBytes - totalRequiredPeak
+        val remainingAfterSync = availableBytes - totalDownloadBytes
+
+        val issues = mutableListOf<SyncPreflightIssue>()
+        val status: SyncPreflightStatus
+
+        if (totalDownloadBytes > 0 && availableBytes < totalRequiredPeak) {
+            status = SyncPreflightStatus.BLOCKED_NO_STORAGE
+            issues.add(
+                SyncPreflightIssue(
+                    code = "STORAGE_EXCEEDED",
+                    message = "Espacio insuficiente: se necesitan ${formatBytes(totalDownloadBytes)} de descarga + ${formatBytes(SAFETY_BUFFER_BYTES)} de reserva de seguridad y ${formatBytes(atomicBuffer)} de búfer de promoción atómica, pero solo hay ${formatBytes(availableBytes)} libres.",
+                    severity = IssueSeverity.BLOCKING,
+                )
+            )
+        } else {
+            status = SyncPreflightStatus.READY
+            if (totalDownloadBytes > 0 && remainingAfterSync < SAFETY_BUFFER_BYTES * 2) {
+                issues.add(
+                    SyncPreflightIssue(
+                        code = "LOW_STORAGE_WARNING",
+                        message = "El almacenamiento libre restante quedará por debajo de ${formatBytes(SAFETY_BUFFER_BYTES * 2)} tras la sincronización.",
+                        severity = IssueSeverity.WARNING,
+                    )
+                )
+            }
+        }
+
+        return StorageEvaluationResult(
+            totalDownloadBytes = totalDownloadBytes,
+            safetyBufferBytes = SAFETY_BUFFER_BYTES,
+            atomicBufferBytes = atomicBuffer,
+            remainingAfterSyncBytes = remainingAfterSync,
+            status = status,
+            issues = issues,
+        )
+    }
+
+    fun formatBytes(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+        val mb = kb / 1024.0
+        if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
+        val gb = mb / 1024.0
+        return String.format(java.util.Locale.US, "%.2f GB", gb)
+    }
+}

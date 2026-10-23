@@ -102,6 +102,7 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 fun DevicesScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSynced: () -> Unit = {},
+    onNavigateToSyncWizard: (deviceId: String) -> Unit = {},
     viewModel: SyncViewModel = koinViewModel(),
     modifier: Modifier = Modifier,
 ) {
@@ -161,10 +162,7 @@ fun DevicesScreen(
             }
             org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnectDevice(device.id)
             org.michimusic.mobile.sync.DeviceActionType.SYNC_LIBRARY -> {
-                viewModel.syncLibrary(targetDeviceId = device.id)
-                scope.launch {
-                    snackbarHostState.showSnackbar("Sincronización iniciada con ${device.name}")
-                }
+                onNavigateToSyncWizard(device.id)
             }
             org.michimusic.mobile.sync.DeviceActionType.AIRCAT_TRANSFER -> {
                 viewModel.startAirCatTransfer(targetDeviceId = device.id) { success, msg ->

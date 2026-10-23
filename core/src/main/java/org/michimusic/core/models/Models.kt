@@ -41,13 +41,37 @@ data class Track(
         get() {
             val fmt = format.trim().lowercase()
             if (fmt.isEmpty() || fmt == "unknown") return CodecClassification.UNKNOWN
-            return when {
-                fmt.contains("flac") || fmt.contains("alac") || fmt.contains("wav") ||
-                    fmt.contains("pcm") || fmt.contains("aiff") || fmt.contains("dsd") -> CodecClassification.LOSSLESS
-                fmt.contains("mp3") || fmt.contains("aac") || fmt.contains("ogg") ||
-                    fmt.contains("opus") || fmt.contains("m4a") || fmt.contains("wma") -> CodecClassification.LOSSY
-                else -> CodecClassification.UNKNOWN
+
+            // Mobile scope: DSD/DSF/DFF is strictly out of scope and not supported on mobile (D-01/D-04)
+            if (fmt.contains("dsd") || fmt.contains("dsf") || fmt.contains("dff")) {
+                return CodecClassification.UNKNOWN
             }
+
+            // ADPCM is compressed lossy audio, never linear PCM
+            if (fmt.contains("adpcm")) {
+                return CodecClassification.LOSSY
+            }
+
+            // Container-only without explicit codec: .m4a or .mp4 could be AAC (lossy) or ALAC (lossless)
+            if (fmt == "m4a" || fmt == "mp4" || fmt == "audio/mp4" || fmt == "audio/m4a") {
+                return CodecClassification.UNKNOWN
+            }
+
+            // Explicit lossless codecs / linear PCM formats
+            if (fmt.contains("flac") || fmt.contains("alac") || fmt.contains("aiff") ||
+                fmt.contains("wav") || fmt.contains("lpcm") || fmt.contains("pcm")
+            ) {
+                return CodecClassification.LOSSLESS
+            }
+
+            // Explicit lossy codecs
+            if (fmt.contains("mp3") || fmt.contains("aac") || fmt.contains("ogg") ||
+                fmt.contains("vorbis") || fmt.contains("opus") || fmt.contains("wma")
+            ) {
+                return CodecClassification.LOSSY
+            }
+
+            return CodecClassification.UNKNOWN
         }
 
     /**

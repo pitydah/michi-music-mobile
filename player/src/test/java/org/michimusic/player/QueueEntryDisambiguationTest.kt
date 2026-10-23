@@ -113,4 +113,28 @@ class QueueEntryDisambiguationTest {
         assertEquals("track-a", state.queueEntries[2].canonicalTrackId)
         assertNotEquals(state.queueEntries[0].entryId, state.queueEntries[2].entryId)
     }
+
+    @Test
+    fun restoreQueue_withPersistedEntryIds_restoresExactIdentitiesAndLocations() {
+        val tracks = listOf(trackA, trackB)
+        val mockContext = mockk<android.content.Context>(relaxed = true)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+        val controller = AudioController(mockContext, scope)
+
+        controller.restoreQueue(
+            tracks = tracks,
+            startIndex = 0,
+            positionMs = 1000L,
+            repeatMode = 0,
+            shuffleMode = false,
+            entryIds = listOf("persisted-entry-uuid-1", "persisted-entry-uuid-2"),
+            locationIds = listOf("loc-local-1", "loc-sdcard-2"),
+        )
+
+        val state = controller.state.value
+        assertEquals("persisted-entry-uuid-1", state.queueEntries[0].entryId)
+        assertEquals("loc-local-1", state.queueEntries[0].locationId)
+        assertEquals("persisted-entry-uuid-2", state.queueEntries[1].entryId)
+        assertEquals("loc-sdcard-2", state.queueEntries[1].locationId)
+    }
 }

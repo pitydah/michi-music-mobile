@@ -26,7 +26,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncManifestEntity::class,
         TransferCheckpointEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -258,6 +258,11 @@ abstract class MichiDatabase : RoomDatabase() {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_checkpoints_remoteDeviceId` ON `transfer_checkpoints` (`remoteDeviceId`)")
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_checkpoints_remoteDeviceId_destinationLibraryId` ON `transfer_checkpoints` (`remoteDeviceId`, `destinationLibraryId`)")
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_transfer_checkpoints_trackId` ON `transfer_checkpoints` (`trackId`)")
+        }
+
+        val MIGRATION_5_6 = Migration(5, 6) { db ->
+            db.execSQL("ALTER TABLE `saved_queue` ADD COLUMN `entryIds` TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE `saved_queue` ADD COLUMN `locationIds` TEXT NOT NULL DEFAULT ''")
         }
     }
 }

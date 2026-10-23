@@ -40,11 +40,15 @@ class SyncWorker(
             deviceId: String,
             alias: String,
             clientDeviceId: String = "",
+            selectedTrackIds: String = "",
+            profile: String = "ORIGINAL",
         ) = workDataOf(
             "baseUrl" to baseUrl,
             "deviceId" to deviceId,
             "alias" to alias,
             "clientDeviceId" to clientDeviceId,
+            "selectedTrackIds" to selectedTrackIds,
+            "profile" to profile,
         )
     }
 
@@ -81,10 +85,10 @@ class SyncWorker(
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
         wakeLock?.acquire(SYNC_WAKELOCK_TIMEOUT_MS)
 
-        // Check available storage
+        // Check available storage (strictly enforcing 100 MB safety reserve)
         val storage = StatFs(applicationContext.filesDir.absolutePath)
         val freeBytes = storage.availableBytes
-        val minFree = 50L * 1024 * 1024 // 50MB minimum
+        val minFree = org.michimusic.core.sync.StoragePreflightEvaluator.SAFETY_BUFFER_BYTES // 100 MB minimum
         if (freeBytes < minFree) {
             try { wakeLock?.release() } catch (_: Exception) {}
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
@@ -151,10 +155,23 @@ class SyncWorker(
                 }
             }
 
+            val selectedTrackIdsStr = inputData.getString("selectedTrackIds") ?: ""
+            val selectedTrackIds = if (selectedTrackIdsStr.isNotEmpty()) {
+                selectedTrackIdsStr.split(",").toSet()
+            } else {
+                emptySet()
+            }
+
+            val candidateTracks = if (selectedTrackIds.isNotEmpty()) {
+                manifestTracks.filter { it.trackId in selectedTrackIds }
+            } else {
+                manifestTracks
+            }
+
             val downloadedIds = repository.getDownloadedIds()
             val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
-            val itemsToDownload = manifestTracks
+            val itemsToDownload = candidateTracks
                 .filter { it.trackId !in downloadedIds }
                 .map { track ->
                     track.toDownloadItem().copy(

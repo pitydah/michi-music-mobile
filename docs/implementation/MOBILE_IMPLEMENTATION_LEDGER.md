@@ -30,6 +30,7 @@
 | M18 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 0804da1 | Devices & Trust Integration + Hardening: RemoteCommandAuthority, QueueEntry disambiguation, AirCat token hardening, 4-dimension device state, 1-CTA resolution & DeviceDetailSheet |
 | M19 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8a4fb75 | Biblioteca, Playlists y Home honesta: Home recent integrity (sin heurísticas take(8)), navegación CRUD playlist completa sin no-ops, y clasificador lossless canónico en búsqueda |
 | M18-M19-HARDENING | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre completo de defectos P1/P2: autoridad de comandos remotos (fallo getQueue produce REJECTED, anti-stale endpoint affinity), reproducción rápida real de playlists (playPlaylist en PlaylistsViewModel), confianza de dispositivos (distinción anunciado vs verificado y pairing QR), identidad QueueEntry en Media3 (timeline y restauración), clasificación Lossless/Lossy/Unknown, UI/UX Devices (touch targets >=48dp, metadata sin raw IP) |
+| M20 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Sync Preflight inteligente, perfiles de entrega negociados sin fake transcoding, reserva de seguridad >= 100 MB estricta, StorageBreakdownBar, SyncWizardScreen (G14, G15, G29), Room v5->v6 con QueueEntry UUID y autoridad remota ACCEPTED/CONFIRMED |
 
 ---
 
@@ -1436,6 +1437,87 @@ ROLLBACK_PLAN:
   git revert 8a4fb75..HEAD
 BLOCKERS: Ninguno. Listo para iniciar Sprint M20.
 ```
+
+---
+
+## Checkpoint de Ejecución — Sprint M20: Intelligent Music Sync, Storage Preflight & Delivery Profiles
+
+```text
+BLOCK_ID: M20
+MASTER_BASE_SHA: 4b41378744e1a2ae26650f3e839935657bbee64f
+FILES_CHANGED:
+  - core/src/main/java/org/michimusic/core/models/Models.kt
+  - core/src/main/java/org/michimusic/core/models/SyncPreflightModels.kt
+  - core/src/main/java/org/michimusic/core/sync/SyncProfileNegotiator.kt
+  - core/src/main/java/org/michimusic/core/sync/StoragePreflightEvaluator.kt
+  - core/src/main/java/org/michimusic/core/sync/SyncPreflightService.kt
+  - core/src/test/java/org/michimusic/core/sync/SyncProfileNegotiatorTest.kt
+  - core/src/test/java/org/michimusic/core/sync/StoragePreflightEvaluatorTest.kt
+  - core/src/test/java/org/michimusic/core/sync/SyncPreflightServiceTest.kt
+  - core/build.gradle.kts
+  - data/src/main/java/org/michimusic/data/cache/Entities.kt
+  - data/src/main/java/org/michimusic/data/cache/MichiDatabase.kt
+  - data/src/main/java/org/michimusic/data/DataModule.kt
+  - data/schemas/org.michimusic.data.cache.MichiDatabase/6.json
+  - data/src/test/java/org/michimusic/data/cache/Migration5To6Test.kt
+  - player/src/main/java/org/michimusic/player/AudioController.kt
+  - player/src/test/java/org/michimusic/player/QueueEntryDisambiguationTest.kt
+  - app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt
+  - app/src/test/java/org/michimusic/mobile/playback/RemoteCommandAuthorityTest.kt
+  - app/src/main/java/org/michimusic/mobile/screens/PlaylistsViewModel.kt
+  - app/src/test/java/org/michimusic/mobile/screens/PlaylistsViewModelTest.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DevicesScreen.kt
+  - app/src/main/java/org/michimusic/mobile/navigation/MichiNavHost.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/sync/StorageBreakdownBar.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/sync/SyncWizardScreen.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/SyncWizardScreenTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. La clasificación de códecs consideraba erróneamente ADPCM como Lossless y no contemplaba exclusión de DSD en móvil ni contenedores m4a ambiguos.
+  2. Room QueueEntity carecía de columnas para entryIds y locationIds en saved_queue, perdiendo identidades únicas en restauración de cola.
+  3. Los comandos remotos marcaban REJECTED si fallaba getQueue() posterior aunque el servidor hubiera aceptado el comando, y setRepeatMode/setShuffleMode mutaban el estado local optimísticamente antes de la confirmación remota.
+  4. La reproducción de playlists devolvía Unit de manera silenciosa ante errores o listas vacías.
+  5. No existía motor determinista de Preflight de sincronización ni negociación honesta de perfiles: no se calculaba la carga neta deduplicada, ni se respetaba la reserva de seguridad de 100 MB de manera garantizada, ni se presentaba desglose visual de almacenamiento.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Clasificación estricta de códecs: DSD/DSF/DFF excluido de Lossless móvil (catalogado como UNKNOWN), ADPCM clasificado como LOSSY, contenedores puros .m4a/.mp4 marcados como UNKNOWN salvo cuando están cualificados por códec (ALAC -> LOSSLESS, AAC -> LOSSY).
+  2. Migración Room 5 -> 6 implementada y testeada con SQLite real: añade entryIds y locationIds a saved_queue.
+  3. AudioController genera UUIDs auténticos para QueueEntry, persistiendo y restaurando entryIds y locationIds de forma desacoplada y determinista.
+  4. Semántica autoritativa de comandos remotos: si el comando es aceptado en servidor pero falla la sincronización de cola/estado, se marca como ACCEPTED con mensaje descriptivo (no REJECTED ni CONFIRMED); se diferencian TIMED_OUT y DISCONNECTED; setRepeatMode y setShuffleMode eliminan mutaciones locales optimistas ante sesión remota activa.
+  5. PlaylistsViewModel.playPlaylist es honesta y expone PlayPlaylistResult (Success, Empty, NotFound, Error) con callback onResult.
+  6. Motor de Preflight de Sincronización (SyncPreflightService): evalúa alcances (Full Library, Playlists, Albums, Artists, Tracks), deduplica pistas, coteja huellas/hashes de pistas locales existentes (SKIP_ALREADY_EXISTS) y rescata bytes ya transferidos en archivos parciales .part (RESUME_PARTIAL).
+  7. Negociador de Perfiles (SyncProfileNegotiator): evalúa capacidades anunciadas por el Micro Server; sin transcodificación anunciada en servidor, solo ofrece Calidad Original y deshabilita Balanced y Low Storage con explicación honesta visible en la UI. Sin fake transcoding.
+  8. Evaluador de Almacenamiento (StoragePreflightEvaluator): garantiza reserva innegociable de >= 100 MB de seguridad y margen de promoción atómica. Bloquea la sincronización si el espacio libre es insuficiente.
+  9. Interfaz gráfica SyncWizardScreen y StorageBreakdownBar: asistente paso a paso (Selección -> Calidad -> Preflight) con barra segmentada tipo iTunes/macOS, conectada desde DevicesScreen ("Sincronizar") y validada con Goldens G14 (AIRCAT_SELECT), G15 (AIRCAT_REVIEW) y G29 (PREFLIGHT_BLOCKED).
+  10. SyncWorker y SyncViewModel integran el plan preflight con revalidación inmediata de la reserva de 100 MB antes de iniciar transferencias.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED)
+  ./gradlew :core:testDebugUnitTest (PASSED)
+  ./gradlew :player:testDebugUnitTest (PASSED)
+  ./gradlew :data:testDebugUnitTest (PASSED)
+  ./gradlew :michi-link-client:testDebugUnitTest (PASSED)
+  ./gradlew compileNormalDebugKotlin compileFdroidDebugKotlin (PASSED)
+  Suites específicas:
+    - LibraryLosslessClassifierTest (PASSED)
+    - Migration5To6Test (PASSED)
+    - QueueEntryDisambiguationTest (PASSED)
+    - RemoteCommandAuthorityTest (PASSED)
+    - PlaylistsViewModelTest (PASSED)
+    - SyncProfileNegotiatorTest (PASSED)
+    - StoragePreflightEvaluatorTest (PASSED)
+    - SyncPreflightServiceTest (PASSED)
+    - SyncWizardScreenTest [G14, G15, G29] (PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Criptografía Ed25519 mantenida; aislamiento de identidades de dispositivos en transferencias; validación de reserva de almacenamiento de 100 MB previene DoS por llenado de disco del sistema operativo.
+ROLLBACK_PLAN:
+  git revert 4b41378744e1a2ae26650f3e839935657bbee64f..HEAD
+BLOCKERS: Ninguno. Sprint M20 concluido exitosamente. Madurez estimada: 93%.
+```
+
 
 
 

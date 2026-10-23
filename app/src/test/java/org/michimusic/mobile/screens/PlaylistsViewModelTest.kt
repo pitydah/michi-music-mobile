@@ -656,11 +656,41 @@ class PlaylistsViewModelTest {
         val recordingRepo = RecordingPlaylistRepo(initialTracks = tracks)
         val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
         val mockAudioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        var result: PlayPlaylistResult? = null
 
-        vm.playPlaylist("p1", mockAudioController)
+        vm.playPlaylist("p1", mockAudioController) { result = it }
         advanceUntilIdle()
 
         io.mockk.verify { mockAudioController.playQueue(tracks, 0) }
+        assertEquals(PlayPlaylistResult.Success(2), result)
+    }
+
+    @Test
+    fun playPlaylist_whenEmpty_reportsEmptyAndDoesNotInvokeAudioController() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = emptyList())
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockAudioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        var result: PlayPlaylistResult? = null
+
+        vm.playPlaylist("p1", mockAudioController) { result = it }
+        advanceUntilIdle()
+
+        io.mockk.verify(exactly = 0) { mockAudioController.playQueue(any(), any()) }
+        assertEquals(PlayPlaylistResult.Empty, result)
+    }
+
+    @Test
+    fun playPlaylist_whenNotFound_reportsNotFound() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = emptyList())
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockAudioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        var result: PlayPlaylistResult? = null
+
+        vm.playPlaylist("non-existent-id", mockAudioController) { result = it }
+        advanceUntilIdle()
+
+        io.mockk.verify(exactly = 0) { mockAudioController.playQueue(any(), any()) }
+        assertEquals(PlayPlaylistResult.NotFound, result)
     }
 }
 
@@ -704,7 +734,7 @@ private class RecordingPlaylistRepo(
         private set
     private var currentName: String = "Mix"
 
-    override suspend fun getById(id: String) = Playlist(id = id, name = currentName, trackCount = currentTracks.size)
+    override suspend fun getById(id: String) = if (id == "non-existent-id") null else Playlist(id = id, name = currentName, trackCount = currentTracks.size)
 
     override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = currentTracks
 

@@ -65,4 +65,33 @@ class LibraryLosslessClassifierTest {
         assertFalse(unrecognizedFormat.isLossless)
         assertEquals(CodecClassification.UNKNOWN, unrecognizedFormat.codecClassification)
     }
+
+    @Test
+    fun dsdAndContainerAmbiguitiesAreHandledCorrectly() {
+        // DSD is out of scope on Mobile and must not be classified as Lossless
+        val dsdTrack = Track(id = "12", title = "DSD Track", format = "dsd", sampleRate = 2822400)
+        val dsfTrack = Track(id = "13", title = "DSF Track", format = "audio/dsf", sampleRate = 5644800)
+        assertFalse(dsdTrack.isLossless)
+        assertEquals(CodecClassification.UNKNOWN, dsdTrack.codecClassification)
+        assertFalse(dsfTrack.isLossless)
+        assertEquals(CodecClassification.UNKNOWN, dsfTrack.codecClassification)
+
+        // ADPCM is compressed lossy, not linear PCM
+        val adpcmTrack = Track(id = "14", title = "ADPCM WAV", format = "audio/wav; codec=adpcm", sampleRate = 44100)
+        assertFalse(adpcmTrack.isLossless)
+        assertEquals(CodecClassification.LOSSY, adpcmTrack.codecClassification)
+
+        // Bare M4A container without explicit codec is UNKNOWN
+        val bareM4a = Track(id = "15", title = "M4A File", format = "m4a", sampleRate = 44100)
+        assertFalse(bareM4a.isLossless)
+        assertEquals(CodecClassification.UNKNOWN, bareM4a.codecClassification)
+
+        // M4A with explicit ALAC is LOSSLESS; with AAC is LOSSY
+        val m4aAlac = Track(id = "16", title = "M4A ALAC", format = "m4a; codec=alac", sampleRate = 44100)
+        val m4aAac = Track(id = "17", title = "M4A AAC", format = "m4a; codec=aac", sampleRate = 44100)
+        assertTrue(m4aAlac.isLossless)
+        assertEquals(CodecClassification.LOSSLESS, m4aAlac.codecClassification)
+        assertFalse(m4aAac.isLossless)
+        assertEquals(CodecClassification.LOSSY, m4aAac.codecClassification)
+    }
 }

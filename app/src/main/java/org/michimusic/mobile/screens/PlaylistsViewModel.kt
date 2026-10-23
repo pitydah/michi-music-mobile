@@ -29,6 +29,13 @@ sealed interface PlaylistDetailUiState {
     data class Error(val message: String) : PlaylistDetailUiState
 }
 
+sealed interface PlayPlaylistResult {
+    data class Success(val trackCount: Int) : PlayPlaylistResult
+    data object Empty : PlayPlaylistResult
+    data object NotFound : PlayPlaylistResult
+    data class Error(val message: String) : PlayPlaylistResult
+}
+
 class PlaylistsViewModel(
     private val repo: PlaylistRepository,
     private val localMediaRepository: LocalMediaRepository,
@@ -104,18 +111,38 @@ class PlaylistsViewModel(
             refreshPlaylistDetail(id)
         }
     }
-
     /**
      * Resolves all tracks for a given playlist and immediately initiates real playback
-     * through the provided AudioController at index 0.
+     * through the provided AudioController at index 0. Reports accurate status via onResult.
      */
-    fun playPlaylist(id: String, audioController: org.michimusic.player.AudioController) {
+    fun playPlaylist(
+        id: String,
+        audioController: org.michimusic.player.AudioController,
+        onResult: (PlayPlaylistResult) -> Unit = {}
+    ) {
         viewModelScope.launch(ioDispatcher) {
-            val playlist = repo.getById(id) ?: return@launch
-            val tracks = repo.getTracksForPlaylist(playlist)
-            if (tracks.isNotEmpty()) {
+            try {
+                val playlist = repo.getById(id)
+                if (playlist == null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                        onResult(PlayPlaylistResult.NotFound)
+                    }
+                    return@launch
+                }
+                val tracks = repo.getTracksForPlaylist(playlist)
+                if (tracks.isEmpty()) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                        onResult(PlayPlaylistResult.Empty)
+                    }
+                    return@launch
+                }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
                     audioController.playQueue(tracks, 0)
+                    onResult(PlayPlaylistResult.Success(tracks.size))
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    onResult(PlayPlaylistResult.Error(e.message ?: "Error al reproducir playlist"))
                 }
             }
         }
