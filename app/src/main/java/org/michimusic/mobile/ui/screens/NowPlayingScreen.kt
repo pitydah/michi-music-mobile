@@ -675,12 +675,6 @@ private fun SignalTruthDialog(
                 SignalTruthRow("ReplayGain", if (observation.dspStatus.isReplayGainActive) "Aplicado (${"%.1f".format(observation.dspStatus.replayGainAppliedDb)} dB)" else "Inactivo / Bypass")
                 SignalTruthRow("Enrutamiento", observation.routeStatus)
                 SignalTruthRow("Salida AudioTrack", observation.outputConfig?.let { "${it.bitDepth}-bit / ${it.sampleRate} Hz • ${it.channels} ch" } ?: "No verificable")
-                SignalTruthRow("Bit-Perfect", when (observation.bitPerfect) {
-                    org.michimusic.core.models.BitPerfectStatus.VERIFIED -> "Verificado en hardware"
-                    org.michimusic.core.models.BitPerfectStatus.REQUESTED -> "Solicitado (depende de Android/HAL)"
-                    org.michimusic.core.models.BitPerfectStatus.NOT_REQUESTED -> "No solicitado"
-                    org.michimusic.core.models.BitPerfectStatus.UNVERIFIABLE -> "No verificable en este dispositivo"
-                })
             }
         }
     }

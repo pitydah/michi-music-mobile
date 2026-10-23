@@ -128,12 +128,8 @@ class SignalTruthTracker(
             AudioRouteStatus.NoDevice, null -> "DESCONECTADO"
         }
 
-        // Bit-perfect solo puede ser solicitado si estamos en TRANSPARENT con USB DAC
-        val bitPerfectStatus = when {
-            mode == AudioProcessingMode.TRANSPARENT && usbDacManager?.dacState?.value?.isConnected == true ->
-                BitPerfectStatus.REQUESTED
-            else -> BitPerfectStatus.UNVERIFIABLE
-        }
+        // Conforme a D-03 del Plan Maestro V5, Mobile no ofrece ni infiere certificación bit-perfect
+        val bitPerfectStatus = BitPerfectStatus.UNVERIFIABLE
 
         _observation.value = AudioSignalObservation(
             sourceFormat = currentSourceFormat,

@@ -1,8 +1,8 @@
 # Estudio Técnico de Factibilidad: DSD y DSD-over-PCM (DoP) en Michi Music Mobile
 
-**Fecha:** 21 de octubre de 2026  
+**Fecha:** 21 de octubre de 2026 (Archivado: 22 de octubre de 2026)  
 **Contexto de Arquitectura:** Michi Music Mobile (Android / Media3 / ExoPlayer / USB Audio)  
-**Estado:** INGENIERÍA / INVESTIGACIÓN TÉCNICA (No implementado en runtime sin certificación hardware)
+**Estado:** ARCHIVED / OUT_OF_SCOPE_MOBILE (Conforme a Decisión D-02 del Plan Maestro V5, DSD y DoP quedan formalmente excluidos del producto y runtime de Mobile. Este documento se conserva exclusivamente como referencia técnica histórica).  
 
 ---
 

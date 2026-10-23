@@ -369,9 +369,9 @@ fun EqualizerDialog(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     val modes = listOf(
-                        org.michimusic.core.models.AudioProcessingMode.DSP to "DSP Studio",
-                        org.michimusic.core.models.AudioProcessingMode.TRANSPARENT to "Transparent",
-                        org.michimusic.core.models.AudioProcessingMode.AUTO to "Auto",
+                        org.michimusic.core.models.AudioProcessingMode.DSP to "Personalizado",
+                        org.michimusic.core.models.AudioProcessingMode.TRANSPARENT to "Sin efectos",
+                        org.michimusic.core.models.AudioProcessingMode.AUTO to "Automático",
                     )
                     modes.forEach { (m, label) ->
                         val isSelected = currentMode == m
@@ -397,7 +397,7 @@ fun EqualizerDialog(
                 if (currentMode == org.michimusic.core.models.AudioProcessingMode.TRANSPARENT) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Modo Transparente: Ecualizador y ReplayGain en bypass para máxima pureza. La salida efectiva depende del mezclador de Android.",
+                        text = "Modo Sin efectos: Ecualizador y ReplayGain en bypass voluntario en la aplicación. No garantiza ausencia de procesamiento por Android o hardware.",
                         color = TertiaryCyan,
                         fontSize = 10.sp,
                         lineHeight = 13.sp,

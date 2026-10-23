@@ -16,8 +16,15 @@ enum class AudioProcessingMode {
 }
 
 /**
- * Estado verificado de bit-perfect en la salida de audio.
+ * Estado histórico de bit-perfect en la salida de audio.
+ * @deprecated Conforme a la Decisión D-03 del Plan Maestro V5, Mobile no ofrece promesas
+ * ni certificación bit-perfect. Este enum se preserva exclusivamente por compatibilidad binaria
+ * y de serialización con esquemas compartidos previos.
  */
+@Deprecated(
+    message = "Michi Mobile no ofrece certificación bit-perfect (Decisión D-03). Modo Transparente es 'Sin efectos'.",
+    replaceWith = ReplaceWith(""),
+)
 @Serializable
 enum class BitPerfectStatus {
     NOT_REQUESTED,
