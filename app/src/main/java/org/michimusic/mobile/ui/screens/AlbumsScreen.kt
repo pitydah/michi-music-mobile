@@ -158,7 +158,10 @@ fun AlbumsScreen(
         allTracks.filter { track ->
             when (selectedFilter) {
                 LibraryFilter.ALL -> true
-                LibraryFilter.LOSSLESS -> track.format.contains("flac", ignoreCase = true) || (track.sampleRate ?: 0) >= 48000
+                LibraryFilter.LOSSLESS -> {
+                    val fmt = track.format.lowercase()
+                    fmt.contains("flac") || fmt.contains("alac") || fmt.contains("wav") || fmt.contains("pcm")
+                }
                 LibraryFilter.DOWNLOADED -> track.filepath.isNotEmpty()
             }
         }
