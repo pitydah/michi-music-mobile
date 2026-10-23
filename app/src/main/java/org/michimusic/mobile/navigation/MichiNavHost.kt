@@ -104,20 +104,27 @@ fun MichiNavHost() {
                 ) { backStackEntry ->
                     val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
                     val syncVm: org.michimusic.mobile.sync.SyncViewModel = org.koin.androidx.compose.koinViewModel()
-                    val uiState by syncVm.uiState.collectAsStateWithLifecycle()
-                    val targetDevice = uiState.unifiedDevices.find { it.id == deviceId }
-                    val statFs = android.os.StatFs(androidx.compose.ui.platform.LocalContext.current.filesDir.absolutePath)
-                    val availableBytes = statFs.availableBytes
-                    val totalBytes = statFs.totalBytes
+                    val wizardState by syncVm.wizardUiState.collectAsStateWithLifecycle()
+
+                    androidx.compose.runtime.LaunchedEffect(deviceId) {
+                        syncVm.loadWizardData(deviceId)
+                    }
 
                     org.michimusic.mobile.ui.screens.sync.SyncWizardScreen(
                         endpointId = deviceId,
-                        endpointName = targetDevice?.name ?: "Micro Server",
-                        availableStorageBytes = availableBytes,
-                        totalStorageBytes = totalBytes,
-                        currentLocalMusicBytes = 150L * 1024 * 1024,
-                        candidateTracks = emptyList(),
-                        serverCapabilities = targetDevice?.features?.toSet() ?: emptySet(),
+                        endpointName = wizardState.deviceName.ifEmpty { "Micro Server" },
+                        availableStorageBytes = wizardState.availableStorageBytes,
+                        totalStorageBytes = wizardState.totalStorageBytes,
+                        currentLocalMusicBytes = wizardState.currentLocalMusicBytes,
+                        candidateTracks = wizardState.candidateTracks,
+                        manifestPlaylists = wizardState.playlists,
+                        serverCapabilities = wizardState.serverCapabilities,
+                        serverRepresentations = wizardState.serverRepresentations,
+                        localFingerprints = wizardState.localFingerprints,
+                        existingPartials = wizardState.existingPartials,
+                        isLoading = wizardState.isLoading,
+                        errorMessage = wizardState.error,
+                        onRetry = { syncVm.loadWizardData(deviceId) },
                         onStartSync = { plan ->
                             syncVm.syncPlannedLibrary(plan)
                             navController.popBackStack()

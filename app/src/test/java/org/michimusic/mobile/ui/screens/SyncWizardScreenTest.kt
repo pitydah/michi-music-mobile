@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -156,5 +157,112 @@ class SyncWizardScreenTest {
             .performScrollTo()
             .assertIsDisplayed()
             .assertIsNotEnabled()
+    }
+
+    @Test
+    fun granularAlbumSelection_blocksWhenZeroSelected_andEnablesWhenAlbumChecked() {
+        val mixedTracks = listOf(
+            ManifestTrack(trackId = "trk-1", title = "Track A", artist = "Artist 1", album = "Rock Album", size = 10 * oneMb),
+            ManifestTrack(trackId = "trk-2", title = "Track B", artist = "Artist 1", album = "Rock Album", size = 10 * oneMb),
+            ManifestTrack(trackId = "trk-3", title = "Track C", artist = "Artist 2", album = "Jazz Album", size = 10 * oneMb),
+        )
+
+        composeTestRule.setContent {
+            SyncWizardScreen(
+                endpointId = "ep-test-1",
+                endpointName = "Studio Desktop",
+                availableStorageBytes = 5000 * oneMb,
+                totalStorageBytes = 64000 * oneMb,
+                currentLocalMusicBytes = 500 * oneMb,
+                candidateTracks = mixedTracks,
+                serverCapabilities = setOf("SYNC_V1"),
+                onStartSync = {},
+                onBack = {},
+            )
+        }
+
+        // Switch to Albums scope
+        composeTestRule.onNodeWithTag("sync_wizard_selection_albums").performScrollTo().performClick()
+
+        // When newly selected, albums are empty -> next button should be disabled
+        composeTestRule.onNodeWithText("Selecciona al menos 1 pista para continuar").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("sync_wizard_next_button").performScrollTo().assertIsNotEnabled()
+
+        // Click Rock Album checkbox
+        composeTestRule.onNodeWithTag("sync_wizard_album_Rock_Album").performScrollTo().performClick()
+
+        // Verify next button is now enabled
+        composeTestRule.onNodeWithTag("sync_wizard_next_button").performScrollTo().assertIsEnabled()
+    }
+
+    @Test
+    fun granularTracksSelection_selectAllAndClearAllWorkCorrectly() {
+        composeTestRule.setContent {
+            SyncWizardScreen(
+                endpointId = "ep-test-1",
+                endpointName = "Studio Desktop",
+                availableStorageBytes = 5000 * oneMb,
+                totalStorageBytes = 64000 * oneMb,
+                currentLocalMusicBytes = 500 * oneMb,
+                candidateTracks = sampleTracks,
+                serverCapabilities = setOf("SYNC_V1"),
+                onStartSync = {},
+                onBack = {},
+            )
+        }
+
+        // Switch to Individual Tracks scope
+        composeTestRule.onNodeWithTag("sync_wizard_selection_tracks").performScrollTo().performClick()
+
+        // Click Select All
+        composeTestRule.onNodeWithTag("sync_wizard_select_all").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("sync_wizard_next_button").performScrollTo().assertIsEnabled()
+
+        // Click Clear All
+        composeTestRule.onNodeWithTag("sync_wizard_clear_all").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("sync_wizard_next_button").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test
+    fun loadingState_displaysProgressIndicator() {
+        composeTestRule.setContent {
+            SyncWizardScreen(
+                endpointId = "ep-test-1",
+                endpointName = "Studio Desktop",
+                availableStorageBytes = 5000 * oneMb,
+                totalStorageBytes = 64000 * oneMb,
+                currentLocalMusicBytes = 500 * oneMb,
+                candidateTracks = emptyList(),
+                isLoading = true,
+                onStartSync = {},
+                onBack = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("sync_wizard_loading").assertIsDisplayed()
+    }
+
+    @Test
+    fun errorState_displaysErrorMessageAndRetryButton() {
+        var retried = false
+        composeTestRule.setContent {
+            SyncWizardScreen(
+                endpointId = "ep-test-1",
+                endpointName = "Studio Desktop",
+                availableStorageBytes = 5000 * oneMb,
+                totalStorageBytes = 64000 * oneMb,
+                currentLocalMusicBytes = 500 * oneMb,
+                candidateTracks = emptyList(),
+                errorMessage = "Error al conectar con el servidor",
+                onRetry = { retried = true },
+                onStartSync = {},
+                onBack = {},
+            )
+        }
+
+        composeTestRule.onNodeWithTag("sync_wizard_error").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Error al conectar con el servidor").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("sync_wizard_retry_button").performClick()
+        assertTrue(retried)
     }
 }

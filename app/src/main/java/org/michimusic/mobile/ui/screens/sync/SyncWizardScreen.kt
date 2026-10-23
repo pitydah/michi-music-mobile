@@ -23,11 +23,15 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.core.models.DeliveryProfile
 import org.michimusic.core.models.IssueSeverity
+import org.michimusic.core.models.ManifestPlaylist
 import org.michimusic.core.models.ManifestTrack
 import org.michimusic.core.models.ProfileAvailability
 import org.michimusic.core.models.SyncItemAction
@@ -88,16 +93,24 @@ fun SyncWizardScreen(
     totalStorageBytes: Long,
     currentLocalMusicBytes: Long,
     candidateTracks: List<ManifestTrack>,
+    manifestPlaylists: List<ManifestPlaylist> = emptyList(),
     serverCapabilities: Set<String> = emptySet(),
     serverRepresentations: List<String> = emptyList(),
     localFingerprints: Set<String> = emptySet(),
     existingPartials: Map<String, Long> = emptyMap(),
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
+    onRetry: () -> Unit = {},
     onStartSync: (SyncPlan) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var currentStep by remember { mutableStateOf(SyncWizardStep.SELECTION) }
     var selectedScope by remember { mutableStateOf(SyncScope.FULL_LIBRARY) }
+    var selectedAlbumIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedArtistIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedPlaylistIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedProfile by remember { mutableStateOf(DeliveryProfile.ORIGINAL) }
     val scrollState = rememberScrollState()
 
@@ -111,15 +124,21 @@ fun SyncWizardScreen(
 
     val preflightService = remember { SyncPreflightService() }
 
-    val currentSelection = remember(selectedScope) {
-        SyncSelection(scope = selectedScope)
+    val currentSelection = remember(selectedScope, selectedAlbumIds, selectedArtistIds, selectedPlaylistIds, selectedTrackIds) {
+        SyncSelection(
+            scope = selectedScope,
+            albumIds = selectedAlbumIds,
+            artistIds = selectedArtistIds,
+            playlistIds = selectedPlaylistIds,
+            trackIds = selectedTrackIds,
+        )
     }
 
     val deliveryChoice = remember(selectedProfile, serverCapabilities, serverRepresentations) {
         SyncProfileNegotiator.resolveDeliveryChoice(selectedProfile, serverCapabilities, serverRepresentations)
     }
 
-    val syncPlan = remember(currentSelection, deliveryChoice, availableStorageBytes, candidateTracks, localFingerprints, existingPartials) {
+    val syncPlan = remember(currentSelection, deliveryChoice, availableStorageBytes, candidateTracks, manifestPlaylists, localFingerprints, existingPartials) {
         preflightService.buildPlan(
             endpointId = endpointId,
             endpointName = endpointName,
@@ -127,6 +146,7 @@ fun SyncWizardScreen(
             deliveryChoice = deliveryChoice,
             availableStorageBytes = availableStorageBytes,
             candidateTracks = candidateTracks,
+            manifestPlaylists = manifestPlaylists,
             localTrackFingerprints = localFingerprints,
             existingPartials = existingPartials,
         )
@@ -187,31 +207,116 @@ fun SyncWizardScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            when (currentStep) {
-                SyncWizardStep.SELECTION -> {
-                    SelectionStep(
-                        selectedScope = selectedScope,
-                        totalCandidates = candidateTracks.size,
-                        onSelectScope = { selectedScope = it },
-                        onNext = { currentStep = SyncWizardStep.QUALITY }
-                    )
+            if (isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 48.dp)
+                        .testTag("sync_wizard_loading"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = AccentCoral)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Obteniendo catálogo del servidor...",
+                            style = MichiTypography.cardTitle,
+                            color = PureWhite
+                        )
+                    }
                 }
-                SyncWizardStep.QUALITY -> {
-                    QualityStep(
-                        profiles = availableProfiles,
-                        selectedProfile = selectedProfile,
-                        onSelectProfile = { selectedProfile = it },
-                        onNext = { currentStep = SyncWizardStep.REVIEW }
-                    )
+            } else if (errorMessage != null) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MichiShapes.md)
+                        .border(1.dp, ErrorColor, MichiShapes.md)
+                        .testTag("sync_wizard_error"),
+                    colors = CardDefaults.cardColors(containerColor = GlassFillHigh)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Error, contentDescription = null, tint = ErrorColor)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Error al conectar con el catálogo", style = MichiTypography.cardTitle, color = ErrorColor)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = errorMessage, style = MichiTypography.metadata, color = TextSecondary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onRetry,
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = PureWhite),
+                            modifier = Modifier.testTag("sync_wizard_retry_button")
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Reintentar")
+                        }
+                    }
                 }
-                SyncWizardStep.REVIEW -> {
-                    ReviewStep(
-                        plan = syncPlan,
-                        totalStorageBytes = totalStorageBytes,
-                        systemAndOtherBytes = (totalStorageBytes - availableStorageBytes - currentLocalMusicBytes).coerceAtLeast(0L),
-                        currentLocalMusicBytes = currentLocalMusicBytes,
-                        onStartSync = { onStartSync(syncPlan) }
-                    )
+            } else {
+                when (currentStep) {
+                    SyncWizardStep.SELECTION -> {
+                        SelectionStep(
+                            selectedScope = selectedScope,
+                            totalCandidates = candidateTracks.size,
+                            candidateTracks = candidateTracks,
+                            manifestPlaylists = manifestPlaylists,
+                            selectedAlbumIds = selectedAlbumIds,
+                            selectedArtistIds = selectedArtistIds,
+                            selectedPlaylistIds = selectedPlaylistIds,
+                            selectedTrackIds = selectedTrackIds,
+                            totalSelectedCount = syncPlan.totalSelectedTracks,
+                            totalSelectedBytes = syncPlan.totalDownloadBytes,
+                            onSelectScope = { selectedScope = it },
+                            onToggleAlbum = { album ->
+                                selectedAlbumIds = if (album in selectedAlbumIds) selectedAlbumIds - album else selectedAlbumIds + album
+                            },
+                            onToggleArtist = { artist ->
+                                selectedArtistIds = if (artist in selectedArtistIds) selectedArtistIds - artist else selectedArtistIds + artist
+                            },
+                            onTogglePlaylist = { plId ->
+                                selectedPlaylistIds = if (plId in selectedPlaylistIds) selectedPlaylistIds - plId else selectedPlaylistIds + plId
+                            },
+                            onToggleTrack = { trkId ->
+                                selectedTrackIds = if (trkId in selectedTrackIds) selectedTrackIds - trkId else selectedTrackIds + trkId
+                            },
+                            onSelectAllAlbums = {
+                                selectedAlbumIds = candidateTracks.map { it.album.ifEmpty { "Desconocido" } }.toSet()
+                            },
+                            onClearAllAlbums = { selectedAlbumIds = emptySet() },
+                            onSelectAllArtists = {
+                                selectedArtistIds = candidateTracks.map { it.artist.ifEmpty { "Desconocido" } }.toSet()
+                            },
+                            onClearAllArtists = { selectedArtistIds = emptySet() },
+                            onSelectAllPlaylists = {
+                                selectedPlaylistIds = manifestPlaylists.map { it.playlistId }.toSet()
+                            },
+                            onClearAllPlaylists = { selectedPlaylistIds = emptySet() },
+                            onSelectAllTracks = {
+                                selectedTrackIds = candidateTracks.map { it.trackId }.toSet()
+                            },
+                            onClearAllTracks = { selectedTrackIds = emptySet() },
+                            onNext = { currentStep = SyncWizardStep.QUALITY }
+                        )
+                    }
+                    SyncWizardStep.QUALITY -> {
+                        QualityStep(
+                            profiles = availableProfiles,
+                            selectedProfile = selectedProfile,
+                            onSelectProfile = { selectedProfile = it },
+                            onNext = { currentStep = SyncWizardStep.REVIEW }
+                        )
+                    }
+                    SyncWizardStep.REVIEW -> {
+                        ReviewStep(
+                            plan = syncPlan,
+                            totalStorageBytes = totalStorageBytes,
+                            systemAndOtherBytes = (totalStorageBytes - availableStorageBytes - currentLocalMusicBytes).coerceAtLeast(0L),
+                            currentLocalMusicBytes = currentLocalMusicBytes,
+                            onStartSync = { onStartSync(syncPlan) }
+                        )
+                    }
                 }
             }
         }
@@ -277,7 +382,27 @@ private fun StepChip(number: String, title: String, isActive: Boolean, isDone: B
 private fun SelectionStep(
     selectedScope: SyncScope,
     totalCandidates: Int,
+    candidateTracks: List<ManifestTrack>,
+    manifestPlaylists: List<ManifestPlaylist>,
+    selectedAlbumIds: Set<String>,
+    selectedArtistIds: Set<String>,
+    selectedPlaylistIds: Set<String>,
+    selectedTrackIds: Set<String>,
+    totalSelectedCount: Int,
+    totalSelectedBytes: Long,
     onSelectScope: (SyncScope) -> Unit,
+    onToggleAlbum: (String) -> Unit,
+    onToggleArtist: (String) -> Unit,
+    onTogglePlaylist: (String) -> Unit,
+    onToggleTrack: (String) -> Unit,
+    onSelectAllAlbums: () -> Unit,
+    onClearAllAlbums: () -> Unit,
+    onSelectAllArtists: () -> Unit,
+    onClearAllArtists: () -> Unit,
+    onSelectAllPlaylists: () -> Unit,
+    onClearAllPlaylists: () -> Unit,
+    onSelectAllTracks: () -> Unit,
+    onClearAllTracks: () -> Unit,
     onNext: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -310,7 +435,7 @@ private fun SelectionStep(
         ScopeOptionCard(
             scope = SyncScope.PLAYLISTS,
             title = "Playlists Remotas",
-            subtitle = "Sincroniza todas las listas de reproducción del servidor",
+            subtitle = if (manifestPlaylists.isEmpty()) "Sin playlists en el servidor" else "${manifestPlaylists.size} playlist(s) disponibles",
             isSelected = selectedScope == SyncScope.PLAYLISTS,
             onSelect = { onSelectScope(SyncScope.PLAYLISTS) },
             testTag = "sync_wizard_selection_playlists"
@@ -318,28 +443,283 @@ private fun SelectionStep(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        val distinctAlbums = remember(candidateTracks) {
+            candidateTracks.groupBy { it.album.ifEmpty { "Desconocido" } }
+        }
+
         ScopeOptionCard(
             scope = SyncScope.ALBUMS,
             title = "Álbumes Específicos",
-            subtitle = "Selecciona álbumes completos para llevar en offline",
+            subtitle = "${distinctAlbums.size} álbumes en catálogo",
             isSelected = selectedScope == SyncScope.ALBUMS,
             onSelect = { onSelectScope(SyncScope.ALBUMS) },
             testTag = "sync_wizard_selection_albums"
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Button(
-            onClick = onNext,
-            colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = PureWhite),
-            shape = MichiShapes.md,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("sync_wizard_next_button")
-        ) {
-            Text("Siguiente: Calidad y Perfil", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        val distinctArtists = remember(candidateTracks) {
+            candidateTracks.groupBy { it.artist.ifEmpty { "Desconocido" } }
         }
+
+        ScopeOptionCard(
+            scope = SyncScope.ARTISTS,
+            title = "Artistas Específicos",
+            subtitle = "${distinctArtists.size} artistas en catálogo",
+            isSelected = selectedScope == SyncScope.ARTISTS,
+            onSelect = { onSelectScope(SyncScope.ARTISTS) },
+            testTag = "sync_wizard_selection_artists"
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        ScopeOptionCard(
+            scope = SyncScope.TRACKS,
+            title = "Pistas Individuales",
+            subtitle = "Selecciona pistas canción por canción",
+            isSelected = selectedScope == SyncScope.TRACKS,
+            onSelect = { onSelectScope(SyncScope.TRACKS) },
+            testTag = "sync_wizard_selection_tracks"
+        )
+
+        // Sub-selector based on scope
+        when (selectedScope) {
+            SyncScope.FULL_LIBRARY -> {
+                // All candidates included automatically
+            }
+            SyncScope.ALBUMS -> {
+                Spacer(modifier = Modifier.height(20.dp))
+                SubSelectionHeader(
+                    title = "Álbumes disponibles (${selectedAlbumIds.size}/${distinctAlbums.size})",
+                    onSelectAll = onSelectAllAlbums,
+                    onClearAll = onClearAllAlbums,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                distinctAlbums.forEach { (albumName, tracksInAlbum) ->
+                    val isChecked = albumName in selectedAlbumIds
+                    val albumBytes = tracksInAlbum.sumOf { it.size }
+                    ItemCheckboxRow(
+                        title = albumName,
+                        subtitle = "${tracksInAlbum.firstOrNull()?.artist ?: "Varios"} • ${tracksInAlbum.size} pistas • ${StoragePreflightEvaluator.formatBytes(albumBytes)}",
+                        isChecked = isChecked,
+                        onToggle = { onToggleAlbum(albumName) },
+                        testTag = "sync_wizard_album_${albumName.replace(" ", "_")}"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+            SyncScope.PLAYLISTS -> {
+                Spacer(modifier = Modifier.height(20.dp))
+                SubSelectionHeader(
+                    title = "Playlists disponibles (${selectedPlaylistIds.size}/${manifestPlaylists.size})",
+                    onSelectAll = onSelectAllPlaylists,
+                    onClearAll = onClearAllPlaylists,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (manifestPlaylists.isEmpty()) {
+                    Text(
+                        text = "El servidor no tiene playlists guardadas",
+                        style = MichiTypography.metadata,
+                        color = TextDim,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                } else {
+                    manifestPlaylists.forEach { pl ->
+                        val isChecked = pl.playlistId in selectedPlaylistIds
+                        ItemCheckboxRow(
+                            title = pl.name,
+                            subtitle = "${pl.trackIds.size} pistas",
+                            isChecked = isChecked,
+                            onToggle = { onTogglePlaylist(pl.playlistId) },
+                            testTag = "sync_wizard_playlist_${pl.playlistId}"
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+            SyncScope.ARTISTS -> {
+                Spacer(modifier = Modifier.height(20.dp))
+                SubSelectionHeader(
+                    title = "Artistas disponibles (${selectedArtistIds.size}/${distinctArtists.size})",
+                    onSelectAll = onSelectAllArtists,
+                    onClearAll = onClearAllArtists,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                distinctArtists.forEach { (artistName, tracksOfArtist) ->
+                    val isChecked = artistName in selectedArtistIds
+                    ItemCheckboxRow(
+                        title = artistName,
+                        subtitle = "${tracksOfArtist.size} pistas",
+                        isChecked = isChecked,
+                        onToggle = { onToggleArtist(artistName) },
+                        testTag = "sync_wizard_artist_${artistName.replace(" ", "_")}"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+            SyncScope.TRACKS -> {
+                Spacer(modifier = Modifier.height(20.dp))
+                SubSelectionHeader(
+                    title = "Pistas disponibles (${selectedTrackIds.size}/${candidateTracks.size})",
+                    onSelectAll = onSelectAllTracks,
+                    onClearAll = onClearAllTracks,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                candidateTracks.forEach { trk ->
+                    val isChecked = trk.trackId in selectedTrackIds
+                    ItemCheckboxRow(
+                        title = trk.title,
+                        subtitle = "${trk.artist} • ${trk.album} • ${StoragePreflightEvaluator.formatBytes(trk.size)}",
+                        isChecked = isChecked,
+                        onToggle = { onToggleTrack(trk.trackId) },
+                        testTag = "sync_wizard_track_${trk.trackId}"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Selected summary banner
+        Card(
+            modifier = Modifier.fillMaxWidth().clip(MichiShapes.sm),
+            colors = CardDefaults.cardColors(containerColor = GlassFillHigh)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Selección actual:",
+                    style = MichiTypography.metadata,
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+                Text(
+                    text = if (totalSelectedCount > 0) {
+                        "$totalSelectedCount pista(s) (${StoragePreflightEvaluator.formatBytes(totalSelectedBytes)})"
+                    } else {
+                        "0 pistas"
+                    },
+                    style = MichiTypography.cardTitle,
+                    color = if (totalSelectedCount > 0) TertiaryCyan else ErrorColor,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (totalSelectedCount > 0) {
+            Button(
+                onClick = onNext,
+                colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = PureWhite),
+                shape = MichiShapes.md,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("sync_wizard_next_button")
+            ) {
+                Text("Siguiente: Calidad y Perfil", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            }
+        } else {
+            Button(
+                onClick = {},
+                enabled = false,
+                colors = ButtonDefaults.buttonColors(
+                    disabledContainerColor = Color(0xFF2A2C33),
+                    disabledContentColor = TextDim
+                ),
+                shape = MichiShapes.md,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("sync_wizard_next_button")
+            ) {
+                Text("Selecciona al menos 1 pista para continuar", fontWeight = FontWeight.Normal, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubSelectionHeader(
+    title: String,
+    onSelectAll: () -> Unit,
+    onClearAll: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = title, style = MichiTypography.sectionTitle, color = PureWhite, fontSize = 15.sp)
+        Row {
+            Text(
+                text = "Todo",
+                style = MichiTypography.metadata,
+                color = AccentCoral,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clickable(onClick = onSelectAll)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .testTag("sync_wizard_select_all")
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Ninguno",
+                style = MichiTypography.metadata,
+                color = TextSecondary,
+                modifier = Modifier
+                    .clickable(onClick = onClearAll)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .testTag("sync_wizard_clear_all")
+            )
+        }
+    }
+}
+
+@Composable
+private fun ItemCheckboxRow(
+    title: String,
+    subtitle: String,
+    isChecked: Boolean,
+    onToggle: () -> Unit,
+    testTag: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MichiShapes.sm)
+            .background(if (isChecked) GlassFillHigh else GlassFillLow)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MichiTypography.trackTitle,
+                color = PureWhite,
+                fontSize = 14.sp,
+                fontWeight = if (isChecked) FontWeight.SemiBold else FontWeight.Normal
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(text = subtitle, style = MichiTypography.metadata, color = TextSecondary, fontSize = 12.sp)
+        }
+        Checkbox(
+            checked = isChecked,
+            onCheckedChange = { onToggle() },
+            colors = CheckboxDefaults.colors(
+                checkedColor = AccentCoral,
+                uncheckedColor = GlassBorderHigh,
+                checkmarkColor = PureWhite
+            )
+        )
     }
 }
 

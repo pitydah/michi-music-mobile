@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -35,6 +36,22 @@ import org.michimusic.link.dto.PairingStrategy
 import org.michimusic.link.dto.QrClaimRequest
 import org.michimusic.link.dto.ServerInfoDto
 import org.michimusic.link.errors.LinkException
+
+data class WizardUiState(
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val deviceId: String = "",
+    val deviceName: String = "",
+    val candidateTracks: List<org.michimusic.core.models.ManifestTrack> = emptyList(),
+    val playlists: List<org.michimusic.core.models.ManifestPlaylist> = emptyList(),
+    val serverCapabilities: Set<String> = emptySet(),
+    val serverRepresentations: List<String> = emptyList(),
+    val availableStorageBytes: Long = 0L,
+    val totalStorageBytes: Long = 0L,
+    val currentLocalMusicBytes: Long = 0L,
+    val localFingerprints: Set<String> = emptySet(),
+    val existingPartials: Map<String, Long> = emptyMap(),
+)
 
 data class SyncUiState(
     val state: SyncConnectionState = SyncConnectionState.DISCONNECTED,
@@ -59,6 +76,9 @@ class SyncViewModel(
     private val trackRepository: SyncedTrackRepository,
     private val airCatClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? = null,
 ) : ViewModel() {
+
+    private val _wizardUiState = MutableStateFlow(WizardUiState())
+    val wizardUiState: StateFlow<WizardUiState> = _wizardUiState.asStateFlow()
 
     private val _connectionState = MutableStateFlow(SyncConnectionState.DISCONNECTED)
     private val _connectedPeer = MutableStateFlow<DiscoveredPeer?>(null)
@@ -602,7 +622,7 @@ class SyncViewModel(
     }
 
     fun syncPlannedLibrary(plan: org.michimusic.core.models.SyncPlan) {
-        if (!plan.isExecutable) return
+        if (!plan.isExecutable || plan.totalSelectedTracks == 0) return
         val targetDeviceId = plan.endpointId
         val tracksToDownload = plan.items.filter {
             it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
@@ -614,6 +634,9 @@ class SyncViewModel(
             targetDeviceId = targetDeviceId,
             selectedTrackIds = tracksToDownload,
             profile = plan.deliveryChoice.profile.name,
+            scope = plan.selection.scope.name,
+            planId = plan.planId,
+            expectedBytes = plan.totalDownloadBytes,
         )
     }
 
@@ -621,6 +644,9 @@ class SyncViewModel(
         targetDeviceId: String? = null,
         selectedTrackIds: List<String> = emptyList(),
         profile: String = "ORIGINAL",
+        scope: String = "FULL_LIBRARY",
+        planId: String = "",
+        expectedBytes: Long = 0L,
     ) {
         val currentState = uiState.value
         val pairConfirm = currentState.pairingConfirm
@@ -658,6 +684,9 @@ class SyncViewModel(
             clientDeviceId = pairedClientDeviceId,
             selectedTrackIds = selectedTrackIds.joinToString(","),
             profile = profile,
+            scope = scope,
+            planId = planId,
+            expectedBytes = expectedBytes,
         )
 
         val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
@@ -694,6 +723,114 @@ class SyncViewModel(
                         _syncProgress.value = SyncProgress.Downloading(current, total)
                     }
                 }
+        }
+    }
+
+    fun loadWizardData(targetDeviceId: String) {
+        _wizardUiState.value = WizardUiState(isLoading = true, deviceId = targetDeviceId)
+        viewModelScope.launch {
+            try {
+                val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
+                val availableBytes = statFs?.availableBytes ?: (10L * 1024 * 1024 * 1024)
+                val totalBytes = statFs?.totalBytes ?: (64L * 1024 * 1024 * 1024)
+
+                val syncedMusicDir = java.io.File(context.filesDir, "synced_music")
+                val dirBytes = if (syncedMusicDir.exists()) {
+                    syncedMusicDir.walkTopDown().filter { it.isFile && !it.name.endsWith(".part") }.sumOf { it.length() }
+                } else 0L
+                val dbBytes = trackRepository.getDownloadedBytes()
+                val currentLocalMusicBytes = maxOf(dirBytes, dbBytes)
+
+                val localFingerprints = trackRepository.getDownloadedTrackFingerprints()
+                val checkpoints = org.michimusic.mobile.di.transferCheckpointRepository?.getCheckpointsForDevice(targetDeviceId) ?: emptyList()
+                val partials = checkpoints.filter { it.receivedBytes > 0 && it.transferState != org.michimusic.core.models.TransferStatus.COMPLETED }
+                    .associate { it.trackId to it.receivedBytes }
+
+                val pairedDevice = registry.getDevice(targetDeviceId)
+                val client = connectionManager.getClient(targetDeviceId)
+                    ?: if (pairedDevice != null && pairedDevice.lastUrl.isNotEmpty() && pairedDevice.deviceToken.isNotEmpty()) {
+                        LinkClient(
+                            baseUrl = pairedDevice.lastUrl,
+                            sessionToken = pairedDevice.deviceToken,
+                            deviceToken = pairedDevice.deviceToken,
+                            clientDeviceId = pairedDevice.pairedClientDeviceId.ifEmpty { identity.michiId },
+                            pairedClientDeviceId = pairedDevice.pairedClientDeviceId,
+                        )
+                    } else null
+
+                if (client == null) {
+                    _wizardUiState.value = WizardUiState(
+                        isLoading = false,
+                        error = "Dispositivo no conectado ni registrado",
+                        deviceId = targetDeviceId,
+                        availableStorageBytes = availableBytes,
+                        totalStorageBytes = totalBytes,
+                        currentLocalMusicBytes = currentLocalMusicBytes,
+                    )
+                    return@launch
+                }
+
+                val serverInfoRes = client.getServerInfo()
+                val serverInfo = serverInfoRes.getOrNull()
+                val serverFeatures = serverInfo?.effectiveFeatures?.toSet() ?: pairedDevice?.features?.toSet() ?: emptySet()
+                val serverRepresentations = serverInfo?.audio?.codecs ?: emptyList()
+
+                val manifestRes = client.fetchSyncManifest(targetDeviceId)
+                if (manifestRes.isFailure) {
+                    _wizardUiState.value = WizardUiState(
+                        isLoading = false,
+                        error = "Error al obtener catálogo: ${manifestRes.exceptionOrNull()?.message}",
+                        deviceId = targetDeviceId,
+                        deviceName = pairedDevice?.deviceName ?: "Micro Server",
+                        serverCapabilities = serverFeatures,
+                        serverRepresentations = serverRepresentations,
+                        availableStorageBytes = availableBytes,
+                        totalStorageBytes = totalBytes,
+                        currentLocalMusicBytes = currentLocalMusicBytes,
+                    )
+                    return@launch
+                }
+
+                val manifestDto = manifestRes.getOrThrow()
+                val candidateTracks = manifestDto.effectiveTracks.map { dto ->
+                    org.michimusic.core.models.ManifestTrack(
+                        trackId = dto.trackId,
+                        title = dto.title,
+                        artist = dto.artist,
+                        album = dto.album,
+                        size = dto.size,
+                        format = dto.format,
+                        duration = dto.duration,
+                        year = dto.year,
+                        genre = dto.genre,
+                        coverId = dto.coverId,
+                        checksum = dto.checksum ?: "",
+                        downloadPath = dto.downloadPath,
+                    )
+                }
+                val playlists = manifestDto.playlists.map { it.toDomainPlaylist() }
+
+                _wizardUiState.value = WizardUiState(
+                    isLoading = false,
+                    deviceId = targetDeviceId,
+                    deviceName = pairedDevice?.deviceName ?: serverInfo?.effectiveName ?: "Micro Server",
+                    candidateTracks = candidateTracks,
+                    playlists = playlists,
+                    serverCapabilities = serverFeatures,
+                    serverRepresentations = serverRepresentations,
+                    availableStorageBytes = availableBytes,
+                    totalStorageBytes = totalBytes,
+                    currentLocalMusicBytes = currentLocalMusicBytes,
+                    localFingerprints = localFingerprints,
+                    existingPartials = partials,
+                )
+            } catch (e: Exception) {
+                _wizardUiState.value = WizardUiState(
+                    isLoading = false,
+                    error = e.message ?: "Error desconocido cargando asistente",
+                    deviceId = targetDeviceId,
+                )
+            }
         }
     }
 

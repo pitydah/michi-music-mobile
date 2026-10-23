@@ -26,12 +26,15 @@ class SyncPreflightService {
         deliveryChoice: DeliveryChoice,
         availableStorageBytes: Long,
         candidateTracks: List<ManifestTrack>,
+        manifestPlaylists: List<org.michimusic.core.models.ManifestPlaylist> = emptyList(),
         localTrackFingerprints: Set<String> = emptySet(),
         existingPartials: Map<String, Long> = emptyMap(),
     ): SyncPlan {
         val planId = UUID.randomUUID().toString()
 
-        if (selection.isEmpty) {
+        val hasEmptySelection = selection.isEmpty || (selection.scope == SyncScope.FULL_LIBRARY && candidateTracks.isEmpty())
+
+        if (hasEmptySelection) {
             val issue = SyncPreflightIssue(
                 code = "EMPTY_SELECTION",
                 message = "No se ha seleccionado ninguna pista, álbum, artista o playlist para sincronizar.",
@@ -61,21 +64,53 @@ class SyncPreflightService {
         val filteredTracks = when (selection.scope) {
             SyncScope.FULL_LIBRARY -> candidateTracks
             SyncScope.PLAYLISTS -> {
-                // If playlist IDs are specified, filter by them
-                candidateTracks.filter { it.trackId in selection.trackIds || selection.playlistIds.isNotEmpty() }
+                val selectedPlaylistTrackIds = manifestPlaylists
+                    .filter { it.playlistId in selection.playlistIds }
+                    .flatMap { it.trackIds }
+                    .toSet()
+                candidateTracks.filter { it.trackId in selectedPlaylistTrackIds || it.trackId in selection.trackIds }
             }
             SyncScope.ALBUMS -> candidateTracks.filter { it.album in selection.albumIds }
             SyncScope.ARTISTS -> candidateTracks.filter { it.artist in selection.artistIds }
             SyncScope.TRACKS -> candidateTracks.filter { it.trackId in selection.trackIds }
         }
 
-        // 2. Deduplicate tracks by trackId
-        val dedupedTracks = filteredTracks.distinctBy { it.trackId }
+        if (filteredTracks.isEmpty()) {
+            val issue = SyncPreflightIssue(
+                code = "EMPTY_SELECTION",
+                message = "La selección actual no contiene pistas válidas para transferir.",
+                severity = IssueSeverity.BLOCKING,
+            )
+            return SyncPlan(
+                planId = planId,
+                endpointId = endpointId,
+                endpointName = endpointName,
+                selection = selection,
+                deliveryChoice = deliveryChoice,
+                items = emptyList(),
+                totalSelectedTracks = 0,
+                tracksToDownloadCount = 0,
+                tracksSkippedCount = 0,
+                tracksToResumeCount = 0,
+                totalDownloadBytes = 0L,
+                availableStorageBytes = availableStorageBytes,
+                safetyBufferBytes = StoragePreflightEvaluator.SAFETY_BUFFER_BYTES,
+                remainingStorageAfterSyncBytes = availableStorageBytes,
+                issues = listOf(issue),
+                status = SyncPreflightStatus.BLOCKED_EMPTY_SELECTION,
+            )
+        }
 
-        // 3. Classify each track into an action decision
+        // 2. Deduplicate tracks by trackId or checksum
+        val dedupedTracks = filteredTracks.distinctBy {
+            if (it.checksum.isNotEmpty()) it.checksum else it.trackId
+        }
+
+        // 3. Classify each track into an action decision with realistic size estimation
         val decisions = dedupedTracks.map { track ->
             val trackFingerprint = track.checksum.ifEmpty { "${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}_${track.duration}" }
             val alreadyLocal = localTrackFingerprints.contains(track.trackId) || localTrackFingerprints.contains(trackFingerprint)
+            val estimatedFullBytes = estimateTrackDownloadBytes(track, deliveryChoice)
 
             if (alreadyLocal) {
                 SyncItemDecision(
@@ -90,8 +125,8 @@ class SyncPreflightService {
                 )
             } else {
                 val partialBytes = existingPartials[track.trackId]
-                if (partialBytes != null && partialBytes > 0 && partialBytes < track.size) {
-                    val remainingBytes = (track.size - partialBytes).coerceAtLeast(0L)
+                if (partialBytes != null && partialBytes > 0 && partialBytes < estimatedFullBytes) {
+                    val remainingBytes = (estimatedFullBytes - partialBytes).coerceAtLeast(0L)
                     SyncItemDecision(
                         trackId = track.trackId,
                         title = track.title,
@@ -110,7 +145,7 @@ class SyncPreflightService {
                         album = track.album,
                         action = SyncItemAction.DOWNLOAD,
                         sourceSizeBytes = track.size,
-                        estimatedDownloadBytes = track.size,
+                        estimatedDownloadBytes = estimatedFullBytes,
                         reason = "Nueva pista a sincronizar",
                     )
                 }
@@ -125,7 +160,7 @@ class SyncPreflightService {
         val tracksToResume = decisions.count { it.action == SyncItemAction.RESUME_PARTIAL }
 
         val issues = storageEval.issues.toMutableList()
-        var status = storageEval.status
+        val status = storageEval.status
 
         if (decisions.isNotEmpty() && tracksToDownload == 0 && tracksToResume == 0) {
             issues.add(
@@ -155,5 +190,29 @@ class SyncPreflightService {
             issues = issues,
             status = status,
         )
+    }
+
+    private fun estimateTrackDownloadBytes(track: ManifestTrack, deliveryChoice: DeliveryChoice): Long {
+        return when (deliveryChoice.profile) {
+            org.michimusic.core.models.DeliveryProfile.ORIGINAL -> track.size
+            org.michimusic.core.models.DeliveryProfile.BALANCED -> {
+                // AAC 256 kbps ~= 32 KB/s
+                if (track.duration > 0) {
+                    val est = track.duration.toLong() * 32_000L
+                    minOf(est, track.size)
+                } else {
+                    (track.size * 0.4).toLong().coerceAtLeast(1024L)
+                }
+            }
+            org.michimusic.core.models.DeliveryProfile.LOW_STORAGE -> {
+                // Opus 128 kbps ~= 16 KB/s
+                if (track.duration > 0) {
+                    val est = track.duration.toLong() * 16_000L
+                    minOf(est, track.size)
+                } else {
+                    (track.size * 0.2).toLong().coerceAtLeast(1024L)
+                }
+            }
+        }
     }
 }

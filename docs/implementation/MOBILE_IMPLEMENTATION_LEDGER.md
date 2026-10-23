@@ -31,6 +31,7 @@
 | M19 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8a4fb75 | Biblioteca, Playlists y Home honesta: Home recent integrity (sin heurísticas take(8)), navegación CRUD playlist completa sin no-ops, y clasificador lossless canónico en búsqueda |
 | M18-M19-HARDENING | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre completo de defectos P1/P2: autoridad de comandos remotos (fallo getQueue produce REJECTED, anti-stale endpoint affinity), reproducción rápida real de playlists (playPlaylist en PlaylistsViewModel), confianza de dispositivos (distinción anunciado vs verificado y pairing QR), identidad QueueEntry en Media3 (timeline y restauración), clasificación Lossless/Lossy/Unknown, UI/UX Devices (touch targets >=48dp, metadata sin raw IP) |
 | M20 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Sync Preflight inteligente, perfiles de entrega negociados sin fake transcoding, reserva de seguridad >= 100 MB estricta, StorageBreakdownBar, SyncWizardScreen (G14, G15, G29), Room v5->v6 con QueueEntry UUID y autoridad remota ACCEPTED/CONFIRMED |
+| M20.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Estabilización e integración real de Sync: catálogo remoto real en Wizard, selección granular (álbumes/playlists/artistas/pistas), invariante de 0 pistas (cero descargas no autorizadas), perfiles AAC/Opus veraces, métricas de disco reales y prueba E2E completa |
 
 ---
 
@@ -1516,6 +1517,75 @@ SECURITY_REVIEW:
 ROLLBACK_PLAN:
   git revert 4b41378744e1a2ae26650f3e839935657bbee64f..HEAD
 BLOCKERS: Ninguno. Sprint M20 concluido exitosamente. Madurez estimada: 93%.
+```
+
+---
+
+## Checkpoint de Ejecución — Sprint M20.1 (Estabilización e Integración Real de Sync)
+
+```text
+BLOCK_ID: M20.1
+MASTER_BASE_SHA: 4b41378744e1a2ae26650f3e839935657bbee64f
+FILES_CHANGED:
+  - core/src/main/java/org/michimusic/core/models/SyncPreflightModels.kt
+  - core/src/main/java/org/michimusic/core/sync/SyncProfileNegotiator.kt
+  - core/src/main/java/org/michimusic/core/sync/SyncPreflightService.kt
+  - core/src/test/java/org/michimusic/core/sync/SyncProfileNegotiatorTest.kt
+  - core/src/test/java/org/michimusic/core/sync/SyncPreflightServiceTest.kt
+  - data/src/main/java/org/michimusic/data/repository/SyncedTrackRepository.kt
+  - app/src/main/java/org/michimusic/mobile/navigation/MichiNavHost.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/sync/SyncWizardScreen.kt
+  - app/src/main/java/org/michimusic/mobile/di/KoinAccessors.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/SyncWizardScreenTest.kt
+  - app/src/test/java/org/michimusic/mobile/sync/EndToEndSyncFlowTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. El wizard de sincronización (G14, G15, G29) inicializaba candidateTracks con listas vacías en producción,
+     dejando al planificador preflight sin catálogo remoto real y forzando simulaciones artificiales.
+  2. Si la lista de IDs seleccionados estaba vacía, la semántica en SyncWorker recaía automáticamente en
+     la descarga de la biblioteca entera, arriesgando descargas no autorizadas masivas ante un fallo de selección.
+  3. No existían selectores granulares de álbumes, artistas, playlists o canciones en la UI del wizard;
+     el usuario solo podía elegir opciones de nivel superior sin granularidad fina ni control por elementos.
+  4. La negociación de perfiles asumía soporte generalizado o simulaciones de transcodificación sin verificar
+     representaciones de códec anunciadas explícitamente por el servidor (ej. "aac", "opus").
+  5. El tamaño local ocupado por música se aproximaba con una constante fija de 150 MiB, sin consultar
+     el almacenamiento real en disco ni las tablas de Room.
+  6. La estimación de descargas transcodificadas utilizaba el tamaño en bytes de los ficheros FLAC originales.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Conexión veraz del catálogo remoto: SyncViewModel.loadWizardData(targetDeviceId) descarga el manifiesto
+     autoritativo remoto via LinkClient.fetchSyncManifest() e interroga getServerInfo() para capacidades reales.
+  2. Invariante estricto de cero pistas: SyncPlan.isExecutable exige totalSelectedTracks > 0; selecciones vacías
+     devuelven BLOCKED_EMPTY_SELECTION y SyncWorker garantiza descarga de 0 ficheros ante selecciones vacías no-FULL_LIBRARY.
+  3. Selección granular completa: SyncWizardScreen ofrece sub-selectores interactivos con checkboxes, contadores,
+     y acciones "Seleccionar todo" / "Limpiar" para Álbumes, Playlists, Artistas y Pistas individuales.
+     El botón "Siguiente" se inhabilita con aviso cuando la selección resulta en 0 pistas.
+  4. Negociación veraz de códecs: SyncProfileNegotiator evalúa independientemente BALANCED (AAC) y LOW_STORAGE (Opus)
+     según codecs reales anunciados por el servidor o capacidades genéricas, deshabilitando con aviso honesto lo no soportado.
+  5. Métricas de almacenamiento reales: SyncedTrackRepository provee getDownloadedBytes() y getDownloadedTrackFingerprints()
+     desde SQLite Room, combinados con StatFs real para el preflight de almacenamiento.
+  6. Presupuestación honesta por bitrate: SyncPreflightService calcula el tamaño esperado para perfiles transcodificados
+     según la duración acumulada y las tasas nominales (~256 kbps AAC, ~128 kbps Opus), no el tamaño FLAC de origen.
+  7. Prueba E2E completa: EndToEndSyncFlowTest valida el flujo íntegro (carga de catálogo -> negociación de códecs ->
+     selección de álbum -> preflight -> despacho al worker -> invariantes de 0 pistas).
+JVM_TESTS_EXECUTED:
+  ./gradlew :core:testDebugUnitTest (15 tests PASSED)
+  ./gradlew :player:testDebugUnitTest (14 tests PASSED)
+  ./gradlew :data:testDebugUnitTest (48 tests PASSED)
+  ./gradlew :michi-link-client:testDebugUnitTest (25 tests PASSED)
+  ./gradlew :app:testNormalDebugUnitTest (252 tests PASSED)
+  ./gradlew compileNormalDebugKotlin compileFdroidDebugKotlin (BUILD SUCCESSFUL)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Aislamiento criptográfico y fidelidad de tokens preservados; WorkManager Data no contiene credenciales;
+  la barrera de seguridad de 100 MB se valida antes de cualquier I/O; las selecciones vacías no producen
+  descargas accidentales de red ni saturación de almacenamiento.
+ROLLBACK_PLAN:
+  git revert 4b41378744e1a2ae26650f3e839935657bbee64f..HEAD
+BLOCKERS: Ninguno. Sprint M20.1 concluido exitosamente. Madurez estimada: 94%.
 ```
 
 

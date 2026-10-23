@@ -67,4 +67,30 @@ class SyncProfileNegotiatorTest {
 
         assertTrue(profiles.all { it.isAvailable })
     }
+
+    @Test
+    fun withAacOnlyRepresentation_enablesBalancedAndDisablesLowStorage() {
+        val representations = listOf("audio/aac")
+        val profiles = SyncProfileNegotiator.evaluateAvailableProfiles(emptySet(), representations)
+
+        val balanced = profiles.first { it.profile == DeliveryProfile.BALANCED }
+        val lowStorage = profiles.first { it.profile == DeliveryProfile.LOW_STORAGE }
+
+        assertTrue(balanced.isAvailable)
+        assertFalse(lowStorage.isAvailable)
+        assertTrue(lowStorage.reasonIfNot!!.contains("Opus"))
+    }
+
+    @Test
+    fun withOpusOnlyRepresentation_enablesLowStorageAndDisablesBalanced() {
+        val representations = listOf("audio/opus")
+        val profiles = SyncProfileNegotiator.evaluateAvailableProfiles(emptySet(), representations)
+
+        val balanced = profiles.first { it.profile == DeliveryProfile.BALANCED }
+        val lowStorage = profiles.first { it.profile == DeliveryProfile.LOW_STORAGE }
+
+        assertFalse(balanced.isAvailable)
+        assertTrue(lowStorage.isAvailable)
+        assertTrue(balanced.reasonIfNot!!.contains("AAC"))
+    }
 }

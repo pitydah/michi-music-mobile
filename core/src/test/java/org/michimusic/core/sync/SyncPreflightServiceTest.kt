@@ -149,4 +149,99 @@ class SyncPreflightServiceTest {
         assertEquals(SyncPreflightStatus.BLOCKED_NO_STORAGE, plan.status)
         assertFalse(plan.isExecutable)
     }
+
+    @Test
+    fun fullLibraryWithEmptyCandidates_blocksWithEmptyStatus() {
+        val selection = SyncSelection(scope = SyncScope.FULL_LIBRARY)
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = emptyList(),
+        )
+
+        assertEquals(SyncPreflightStatus.BLOCKED_EMPTY_SELECTION, plan.status)
+        assertFalse(plan.isExecutable)
+        assertEquals(0, plan.totalSelectedTracks)
+    }
+
+    @Test
+    fun albumSelection_filtersTracksBelongingToSelectedAlbums() {
+        val selection = SyncSelection(
+            scope = SyncScope.ALBUMS,
+            albumIds = setOf("Album Alpha"),
+        )
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA, trackB, trackC),
+        )
+
+        assertEquals(1, plan.totalSelectedTracks)
+        assertEquals("trk-1", plan.items.first().trackId)
+        assertEquals(10 * oneMb, plan.totalDownloadBytes)
+        assertTrue(plan.isExecutable)
+    }
+
+    @Test
+    fun playlistSelection_filtersTracksFromManifestPlaylists() {
+        val manifestPlaylists = listOf(
+            org.michimusic.core.models.ManifestPlaylist(
+                playlistId = "pl-synth",
+                name = "Synthwave",
+                trackIds = listOf("trk-2", "trk-3"),
+            )
+        )
+        val selection = SyncSelection(
+            scope = SyncScope.PLAYLISTS,
+            playlistIds = setOf("pl-synth"),
+        )
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA, trackB, trackC),
+            manifestPlaylists = manifestPlaylists,
+        )
+
+        assertEquals(2, plan.totalSelectedTracks)
+        assertEquals(setOf("trk-2", "trk-3"), plan.items.map { it.trackId }.toSet())
+        assertTrue(plan.isExecutable)
+    }
+
+    @Test
+    fun transcodedProfile_estimatesDownloadBytesByDurationRate() {
+        // trackA has 200 seconds duration, size is 10 MB
+        val trackWithDuration = trackA.copy(duration = 200)
+        val deliveryChoice = DeliveryChoice(
+            profile = DeliveryProfile.BALANCED,
+            codec = "aac",
+            maxBitrateKbps = 256,
+            isServerTranscoded = true,
+        )
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server",
+            selection = selection,
+            deliveryChoice = deliveryChoice,
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackWithDuration),
+        )
+
+        // 200s * 32,000 bytes/s = 6,400,000 bytes (< 10 MB original)
+        val expectedTranscodedBytes = 200L * 32_000L
+        assertEquals(expectedTranscodedBytes, plan.totalDownloadBytes)
+        assertEquals(expectedTranscodedBytes, plan.items.first().estimatedDownloadBytes)
+    }
 }

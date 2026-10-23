@@ -54,6 +54,23 @@ open class SyncedTrackRepository(
             flow.flowFirst().map { it.id }.toSet()
         } ?: emptySet()
 
+    open suspend fun getDownloadedBytes(): Long =
+        trackDao?.getDownloadedTracks()?.let { flow ->
+            flow.flowFirst().sumOf { it.size }
+        } ?: 0L
+
+    open suspend fun getDownloadedTrackFingerprints(): Set<String> =
+        trackDao?.getDownloadedTracks()?.let { flow ->
+            val tracks = flow.flowFirst()
+            val ids = tracks.map { it.id }
+            val fingerprints = tracks.mapNotNull { trk ->
+                if (trk.title.isNotEmpty() && trk.artist.isNotEmpty()) {
+                    "${trk.title.trim().lowercase()}_${trk.artist.trim().lowercase()}_${trk.duration}"
+                } else null
+            }
+            (ids + fingerprints).toSet()
+        } ?: emptySet()
+
     open suspend fun count(): Int = trackDao?.count() ?: 0
 
     open fun getAllSynced(): Flow<List<CachedTrack>> = trackDao?.getAllTracks() ?: kotlinx.coroutines.flow.emptyFlow()

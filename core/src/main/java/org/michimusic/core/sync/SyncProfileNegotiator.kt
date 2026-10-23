@@ -18,14 +18,43 @@ object SyncProfileNegotiator {
         serverCapabilities: Set<String>,
         serverRepresentations: List<String> = emptyList(),
     ): List<ProfileAvailability> {
-        val hasTranscoding = serverCapabilities.any {
+        val hasGenericTranscoding = serverCapabilities.any {
             it.equals("TRANSCODING", ignoreCase = true) ||
             it.equals("MULTI_PROFILE", ignoreCase = true)
+        }
+
+        val hasAacExplicit = serverCapabilities.any {
+            it.equals("TRANSCODING_AAC", ignoreCase = true) ||
+            it.equals("CODEC_AAC", ignoreCase = true) ||
+            it.equals("AAC", ignoreCase = true)
         } || serverRepresentations.any {
             it.contains("aac", ignoreCase = true) ||
-            it.contains("opus", ignoreCase = true) ||
-            it.contains("mp3", ignoreCase = true)
+            it.contains("mp4", ignoreCase = true) ||
+            it.contains("m4a", ignoreCase = true)
         }
+
+        val hasOpusExplicit = serverCapabilities.any {
+            it.equals("TRANSCODING_OPUS", ignoreCase = true) ||
+            it.equals("CODEC_OPUS", ignoreCase = true) ||
+            it.equals("OPUS", ignoreCase = true)
+        } || serverRepresentations.any {
+            it.contains("opus", ignoreCase = true) ||
+            it.contains("ogg", ignoreCase = true)
+        }
+
+        val hasAac = if (serverRepresentations.isNotEmpty()) {
+            hasAacExplicit
+        } else {
+            hasGenericTranscoding || hasAacExplicit
+        }
+
+        val hasOpus = if (serverRepresentations.isNotEmpty()) {
+            hasOpusExplicit
+        } else {
+            hasGenericTranscoding || hasOpusExplicit
+        }
+
+        val defaultNoTranscodingReason = "El servidor no tiene transcodificación habilitada; solo se transferirá Calidad Original"
 
         val original = ProfileAvailability(
             profile = DeliveryProfile.ORIGINAL,
@@ -34,7 +63,7 @@ object SyncProfileNegotiator {
             codecDescription = "Formato original sin procesar",
         )
 
-        val balanced = if (hasTranscoding) {
+        val balanced = if (hasAac) {
             ProfileAvailability(
                 profile = DeliveryProfile.BALANCED,
                 isAvailable = true,
@@ -42,15 +71,20 @@ object SyncProfileNegotiator {
                 codecDescription = "AAC 256 kbps (transcodificado por servidor)",
             )
         } else {
+            val reason = if (serverRepresentations.isNotEmpty()) {
+                "El servidor no ofrece representación AAC; solo se transferirá Calidad Original"
+            } else {
+                defaultNoTranscodingReason
+            }
             ProfileAvailability(
                 profile = DeliveryProfile.BALANCED,
                 isAvailable = false,
-                reasonIfNot = "El servidor no tiene transcodificación habilitada; solo se transferirá Calidad Original",
+                reasonIfNot = reason,
                 codecDescription = "No soportado por el servidor actual",
             )
         }
 
-        val lowStorage = if (hasTranscoding) {
+        val lowStorage = if (hasOpus) {
             ProfileAvailability(
                 profile = DeliveryProfile.LOW_STORAGE,
                 isAvailable = true,
@@ -58,10 +92,15 @@ object SyncProfileNegotiator {
                 codecDescription = "Opus 128 kbps (transcodificado por servidor)",
             )
         } else {
+            val reason = if (serverRepresentations.isNotEmpty()) {
+                "El servidor no ofrece representación Opus; solo se transferirá Calidad Original"
+            } else {
+                defaultNoTranscodingReason
+            }
             ProfileAvailability(
                 profile = DeliveryProfile.LOW_STORAGE,
                 isAvailable = false,
-                reasonIfNot = "El servidor no tiene transcodificación habilitada; solo se transferirá Calidad Original",
+                reasonIfNot = reason,
                 codecDescription = "No soportado por el servidor actual",
             )
         }

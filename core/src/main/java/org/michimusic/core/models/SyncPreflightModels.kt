@@ -106,5 +106,7 @@ data class SyncPlan(
     val status: SyncPreflightStatus = SyncPreflightStatus.READY,
 ) {
     val isExecutable: Boolean
-        get() = status == SyncPreflightStatus.READY && issues.none { it.severity == IssueSeverity.BLOCKING }
+        get() = status == SyncPreflightStatus.READY &&
+            issues.none { it.severity == IssueSeverity.BLOCKING } &&
+            totalSelectedTracks > 0
 }
