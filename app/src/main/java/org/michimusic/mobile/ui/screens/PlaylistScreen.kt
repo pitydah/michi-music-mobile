@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,8 +68,11 @@ import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 @Composable
-fun PlaylistScreen() {
-    val viewModel: PlaylistsViewModel = koinViewModel()
+fun PlaylistScreen(
+    onNavigateToPlaylist: (String) -> Unit = {},
+    viewModel: PlaylistsViewModel = koinViewModel(),
+    audioController: org.michimusic.player.AudioController = org.koin.compose.koinInject(),
+) {
     val playlists by viewModel.playlists.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -190,11 +194,13 @@ fun PlaylistScreen() {
                 ) {
                     items(playlists, key = { it.id }) { playlist ->
                         GlassCard(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("playlist_item_${playlist.id}"),
                             backgroundColor = GlassFillLow,
                             borderColor = GlassBorderLow,
                             accent = SecondaryPurple,
-                            onClick = { /* Open playlist detail */ },
+                            onClick = { onNavigateToPlaylist(playlist.id) },
                         ) {
                             Row(
                                 modifier = Modifier
@@ -228,9 +234,14 @@ fun PlaylistScreen() {
 
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(SecondaryPurple.copy(alpha = 0.15f)),
+                                        .background(SecondaryPurple.copy(alpha = 0.15f))
+                                        .clickable {
+                                            viewModel.loadPlaylistDetail(playlist.id)
+                                            onNavigateToPlaylist(playlist.id)
+                                        }
+                                        .testTag("playlist_play_${playlist.id}"),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(

@@ -212,8 +212,7 @@ class SearchViewModel(
             SearchFilter.ARTISTS -> emptyList()
             SearchFilter.ALBUMS -> emptyList()
             SearchFilter.LOSSLESS -> allCombinedTracks.filter {
-                it.title.lowercase().contains(lower) &&
-                    (it.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (it.sampleRate ?: 0) >= 48000)
+                it.title.lowercase().contains(lower) && it.isLossless
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
                 it.title.lowercase().contains(lower) && (it.filepath.isNotEmpty() || it.source == TrackSource.LOCAL)
@@ -249,7 +248,7 @@ class SearchViewModel(
             SearchFilter.TRACKS -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
             SearchFilter.LOSSLESS -> allCombinedTracks.filter {
                 (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
-                    (it.format.lowercase() in listOf("flac", "alac", "wav", "dsd") || (it.sampleRate ?: 0) >= 48000)
+                    it.isLossless
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
                 (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&

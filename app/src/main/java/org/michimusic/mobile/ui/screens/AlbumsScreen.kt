@@ -106,6 +106,7 @@ enum class LibraryViewMode {
 
 @Composable
 fun AlbumsScreen(
+    onNavigateToPlaylists: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
@@ -158,10 +159,7 @@ fun AlbumsScreen(
         allTracks.filter { track ->
             when (selectedFilter) {
                 LibraryFilter.ALL -> true
-                LibraryFilter.LOSSLESS -> {
-                    val fmt = track.format.lowercase()
-                    fmt.contains("flac") || fmt.contains("alac") || fmt.contains("wav") || fmt.contains("pcm")
-                }
+                LibraryFilter.LOSSLESS -> track.isLossless
                 LibraryFilter.DOWNLOADED -> track.filepath.isNotEmpty()
             }
         }
@@ -251,6 +249,23 @@ fun AlbumsScreen(
                                 )
                             }
                         }
+                    }
+
+                    IconButton(
+                        onClick = onNavigateToPlaylists,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(GlassFillLow)
+                            .border(1.dp, GlassBorderLow, CircleShape)
+                            .testTag("library_playlists_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.LibraryMusic,
+                            contentDescription = "Playlists",
+                            tint = PureWhite,
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
 
                     IconButton(

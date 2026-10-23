@@ -31,6 +31,16 @@ data class Track(
      */
     val metadataFallbackIdentity: String
         get() = "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
+
+    /**
+     * True if the track format indicates a genuine lossless compression or uncompressed PCM.
+     * Conforms to Decision D-04: sampleRate >= 48000 does NOT make lossy audio (MP3/AAC/Opus) lossless.
+     */
+    val isLossless: Boolean
+        get() {
+            val fmt = format.lowercase()
+            return fmt.contains("flac") || fmt.contains("alac") || fmt.contains("wav") || fmt.contains("pcm")
+        }
 }
 
 enum class TrackSource {

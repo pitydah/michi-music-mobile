@@ -206,11 +206,25 @@ fun HomeScreen(
                     }
                 }
 
-                // 2. Recently Played Carousel
-                if (recentTracks.isNotEmpty() || allTracks.isNotEmpty()) {
+                // 2. Recently Played Carousel (Honest labels: "Recientemente Escuchadas" strictly for history, or "De tu biblioteca" as general suggestions)
+                if (recentTracks.isNotEmpty()) {
                     item {
                         RecentlyPlayedSection(
-                            tracks = recentTracks.ifEmpty { allTracks.take(8) },
+                            title = "Recientemente Escuchadas",
+                            tracks = recentTracks,
+                            currentTrack = currentTrack,
+                            isPlaying = isPlaying,
+                            onTrackClick = { track ->
+                                val index = allTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                                audioController.playQueue(allTracks, index)
+                            },
+                        )
+                    }
+                } else if (allTracks.isNotEmpty()) {
+                    item {
+                        RecentlyPlayedSection(
+                            title = "De tu biblioteca",
+                            tracks = allTracks.take(8),
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track ->
@@ -497,6 +511,7 @@ private fun ActionButtonsSection(
 
 @Composable
 private fun RecentlyPlayedSection(
+    title: String = "Recientemente Escuchadas",
     tracks: List<Track>,
     currentTrack: Track?,
     isPlaying: Boolean,
@@ -509,7 +524,7 @@ private fun RecentlyPlayedSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Recientemente Escuchadas",
+                text = title,
                 style = MichiTypography.sectionTitle,
                 modifier = Modifier.testTag("recently_played_title"),
             )

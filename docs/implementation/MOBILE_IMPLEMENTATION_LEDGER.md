@@ -27,7 +27,8 @@
 | M15 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 69d70aa | ADR-MOB-DSD-LEGACY formalizado, DSD_DOP_FEASIBILITY archivado OUT_OF_SCOPE_MOBILE, BitPerfectStatus deprecado, SignalTruth sin bit-perfect claims, Equalizer "Sin efectos", Lossless filter fix y LibraryLosslessClassifierTest |
 | M16 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | dcdd3bd | VisualPreferences reactivo (highContrast/reducedMotion), MichiTheme adaptativo, MichiIconAction (>=48dp), MichiSurface, MichiBottomSheet, MichiPlaybackControls y specs UI/UX |
 | M17 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8bdc5ff | Adopción de MichiPlaybackControls en NowPlayingScreen y RemoteScreen, eliminación total de slider de volumen (D-05) y suite NowPlayingNoVolumeTest |
-| M18 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Devices & Trust Integration + Hardening: RemoteCommandAuthority, QueueEntry disambiguation, AirCat token hardening, 4-dimension device state, 1-CTA resolution & DeviceDetailSheet |
+| M18 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 0804da1 | Devices & Trust Integration + Hardening: RemoteCommandAuthority, QueueEntry disambiguation, AirCat token hardening, 4-dimension device state, 1-CTA resolution & DeviceDetailSheet |
+| M19 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Biblioteca, Playlists y Home honesta: Home recent integrity (sin heurísticas take(8)), navegación CRUD playlist completa sin no-ops, y clasificador lossless canónico en búsqueda |
 
 ---
 
@@ -1306,7 +1307,54 @@ UPSTREAM_CONTRACTS: AirCat Transfer & Michi Link Playback REST/SSE
 SECURITY_REVIEW:
   Refuerzo de token binding en recuperación de transferencias de archivos y revocación criptográfica en resolución de acciones.
 ROLLBACK_PLAN:
-  git revert 8a4fb75..HEAD
+  git revert 8a4fb75..0804da1
+BLOCKERS: Ninguno.
+```
+
+```yaml
+SPRINT_ID: M19
+DATE: 2026-10-23
+AUTHOR: Antigravity + Gemini
+COMPONENT: michi-music-mobile
+COMMIT_HASH: HEAD
+TARGET_MATURITY: 92%
+MEASURED_MATURITY: 92%
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Home Fake Recents Heuristic:
+     - En HomeScreen, si el historial reciente estaba vacío (`recentTracks.isEmpty()`), la sección "Recientemente Escuchadas" se poblaba silenciosamente con `allTracks.take(8)`, fingiendo un historial inexistente con pistas arbitrarias de la biblioteca.
+  2. Playlist Screen No-Op Action:
+     - En PlaylistScreen, hacer click en una tarjeta de playlist no realizaba acción alguna (`onClick = { /* Open playlist detail */ }`), dejando al usuario imposibilitado de acceder al detalle de su lista de reproducción.
+  3. Lossless Filter Inconsistency in Search:
+     - SearchViewModel evaluaba `sampleRate >= 48000` o códecs no tipados bajo el filtro `SearchFilter.LOSSLESS`, permitiendo que archivos MP3 o AAC a 48 kHz aparecieran erróneamente catalogados como Lossless.
+  4. Library to Playlists Navigation:
+     - AlbumsScreen no proveía un acceso directo visual para navegar a la colección de playlists del usuario desde la vista principal de la biblioteca.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Honest Home Content & Recent Truth:
+     - HomeScreen muestra la sección "Recientemente Escuchadas" EXCLUSIVAMENTE si existen pistas con historial real en `recentTracks`.
+     - Si no hay historial reciente y la biblioteca contiene temas, se presenta honestamente con el título "De tu biblioteca" sin fingir historial de escucha.
+  2. Complete Playlist Navigation & Fast Play:
+     - PlaylistScreen recibe el callback `onNavigateToPlaylist(playlistId)` conectado a la ruta `playlist/{playlistId}` en `MichiNavHost`.
+     - Se eliminó el no-op: el click en la tarjeta abre el detalle de la playlist, y el icono de reproducción carga el detalle y navega de forma determinista.
+  3. Canonical Lossless Classification:
+     - Introducida la propiedad [`Track.isLossless`](file:///home/cristian/michi-music-mobile/core/src/main/java/org/michimusic/core/models/Models.kt) en `:core:models`, aplicando la Decisión D-04 de forma compartida en `AlbumsScreen` y `SearchViewModel`.
+     - MP3, AAC y Opus a 48 kHz o superior quedan estrictamente excluidos de los filtros Lossless.
+  4. Direct Playlists Access in Library:
+     - AlbumsScreen incorpora acceso dedicado a playlists en la cabecera mediante `library_playlists_button`, interconectando la navegación con `MichiNavHost`.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :core:test :player:test :data:test :michi-link-client:test (PASSED - 0 fallos)
+  ./gradlew compileNormalDebugKotlin compileFdroidDebugKotlin (PASSED - 0 fallos)
+  Nuevas suites:
+    - HomeRecentIntegrityTest (PASSED)
+    - PlaylistNoopRegressionTest (PASSED)
+    - SearchLosslessFilterTest (PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Integridad de navegación y clasificación de metadatos locales sin impacto en contratos de red ni credenciales.
+ROLLBACK_PLAN:
+  git revert 0804da1..HEAD
 BLOCKERS: Ninguno.
 ```
 

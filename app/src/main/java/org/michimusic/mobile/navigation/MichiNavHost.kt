@@ -84,7 +84,11 @@ fun MichiNavHost() {
                         onNavigateToPlaylist = { id -> navController.navigate("playlist/$id") },
                     )
                 }
-                composable("library") { AlbumsScreen() }
+                composable("library") {
+                    AlbumsScreen(
+                        onNavigateToPlaylists = { navController.navigate("playlist") },
+                    )
+                }
                 composable("search") { SearchScreen() }
                 composable("devices") {
                     DevicesScreen(
@@ -102,7 +106,11 @@ fun MichiNavHost() {
                         onNavigateToDiagnostics = { navController.navigate("diagnostics") },
                     )
                 }
-                composable("playlist") { PlaylistScreen() }
+                composable("playlist") {
+                    PlaylistScreen(
+                        onNavigateToPlaylist = { playlistId -> navController.navigate("playlist/$playlistId") },
+                    )
+                }
                 composable(
                     route = "playlist/{playlistId}",
                     arguments = listOf(navArgument("playlistId") { type = NavType.StringType }),
