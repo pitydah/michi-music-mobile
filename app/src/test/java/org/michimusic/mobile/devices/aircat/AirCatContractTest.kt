@@ -2,6 +2,7 @@ package org.michimusic.mobile.devices.aircat
 
 import android.content.Context
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -533,7 +534,7 @@ class AirCatContractTest {
         coEvery { checkpointRepo.getCheckpointsForDevice(sourceId) } returns listOf(pendingCp)
 
         // Mock linkClient streaming remaining part
-        val mockClient = mockk<org.michimusic.link.LinkClient>()
+        val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
         io.mockk.every {
             kotlinx.coroutines.runBlocking {
                 mockClient.streamTrackRange(
@@ -602,6 +603,117 @@ class AirCatContractTest {
         val result = client.recoverIncompleteTransfers(revokedDeviceId, mockClient)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+    }
+
+    @Test
+    fun aircatRecoverIncompleteTransfersFailsWhenTokenMismatches() = runBlocking {
+        val deviceId = "mismatch_node_123"
+        val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        every { mockClient.deviceToken } returns "token_spoofed_or_stale"
+
+        val device = PairedDevice(
+            deviceId = deviceId,
+            deviceName = "Legit Node",
+            deviceToken = "token_legit_secret",
+            lastUrl = "http://192.168.1.55:8400",
+            isRevoked = false,
+        )
+        every { pairedRegistry.getDevice(deviceId) } returns device
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val client = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val result = client.recoverIncompleteTransfers(deviceId, mockClient)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+    }
+
+    @Test
+    fun aircatRecoverIncompleteTransfersAbortsWhenPeerRevokedMidTransfer() = runBlocking {
+        val deviceId = "dynamic_revocation_node"
+        val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        every { mockClient.deviceToken } returns "valid_token"
+
+        var isRevokedFlag = false
+        every { pairedRegistry.getDevice(any<String>()) } answers {
+            PairedDevice(
+                deviceId = deviceId,
+                deviceName = "Dynamic Node",
+                deviceToken = "valid_token",
+                lastUrl = "http://192.168.1.55:8400",
+                isRevoked = isRevokedFlag,
+            )
+        }
+
+        val cp1 = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib:t1",
+            transferId = "xfer1",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib",
+            trackId = "t1",
+            remoteTrackId = "t1",
+            tempFilePath = "/tmp/t1.part",
+            finalFilePath = "/tmp/t1.mp3",
+            expectedSize = 100L,
+            receivedBytes = 50L,
+            verifiedBytes = 0L,
+            expectedSha256 = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+        )
+        val cp2 = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib:t2",
+            transferId = "xfer1",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib",
+            trackId = "t2",
+            remoteTrackId = "t2",
+            tempFilePath = "/tmp/t2.part",
+            finalFilePath = "/tmp/t2.mp3",
+            expectedSize = 100L,
+            receivedBytes = 50L,
+            verifiedBytes = 0L,
+            expectedSha256 = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+        )
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cp1, cp2)
+
+        val mockTransferManager = mockk<LinkTransferManager>()
+        coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(File.createTempFile("t1_", ".mp3").apply { writeBytes(ByteArray(100)) })
+
+        val client = DefaultAirCatTransferClient(
+            transferManager = mockTransferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        // Make getDevice report revoked when checking t2
+        var checkCount = 0
+        every { pairedRegistry.getDevice(any<String>()) } answers {
+            checkCount++
+            PairedDevice(
+                deviceId = deviceId,
+                deviceName = "Dynamic Node",
+                deviceToken = "valid_token",
+                lastUrl = "http://192.168.1.55:8400",
+                isRevoked = checkCount > 2, // 1st check for peer at start, 2nd check for t1, 3rd check for t2 revoked
+            )
+        }
+
+        val result = client.recoverIncompleteTransfers(deviceId, mockClient)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+        // Only 1 download track call was made before revocation aborted recovery
+        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
     }
 
     @Test

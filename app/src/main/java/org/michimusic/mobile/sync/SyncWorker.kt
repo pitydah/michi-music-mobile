@@ -136,8 +136,18 @@ class SyncWorker(
             // Recover incomplete/paused AirCat checkpoints first
             val aircatClient = org.michimusic.mobile.di.airCatTransferClient
             if (aircatClient != null) {
-                runCatching {
-                    aircatClient.recoverIncompleteTransfers(deviceId, client)
+                val recoveryResult = aircatClient.recoverIncompleteTransfers(deviceId, client)
+                if (recoveryResult.isFailure) {
+                    val ex = recoveryResult.exceptionOrNull()
+                    if (ex is java.util.concurrent.CancellationException || ex is kotlinx.coroutines.CancellationException) {
+                        throw ex
+                    }
+                    if (ex is org.michimusic.mobile.devices.aircat.AirCatException.UnauthorizedPeer) {
+                        client.close()
+                        try { wakeLock?.release() } catch (_: Exception) {}
+                        return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                    }
+                    android.util.Log.w("SyncWorker", "Error recuperando checkpoints incompletos: ${ex?.message}")
                 }
             }
 

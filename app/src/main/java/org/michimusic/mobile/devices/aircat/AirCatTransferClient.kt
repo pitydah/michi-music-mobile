@@ -443,17 +443,24 @@ class DefaultAirCatTransferClient(
     ): Result<List<File>> = withContext(Dispatchers.IO) {
         val repo = checkpointRepository ?: return@withContext Result.success(emptyList())
 
-        // 1. Verify remote device trust
+        // 1. Verify remote device trust and token binding
         val pairedDevice = pairedDeviceRegistry.getDevice(remoteDeviceId)
         if (pairedDevice == null || pairedDevice.isRevoked) {
             return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
         }
 
+        if (linkClient.deviceToken.isNotEmpty() && pairedDevice.deviceToken.isNotEmpty() &&
+            linkClient.deviceToken != pairedDevice.deviceToken) {
+            return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
+        }
+
         val allCheckpoints = repo.getCheckpointsForDevice(remoteDeviceId)
         val pendingCheckpoints = allCheckpoints.filter {
-            it.transferState == org.michimusic.core.models.TransferStatus.DOWNLOADING ||
+            it.remoteDeviceId == remoteDeviceId && (
+                it.transferState == org.michimusic.core.models.TransferStatus.DOWNLOADING ||
                 it.transferState == org.michimusic.core.models.TransferStatus.PAUSED ||
                 it.transferState == org.michimusic.core.models.TransferStatus.PENDING
+            )
         }
 
         if (pendingCheckpoints.isEmpty()) {
@@ -465,6 +472,12 @@ class DefaultAirCatTransferClient(
         var bytesAccumulated = 0L
 
         pendingCheckpoints.forEachIndexed { index, cp ->
+            // Re-verify peer authorization dynamically in case peer was revoked during transfer
+            val currentDeviceState = pairedDeviceRegistry.getDevice(remoteDeviceId)
+            if (currentDeviceState == null || currentDeviceState.isRevoked) {
+                return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
+            }
+
             val ext = cp.finalFilePath.substringAfterLast('.', "mp3")
             val downloadItem = DownloadItem(
                 trackId = cp.trackId,
