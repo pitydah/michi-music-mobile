@@ -102,7 +102,8 @@ class SyncViewModel(
                     isPaired = true,
                     deviceType = reg.serviceType.ifEmpty { "server" },
                     roles = reg.roles,
-                    features = reg.features
+                    features = reg.features,
+                    isRevoked = reg.isRevoked,
                 )
             )
         }

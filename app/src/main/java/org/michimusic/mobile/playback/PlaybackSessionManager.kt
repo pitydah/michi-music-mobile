@@ -799,13 +799,30 @@ class PlaybackSessionManager(
 
     fun removeFromQueue(index: Int) {
         if (_sessionState.value.isRemoteActive) {
-            val currentQ = _sessionState.value.queue.toMutableList()
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val currentQ = _sessionState.value.queue
             if (index in currentQ.indices) {
                 val item = currentQ[index]
-                currentQ.removeAt(index)
-                _sessionState.value = _sessionState.value.copy(queue = currentQ)
+                val cmd = RemoteCommandRecord(
+                    endpointId = targetEndpoint.id,
+                    action = "remove_queue_item",
+                    param = item.id,
+                    status = RemoteCommandStatus.PENDING,
+                )
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
                 scope.launch {
-                    connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.removeQueueItem(item.id)
+                    val result = client?.removeQueueItem(item.id)
+                    val outcome = if (result != null && result.isSuccess) {
+                        client.getQueue().onSuccess { qDto ->
+                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        }
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    } else {
+                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                    }
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
         } else {
@@ -815,9 +832,37 @@ class PlaybackSessionManager(
 
     fun playNow(track: Track) {
         if (_sessionState.value.isRemoteActive) {
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "play_track",
+                param = track.id,
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
-                client?.sendPlaybackCommand("play_track", track.id)
+                val result = client?.sendPlaybackCommand("play_track", track.id)
+                val outcome = if (result != null && result.isSuccess) {
+                    client.getPlaybackState().onSuccess { st ->
+                        client.getQueue().onSuccess { q ->
+                            val tracks = q.tracks.map { it.toDomainTrack() }
+                            val current = tracks.getOrNull(st.queueIndex)
+                            _sessionState.value = _sessionState.value.copy(
+                                currentTrack = current,
+                                isPlaying = st.playing,
+                                position = st.effectivePosition,
+                                duration = st.effectiveDuration,
+                                queue = tracks,
+                                queueIndex = st.queueIndex
+                            )
+                        }
+                    }
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                }
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
             }
         } else {
             val q = _sessionState.value.queue
@@ -832,13 +877,27 @@ class PlaybackSessionManager(
 
     fun playNext(track: Track) {
         if (_sessionState.value.isRemoteActive) {
-            val currentQ = _sessionState.value.queue.toMutableList()
-            val insertIdx = (_sessionState.value.queueIndex + 1).coerceIn(0, currentQ.size)
-            currentQ.add(insertIdx, track)
-            _sessionState.value = _sessionState.value.copy(queue = currentQ)
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "play_next",
+                param = track.id,
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
-                client?.sendPlaybackCommand("play_next", track.id)
+                val result = client?.sendPlaybackCommand("play_next", track.id)
+                val outcome = if (result != null && result.isSuccess) {
+                    client.getQueue().onSuccess { qDto ->
+                        val tracks = qDto.tracks.map { it.toDomainTrack() }
+                        _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                    }
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                }
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
             }
         } else {
             audioController?.playNext(track)
@@ -847,11 +906,27 @@ class PlaybackSessionManager(
 
     fun addToQueue(track: Track) {
         if (_sessionState.value.isRemoteActive) {
-            val currentQ = _sessionState.value.queue + track
-            _sessionState.value = _sessionState.value.copy(queue = currentQ)
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "add_to_queue",
+                param = track.id,
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
-                client?.sendPlaybackCommand("add_to_queue", track.id)
+                val result = client?.sendPlaybackCommand("add_to_queue", track.id)
+                val outcome = if (result != null && result.isSuccess) {
+                    client.getQueue().onSuccess { qDto ->
+                        val tracks = qDto.tracks.map { it.toDomainTrack() }
+                        _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                    }
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                }
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
             }
         } else {
             audioController?.addToQueue(track)
@@ -860,15 +935,27 @@ class PlaybackSessionManager(
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         if (_sessionState.value.isRemoteActive) {
-            val currentQ = _sessionState.value.queue.toMutableList()
-            if (fromIndex in currentQ.indices && toIndex in currentQ.indices && fromIndex != toIndex) {
-                val item = currentQ.removeAt(fromIndex)
-                currentQ.add(toIndex, item)
-                _sessionState.value = _sessionState.value.copy(queue = currentQ)
-                scope.launch {
-                    val client = connectionManager.getClient(_sessionState.value.activeEndpoint.id)
-                    client?.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = fromIndex, toIndex = toIndex))
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "reorder_queue",
+                param = "$fromIndex->$toIndex",
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
+            scope.launch {
+                val result = client?.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = fromIndex, toIndex = toIndex))
+                val outcome = if (result != null && result.isSuccess) {
+                    client.getQueue().onSuccess { qDto ->
+                        val tracks = qDto.tracks.map { it.toDomainTrack() }
+                        _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                    }
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                 }
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
             }
         } else {
             audioController?.moveQueueItem(fromIndex, toIndex)
@@ -877,9 +964,23 @@ class PlaybackSessionManager(
 
     fun clearQueue() {
         if (_sessionState.value.isRemoteActive) {
-            _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                action = "clear_queue",
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
-                connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("clear_queue")
+                val result = client?.sendPlaybackCommand("clear_queue")
+                val outcome = if (result != null && result.isSuccess) {
+                    _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                } else {
+                    cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
+                }
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
             }
         } else {
             audioController?.clearQueue()
@@ -1042,4 +1143,16 @@ class PlaybackSessionManager(
     }
 
     fun getRtpMetrics(): org.michimusic.link.rtp.RtpMetrics = rtpAudioSender.getMetrics()
+}
+
+private fun org.michimusic.link.dto.QueueTrackDto.toDomainTrack(): Track {
+    return Track(
+        id = trackId,
+        title = title,
+        artist = artist,
+        album = album,
+        duration = duration,
+        coverId = coverId,
+        source = TrackSource.STREAMING,
+    )
 }

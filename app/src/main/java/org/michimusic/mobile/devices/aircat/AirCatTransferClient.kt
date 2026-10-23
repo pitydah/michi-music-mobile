@@ -449,7 +449,8 @@ class DefaultAirCatTransferClient(
             return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
         }
 
-        if (linkClient.deviceToken.isNotEmpty() && pairedDevice.deviceToken.isNotEmpty() &&
+        // Strict: credentials must be non-empty and matching
+        if (linkClient.deviceToken.isEmpty() || pairedDevice.deviceToken.isEmpty() ||
             linkClient.deviceToken != pairedDevice.deviceToken) {
             return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
         }

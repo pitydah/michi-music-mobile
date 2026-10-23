@@ -27,6 +27,7 @@
 | M15 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 69d70aa | ADR-MOB-DSD-LEGACY formalizado, DSD_DOP_FEASIBILITY archivado OUT_OF_SCOPE_MOBILE, BitPerfectStatus deprecado, SignalTruth sin bit-perfect claims, Equalizer "Sin efectos", Lossless filter fix y LibraryLosslessClassifierTest |
 | M16 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | dcdd3bd | VisualPreferences reactivo (highContrast/reducedMotion), MichiTheme adaptativo, MichiIconAction (>=48dp), MichiSurface, MichiBottomSheet, MichiPlaybackControls y specs UI/UX |
 | M17 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8bdc5ff | Adopción de MichiPlaybackControls en NowPlayingScreen y RemoteScreen, eliminación total de slider de volumen (D-05) y suite NowPlayingNoVolumeTest |
+| M18 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Devices & Trust Integration + Hardening: RemoteCommandAuthority, QueueEntry disambiguation, AirCat token hardening, 4-dimension device state, 1-CTA resolution & DeviceDetailSheet |
 
 ---
 
@@ -1253,6 +1254,59 @@ SECURITY_REVIEW:
   Eliminación de sliders sin afectación a contratos de red o privilegios locales.
 ROLLBACK_PLAN:
   git revert 3985867..HEAD
+BLOCKERS: Ninguno.
+```
+
+```yaml
+SPRINT_ID: M18
+DATE: 2026-10-23
+AUTHOR: Antigravity + Gemini
+COMPONENT: michi-music-mobile
+COMMIT_HASH: HEAD
+TARGET_MATURITY: 90%
+MEASURED_MATURITY: 90%
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Remote State Authority & Queue Mutations:
+     - Remote queue mutations (playNow, playNext, addToQueue, moveQueueItem) en PlaybackSessionManager aplicaban mutaciones optimistas locales sobre `_sessionState.value.queue` antes de confirmación remota, generando divergencias de estado ante latencia de red o rechazos.
+     - No existía modelo explícito de ciclo de vida para comandos remotos (`RemoteCommandRecord`).
+  2. Queue Duplicate Disambiguation:
+     - Media3 PlayerState operaba exclusivamente con `Track`, dificultando desambiguar instancias idénticas del mismo tema agregadas en múltiples posiciones de la cola.
+  3. AirCat Transfer Security & Token Binding:
+     - AirCatTransferClient.recoverIncompleteTransfers permitía recuperar descargas con validación parcial de tokens si uno de los extremos contenía token nulo o vacío.
+  4. Devices Screen Architecture & Action Overload:
+     - UnifiedDevice no reflejaba si un dispositivo estaba revocado criptográficamente (`isRevoked`).
+     - DeviceActionResolver producía múltiples acciones primarias compitiendo por atención o carecía de jerarquía unificada.
+     - Los nodos de dispositivos mostraban diálogos modales básicos sin granularidad en 4 dimensiones (Discovery, Trust, Connection, Capabilities).
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Authoritative Remote Playback Commands:
+     - Implementado `RemoteCommandModels.kt` con `RemoteCommandStatus` (`PENDING`, `ACCEPTED`, `CONFIRMED`, `REJECTED`, `TIMED_OUT`, `UNSUPPORTED`, `DISCONNECTED`) y `RemoteCommandRecord`.
+     - PlaybackSessionManager emite comando PENDING, ejecuta llamada RPC a LinkClient, y actualiza la cola y estado SOLO al recibir confirmación autoritativa (`client.getQueue()`).
+  2. QueueEntry Identity Model:
+     - Creado `QueueEntry` en `:core:models` con `entryId` UUID único, `canonicalTrackId`, `position`, `locationId` y `track`.
+     - `PlayerState` y `PlayerController` sincronizan `queueEntries` de forma determinista para desambiguar pistas repetidas.
+  3. Strict AirCat Token Security Binding:
+     - `recoverIncompleteTransfers` valida estrictamente que tanto `linkClient.deviceToken` como `pairedDevice.deviceToken` no estén vacíos y sean exactamente iguales; de lo contrario aborta con `AirCatException.UnauthorizedPeer`.
+  4. 4-Dimension Device State & 1-CTA Hierarchy:
+     - `DeviceUiModels.kt` modela formalmente Discovery (`NOT_SEEN`, `DISCOVERED`, `STALE`), Trust (`UNKNOWN`, `PENDING`, `TRUSTED`, `REVOKED`, `IDENTITY_MISMATCH`), Connection (`DISCONNECTED`, `CONNECTING`, `CONNECTED`, `OFFLINE`, `ERROR`) y Capabilities.
+     - `DeviceActionResolver` garantiza exactamente UNA acción primaria (`isPrimary == true`) con precedencia estricta por rol (LibraryHost -> BROWSE_LIBRARY, PlaybackHost -> CONTROL_PLAYBACK, AudioReceiver -> PLAY_ON_DEVICE, SyncHost -> SYNC_LIBRARY, Revoked/Fallback -> VIEW_DETAILS).
+     - Diseñado e integrado `DeviceDetailSheet.kt` (`MichiBottomSheet`, `MichiSurface`, `MichiIconAction`) con métricas criptográficas, acciones secundarias y diálogo de desemparejamiento.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :core:test :player:test :data:test :michi-link-client:test (PASSED - 0 fallos)
+  ./gradlew compileNormalDebugKotlin compileFdroidDebugKotlin (PASSED - 0 fallos)
+  Nuevas suites:
+    - RemoteCommandAuthorityTest (PASSED)
+    - QueueEntryDisambiguationTest (PASSED)
+    - AirCatSecurityTokenBindingTest (PASSED)
+    - DeviceActionResolverTest (PASSED)
+    - DeviceUiDimensionsTest (PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: AirCat Transfer & Michi Link Playback REST/SSE
+SECURITY_REVIEW:
+  Refuerzo de token binding en recuperación de transferencias de archivos y revocación criptográfica en resolución de acciones.
+ROLLBACK_PLAN:
+  git revert 8a4fb75..HEAD
 BLOCKERS: Ninguno.
 ```
 

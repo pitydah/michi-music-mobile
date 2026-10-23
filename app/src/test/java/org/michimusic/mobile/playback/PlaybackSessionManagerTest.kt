@@ -776,6 +776,32 @@ class PlaybackSessionManagerTest {
     @Test
     fun authoritativeControls_remoteMode_routesToClientWithoutTouchingAudioController() {
         val linkClient = mockk<LinkClient>(relaxed = true)
+        val track = Track("track_123", "Remote Track", "Artist")
+        val track2 = Track("track_456", "Second Track", "Artist")
+        val queueDto1 = org.michimusic.link.dto.QueueDto(
+            tracks = listOf(org.michimusic.link.dto.QueueTrackDto(track.id, track.title, track.artist, "", 100, "")),
+            currentIndex = 0
+        )
+        val queueDto2 = org.michimusic.link.dto.QueueDto(
+            tracks = listOf(
+                org.michimusic.link.dto.QueueTrackDto(track.id, track.title, track.artist, "", 100, ""),
+                org.michimusic.link.dto.QueueTrackDto(track2.id, track2.title, track2.artist, "", 120, "")
+            ),
+            currentIndex = 0
+        )
+        val playStateDto = org.michimusic.link.dto.PlaybackStateDto(
+            state = "playing",
+            playing = true,
+            queueIndex = 0,
+            position = 0L,
+            duration = 100_000L
+        )
+
+        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        coEvery { linkClient.reorderQueue(any()) } returns Result.success(Unit)
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto1) andThen Result.success(queueDto1) andThen Result.success(queueDto2)
+
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
         }
@@ -803,8 +829,6 @@ class PlaybackSessionManagerTest {
 
         assertTrue(manager.sessionState.value.isRemoteActive)
 
-        val track = Track("track_123", "Remote Track", "Artist")
-
         // 1. playNow
         manager.playNow(track)
         testDispatcher.scheduler.advanceUntilIdle()
@@ -816,15 +840,14 @@ class PlaybackSessionManagerTest {
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { linkClient.sendPlaybackCommand("play_next", "track_123") }
         verify(exactly = 0) { audioController.playNext(any()) }
-        assertTrue(manager.sessionState.value.queue.contains(track))
+        assertTrue(manager.sessionState.value.queue.any { it.id == track.id })
 
         // 3. addToQueue
-        val track2 = Track("track_456", "Second Track", "Artist")
         manager.addToQueue(track2)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { linkClient.sendPlaybackCommand("add_to_queue", "track_456") }
         verify(exactly = 0) { audioController.addToQueue(any()) }
-        assertTrue(manager.sessionState.value.queue.contains(track2))
+        assertTrue(manager.sessionState.value.queue.any { it.id == track2.id })
 
         // 4. moveQueueItem
         manager.moveQueueItem(0, 1)

@@ -117,7 +117,7 @@ fun DevicesScreen(
     var pendingPeerForPin by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForPassword by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
-    var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.core.models.UnifiedDevice?>(null) }
+    var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.mobile.ui.screens.devices.DeviceUiItem?>(null) }
 
     LaunchedEffect(Unit) {
         if (uiState.state == SyncConnectionState.DISCONNECTED) {
@@ -128,6 +128,81 @@ fun DevicesScreen(
     LaunchedEffect(uiState.error) {
         uiState.error?.let { err ->
             snackbarHostState.showSnackbar(err)
+        }
+    }
+
+    val onPerformDeviceAction: (UnifiedDevice, DeviceAction) -> Unit = { device, action ->
+        when (action.type) {
+            org.michimusic.mobile.sync.DeviceActionType.CONNECT -> {
+                if (device.isPaired) {
+                    viewModel.connectToDevice(device.id)
+                } else {
+                    val peer = uiState.peers.find { it.ip == device.ip }
+                    if (peer != null) {
+                        viewModel.preparePairing(peer) { strategy, serverName ->
+                            when (strategy) {
+                                org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> {
+                                    pendingPeerForPin = peer to serverName
+                                }
+                                org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
+                                    pendingPeerForReceiver = peer to serverName
+                                }
+                                org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> {
+                                    pendingPeerForPassword = peer to serverName
+                                }
+                                org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> {
+                                    viewModel.confirmPairing(pin = "", peer = peer)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnectDevice(device.id)
+            org.michimusic.mobile.sync.DeviceActionType.SYNC_LIBRARY -> {
+                viewModel.syncLibrary(targetDeviceId = device.id)
+                scope.launch {
+                    snackbarHostState.showSnackbar("Sincronización iniciada con ${device.name}")
+                }
+            }
+            org.michimusic.mobile.sync.DeviceActionType.AIRCAT_TRANSFER -> {
+                viewModel.startAirCatTransfer(targetDeviceId = device.id) { success, msg ->
+                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                }
+            }
+            org.michimusic.mobile.sync.DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
+            org.michimusic.mobile.sync.DeviceActionType.CONTROL_PLAYBACK -> {
+                val endpoint = org.michimusic.mobile.playback.PlaybackEndpoint(
+                    id = device.id.ifEmpty { "${device.ip}:${device.port}" },
+                    name = device.name.ifEmpty { "Michi Node" },
+                    type = org.michimusic.mobile.playback.EndpointType.DESKTOP_PLAYER,
+                    isLocal = false,
+                    isConnected = true,
+                )
+                sessionManager.attachRemote(endpoint) { success, msg ->
+                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                }
+            }
+            org.michimusic.mobile.sync.DeviceActionType.CONTINUE_PLAYBACK_HERE -> {
+                sessionManager.handoffTo(org.michimusic.mobile.playback.PlaybackEndpoint.LocalPhone) { success, msg ->
+                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                }
+            }
+            org.michimusic.mobile.sync.DeviceActionType.PLAY_ON_DEVICE -> {
+                val endpoint = org.michimusic.mobile.playback.PlaybackEndpoint(
+                    id = device.id.ifEmpty { "${device.ip}:${device.port}" },
+                    name = device.name.ifEmpty { "Michi Stream" },
+                    type = org.michimusic.mobile.playback.EndpointType.STREAM_RECEIVER,
+                    isLocal = false,
+                    isConnected = true,
+                )
+                sessionManager.handoffTo(endpoint) { success, msg ->
+                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                }
+            }
+            org.michimusic.mobile.sync.DeviceActionType.VIEW_DETAILS -> {
+                selectedDeviceForDetails = org.michimusic.mobile.ui.screens.devices.DeviceUiItem.fromUnifiedDevice(device)
+            }
         }
     }
 
@@ -223,92 +298,16 @@ fun DevicesScreen(
                     }
                 } else {
                     items(uiState.unifiedDevices) { device ->
-                        val isConnected = device.connectionState == SyncConnectionState.CONNECTED
                         val isConnecting = device.connectionState == SyncConnectionState.CONNECTING || device.connectionState == SyncConnectionState.DISCOVERING
-                        
-                        val actions = org.michimusic.mobile.sync.DeviceActionResolver.resolveActions(
+                        val deviceUiItem = org.michimusic.mobile.ui.screens.devices.DeviceUiItem.fromUnifiedDevice(
                             device = device,
                             isConnecting = isConnecting,
                         )
                         
                         DeviceNodeCard(
-                            device = device,
-                            isConnected = isConnected,
-                            isConnecting = isConnecting,
-                            actions = actions,
-                            onActionClick = { action ->
-                                when (action.type) {
-                                    org.michimusic.mobile.sync.DeviceActionType.CONNECT -> {
-                                        if (device.isPaired) {
-                                            viewModel.connectToDevice(device.id)
-                                        } else {
-                                            val peer = uiState.peers.find { it.ip == device.ip }
-                                            if (peer != null) {
-                                                viewModel.preparePairing(peer) { strategy, serverName ->
-                                                    when (strategy) {
-                                                        org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> {
-                                                            pendingPeerForPin = peer to serverName
-                                                        }
-                                                        org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
-                                                            pendingPeerForReceiver = peer to serverName
-                                                        }
-                                                        org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> {
-                                                            pendingPeerForPassword = peer to serverName
-                                                        }
-                                                        org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> {
-                                                            viewModel.confirmPairing(pin = "", peer = peer)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    org.michimusic.mobile.sync.DeviceActionType.DISCONNECT -> viewModel.disconnectDevice(device.id)
-                                    org.michimusic.mobile.sync.DeviceActionType.SYNC_LIBRARY -> {
-                                        viewModel.syncLibrary(targetDeviceId = device.id)
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Sincronización iniciada con ${device.name}")
-                                        }
-                                    }
-                                    org.michimusic.mobile.sync.DeviceActionType.AIRCAT_TRANSFER -> {
-                                        viewModel.startAirCatTransfer(targetDeviceId = device.id) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
-                                    }
-                                    org.michimusic.mobile.sync.DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
-                                    org.michimusic.mobile.sync.DeviceActionType.CONTROL_PLAYBACK -> {
-                                        val endpoint = org.michimusic.mobile.playback.PlaybackEndpoint(
-                                            id = device.id.ifEmpty { "${device.ip}:${device.port}" },
-                                            name = device.name.ifEmpty { "Michi Node" },
-                                            type = org.michimusic.mobile.playback.EndpointType.DESKTOP_PLAYER,
-                                            isLocal = false,
-                                            isConnected = true,
-                                        )
-                                        sessionManager.attachRemote(endpoint) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
-                                    }
-                                    org.michimusic.mobile.sync.DeviceActionType.CONTINUE_PLAYBACK_HERE -> {
-                                        sessionManager.handoffTo(org.michimusic.mobile.playback.PlaybackEndpoint.LocalPhone) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
-                                    }
-                                    org.michimusic.mobile.sync.DeviceActionType.PLAY_ON_DEVICE -> {
-                                        val endpoint = org.michimusic.mobile.playback.PlaybackEndpoint(
-                                            id = device.id.ifEmpty { "${device.ip}:${device.port}" },
-                                            name = device.name.ifEmpty { "Michi Stream" },
-                                            type = org.michimusic.mobile.playback.EndpointType.STREAM_RECEIVER,
-                                            isLocal = false,
-                                            isConnected = true,
-                                        )
-                                        sessionManager.handoffTo(endpoint) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
-                                    }
-                                    org.michimusic.mobile.sync.DeviceActionType.VIEW_DETAILS -> selectedDeviceForDetails = device
-                                }
-                            },
-                            onInfoClick = { selectedDeviceForDetails = device },
+                            item = deviceUiItem,
+                            onActionClick = { action -> onPerformDeviceAction(device, action) },
+                            onInfoClick = { selectedDeviceForDetails = deviceUiItem },
                         )
                         Spacer(modifier = Modifier.height(MichiSpacing.sm))
                     }
@@ -412,13 +411,23 @@ fun DevicesScreen(
             )
         }
 
-        // Device Details Dialog
-        selectedDeviceForDetails?.let { device ->
-            DeviceDetailsDialog(
-                device = device,
+        // Device Details Sheet (M18)
+        selectedDeviceForDetails?.let { deviceItem ->
+            org.michimusic.mobile.ui.screens.devices.DeviceDetailSheet(
+                deviceItem = deviceItem,
                 onDismiss = { selectedDeviceForDetails = null },
-                onForget = {
-                    viewModel.forgetDevice(device.id)
+                onPrimaryAction = { action ->
+                    deviceItem.underlyingDevice?.let { dev ->
+                        onPerformDeviceAction(dev, action)
+                    }
+                },
+                onSecondaryAction = { action ->
+                    deviceItem.underlyingDevice?.let { dev ->
+                        onPerformDeviceAction(dev, action)
+                    }
+                },
+                onForgetDevice = {
+                    viewModel.forgetDevice(deviceItem.id)
                     selectedDeviceForDetails = null
                     scope.launch {
                         snackbarHostState.showSnackbar("Dispositivo olvidado")
@@ -803,19 +812,18 @@ private fun AddDeviceShortcutsRow(
 
 @Composable
 private fun DeviceNodeCard(
-    device: UnifiedDevice,
-    isConnected: Boolean,
-    isConnecting: Boolean,
-    actions: List<DeviceAction>,
+    item: org.michimusic.mobile.ui.screens.devices.DeviceUiItem,
     onActionClick: (DeviceAction) -> Unit,
     onInfoClick: () -> Unit,
 ) {
-    val icon = getNodeIcon(device.deviceType)
+    val isConnected = item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTED
+    val isConnecting = item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTING
+    val icon = getNodeIcon(item.deviceType)
 
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("device_node_${device.ip}"),
+            .testTag("device_node_${item.ip}"),
         backgroundColor = if (isConnected) GlassFillHigh else GlassFillLow,
         borderColor = if (isConnected) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
     ) {
@@ -845,19 +853,21 @@ private fun DeviceNodeCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = device.name.ifEmpty { "Michi Node" },
+                        text = item.name,
                         style = MichiTypography.cardTitle,
                     )
                     Text(
-                        text = "${formatDeviceTypeLabel(device.deviceType)} · ${device.ip}",
+                        text = "${formatDeviceTypeLabel(item.deviceType)} · ${item.ip}",
                         style = MichiTypography.metadata,
-                        color = if (device.connectionState == SyncConnectionState.OFFLINE) GlassBorderLow else TextSecondary,
+                        color = if (item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE) GlassBorderLow else TextSecondary,
                     )
                 }
 
                 IconButton(
                     onClick = onInfoClick,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("device_info_${item.ip}"),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Info,
@@ -887,23 +897,46 @@ private fun DeviceNodeCard(
 
             Spacer(modifier = Modifier.height(MichiSpacing.sm))
 
-            // Action Buttons
+            // Action Buttons: Exactly 1 primary CTA prominent, and secondary actions accessible or via Details
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                actions.forEachIndexed { index, action ->
-                    if (index > 0) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
+                // Secondary actions in card row (max 1 secondary visible for compactness, remaining in Details sheet)
+                val visibleSecondary = item.secondaryActions.firstOrNull()
+                if (visibleSecondary != null) {
                     OutlinedButton(
-                        onClick = { onActionClick(action) },
+                        onClick = { onActionClick(visibleSecondary) },
                         modifier = Modifier.height(40.dp),
                         shape = MichiShapes.sm,
                     ) {
-                        Text(action.label, fontSize = 12.sp)
+                        Text(
+                            text = visibleSecondary.label,
+                            color = if (visibleSecondary.isDestructive) ErrorColor else PureWhite,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
+                item.primaryAction?.let { primary ->
+                    Button(
+                        onClick = { onActionClick(primary) },
+                        modifier = Modifier
+                            .height(40.dp)
+                            .testTag("device_primary_action_${item.ip}"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (primary.isDestructive) ErrorColor else PrimaryPinkContainer,
+                        ),
+                        shape = MichiShapes.sm,
+                    ) {
+                        Text(
+                            text = primary.label,
+                            color = PureWhite,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }

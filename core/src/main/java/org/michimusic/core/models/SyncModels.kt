@@ -58,6 +58,7 @@ data class UnifiedDevice(
     val deviceType: String,
     val roles: List<String> = emptyList(),
     val features: List<String> = emptyList(),
+    val isRevoked: Boolean = false,
 )
 
 @Serializable

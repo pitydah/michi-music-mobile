@@ -76,4 +76,5 @@ data class PlaybackSessionState(
     val statusMessage: String? = null,
     val lastSessionError: StreamErrorReason? = null,
     val rtpMetrics: RtpMetrics? = null,
+    val lastRemoteCommand: RemoteCommandRecord? = null,
 )

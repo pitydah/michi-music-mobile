@@ -535,6 +535,7 @@ class AirCatContractTest {
 
         // Mock linkClient streaming remaining part
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        every { mockClient.deviceToken } returns "token"
         io.mockk.every {
             kotlinx.coroutines.runBlocking {
                 mockClient.streamTrackRange(

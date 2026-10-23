@@ -124,4 +124,52 @@ class DeviceActionResolverTest {
         assertTrue(types.contains(DeviceActionType.PLAY_ON_DEVICE))
         assertTrue(types.contains(DeviceActionType.DISCONNECT))
     }
+
+    @Test
+    fun exactlyOnePrimaryAction_isGuaranteedForAllCombinations() {
+        // Disconnected unpaired
+        val unpaired = UnifiedDevice(
+            id = "1", name = "Test", ip = "1.2.3.4", port = 8400, deviceType = "server",
+            connectionState = SyncConnectionState.DISCONNECTED, isPaired = false
+        )
+        assertEquals(1, DeviceActionResolver.resolveActions(unpaired, false).count { it.isPrimary })
+
+        // Disconnected paired
+        val paired = unpaired.copy(isPaired = true)
+        assertEquals(1, DeviceActionResolver.resolveActions(paired, false).count { it.isPrimary })
+
+        // Revoked
+        val revoked = paired.copy(isRevoked = true)
+        val revokedActions = DeviceActionResolver.resolveActions(revoked, false)
+        assertEquals(1, revokedActions.count { it.isPrimary })
+        assertEquals(DeviceActionType.VIEW_DETAILS, revokedActions.first { it.isPrimary }.type)
+
+        // Connected multi-role server (Library + Sync + Playback)
+        val multiServer = paired.copy(
+            connectionState = SyncConnectionState.CONNECTED,
+            roles = listOf("music_server", "sync_host", "playback_host")
+        )
+        val multiActions = DeviceActionResolver.resolveActions(multiServer, false)
+        assertEquals(1, multiActions.count { it.isPrimary })
+        // Precedence: LibraryHost wins
+        assertEquals(DeviceActionType.BROWSE_LIBRARY, multiActions.first { it.isPrimary }.type)
+
+        // Connected desktop player (Playback only)
+        val player = paired.copy(
+            connectionState = SyncConnectionState.CONNECTED,
+            roles = listOf("playback_host")
+        )
+        val playerActions = DeviceActionResolver.resolveActions(player, false)
+        assertEquals(1, playerActions.count { it.isPrimary })
+        assertEquals(DeviceActionType.CONTROL_PLAYBACK, playerActions.first { it.isPrimary }.type)
+
+        // Connected stream receiver (Audio receiver only)
+        val receiver = paired.copy(
+            connectionState = SyncConnectionState.CONNECTED,
+            roles = listOf("audio_receiver")
+        )
+        val receiverActions = DeviceActionResolver.resolveActions(receiver, false)
+        assertEquals(1, receiverActions.count { it.isPrimary })
+        assertEquals(DeviceActionType.PLAY_ON_DEVICE, receiverActions.first { it.isPrimary }.type)
+    }
 }
