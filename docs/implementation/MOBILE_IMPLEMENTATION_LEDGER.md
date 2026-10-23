@@ -1072,6 +1072,58 @@ ROLLBACK_PLAN:
 BLOCKERS: Ninguno.
 ```
 
+---
+
+```yaml
+SPRINT_ID: M14.5
+DATE: 2026-10-22
+AUTHOR: Antigravity + Gemini
+COMPONENT: michi-music-mobile
+COMMIT_HASH: a11f5f6cf8b99fee38a165ae472db9cd6a7acb77
+TARGET_MATURITY: 88%
+MEASURED_MATURITY: 88%
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Remote Playback Actions in Now Playing:
+     - Las acciones de NowPlayingScreen ("Reproducir ahora", "Reproducir siguiente", "Añadir a cola") llamaban directamente a AudioController local en vez de pasar por PlaybackSessionManager, causando bifurcación cuando había un endpoint remoto activo.
+  2. AirCat Checkpoint Recovery Security:
+     - recoverIncompleteTransfers no validaba deviceToken binding entre LinkClient y PairedDevice.
+     - No filtraba estrictamente checkpoints por remoteDeviceId cruzado.
+     - No re-verificaba revocación dinámica del par entre descargas individuales de una misma tanda.
+  3. SyncWorker Recovery Robustness:
+     - SyncWorker envolvía recoverIncompleteTransfers en runCatching ignorando silenciosamente fallos, suprimiendo CancellationException y no abortando ante pares no autorizados.
+  4. UI AddToPlaylistDialog:
+     - isAdding podía quedar atrapado en true ante excepciones no controladas.
+     - addedCount == 0 (pistas ya existentes en playlist) no presentaba retroalimentación clara al usuario.
+  5. Media3 Duplicate Queue Identity:
+     - PendingQueueCommand.Move y Remove en AudioController operaban exclusivamente por trackId, desordenando o eliminando la primera ocurrencia en colas con pistas repetidas intencionalmente.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Remote Playback Actions:
+     - PlaybackSessionManager incorpora playNow, playNext, addToQueue y moveQueueItem con despacho bidireccional: comandos HTTP remotos (play_track, play_next, add_to_queue, reorderQueue) sin alterar el reproductor local si isRemoteActive es true.
+  2. AirCat Checkpoint Recovery Security:
+     - Validación obligatoria de deviceToken coincidente entre LinkClient y PairedDevice.
+     - Filtrado estricto cp.remoteDeviceId == remoteDeviceId.
+     - Comprobación dinámica de revocación de par antes de cada descarga en la secuencia.
+  3. SyncWorker Recovery Robustness:
+     - Evaluación explícita de recoveryResult: relanza CancellationException y aborta inmediatamente con Result.failure si el par es UnauthorizedPeer.
+  4. UI AddToPlaylistDialog:
+     - Bloque try / finally que garantiza isAdding = false ante cancelaciones o fallos, informando específicamente cuando la pista ya existía en la playlist seleccionada.
+  5. Media3 Duplicate Queue Identity:
+     - PendingQueueCommand.Move(trackId, toIndex, fromIndex) y PendingQueueCommand.Remove(trackId, index) almacenan y respetan la posición exacta de ocurrencias duplicadas.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew testFdroidDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :data:test :player:test :core:test :michi-link-client:test (PASSED - 0 fallos)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Criptografía y enlace de sesión protegidos contra spoofing de tokens en transferencias AirCat. Revocación inmediata en tiempo real.
+ROLLBACK_PLAN:
+  git reset --hard 9a247ebe54735ea6b6fcbacd4564792e7cd64905
+BLOCKERS: Ninguno.
+```
+
+
 
 
 
