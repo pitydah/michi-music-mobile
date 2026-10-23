@@ -75,6 +75,7 @@ class SyncViewModel(
     private val identity: org.michimusic.link.identity.MichiIdentity,
     private val trackRepository: SyncedTrackRepository,
     private val airCatClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? = null,
+    private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
 ) : ViewModel() {
 
     private val _wizardUiState = MutableStateFlow(WizardUiState())
@@ -742,7 +743,8 @@ class SyncViewModel(
                 val currentLocalMusicBytes = maxOf(dirBytes, dbBytes)
 
                 val localFingerprints = trackRepository.getDownloadedTrackFingerprints()
-                val checkpoints = org.michimusic.mobile.di.transferCheckpointRepository?.getCheckpointsForDevice(targetDeviceId) ?: emptyList()
+                val effectiveCheckpointRepo = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
+                val checkpoints = effectiveCheckpointRepo?.getCheckpointsForDevice(targetDeviceId) ?: emptyList()
                 val partials = checkpoints.filter { it.receivedBytes > 0 && it.transferState != org.michimusic.core.models.TransferStatus.COMPLETED }
                     .associate { it.trackId to it.receivedBytes }
 

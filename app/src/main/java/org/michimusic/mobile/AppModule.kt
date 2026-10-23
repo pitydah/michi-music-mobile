@@ -30,6 +30,7 @@ val appModule = module {
             identity = get(),
             trackRepository = get(),
             airCatClient = getOrNull(),
+            checkpointRepository = getOrNull(),
         )
     }
     viewModelOf(::AlbumsViewModel)

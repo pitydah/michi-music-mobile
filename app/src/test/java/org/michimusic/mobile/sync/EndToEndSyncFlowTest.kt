@@ -63,6 +63,7 @@ class EndToEndSyncFlowTest {
     private lateinit var identity: MichiIdentity
     private lateinit var trackRepository: SyncedTrackRepository
     private lateinit var mockClient: LinkClient
+    private lateinit var checkpointRepo: org.michimusic.core.models.TransferCheckpointRepository
 
     private val catalogTracks = listOf(
         ManifestTrack(
@@ -175,6 +176,9 @@ class EndToEndSyncFlowTest {
 
         coEvery { trackRepository.getDownloadedBytes() } returns 100 * oneMb
         coEvery { trackRepository.getDownloadedTrackFingerprints() } returns emptySet()
+
+        checkpointRepo = mockk(relaxed = true)
+        coEvery { checkpointRepo.getCheckpointsForDevice(any()) } returns emptyList()
     }
 
     @Test
@@ -186,6 +190,7 @@ class EndToEndSyncFlowTest {
             connectionManager = connectionManager,
             identity = identity,
             trackRepository = trackRepository,
+            checkpointRepository = checkpointRepo,
         )
 
         backgroundScope.launch { viewModel.wizardUiState.collect { } }
@@ -316,6 +321,7 @@ class EndToEndSyncFlowTest {
             connectionManager = connectionManager,
             identity = identity,
             trackRepository = trackRepository,
+            checkpointRepository = checkpointRepo,
         )
 
         // Calling syncPlannedLibrary with blocked plan must be a no-op
