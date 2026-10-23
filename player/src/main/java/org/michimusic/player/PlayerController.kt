@@ -148,7 +148,7 @@ class PlayerController(
                 val count = player.mediaItemCount
                 if (count == 0) {
                     if (_state.value.queue.isNotEmpty()) {
-                        _state.value = _state.value.copy(queue = emptyList(), queueIndex = -1)
+                        _state.value = _state.value.copy(queue = emptyList(), queueEntries = emptyList(), queueIndex = -1)
                     }
                     return
                 }
@@ -175,8 +175,18 @@ class PlayerController(
                 }
                 if (reconciled != currentQueue) {
                     val activeIndex = player.currentMediaItemIndex
+                    val existingEntries = _state.value.queueEntries.toMutableList()
+                    val reconciledEntries = reconciled.mapIndexed { idx, trk ->
+                        val matchIdx = existingEntries.indexOfFirst { it.canonicalTrackId == trk.id }
+                        if (matchIdx >= 0) {
+                            existingEntries.removeAt(matchIdx).copy(position = idx)
+                        } else {
+                            org.michimusic.core.models.QueueEntry(canonicalTrackId = trk.id, track = trk, position = idx)
+                        }
+                    }
                     _state.value = _state.value.copy(
                         queue = reconciled,
+                        queueEntries = reconciledEntries,
                         queueIndex = activeIndex,
                         currentTrack = reconciled.getOrNull(activeIndex) ?: _state.value.currentTrack,
                     )

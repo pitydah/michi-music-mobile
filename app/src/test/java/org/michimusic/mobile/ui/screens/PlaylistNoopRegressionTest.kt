@@ -46,25 +46,23 @@ class PlaylistNoopRegressionTest {
     }
 
     @Test
-    fun clickingPlayIconOnPlaylistItem_triggersLoadAndNavigation() {
+    fun clickingPlayIconOnPlaylistItem_triggersActualPlayback() {
         val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
+        val mockAudioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
         val p1 = PlaylistItem(id = "lofi_chill", name = "Lo-Fi Chill", trackCount = 20)
         every { mockViewModel.playlists } returns MutableStateFlow(listOf(p1))
         every { mockViewModel.isLoading } returns MutableStateFlow(false)
 
-        var navigatedId: String? = null
-
         composeTestRule.setContent {
             PlaylistScreen(
-                onNavigateToPlaylist = { id -> navigatedId = id },
+                onNavigateToPlaylist = { },
                 viewModel = mockViewModel,
-                audioController = mockk(relaxed = true),
+                audioController = mockAudioController,
             )
         }
 
         composeTestRule.onNodeWithTag("playlist_play_lofi_chill").assertIsDisplayed().performClick()
 
-        io.mockk.verify { mockViewModel.loadPlaylistDetail("lofi_chill") }
-        assertEquals("lofi_chill", navigatedId)
+        io.mockk.verify { mockViewModel.playPlaylist("lofi_chill", mockAudioController) }
     }
 }

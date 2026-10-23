@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -225,5 +226,63 @@ class RemoteCommandAuthorityTest {
         val state = sessionManager.sessionState.value
         assertEquals(1, state.queue.size)
         assertEquals("trk-b", state.queue[0].id)
+    }
+
+    @Test
+    fun remotePlayback_playNow_whenGetQueueFails_marksRejected() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        every { client.baseUrl } returns "http://192.168.1.50:8400"
+        every { client.deviceToken } returns "valid-token"
+
+        // Command succeeds on server, but subsequent queue synchronization fails
+        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } returns Result.success("OK")
+        coEvery { client.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = true))
+        coEvery { client.getQueue() } returns Result.failure(Exception("Remote queue fetch failed"))
+
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+
+        sessionManager.playNow(trackA)
+        advanceUntilIdle()
+
+        val lastCmd = sessionManager.sessionState.value.lastRemoteCommand
+        assertNotNull(lastCmd)
+        assertEquals(RemoteCommandStatus.REJECTED, lastCmd!!.status)
+        assertEquals("Remote queue fetch failed", lastCmd.resultMessage)
+        assertEquals(0, sessionManager.sessionState.value.queue.size)
+    }
+
+    @Test
+    fun remotePlayback_staleEndpointResponse_doesNotMutateNewEndpoint() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        every { client.baseUrl } returns "http://192.168.1.50:8400"
+        every { client.deviceToken } returns "valid-token"
+
+        // Setup delay so we can switch endpoints before response applies
+        coEvery { client.sendPlaybackCommand("play_track", "trk-a") } coAnswers {
+            kotlinx.coroutines.delay(50)
+            Result.success("OK")
+        }
+        coEvery { client.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = true))
+        coEvery { client.getQueue() } returns Result.success(
+            QueueDto(
+                tracks = listOf(QueueTrackDto(trackId = "trk-a", title = "Track A")),
+                currentIndex = 0,
+            )
+        )
+
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+        sessionManager.playNow(trackA)
+
+        // Switch active endpoint to LocalPhone while request is in flight
+        sessionManager.selectLocalEndpoint()
+        assertEquals(PlaybackEndpoint.LocalPhone.id, sessionManager.sessionState.value.activeEndpoint.id)
+
+        advanceUntilIdle()
+
+        // Active endpoint must remain LocalPhone, and stale command response must NOT overwrite it
+        assertEquals(PlaybackEndpoint.LocalPhone.id, sessionManager.sessionState.value.activeEndpoint.id)
+        assertFalse(sessionManager.sessionState.value.isRemoteActive)
     }
 }

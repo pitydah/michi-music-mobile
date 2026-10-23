@@ -649,6 +649,19 @@ class PlaylistsViewModelTest {
         assertTrue(vm.availableTracks.value.isEmpty())
         assertFalse(vm.isLoadingAvailableTracks.value)
     }
+
+    @Test
+    fun playPlaylist_resolvesTracksAndInvokesAudioController() = runTest(testDispatcher) {
+        val tracks = listOf(Track(id = "trk-1", title = "Track 1"), Track(id = "trk-2", title = "Track 2"))
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = tracks)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockAudioController = mockk<org.michimusic.player.AudioController>(relaxed = true)
+
+        vm.playPlaylist("p1", mockAudioController)
+        advanceUntilIdle()
+
+        io.mockk.verify { mockAudioController.playQueue(tracks, 0) }
+    }
 }
 
 private open class FakePlaylistRepo : PlaylistRepository(

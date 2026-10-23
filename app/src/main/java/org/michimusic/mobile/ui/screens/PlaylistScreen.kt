@@ -234,21 +234,20 @@ fun PlaylistScreen(
 
                                 Box(
                                     modifier = Modifier
-                                        .size(40.dp)
+                                        .size(48.dp)
                                         .clip(CircleShape)
                                         .background(SecondaryPurple.copy(alpha = 0.15f))
                                         .clickable {
-                                            viewModel.loadPlaylistDetail(playlist.id)
-                                            onNavigateToPlaylist(playlist.id)
+                                            viewModel.playPlaylist(playlist.id, audioController)
                                         }
                                         .testTag("playlist_play_${playlist.id}"),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(
                                         Icons.Default.PlayArrow,
-                                        contentDescription = "Reproducir",
+                                        contentDescription = "Reproducir ${playlist.name}",
                                         tint = SecondaryPurple,
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(24.dp),
                                     )
                                 }
                             }

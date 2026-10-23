@@ -28,7 +28,8 @@
 | M16 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | dcdd3bd | VisualPreferences reactivo (highContrast/reducedMotion), MichiTheme adaptativo, MichiIconAction (>=48dp), MichiSurface, MichiBottomSheet, MichiPlaybackControls y specs UI/UX |
 | M17 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8bdc5ff | Adopción de MichiPlaybackControls en NowPlayingScreen y RemoteScreen, eliminación total de slider de volumen (D-05) y suite NowPlayingNoVolumeTest |
 | M18 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 0804da1 | Devices & Trust Integration + Hardening: RemoteCommandAuthority, QueueEntry disambiguation, AirCat token hardening, 4-dimension device state, 1-CTA resolution & DeviceDetailSheet |
-| M19 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Biblioteca, Playlists y Home honesta: Home recent integrity (sin heurísticas take(8)), navegación CRUD playlist completa sin no-ops, y clasificador lossless canónico en búsqueda |
+| M19 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8a4fb75 | Biblioteca, Playlists y Home honesta: Home recent integrity (sin heurísticas take(8)), navegación CRUD playlist completa sin no-ops, y clasificador lossless canónico en búsqueda |
+| M18-M19-HARDENING | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre completo de defectos P1/P2: autoridad de comandos remotos (fallo getQueue produce REJECTED, anti-stale endpoint affinity), reproducción rápida real de playlists (playPlaylist en PlaylistsViewModel), confianza de dispositivos (distinción anunciado vs verificado y pairing QR), identidad QueueEntry en Media3 (timeline y restauración), clasificación Lossless/Lossy/Unknown, UI/UX Devices (touch targets >=48dp, metadata sin raw IP) |
 
 ---
 
@@ -1357,6 +1358,85 @@ ROLLBACK_PLAN:
   git revert 0804da1..HEAD
 BLOCKERS: Ninguno.
 ```
+
+---
+
+## Checkpoint de Ejecución — Cierre de Defectos Críticos P1/P2 (Pre-M20)
+
+```text
+BLOCK_ID: M18-M19-HARDENING
+MASTER_BASE_SHA: 8a4fb754a388eecb51a733c162b960c705017f7b
+FILES_CHANGED:
+  - core/src/main/java/org/michimusic/core/models/Models.kt
+  - player/src/main/java/org/michimusic/player/AudioController.kt
+  - player/src/main/java/org/michimusic/player/PlayerController.kt
+  - player/src/test/java/org/michimusic/player/QueueEntryDisambiguationTest.kt
+  - app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt
+  - app/src/main/java/org/michimusic/mobile/screens/PlaylistsViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/PlaylistScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DevicesScreen.kt
+  - app/src/test/java/org/michimusic/mobile/playback/RemoteCommandAuthorityTest.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/PlaylistNoopRegressionTest.kt
+  - app/src/test/java/org/michimusic/mobile/screens/PlaylistsViewModelTest.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/LibraryLosslessClassifierTest.kt
+  - app/src/test/java/org/michimusic/mobile/sync/SyncViewModelTest.kt
+  - app/src/test/java/org/michimusic/mobile/ui/screens/devices/DevicesScreenTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Comandos remotos (RemoteCommandAuthority): El fallo de getQueue() o getPlaybackState() dejaba el comando en
+     CONFIRMED erróneamente; además respuestas lentas/antiguas de un endpoint anterior podían sobrescribir el estado de un nuevo endpoint.
+  2. Reproducción rápida de playlists: El botón play en la tarjeta de playlist navegaba a la vista de detalle pero
+     no despachaba reproducción real inmediata de las pistas.
+  3. Identidad QueueEntry en Media3: Durante la restauración de cola (restoreQueue) o reconciliación de timeline,
+     se perdían las identidades estables QueueEntry (instanceId), desalineando colas con pistas repetidas.
+  4. Clasificación Lossless: Formatos desconocidos o cadenas vacías podían no ser clasificadas de forma estricta
+     y no existía distinción explícita tipada entre LOSSLESS, LOSSY y UNKNOWN.
+  5. UI/UX Devices: El subtítulo de las tarjetas mostraba IP en bruto en lugar de tipo y capacidades; no existía
+     distinción visual directa de "Anunciado" vs "Verificado"; botones de acción y detalle no aseguraban >= 48dp.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. RemoteCommandAuthority:
+     - removeFromQueue, playNow, playNext, addToQueue, moveQueueItem y clearQueue retornan REJECTED si getQueue() falla.
+     - Verificación estricta de afinidad de endpoint activo (_sessionState.value.activeEndpoint.id == targetEndpoint.id)
+       que previene que respuestas desfasadas de endpoints viejos muten la sesión activa.
+  2. Reproducción rápida de playlists:
+     - PlaylistsViewModel incorpora playPlaylist(id, audioController) que resuelve las pistas de la playlist y despacha
+       audioController.playQueue(tracks, 0) inmediatamente.
+     - PlaylistScreen conecta playlist_play_{id} con tamaño >= 48dp y dispatch real de reproducción.
+  3. QueueEntry Media3:
+     - AudioController mantiene y reconcilia queueEntries: List<QueueEntry> en restoreQueue, executePlayQueue,
+       reconcileQueueFromController, addToQueue, playNext, moveQueueItem y removeFromQueue.
+     - PlayerController sincroniza queueEntries durante onTimelineChanged manteniendo identidades únicas estables.
+  4. Clasificación Lossless:
+     - Introducido CodecClassification (LOSSLESS, LOSSY, UNKNOWN) en :core:models.
+     - Track.codecClassification y Track.isLossless clasifican estrictamente formatos conocidos (FLAC, ALAC, WAV, etc.)
+       como LOSSLESS, códecs con pérdida como LOSSY, y cadenas vacías o no reconocidas como UNKNOWN (isLossless = false).
+  5. UI/UX Devices:
+     - DeviceNodeCard renderiza insignias diferenciadas: "● Verificado" (Cyan), "● Anunciado" (Gris neutro), "● Revocado" (Rojo).
+     - Subtítulo presenta tipo formateado ("Micro Server", "Michi Player", "Teléfono") y capacidades/red local sin raw IP.
+     - Botón de información y botones de acción garantizan tamaño táctil >= 48dp (WCAG).
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :core:test :player:test :data:test :michi-link-client:test (PASSED - 0 fallos)
+  ./gradlew compileNormalDebugKotlin compileFdroidDebugKotlin (PASSED - 0 fallos)
+  Nuevas/actualizadas suites:
+    - RemoteCommandAuthorityTest (PASSED)
+    - PlaylistNoopRegressionTest (PASSED)
+    - PlaylistsViewModelTest (PASSED)
+    - QueueEntryDisambiguationTest (PASSED)
+    - LibraryLosslessClassifierTest (PASSED)
+    - SyncViewModelTest (PASSED)
+    - DevicesScreenTest (PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Criptografía Ed25519 mantenida para verificación de confianza de dispositivos; validación estricta de QR
+  y expiración RFC 3339; anti-stale endpoint isolation en control remoto.
+ROLLBACK_PLAN:
+  git revert 8a4fb75..HEAD
+BLOCKERS: Ninguno. Listo para iniciar Sprint M20.
+```
+
 
 
 

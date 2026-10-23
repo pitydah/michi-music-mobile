@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -811,7 +812,7 @@ private fun AddDeviceShortcutsRow(
 }
 
 @Composable
-private fun DeviceNodeCard(
+internal fun DeviceNodeCard(
     item: org.michimusic.mobile.ui.screens.devices.DeviceUiItem,
     onActionClick: (DeviceAction) -> Unit,
     onInfoClick: () -> Unit,
@@ -856,8 +857,19 @@ private fun DeviceNodeCard(
                         text = item.name,
                         style = MichiTypography.cardTitle,
                     )
+                    val subtitle = buildString {
+                        append(formatDeviceTypeLabel(item.deviceType))
+                        if (item.capabilities.isNotEmpty()) {
+                            append(" · ")
+                            append(item.capabilities.joinToString(" · "))
+                        } else if (item.trustStatus == org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED) {
+                            append(" · Verificado")
+                        } else {
+                            append(" · Red local")
+                        }
+                    }
                     Text(
-                        text = "${formatDeviceTypeLabel(item.deviceType)} · ${item.ip}",
+                        text = subtitle,
                         style = MichiTypography.metadata,
                         color = if (item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE) GlassBorderLow else TextSecondary,
                     )
@@ -866,32 +878,63 @@ private fun DeviceNodeCard(
                 IconButton(
                     onClick = onInfoClick,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .testTag("device_info_${item.ip}"),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Info,
-                        contentDescription = "Detalles",
+                        contentDescription = "Detalles de ${item.name}",
                         tint = TextSecondary,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .clip(MichiShapes.pill)
-                        .background(
-                            if (isConnected) TertiaryCyan.copy(alpha = 0.15f)
-                            else Color.White.copy(alpha = 0.08f),
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        text = if (isConnected) "● Conectado" else if (isConnecting) "Conectando..." else "Disponible",
-                        style = MichiTypography.microLabel,
-                        color = if (isConnected) TertiaryCyan else TextMuted,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    // Trust / Verification badge (Anunciado vs Verificado)
+                    val (trustColor, trustText) = when (item.trustStatus) {
+                        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED -> TertiaryCyan to "● Verificado"
+                        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.REVOKED -> ErrorColor to "● Revocado"
+                        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.IDENTITY_MISMATCH -> ErrorColor to "● Clave inválida"
+                        else -> TextMuted to "● Anunciado"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(MichiShapes.pill)
+                            .background(trustColor.copy(alpha = 0.12f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = trustText,
+                            style = MichiTypography.microLabel,
+                            color = trustColor,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+
+                    // Reactive connection status badge
+                    val (connColor, connText) = when (item.connectionStatus) {
+                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTED -> TertiaryCyan to "Conectado"
+                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTING -> PrimaryPinkContainer to "Conectando..."
+                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE -> GlassBorderLow to "Fuera de línea"
+                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.ERROR -> ErrorColor to "Error"
+                        else -> TextSecondary to "Disponible"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(MichiShapes.pill)
+                            .background(Color.White.copy(alpha = 0.06f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = connText,
+                            style = MichiTypography.microLabel,
+                            color = connColor,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
 
@@ -908,7 +951,7 @@ private fun DeviceNodeCard(
                 if (visibleSecondary != null) {
                     OutlinedButton(
                         onClick = { onActionClick(visibleSecondary) },
-                        modifier = Modifier.height(40.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),
                         shape = MichiShapes.sm,
                     ) {
                         Text(
@@ -924,7 +967,7 @@ private fun DeviceNodeCard(
                     Button(
                         onClick = { onActionClick(primary) },
                         modifier = Modifier
-                            .height(40.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("device_primary_action_${item.ip}"),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (primary.isDestructive) ErrorColor else PrimaryPinkContainer,

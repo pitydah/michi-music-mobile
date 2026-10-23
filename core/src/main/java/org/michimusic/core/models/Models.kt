@@ -33,14 +33,35 @@ data class Track(
         get() = "${title.trim().lowercase()}|${artist.trim().lowercase()}|${album.trim().lowercase()}|${duration / 1000}"
 
     /**
-     * True if the track format indicates a genuine lossless compression or uncompressed PCM.
+     * Verifiable classification of track audio codec: LOSSLESS, LOSSY, or UNKNOWN.
      * Conforms to Decision D-04: sampleRate >= 48000 does NOT make lossy audio (MP3/AAC/Opus) lossless.
+     * Empty, missing, or unrecognized codec returns UNKNOWN.
+     */
+    val codecClassification: CodecClassification
+        get() {
+            val fmt = format.trim().lowercase()
+            if (fmt.isEmpty() || fmt == "unknown") return CodecClassification.UNKNOWN
+            return when {
+                fmt.contains("flac") || fmt.contains("alac") || fmt.contains("wav") ||
+                    fmt.contains("pcm") || fmt.contains("aiff") || fmt.contains("dsd") -> CodecClassification.LOSSLESS
+                fmt.contains("mp3") || fmt.contains("aac") || fmt.contains("ogg") ||
+                    fmt.contains("opus") || fmt.contains("m4a") || fmt.contains("wma") -> CodecClassification.LOSSY
+                else -> CodecClassification.UNKNOWN
+            }
+        }
+
+    /**
+     * True if the track format indicates a genuine lossless compression or uncompressed PCM.
+     * Conforms to Decision D-04.
      */
     val isLossless: Boolean
-        get() {
-            val fmt = format.lowercase()
-            return fmt.contains("flac") || fmt.contains("alac") || fmt.contains("wav") || fmt.contains("pcm")
-        }
+        get() = codecClassification == CodecClassification.LOSSLESS
+}
+
+enum class CodecClassification {
+    LOSSLESS,
+    LOSSY,
+    UNKNOWN,
 }
 
 enum class TrackSource {

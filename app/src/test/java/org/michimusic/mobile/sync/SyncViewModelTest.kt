@@ -15,6 +15,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.ConnectionManager
@@ -24,6 +27,8 @@ import org.michimusic.link.identity.MichiIdentity
 import org.michimusic.mobile.rules.MainDispatcherRule
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = android.app.Application::class)
 class SyncViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
@@ -102,5 +107,36 @@ class SyncViewModelTest {
         
         io.mockk.verify { registry.removeDevice("dev_1") }
         io.mockk.verify { connectionManager.disconnect("dev_1") }
+    }
+
+    @Test
+    fun `pairWithQr invalid QR data reports failure without network call`() = runTest(testDispatcher) {
+        var callbackSuccess = true
+        var callbackMessage = ""
+
+        viewModel.pairWithQr("invalid-qr-string", "1234") { success, msg ->
+            callbackSuccess = success
+            callbackMessage = msg
+        }
+
+        assertEquals(false, callbackSuccess)
+        org.junit.Assert.assertTrue(callbackMessage.isNotBlank())
+    }
+
+    @Test
+    fun `pairWithQr expired QR code reports validation failure`() = runTest(testDispatcher) {
+        var callbackSuccess = true
+        var callbackMessage = ""
+
+        val pastExpires = java.time.Instant.now().minusSeconds(300).toString()
+        val expiredQr = "michi://pair?format=michi-link-pairing&version=1&server_michi_id=michi_srv_1&server_public_key=pk_base64&session_id=550e8400-e29b-41d4-a716-446655440000&expires_at=$pastExpires&endpoint=http://192.168.1.50:7331"
+
+        viewModel.pairWithQr(expiredQr, "1234") { success, msg ->
+            callbackSuccess = success
+            callbackMessage = msg
+        }
+
+        assertEquals(false, callbackSuccess)
+        org.junit.Assert.assertTrue(callbackMessage.contains("expirado") || callbackMessage.contains("no es válido"))
     }
 }

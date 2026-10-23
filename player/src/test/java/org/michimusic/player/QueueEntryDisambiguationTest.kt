@@ -6,10 +6,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.michimusic.core.models.QueueEntry
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class QueueEntryDisambiguationTest {
 
     private val trackA = Track(
@@ -82,5 +87,30 @@ class QueueEntryDisambiguationTest {
         assertEquals(1, reindexed[1].position)
         assertEquals("entry-2", reindexed[2].entryId)
         assertEquals(2, reindexed[2].position)
+    }
+
+    @Test
+    fun restoreQueue_populatesQueueEntriesWithPositionsAndIdentities() {
+        val tracks = listOf(trackA, trackB, trackA)
+        val mockContext = mockk<android.content.Context>(relaxed = true)
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+        val controller = AudioController(mockContext, scope)
+        controller.restoreQueue(tracks, startIndex = 1, positionMs = 5000L, repeatMode = 1, shuffleMode = false)
+
+        val state = controller.state.value
+        assertEquals(3, state.queue.size)
+        assertEquals(3, state.queueEntries.size)
+        assertEquals(1, state.queueIndex)
+        assertEquals("track-b", state.currentTrack?.id)
+        assertEquals(5000L, state.position)
+
+        // Verify entry identities and positions
+        assertEquals(0, state.queueEntries[0].position)
+        assertEquals("track-a", state.queueEntries[0].canonicalTrackId)
+        assertEquals(1, state.queueEntries[1].position)
+        assertEquals("track-b", state.queueEntries[1].canonicalTrackId)
+        assertEquals(2, state.queueEntries[2].position)
+        assertEquals("track-a", state.queueEntries[2].canonicalTrackId)
+        assertNotEquals(state.queueEntries[0].entryId, state.queueEntries[2].entryId)
     }
 }

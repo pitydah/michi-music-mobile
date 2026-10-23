@@ -814,15 +814,28 @@ class PlaybackSessionManager(
                 scope.launch {
                     val result = client?.removeQueueItem(item.id)
                     val outcome = if (result != null && result.isSuccess) {
+                        var queueSynced = false
+                        var queueErr = ""
                         client.getQueue().onSuccess { qDto ->
-                            val tracks = qDto.tracks.map { it.toDomainTrack() }
-                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                                val tracks = qDto.tracks.map { it.toDomainTrack() }
+                                _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                            }
+                            queueSynced = true
+                        }.onFailure { err ->
+                            queueErr = err.message ?: "Fallo al sincronizar cola remota"
                         }
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        if (queueSynced) {
+                            cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        } else {
+                            cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                        }
                     } else {
                         cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                     }
-                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                    }
                 }
             }
         } else {
@@ -844,8 +857,14 @@ class PlaybackSessionManager(
             scope.launch {
                 val result = client?.sendPlaybackCommand("play_track", track.id)
                 val outcome = if (result != null && result.isSuccess) {
-                    client.getPlaybackState().onSuccess { st ->
-                        client.getQueue().onSuccess { q ->
+                    var synced = false
+                    var syncErr = ""
+                    val stRes = client.getPlaybackState()
+                    val qRes = client.getQueue()
+                    if (stRes.isSuccess && qRes.isSuccess) {
+                        val st = stRes.getOrThrow()
+                        val q = qRes.getOrThrow()
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
                             val tracks = q.tracks.map { it.toDomainTrack() }
                             val current = tracks.getOrNull(st.queueIndex)
                             _sessionState.value = _sessionState.value.copy(
@@ -857,12 +876,23 @@ class PlaybackSessionManager(
                                 queueIndex = st.queueIndex
                             )
                         }
+                        synced = true
+                    } else {
+                        syncErr = qRes.exceptionOrNull()?.message
+                            ?: stRes.exceptionOrNull()?.message
+                            ?: "Fallo al sincronizar estado y cola remotos"
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    if (synced) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    } else {
+                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = syncErr)
+                    }
                 } else {
                     cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                 }
-                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
             val q = _sessionState.value.queue
@@ -889,15 +919,28 @@ class PlaybackSessionManager(
             scope.launch {
                 val result = client?.sendPlaybackCommand("play_next", track.id)
                 val outcome = if (result != null && result.isSuccess) {
+                    var queueSynced = false
+                    var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
-                        val tracks = qDto.tracks.map { it.toDomainTrack() }
-                        _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        }
+                        queueSynced = true
+                    }.onFailure { err ->
+                        queueErr = err.message ?: "Fallo al sincronizar cola remota"
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    if (queueSynced) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    } else {
+                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                    }
                 } else {
                     cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                 }
-                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
             audioController?.playNext(track)
@@ -918,15 +961,28 @@ class PlaybackSessionManager(
             scope.launch {
                 val result = client?.sendPlaybackCommand("add_to_queue", track.id)
                 val outcome = if (result != null && result.isSuccess) {
+                    var queueSynced = false
+                    var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
-                        val tracks = qDto.tracks.map { it.toDomainTrack() }
-                        _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        }
+                        queueSynced = true
+                    }.onFailure { err ->
+                        queueErr = err.message ?: "Fallo al sincronizar cola remota"
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    if (queueSynced) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    } else {
+                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                    }
                 } else {
                     cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                 }
-                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
             audioController?.addToQueue(track)
@@ -947,15 +1003,28 @@ class PlaybackSessionManager(
             scope.launch {
                 val result = client?.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = fromIndex, toIndex = toIndex))
                 val outcome = if (result != null && result.isSuccess) {
+                    var queueSynced = false
+                    var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
-                        val tracks = qDto.tracks.map { it.toDomainTrack() }
-                        _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
+                        }
+                        queueSynced = true
+                    }.onFailure { err ->
+                        queueErr = err.message ?: "Fallo al sincronizar cola remota"
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    if (queueSynced) {
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    } else {
+                        cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = queueErr.ifEmpty { "Fallo al sincronizar cola remota" })
+                    }
                 } else {
                     cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                 }
-                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
             audioController?.moveQueueItem(fromIndex, toIndex)
@@ -975,12 +1044,16 @@ class PlaybackSessionManager(
             scope.launch {
                 val result = client?.sendPlaybackCommand("clear_queue")
                 val outcome = if (result != null && result.isSuccess) {
-                    _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)
+                    }
                     cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                 } else {
                     cmd.copy(status = RemoteCommandStatus.REJECTED, resultMessage = result?.exceptionOrNull()?.message ?: "Cliente no disponible")
                 }
-                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
             }
         } else {
             audioController?.clearQueue()

@@ -319,6 +319,14 @@ class AudioController(
         sleepTimerRemainingMs: Long,
         startTrack: Track?,
     ) {
+        val entries = tracks.mapIndexed { idx, t ->
+            org.michimusic.core.models.QueueEntry(
+                entryId = "entry_${idx}_${t.id}",
+                canonicalTrackId = t.id,
+                track = t,
+                position = idx,
+            )
+        }
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
@@ -335,6 +343,7 @@ class AudioController(
         _state.value = PlayerState(
             currentTrack = startTrack,
             queue = tracks,
+            queueEntries = entries,
             queueIndex = startIndex,
             isPlaying = false,
             playbackStatus = PlaybackStatus.Preparing,
@@ -350,7 +359,7 @@ class AudioController(
         val count = ctrl.mediaItemCount
         if (count == 0) {
             if (_state.value.queue.isNotEmpty()) {
-                _state.value = _state.value.copy(queue = emptyList(), queueIndex = -1)
+                _state.value = _state.value.copy(queue = emptyList(), queueEntries = emptyList(), queueIndex = -1)
                 saveCurrentQueueToDb()
             }
             return
@@ -384,8 +393,23 @@ class AudioController(
         if (modified || reconciled != currentQueue) {
             val activeIndex = ctrl.currentMediaItemIndex
             val currentTrack = if (activeIndex in reconciled.indices) reconciled[activeIndex] else null
+            val existingEntries = _state.value.queueEntries.toMutableList()
+            val reconciledEntries = reconciled.mapIndexed { idx, trk ->
+                val matchIdx = existingEntries.indexOfFirst { it.canonicalTrackId == trk.id }
+                if (matchIdx >= 0) {
+                    existingEntries.removeAt(matchIdx).copy(position = idx)
+                } else {
+                    org.michimusic.core.models.QueueEntry(
+                        entryId = "reconciled_${idx}_${trk.id}",
+                        canonicalTrackId = trk.id,
+                        track = trk,
+                        position = idx,
+                    )
+                }
+            }
             _state.value = _state.value.copy(
                 queue = reconciled,
+                queueEntries = reconciledEntries,
                 queueIndex = activeIndex,
                 currentTrack = currentTrack ?: _state.value.currentTrack
             )
@@ -444,6 +468,12 @@ class AudioController(
             return
         }
         val newQueue = _state.value.queue + track
+        val newEntries = _state.value.queueEntries + org.michimusic.core.models.QueueEntry(
+            entryId = "entry_${_state.value.queueEntries.size}_${track.id}",
+            canonicalTrackId = track.id,
+            track = track,
+            position = newQueue.size - 1,
+        )
         ctrl.addMediaItem(
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
@@ -456,7 +486,7 @@ class AudioController(
                 )
                 .build(),
         )
-        _state.value = _state.value.copy(queue = newQueue)
+        _state.value = _state.value.copy(queue = newQueue, queueEntries = newEntries)
         saveCurrentQueueToDb()
     }
 
@@ -468,8 +498,19 @@ class AudioController(
             return
         }
         val currentQueue = _state.value.queue.toMutableList()
+        val currentEntries = _state.value.queueEntries.toMutableList()
         val insertIndex = (ctrl.currentMediaItemIndex + 1).coerceIn(0, currentQueue.size)
         currentQueue.add(insertIndex, track)
+        currentEntries.add(
+            insertIndex,
+            org.michimusic.core.models.QueueEntry(
+                entryId = "entry_${System.currentTimeMillis()}_${track.id}",
+                canonicalTrackId = track.id,
+                track = track,
+                position = insertIndex,
+            ),
+        )
+        val reindexedEntries = currentEntries.mapIndexed { idx, e -> e.copy(position = idx) }
         ctrl.addMediaItem(
             insertIndex,
             MediaItem.Builder()
@@ -483,7 +524,7 @@ class AudioController(
                 )
                 .build(),
         )
-        _state.value = _state.value.copy(queue = currentQueue)
+        _state.value = _state.value.copy(queue = currentQueue, queueEntries = reindexedEntries)
         saveCurrentQueueToDb()
     }
 
@@ -498,12 +539,20 @@ class AudioController(
             return
         }
         val currentQueue = _state.value.queue.toMutableList()
+        val currentEntries = _state.value.queueEntries.toMutableList()
         if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
             val item = currentQueue.removeAt(fromIndex)
             currentQueue.add(toIndex, item)
+            val entry = if (fromIndex in currentEntries.indices) {
+                currentEntries.removeAt(fromIndex)
+            } else {
+                org.michimusic.core.models.QueueEntry(canonicalTrackId = item.id, track = item, position = toIndex)
+            }
+            currentEntries.add(toIndex.coerceIn(0, currentEntries.size), entry)
+            val reindexedEntries = currentEntries.mapIndexed { idx, e -> e.copy(position = idx) }
             ctrl.moveMediaItem(fromIndex, toIndex)
             val activeIndex = ctrl.currentMediaItemIndex
-            _state.value = _state.value.copy(queue = currentQueue, queueIndex = activeIndex)
+            _state.value = _state.value.copy(queue = currentQueue, queueEntries = reindexedEntries, queueIndex = activeIndex)
             saveCurrentQueueToDb()
         }
     }
@@ -519,11 +568,16 @@ class AudioController(
             return
         }
         val newQueue = _state.value.queue.toMutableList()
+        val newEntries = _state.value.queueEntries.toMutableList()
         if (index in newQueue.indices) {
             newQueue.removeAt(index)
+            if (index in newEntries.indices) {
+                newEntries.removeAt(index)
+            }
+            val reindexedEntries = newEntries.mapIndexed { idx, e -> e.copy(position = idx) }
             ctrl.removeMediaItem(index)
             val activeIndex = ctrl.currentMediaItemIndex
-            _state.value = _state.value.copy(queue = newQueue, queueIndex = activeIndex)
+            _state.value = _state.value.copy(queue = newQueue, queueEntries = reindexedEntries, queueIndex = activeIndex)
             saveCurrentQueueToDb()
         }
     }
@@ -540,9 +594,19 @@ class AudioController(
 
     fun restoreQueue(tracks: List<Track>, startIndex: Int, positionMs: Long, repeatMode: Int, shuffleMode: Boolean) {
         if (tracks.isEmpty()) return
+        val entries = tracks.mapIndexed { idx, t ->
+            org.michimusic.core.models.QueueEntry(
+                entryId = "restored_${idx}_${t.id}",
+                canonicalTrackId = t.id,
+                track = t,
+                position = idx,
+            )
+        }
         _state.value = _state.value.copy(
             queue = tracks,
+            queueEntries = entries,
             queueIndex = startIndex,
+            currentTrack = tracks.getOrNull(startIndex),
             position = positionMs,
             repeatMode = repeatMode,
             shuffleMode = shuffleMode,

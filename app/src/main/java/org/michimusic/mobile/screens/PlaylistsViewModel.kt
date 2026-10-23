@@ -105,6 +105,22 @@ class PlaylistsViewModel(
         }
     }
 
+    /**
+     * Resolves all tracks for a given playlist and immediately initiates real playback
+     * through the provided AudioController at index 0.
+     */
+    fun playPlaylist(id: String, audioController: org.michimusic.player.AudioController) {
+        viewModelScope.launch(ioDispatcher) {
+            val playlist = repo.getById(id) ?: return@launch
+            val tracks = repo.getTracksForPlaylist(playlist)
+            if (tracks.isNotEmpty()) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    audioController.playQueue(tracks, 0)
+                }
+            }
+        }
+    }
+
     // Loads the device's local track library for the "add tracks" picker. Reuses
     // LocalMediaRepository, the same source AlbumsScreen/AlbumsViewModel already use,
     // instead of querying MediaStore a second time.
