@@ -322,13 +322,28 @@ fun AddToPlaylistDialog(
                                         isAdding = true
                                         addError = null
                                         coroutineScope.launch {
-                                            val result = playlistRepo.addTracksToPlaylist(pl.id, tracks.map { it.id })
-                                            isAdding = false
-                                            if (result is PlaylistRepository.PlaylistAddResult.Success) {
-                                                onSuccess?.invoke()
-                                                onDismiss()
-                                            } else {
-                                                addError = "No se pudieron añadir las canciones a la playlist"
+                                            try {
+                                                val result = playlistRepo.addTracksToPlaylist(pl.id, tracks.map { it.id })
+                                                if (result is PlaylistRepository.PlaylistAddResult.Success) {
+                                                    if (result.addedCount > 0) {
+                                                        onSuccess?.invoke()
+                                                        onDismiss()
+                                                    } else {
+                                                        addError = if (tracks.size == 1) {
+                                                            "La canción ya estaba en esta playlist"
+                                                        } else {
+                                                            "Las canciones ya estaban en esta playlist"
+                                                        }
+                                                    }
+                                                } else {
+                                                    addError = "No se pudieron añadir las canciones a la playlist"
+                                                }
+                                            } catch (c: kotlinx.coroutines.CancellationException) {
+                                                throw c
+                                            } catch (e: Exception) {
+                                                addError = "Error al añadir a playlist: ${e.message}"
+                                            } finally {
+                                                isAdding = false
                                             }
                                         }
                                     }
