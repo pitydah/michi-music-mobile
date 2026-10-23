@@ -23,6 +23,9 @@
 | M14.2 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 4b06447 | Cierre técnico integral: AudioRouteScreen reactivo con AudioDeviceCallback, eliminación de asunciones Hi-Res, autoridad única Media3 con PendingQueueCommands y ServiceScope thread-safe, Playlists atómicas con confirmación explícita (PlaylistAddResult) y feedback en UI, resolución de ubicaciones físicas y fallback resiliente, recuperación persistente de transferencias AirCat ante recreación de proceso |
 | M14.3 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | e50cc3e | Sincronización autoritativa de timeline en Media3 (onTimelineChanged), comandos pendientes basados en identidad de pista, transacciones Room atómicas en Multi-Library (registerTrackWithLocationAtomic), recuperación efectiva de transferencias AirCat incompletas con byte-range resume tras process death, menú unificado de acciones TrackActionBottomSheet |
 | M14.4 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | cbd270c | Auditoría KILLCRITIC superada: AirCat unwrap getOrThrow(), rechazo de pares revocados, preservación no destructiva de TrackIdentity, orquestación de recuperación en SyncWorker/SyncViewModel; Media3 preservación de pistas duplicadas en cola secuencial; Multi-Library rollback atómico con prueba unitaria; TrackActionBottomSheet y AddToPlaylistDialog conectados en QueueScreen, NowPlayingScreen y AlbumsScreen |
+| M14.5 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | fdac694 | Acciones remotas playNow/playNext/addToQueue/moveQueueItem desacopladas, token binding dinámico AirCat, SyncWorker cancellation unwrap, AddToPlaylistDialog try-finally |
+| M15 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 69d70aa | ADR-MOB-DSD-LEGACY formalizado, DSD_DOP_FEASIBILITY archivado OUT_OF_SCOPE_MOBILE, BitPerfectStatus deprecado, SignalTruth sin bit-perfect claims, Equalizer "Sin efectos", Lossless filter fix y LibraryLosslessClassifierTest |
+| M16 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | dcdd3bd | VisualPreferences reactivo (highContrast/reducedMotion), MichiTheme adaptativo, MichiIconAction (>=48dp), MichiSurface, MichiBottomSheet, MichiPlaybackControls y specs UI/UX |
 
 ---
 
@@ -1163,6 +1166,55 @@ ROLLBACK_PLAN:
   git revert fdac694..HEAD
 BLOCKERS: Ninguno.
 ```
+
+---
+
+```yaml
+SPRINT_ID: M16
+DATE: 2026-10-22
+AUTHOR: Antigravity + Gemini
+COMPONENT: michi-music-mobile
+COMMIT_HASH: dcdd3bd5631db63411a5335108d7dc334470083f
+TARGET_MATURITY: 90%
+MEASURED_MATURITY: 90%
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Theme & Accessibility Reactivity:
+     - Los switches de accesibilidad ("Alto contraste" y "Reducir animaciones") en SettingsScreen guardaban las preferencias en SharedPreferences pero MichiTheme y los componentes animados (como BottomNavBar) no se enteraban reactivamente sin reiniciar la app o forzar una recomposición manual.
+     - MichiTheme no contaba con una paleta de alto contraste (HighContrastDarkColorScheme) dedicada ni exponía un CompositionLocal reactivo para preferencias visuales.
+  2. Componentes Compartidos y Accesibilidad Táctil:
+     - No existía una capa de componentes premium estándar (MichiIconAction, MichiSurface, MichiBottomSheet, MichiPlaybackControls).
+     - Se requerían targets de toque mínimos garantizados de 48dp x 48dp y la eliminación de círculos y pastillas de fondo artificiales en controles de reproducción según la guía de diseño.
+     - Faltaban las especificaciones técnicas formales (Component Specs) en docs/uiux/components/.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Reactive Visual Preferences & Theme Engine:
+     - Implementado VisualPreferencesRepository como singleton reactivo inyectable con StateFlow y listener de SharedPreferences.
+     - MainActivity inyecta VisualPreferencesRepository y alimenta MichiTheme(visualPreferences).
+     - MichiTheme commuta atómicamente a HighContrastDarkColorScheme y expone LocalVisualPreferences.
+     - SettingsScreen delega los toggles directamente a VisualPreferencesRepository con actualización inmediata del árbol de UI.
+     - BottomNavBar respeta LocalVisualPreferences.current.reducedMotion eliminando el rebote (spring LowBouncy) y usando snap().
+  2. Standardized Premium Components & Specs:
+     - Creado MichiIconAction garantizando target táctil de >= 48dp (MichiSpacing.minTouchTarget), fondo neutro y semántica Role.Button accesible.
+     - Creado MichiSurface con 4 niveles semánticos (Canvas, Content, Raised, Floating) y adaptación automática de bordes y rellenos en modo alto contraste.
+     - Creado MichiBottomSheet con esquinas superiores de 24dp, manija accesible de arrastre y soporte nativo de alto contraste (adoptado en TrackActionBottomSheet).
+     - Creado MichiPlaybackControls y modelo PlaybackControlUiState con íconos blancos puros y target >= 48dp.
+     - Redactadas las especificaciones en docs/uiux/components/ (MichiIconAction.md, MichiPlaybackControls.md, MichiSurface.md, MichiBottomSheet.md).
+  3. Testing:
+     - Añadida suite VisualPreferencesPropagationTest validando StateFlow, reactividad y mutación de SharedPreferences.
+     - Añadida suite PremiumComponentsTest validando contratos de accesibilidad y jerarquía de superficies.
+UNIT_TESTS_EXECUTED:
+  ./gradlew testNormalDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew testFdroidDebugUnitTest (PASSED - 0 fallos)
+  ./gradlew :data:test :player:test :core:test :michi-link-client:test (PASSED - 0 fallos)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Preferencia de usuario aislada en sandbox local de michi_settings sin filtración a logs ni red.
+ROLLBACK_PLAN:
+  git revert 69d70aa..HEAD
+BLOCKERS: Ninguno.
+```
+
 
 
 

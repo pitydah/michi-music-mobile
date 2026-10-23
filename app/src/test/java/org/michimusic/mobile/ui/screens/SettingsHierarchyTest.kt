@@ -26,8 +26,8 @@ class SettingsHierarchyTest {
             "KEY_RG_PREAMP_WITHOUT" to "replaygain_preamp_without",
             "KEY_DOWNLOAD_ARTWORK" to "download_artwork",
             "KEY_AUTO_SCAN_LIBRARY" to "auto_scan_library",
-            "KEY_HIGH_CONTRAST" to "high_contrast_enabled",
-            "KEY_REDUCED_MOTION" to "reduced_motion_enabled",
+            "KEY_HIGH_CONTRAST" to "high_contrast",
+            "KEY_REDUCED_MOTION" to "reduced_motion",
             "DB_LISTENING_HISTORY_ENABLED" to "listening_history_enabled",
         )
 

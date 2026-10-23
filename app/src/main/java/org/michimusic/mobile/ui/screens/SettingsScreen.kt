@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -98,8 +99,8 @@ private const val KEY_RG_PREAMP_WITH = "replaygain_preamp_with"
 private const val KEY_RG_PREAMP_WITHOUT = "replaygain_preamp_without"
 private const val KEY_DOWNLOAD_ARTWORK = "download_artwork"
 private const val KEY_AUTO_SCAN_LIBRARY = "auto_scan_library"
-private const val KEY_HIGH_CONTRAST = "high_contrast_enabled"
-private const val KEY_REDUCED_MOTION = "reduced_motion_enabled"
+private const val KEY_HIGH_CONTRAST = "high_contrast"
+private const val KEY_REDUCED_MOTION = "reduced_motion"
 private const val DB_LISTENING_HISTORY_ENABLED = "listening_history_enabled"
 
 enum class SettingsSection {
@@ -116,6 +117,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val appDao: AppDao = koinInject()
+    val visualPreferencesRepo: org.michimusic.mobile.ui.theme.VisualPreferencesRepository = koinInject()
+    val visualPrefs by visualPreferencesRepo.preferences.collectAsState()
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
@@ -124,8 +127,6 @@ fun SettingsScreen(
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
     var listeningHistory by remember { mutableStateOf(true) }
-    var highContrast by remember { mutableStateOf(prefs.getBoolean(KEY_HIGH_CONTRAST, false)) }
-    var reducedMotion by remember { mutableStateOf(prefs.getBoolean(KEY_REDUCED_MOTION, false)) }
 
     var selectedMode by remember {
         mutableStateOf(
@@ -594,10 +595,9 @@ fun SettingsScreen(
                                 SettingSwitchRow(
                                     title = "Alto contraste",
                                     subtitle = "Resaltar bordes y texto para mayor legibilidad",
-                                    checked = highContrast,
+                                    checked = visualPrefs.highContrast,
                                     onCheckedChange = {
-                                        highContrast = it
-                                        prefs.edit { putBoolean(KEY_HIGH_CONTRAST, it) }
+                                        visualPreferencesRepo.setHighContrast(it)
                                     },
                                 )
 
@@ -606,10 +606,9 @@ fun SettingsScreen(
                                 SettingSwitchRow(
                                     title = "Reducir animaciones",
                                     subtitle = "Disminuir transiciones y movimiento en pantallas",
-                                    checked = reducedMotion,
+                                    checked = visualPrefs.reducedMotion,
                                     onCheckedChange = {
-                                        reducedMotion = it
-                                        prefs.edit { putBoolean(KEY_REDUCED_MOTION, it) }
+                                        visualPreferencesRepo.setReducedMotion(it)
                                     },
                                 )
                             }

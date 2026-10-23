@@ -75,23 +75,8 @@ fun TrackActionBottomSheet(
     onToggleFavorite: () -> Unit = {},
     onViewSignalTruth: (() -> Unit)? = null,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
+    org.michimusic.mobile.ui.components.premium.MichiBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = SurfaceDark,
-        tonalElevation = 8.dp,
-        dragHandle = {
-            Spacer(
-                Modifier
-                    .padding(vertical = 10.dp)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(PureWhite.copy(alpha = 0.2f))
-            )
-        },
     ) {
         Column(
             modifier = Modifier

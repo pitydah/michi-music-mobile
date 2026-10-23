@@ -104,12 +104,17 @@ fun BottomNavBar(
                 tabs.forEach { tab ->
                     val isSelected = currentRoute == tab.route
 
+                    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
                     val scale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.03f else 1.0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessMedium,
-                        ),
+                        targetValue = if (isSelected && !reducedMotion) 1.03f else 1.0f,
+                        animationSpec = if (reducedMotion) {
+                            androidx.compose.animation.core.snap()
+                        } else {
+                            spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            )
+                        },
                         label = "tab_scale",
                     )
 

@@ -11,14 +11,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import org.koin.android.ext.android.inject
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.mobile.navigation.MichiNavHost
 import org.michimusic.mobile.ui.theme.MichiTheme
+import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
 
 class MainActivity : ComponentActivity() {
 
     private val localMediaRepository: LocalMediaRepository by inject()
+    private val visualPreferencesRepository: VisualPreferencesRepository by inject()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -50,7 +54,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MichiTheme {
+            val visualPrefs by visualPreferencesRepository.preferences.collectAsState()
+            MichiTheme(visualPreferences = visualPrefs) {
                 MichiNavHost()
             }
         }

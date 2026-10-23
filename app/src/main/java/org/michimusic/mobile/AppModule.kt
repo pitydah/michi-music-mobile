@@ -19,6 +19,7 @@ val appModule = module {
 
     single<CoroutineDispatcher> { Dispatchers.IO }
     single { org.michimusic.mobile.library.LibraryScopeStore(get(), get()) }
+    single { org.michimusic.mobile.ui.theme.VisualPreferencesRepository(get()) }
 
     viewModel {
         SyncViewModel(
