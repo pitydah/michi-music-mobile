@@ -53,9 +53,27 @@ class RoomApprovedSyncPlanRepository(
         state: TransferLifecycleState,
         errorMessage: String?,
     ) {
+        val currentPlan = dao.getPlan(planId) ?: return
+        val currentState = runCatching { TransferLifecycleState.valueOf(currentPlan.executionState) }.getOrNull()
+
+        // Enforce valid transitions:
+        // Terminal states cannot be transitioned out of
+        if (currentState in setOf(TransferLifecycleState.COMPLETED, TransferLifecycleState.PARTIAL_SUCCESS, TransferLifecycleState.CANCELLED)) {
+            // Cannot transition from terminal state unless re-queued
+            if (state != TransferLifecycleState.QUEUED && state != TransferLifecycleState.RETRY_PENDING) {
+                return
+            }
+        }
+
         val now = System.currentTimeMillis()
         val executedAt = if (state == TransferLifecycleState.PREPARING || state == TransferLifecycleState.TRANSFERRING) now else null
-        val completedAt = if (state == TransferLifecycleState.COMPLETED || state == TransferLifecycleState.FAILED || state == TransferLifecycleState.CANCELLED) now else null
+        val completedAt = if (state in setOf(
+                TransferLifecycleState.COMPLETED,
+                TransferLifecycleState.PARTIAL_SUCCESS,
+                TransferLifecycleState.FAILED,
+                TransferLifecycleState.CANCELLED
+            )) now else null
+
         dao.updateExecutionState(
             planId = planId,
             state = state.name,

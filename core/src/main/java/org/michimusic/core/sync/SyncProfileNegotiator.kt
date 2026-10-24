@@ -18,40 +18,23 @@ object SyncProfileNegotiator {
         serverCapabilities: Set<String>,
         serverRepresentations: List<String> = emptyList(),
     ): List<ProfileAvailability> {
-        val hasGenericTranscoding = serverCapabilities.any {
-            it.equals("TRANSCODING", ignoreCase = true) ||
-            it.equals("MULTI_PROFILE", ignoreCase = true)
-        }
-
-        val hasAacExplicit = serverCapabilities.any {
+        // Strict honest negotiation:
+        // Do NOT infer AAC from generic TRANSCODING or .m4a container.
+        // Do NOT infer Opus from generic TRANSCODING or .ogg container.
+        val hasAac = serverCapabilities.any {
             it.equals("TRANSCODING_AAC", ignoreCase = true) ||
             it.equals("CODEC_AAC", ignoreCase = true) ||
             it.equals("AAC", ignoreCase = true)
         } || serverRepresentations.any {
-            it.contains("aac", ignoreCase = true) ||
-            it.contains("mp4", ignoreCase = true) ||
-            it.contains("m4a", ignoreCase = true)
+            it.equals("aac", ignoreCase = true) || it.contains("audio/aac", ignoreCase = true)
         }
 
-        val hasOpusExplicit = serverCapabilities.any {
+        val hasOpus = serverCapabilities.any {
             it.equals("TRANSCODING_OPUS", ignoreCase = true) ||
             it.equals("CODEC_OPUS", ignoreCase = true) ||
             it.equals("OPUS", ignoreCase = true)
         } || serverRepresentations.any {
-            it.contains("opus", ignoreCase = true) ||
-            it.contains("ogg", ignoreCase = true)
-        }
-
-        val hasAac = if (serverRepresentations.isNotEmpty()) {
-            hasAacExplicit
-        } else {
-            hasGenericTranscoding || hasAacExplicit
-        }
-
-        val hasOpus = if (serverRepresentations.isNotEmpty()) {
-            hasOpusExplicit
-        } else {
-            hasGenericTranscoding || hasOpusExplicit
+            it.equals("opus", ignoreCase = true) || it.contains("audio/opus", ignoreCase = true)
         }
 
         val defaultNoTranscodingReason = "El servidor no tiene transcodificación habilitada; solo se transferirá Calidad Original"

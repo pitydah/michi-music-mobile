@@ -106,8 +106,10 @@ enum class TransferLifecycleState {
     VERIFYING,
     REGISTERING,
     COMPLETED,
+    PARTIAL_SUCCESS,
     FAILED,
     CANCELLED,
+    RETRY_PENDING,
 }
 
 @Serializable

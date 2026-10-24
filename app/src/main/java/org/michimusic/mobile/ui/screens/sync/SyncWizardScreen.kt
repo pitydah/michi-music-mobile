@@ -1103,8 +1103,38 @@ private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncIte
             }
 
             if (expanded) {
-                Spacer(modifier = Modifier.height(12.dp))
-                items.take(50).forEach { item ->
+                var searchQuery by remember { mutableStateOf("") }
+                var showAll by remember { mutableStateOf(false) }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (items.size > 10) {
+                    androidx.compose.material3.OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text("Buscar pista o artista...", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AccentCoral,
+                            unfocusedBorderColor = GlassBorderLow,
+                            focusedTextColor = PureWhite,
+                            unfocusedTextColor = PureWhite,
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                val filtered = remember(items, searchQuery) {
+                    if (searchQuery.isBlank()) items else items.filter {
+                        it.title.contains(searchQuery, ignoreCase = true) ||
+                        it.artist.contains(searchQuery, ignoreCase = true)
+                    }
+                }
+
+                val displayedItems = if (showAll || filtered.size <= 50) filtered else filtered.take(50)
+
+                displayedItems.forEach { item ->
                     val badgeColor = when (item.action) {
                         SyncItemAction.DOWNLOAD -> AccentCoral
                         SyncItemAction.SKIP_ALREADY_EXISTS -> TertiaryCyan
@@ -1159,13 +1189,16 @@ private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncIte
                         }
                     }
                 }
-                if (items.size > 50) {
-                    Spacer(modifier = Modifier.height(6.dp))
+
+                if (!showAll && filtered.size > 50) {
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "...y ${items.size - 50} pistas más",
+                        text = "Mostrando 50 de ${filtered.size} pistas. Toca para ver todas.",
                         style = MichiTypography.metadata,
-                        color = TextDim,
-                        fontSize = 11.sp
+                        color = AccentCoral,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { showAll = true }
                     )
                 }
             }

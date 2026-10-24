@@ -82,6 +82,7 @@ import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.QrScannerDialog
 import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
+import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -244,6 +245,14 @@ fun DevicesScreen(
                                 onCancel = { viewModel.cancelAirCatTransfer(progress.transferId) },
                             )
                         }
+                    }
+                }
+
+                // SyncWorker Active Transfer Card
+                val syncProg = uiState.syncProgress
+                if (syncProg is org.michimusic.mobile.sync.SyncProgress.Downloading) {
+                    item {
+                        SyncTransferCard(progress = syncProg)
                     }
                 }
 
@@ -727,6 +736,86 @@ private fun AirCatTransferCard(
         }
     }
 }
+
+@Composable
+private fun SyncTransferCard(
+    progress: org.michimusic.mobile.sync.SyncProgress.Downloading,
+) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("sync_transfer_card"),
+        backgroundColor = SurfaceContainer.copy(alpha = 0.85f),
+        borderColor = AccentCoral.copy(alpha = 0.3f),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(MichiSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        tint = AccentCoral,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        text = "Sincronización en curso",
+                        style = MichiTypography.cardTitle,
+                        color = PureWhite,
+                    )
+                }
+
+                Text(
+                    text = "Descargando...",
+                    style = MichiTypography.microLabel,
+                    color = AccentCoral,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            val fraction = if (progress.total > 0) {
+                (progress.completed.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(CircleShape),
+                color = AccentCoral,
+                trackColor = SurfaceObsidian,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val pct = (fraction * 100).toInt()
+                Text(
+                    text = "${progress.completed} de ${progress.total} canciones ($pct%)",
+                    style = MichiTypography.metadata,
+                    color = TextMuted,
+                )
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun AddDeviceShortcutsRow(

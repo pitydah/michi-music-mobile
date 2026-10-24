@@ -147,7 +147,51 @@ class SyncWorker(
                 )
             }
 
-            // Recover incomplete/paused AirCat checkpoints first
+            val planId = inputData.getString("planId") ?: ""
+            val approvedPlanRepo = org.michimusic.mobile.di.approvedSyncPlanRepository
+            val approvedPlan = if (planId.isNotEmpty()) {
+                val plan = approvedPlanRepo?.getPlan(planId)
+                if (plan == null) {
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+                if (plan.endpointId != deviceId) {
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+                if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.CANCELLED.name) {
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+                if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.COMPLETED.name) {
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
+                }
+                plan
+            } else {
+                null
+            }
+
+            // Manifest version validation if plan is present
+            if (approvedPlan != null && approvedPlan.manifestChecksum.isNotEmpty()) {
+                val currentChecksum = manifest.manifestId.ifEmpty { manifest.createdAt }
+                if (currentChecksum.isNotEmpty() && currentChecksum != approvedPlan.manifestChecksum) {
+                    approvedPlanRepo?.updateExecutionState(
+                        planId,
+                        org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
+                    )
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+            }
+
+            // Recover incomplete/paused AirCat checkpoints linked to authorized transfers
             val aircatClient = org.michimusic.mobile.di.airCatTransferClient
             if (aircatClient != null) {
                 val recoveryResult = aircatClient.recoverIncompleteTransfers(deviceId, client)
@@ -165,10 +209,6 @@ class SyncWorker(
                 }
             }
 
-            val planId = inputData.getString("planId") ?: ""
-            val approvedPlanRepo = org.michimusic.mobile.di.approvedSyncPlanRepository
-            val approvedPlan = if (planId.isNotEmpty()) approvedPlanRepo?.getPlan(planId) else null
-
             if (approvedPlan != null && planId.isNotEmpty()) {
                 approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.TRANSFERRING)
             }
@@ -185,14 +225,26 @@ class SyncWorker(
             val candidateTracks = if (approvedPlan != null) {
                 val approvedItems = runCatching {
                     planJson.decodeFromString<List<org.michimusic.core.models.SyncItemDecision>>(approvedPlan.itemsJson)
-                }.getOrElse { emptyList() }
+                }.getOrNull()
+
+                if (approvedItems == null) {
+                    approvedPlanRepo?.updateExecutionState(
+                        planId,
+                        org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = "Plan corrupto o no deserializable"
+                    )
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+
                 val authorizedIds = approvedItems
                     .filter { it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD || it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL }
                     .map { it.trackId }
                     .toSet()
                 manifestTracks.filter { it.trackId in authorizedIds }
             } else {
-                // Fallback for non-plan sync invocations:
+                // Fallback strictly for non-plan sync invocations:
                 when {
                     selectedTrackIds.isNotEmpty() -> manifestTracks.filter { it.trackId in selectedTrackIds }
                     scope.equals("FULL_LIBRARY", ignoreCase = true) -> manifestTracks
@@ -302,12 +354,15 @@ class SyncWorker(
                                     remoteTrackId = meta.trackId,
                                     availability = org.michimusic.core.models.LocationAvailability.AVAILABLE,
                                 )
-                                libraryRepo?.registerTrackWithLocation(
+                                val regOp = libraryRepo?.registerTrackWithLocation(
                                     identity = identity,
                                     location = location,
                                     libraryId = destLibId,
                                     origin = "SYNCED",
                                 )
+                                if (regOp != null && regOp.isFailure) {
+                                    throw regOp.exceptionOrNull() ?: IllegalStateException("Error registrando pista en Room")
+                                }
                             }
                         }
 
@@ -350,6 +405,14 @@ class SyncWorker(
                     approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = "$errors error(es) en sincronización")
                 }
                 Result.failure(workDataOf(RESULT_ERROR to errors, RESULT_DOWNLOADED to 0))
+            } else if (errors > 0 && downloaded > 0) {
+                if (planId.isNotEmpty()) {
+                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.PARTIAL_SUCCESS, errorMessage = "$errors error(es) en sincronización parcial")
+                }
+                Result.success(workDataOf(
+                    RESULT_DOWNLOADED to downloaded,
+                    RESULT_ERROR to errors,
+                ))
             } else {
                 if (planId.isNotEmpty()) {
                     approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.COMPLETED)
@@ -397,7 +460,11 @@ class SyncWorker(
     private suspend fun safeSetForeground(info: ForegroundInfo) {
         try {
             setForeground(info)
-        } catch (_: Throwable) {
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
             // Ignored in test/headless environments
         }
     }
@@ -405,7 +472,11 @@ class SyncWorker(
     private suspend fun safeSetProgress(data: Data) {
         try {
             setProgress(data)
-        } catch (_: Throwable) {
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
             // Ignored in test/headless environments
         }
     }

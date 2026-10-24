@@ -42,7 +42,7 @@ class SyncProfileNegotiatorTest {
 
     @Test
     fun withServerTranscoding_allProfilesAvailableAndConfigured() {
-        val serverCaps = setOf("TRANSCODING", "MULTI_PROFILE")
+        val serverCaps = setOf("TRANSCODING_AAC", "TRANSCODING_OPUS")
         val profiles = SyncProfileNegotiator.evaluateAvailableProfiles(serverCaps)
 
         assertTrue(profiles.all { it.isAvailable })

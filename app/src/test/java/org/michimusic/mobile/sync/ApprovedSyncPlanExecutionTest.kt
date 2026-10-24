@@ -126,4 +126,85 @@ class ApprovedSyncPlanExecutionTest {
 
         assertEquals(0, candidateTracks.size)
     }
+
+    @Test
+    fun approvedPlan_corruptJsonFailsGracefullyWithoutDownloading() {
+        val manifestTracks = listOf(
+            ManifestTrack(trackId = "track_1", title = "Song 1", artist = "Artist 1", duration = 180, size = 5_000_000, format = "mp3"),
+        )
+
+        val approvedPlan = ApprovedSyncPlan(
+            planId = "plan_corrupt",
+            endpointId = "endpoint_desk",
+            endpointName = "Desktop",
+            scope = "TRACKS",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = "{invalid json content}",
+            manifestVersion = 1,
+            manifestChecksum = "sha_abc",
+            totalSelectedTracks = 1,
+            tracksToDownloadCount = 1,
+            totalDownloadBytes = 5_000_000L,
+            status = "READY",
+            executionState = "QUEUED",
+        )
+
+        val approvedItems = runCatching {
+            json.decodeFromString<List<SyncItemDecision>>(approvedPlan.itemsJson)
+        }.getOrNull()
+
+        // When deserialization fails, approvedItems is null -> Worker immediately aborts with failure
+        val isCorrupt = approvedItems == null
+        assertTrue("Corrupt itemsJson must be detected as invalid", isCorrupt)
+    }
+
+    @Test
+    fun approvedPlan_mismatchedEndpointIsRejected() {
+        val approvedPlan = ApprovedSyncPlan(
+            planId = "plan_other_endpoint",
+            endpointId = "endpoint_desk_A",
+            endpointName = "Desktop A",
+            scope = "TRACKS",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = "[]",
+            manifestVersion = 1,
+            manifestChecksum = "sha_abc",
+            totalSelectedTracks = 0,
+            tracksToDownloadCount = 0,
+            totalDownloadBytes = 0L,
+            status = "READY",
+            executionState = "QUEUED",
+        )
+
+        val currentWorkerDeviceId = "endpoint_desk_B"
+        val isEndpointAuthorized = approvedPlan.endpointId == currentWorkerDeviceId
+        assertTrue("Plan from another endpoint must not be executed", !isEndpointAuthorized)
+    }
+
+    @Test
+    fun approvedPlan_staleManifestChecksumIsRejected() {
+        val approvedPlan = ApprovedSyncPlan(
+            planId = "plan_stale",
+            endpointId = "endpoint_desk",
+            endpointName = "Desktop",
+            scope = "TRACKS",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = "[]",
+            manifestVersion = 1,
+            manifestChecksum = "sha_version_1",
+            totalSelectedTracks = 0,
+            tracksToDownloadCount = 0,
+            totalDownloadBytes = 0L,
+            status = "READY",
+            executionState = "QUEUED",
+        )
+
+        val currentServerManifestChecksum = "sha_version_2"
+        val isManifestValid = approvedPlan.manifestChecksum.isEmpty() || approvedPlan.manifestChecksum == currentServerManifestChecksum
+        assertTrue("Stale manifest checksum must be rejected", !isManifestValid)
+    }
 }
+

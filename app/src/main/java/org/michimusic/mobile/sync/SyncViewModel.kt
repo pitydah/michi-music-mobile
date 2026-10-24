@@ -634,27 +634,34 @@ class SyncViewModel(
         viewModelScope.launch {
             val manifestVer = if (plan.manifestVersion > 0) plan.manifestVersion else _wizardUiState.value.manifestVersion
             val manifestCheck = plan.manifestChecksum.ifEmpty { _wizardUiState.value.manifestChecksum }
-            approvedRepo?.savePlan(
-                plan = plan,
-                manifestVersion = manifestVer,
-                manifestChecksum = manifestCheck,
+            val saveResult = runCatching {
+                approvedRepo?.savePlan(
+                    plan = plan,
+                    manifestVersion = manifestVer,
+                    manifestChecksum = manifestCheck,
+                )
+            }
+
+            if (saveResult.isFailure || (approvedRepo != null && saveResult.getOrNull() == null)) {
+                _error.value = "Error al persistir el plan de sincronización. No se ha iniciado la transferencia."
+                return@launch
+            }
+
+            val tracksToDownload = plan.items.filter {
+                it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
+                it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
+                it.action == org.michimusic.core.models.SyncItemAction.REPLACE_BETTER_QUALITY
+            }.map { it.trackId }
+
+            syncLibrary(
+                targetDeviceId = targetDeviceId,
+                selectedTrackIds = tracksToDownload,
+                profile = plan.deliveryChoice.profile.name,
+                scope = plan.selection.scope.name,
+                planId = plan.planId,
+                expectedBytes = plan.totalDownloadBytes,
             )
         }
-
-        val tracksToDownload = plan.items.filter {
-            it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
-            it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
-            it.action == org.michimusic.core.models.SyncItemAction.REPLACE_BETTER_QUALITY
-        }.map { it.trackId }
-
-        syncLibrary(
-            targetDeviceId = targetDeviceId,
-            selectedTrackIds = tracksToDownload,
-            profile = plan.deliveryChoice.profile.name,
-            scope = plan.selection.scope.name,
-            planId = plan.planId,
-            expectedBytes = plan.totalDownloadBytes,
-        )
     }
 
     fun syncLibrary(

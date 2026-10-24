@@ -39,22 +39,42 @@ object StoragePreflightEvaluator {
         items: List<SyncItemDecision>,
     ): StorageEvaluationResult {
         val totalDownloadBytes = items.sumOf { item ->
-            when (item.action) {
+            val bytes = when (item.action) {
                 SyncItemAction.DOWNLOAD -> item.estimatedDownloadBytes
                 SyncItemAction.RESUME_PARTIAL -> item.estimatedDownloadBytes
                 SyncItemAction.REPLACE_BETTER_QUALITY -> item.estimatedDownloadBytes
                 SyncItemAction.SKIP_ALREADY_EXISTS -> 0L
                 SyncItemAction.BLOCKED_UNSUPPORTED -> 0L
             }
+            if (bytes < 0L) 0L else bytes
+        }
+
+        val issues = mutableListOf<SyncPreflightIssue>()
+        val status: SyncPreflightStatus
+
+        if (availableBytes <= 0L) {
+            status = SyncPreflightStatus.BLOCKED_NO_STORAGE
+            issues.add(
+                SyncPreflightIssue(
+                    code = "STORAGE_INVALID",
+                    message = "Almacenamiento no accesible o espacio disponible inválido.",
+                    severity = IssueSeverity.BLOCKING,
+                )
+            )
+            return StorageEvaluationResult(
+                totalDownloadBytes = totalDownloadBytes,
+                safetyBufferBytes = SAFETY_BUFFER_BYTES,
+                atomicBufferBytes = 0L,
+                remainingAfterSyncBytes = 0L,
+                status = status,
+                issues = issues,
+            )
         }
 
         val atomicBuffer = if (totalDownloadBytes > 0) calculateAtomicBuffer(totalDownloadBytes) else 0L
         val totalRequiredPeak = totalDownloadBytes + SAFETY_BUFFER_BYTES + atomicBuffer
         val remainingAfterPeak = availableBytes - totalRequiredPeak
         val remainingAfterSync = availableBytes - totalDownloadBytes
-
-        val issues = mutableListOf<SyncPreflightIssue>()
-        val status: SyncPreflightStatus
 
         if (totalDownloadBytes > 0 && availableBytes < totalRequiredPeak) {
             status = SyncPreflightStatus.BLOCKED_NO_STORAGE
