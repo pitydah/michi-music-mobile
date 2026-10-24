@@ -946,6 +946,11 @@ private fun ReviewStep(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Track-level decision inspection list
+        TrackDecisionListCard(items = plan.items)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Issues display
         plan.issues.forEach { issue ->
             IssueBanner(issue = issue)
@@ -1062,3 +1067,109 @@ private fun IssueBanner(issue: org.michimusic.core.models.SyncPreflightIssue) {
         )
     }
 }
+
+@Composable
+private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncItemDecision>) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MichiShapes.md)
+            .border(1.dp, GlassBorderLow, MichiShapes.md)
+            .testTag("sync_wizard_track_decision_card"),
+        colors = CardDefaults.cardColors(containerColor = GlassFillLow)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Detalle por pista (${items.size})",
+                    style = MichiTypography.cardTitle,
+                    color = PureWhite,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = if (expanded) "Ocultar" else "Ver lista",
+                    style = MichiTypography.metadata,
+                    color = AccentCoral,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp
+                )
+            }
+
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                items.take(50).forEach { item ->
+                    val badgeColor = when (item.action) {
+                        SyncItemAction.DOWNLOAD -> AccentCoral
+                        SyncItemAction.SKIP_ALREADY_EXISTS -> TertiaryCyan
+                        SyncItemAction.RESUME_PARTIAL -> Color(0xFFFFB74D)
+                        SyncItemAction.REPLACE_BETTER_QUALITY -> Color(0xFF81C784)
+                        SyncItemAction.BLOCKED_UNSUPPORTED -> ErrorColor
+                    }
+                    val badgeText = when (item.action) {
+                        SyncItemAction.DOWNLOAD -> "Descargar"
+                        SyncItemAction.SKIP_ALREADY_EXISTS -> "Existe"
+                        SyncItemAction.RESUME_PARTIAL -> "Reanudar"
+                        SyncItemAction.REPLACE_BETTER_QUALITY -> "Mejor calidad"
+                        SyncItemAction.BLOCKED_UNSUPPORTED -> "Bloqueada"
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.title,
+                                style = MichiTypography.metadata,
+                                color = PureWhite,
+                                maxLines = 1,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = item.artist,
+                                style = MichiTypography.metadata,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(badgeColor.copy(alpha = 0.2f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badgeText,
+                                style = MichiTypography.metadata,
+                                color = badgeColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+                if (items.size > 50) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "...y ${items.size - 50} pistas más",
+                        style = MichiTypography.metadata,
+                        color = TextDim,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+    }
+}
+

@@ -31,6 +31,7 @@ val appModule = module {
             trackRepository = get(),
             airCatClient = getOrNull(),
             checkpointRepository = getOrNull(),
+            approvedPlanRepository = getOrNull(),
         )
     }
     viewModelOf(::AlbumsViewModel)

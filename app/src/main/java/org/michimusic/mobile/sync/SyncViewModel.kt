@@ -51,6 +51,9 @@ data class WizardUiState(
     val currentLocalMusicBytes: Long = 0L,
     val localFingerprints: Set<String> = emptySet(),
     val existingPartials: Map<String, Long> = emptyMap(),
+    val manifestVersion: Int = 1,
+    val manifestChecksum: String = "",
+    val storageStatus: org.michimusic.core.models.StoragePreflightStatus = org.michimusic.core.models.StoragePreflightStatus.AVAILABLE,
 )
 
 data class SyncUiState(
@@ -76,6 +79,7 @@ class SyncViewModel(
     private val trackRepository: SyncedTrackRepository,
     private val airCatClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? = null,
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
+    private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
 ) : ViewModel() {
 
     private val _wizardUiState = MutableStateFlow(WizardUiState())
@@ -625,6 +629,18 @@ class SyncViewModel(
     fun syncPlannedLibrary(plan: org.michimusic.core.models.SyncPlan) {
         if (!plan.isExecutable || plan.totalSelectedTracks == 0) return
         val targetDeviceId = plan.endpointId
+
+        val approvedRepo = approvedPlanRepository ?: org.michimusic.mobile.di.approvedSyncPlanRepository
+        viewModelScope.launch {
+            val manifestVer = if (plan.manifestVersion > 0) plan.manifestVersion else _wizardUiState.value.manifestVersion
+            val manifestCheck = plan.manifestChecksum.ifEmpty { _wizardUiState.value.manifestChecksum }
+            approvedRepo?.savePlan(
+                plan = plan,
+                manifestVersion = manifestVer,
+                manifestChecksum = manifestCheck,
+            )
+        }
+
         val tracksToDownload = plan.items.filter {
             it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
             it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
@@ -731,9 +747,20 @@ class SyncViewModel(
         _wizardUiState.value = WizardUiState(isLoading = true, deviceId = targetDeviceId)
         viewModelScope.launch {
             try {
-                val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
-                val availableBytes = statFs?.availableBytes ?: (10L * 1024 * 1024 * 1024)
-                val totalBytes = statFs?.totalBytes ?: (64L * 1024 * 1024 * 1024)
+                val filesDir = context.filesDir
+                val isWritable = filesDir != null && filesDir.exists() && filesDir.canWrite()
+                val statFs = if (isWritable) {
+                    try { android.os.StatFs(filesDir.absolutePath) } catch (_: Exception) { null }
+                } else null
+
+                val storageStatus = when {
+                    !isWritable -> org.michimusic.core.models.StoragePreflightStatus.NOT_WRITABLE
+                    statFs == null -> org.michimusic.core.models.StoragePreflightStatus.UNKNOWN
+                    else -> org.michimusic.core.models.StoragePreflightStatus.AVAILABLE
+                }
+
+                val availableBytes = statFs?.availableBytes ?: 0L
+                val totalBytes = statFs?.totalBytes ?: 0L
 
                 val syncedMusicDir = java.io.File(context.filesDir, "synced_music")
                 val dirBytes = if (syncedMusicDir.exists()) {
@@ -768,6 +795,7 @@ class SyncViewModel(
                         availableStorageBytes = availableBytes,
                         totalStorageBytes = totalBytes,
                         currentLocalMusicBytes = currentLocalMusicBytes,
+                        storageStatus = storageStatus,
                     )
                     return@launch
                 }
@@ -789,6 +817,7 @@ class SyncViewModel(
                         availableStorageBytes = availableBytes,
                         totalStorageBytes = totalBytes,
                         currentLocalMusicBytes = currentLocalMusicBytes,
+                        storageStatus = storageStatus,
                     )
                     return@launch
                 }
@@ -825,6 +854,9 @@ class SyncViewModel(
                     currentLocalMusicBytes = currentLocalMusicBytes,
                     localFingerprints = localFingerprints,
                     existingPartials = partials,
+                    manifestVersion = manifestDto.version,
+                    manifestChecksum = manifestDto.manifestId.ifEmpty { manifestDto.createdAt },
+                    storageStatus = storageStatus,
                 )
             } catch (e: Exception) {
                 _wizardUiState.value = WizardUiState(

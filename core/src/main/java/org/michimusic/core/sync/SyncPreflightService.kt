@@ -29,8 +29,67 @@ class SyncPreflightService {
         manifestPlaylists: List<org.michimusic.core.models.ManifestPlaylist> = emptyList(),
         localTrackFingerprints: Set<String> = emptySet(),
         existingPartials: Map<String, Long> = emptyMap(),
+        storageStatus: org.michimusic.core.models.StoragePreflightStatus = org.michimusic.core.models.StoragePreflightStatus.AVAILABLE,
+        manifestVersion: Int = 1,
+        manifestChecksum: String = "",
     ): SyncPlan {
         val planId = UUID.randomUUID().toString()
+
+        if (storageStatus == org.michimusic.core.models.StoragePreflightStatus.NOT_WRITABLE) {
+            val issue = SyncPreflightIssue(
+                code = "STORAGE_NOT_WRITABLE",
+                message = "El almacenamiento de destino no tiene permisos de escritura o no está disponible.",
+                severity = IssueSeverity.BLOCKING,
+            )
+            return SyncPlan(
+                planId = planId,
+                endpointId = endpointId,
+                endpointName = endpointName,
+                selection = selection,
+                deliveryChoice = deliveryChoice,
+                items = emptyList(),
+                totalSelectedTracks = 0,
+                tracksToDownloadCount = 0,
+                tracksSkippedCount = 0,
+                tracksToResumeCount = 0,
+                totalDownloadBytes = 0L,
+                availableStorageBytes = 0L,
+                safetyBufferBytes = StoragePreflightEvaluator.SAFETY_BUFFER_BYTES,
+                remainingStorageAfterSyncBytes = 0L,
+                issues = listOf(issue),
+                status = SyncPreflightStatus.BLOCKED_NO_STORAGE,
+                manifestVersion = manifestVersion,
+                manifestChecksum = manifestChecksum,
+            )
+        }
+
+        if (storageStatus == org.michimusic.core.models.StoragePreflightStatus.UNKNOWN) {
+            val issue = SyncPreflightIssue(
+                code = "STORAGE_UNKNOWN",
+                message = "No se pudo determinar el espacio de almacenamiento disponible de manera confiable.",
+                severity = IssueSeverity.BLOCKING,
+            )
+            return SyncPlan(
+                planId = planId,
+                endpointId = endpointId,
+                endpointName = endpointName,
+                selection = selection,
+                deliveryChoice = deliveryChoice,
+                items = emptyList(),
+                totalSelectedTracks = 0,
+                tracksToDownloadCount = 0,
+                tracksSkippedCount = 0,
+                tracksToResumeCount = 0,
+                totalDownloadBytes = 0L,
+                availableStorageBytes = 0L,
+                safetyBufferBytes = StoragePreflightEvaluator.SAFETY_BUFFER_BYTES,
+                remainingStorageAfterSyncBytes = 0L,
+                issues = listOf(issue),
+                status = SyncPreflightStatus.BLOCKED_NO_STORAGE,
+                manifestVersion = manifestVersion,
+                manifestChecksum = manifestChecksum,
+            )
+        }
 
         val hasEmptySelection = selection.isEmpty || (selection.scope == SyncScope.FULL_LIBRARY && candidateTracks.isEmpty())
 
@@ -57,6 +116,8 @@ class SyncPreflightService {
                 remainingStorageAfterSyncBytes = availableStorageBytes,
                 issues = listOf(issue),
                 status = SyncPreflightStatus.BLOCKED_EMPTY_SELECTION,
+                manifestVersion = manifestVersion,
+                manifestChecksum = manifestChecksum,
             )
         }
 
@@ -98,6 +159,8 @@ class SyncPreflightService {
                 remainingStorageAfterSyncBytes = availableStorageBytes,
                 issues = listOf(issue),
                 status = SyncPreflightStatus.BLOCKED_EMPTY_SELECTION,
+                manifestVersion = manifestVersion,
+                manifestChecksum = manifestChecksum,
             )
         }
 
@@ -189,6 +252,8 @@ class SyncPreflightService {
             remainingStorageAfterSyncBytes = storageEval.remainingAfterSyncBytes,
             issues = issues,
             status = status,
+            manifestVersion = manifestVersion,
+            manifestChecksum = manifestChecksum,
         )
     }
 

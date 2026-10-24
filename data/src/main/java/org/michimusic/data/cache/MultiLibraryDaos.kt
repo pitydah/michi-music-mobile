@@ -199,3 +199,27 @@ interface TransferCheckpointDao {
     suspend fun clearCompletedCheckpoints(remoteDeviceId: String)
 }
 
+@Dao
+interface ApprovedSyncPlanDao {
+    @Query("SELECT * FROM approved_sync_plans WHERE planId = :planId")
+    suspend fun getPlan(planId: String): ApprovedSyncPlanEntity?
+
+    @Query("SELECT * FROM approved_sync_plans WHERE endpointId = :endpointId ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestPlanForEndpoint(endpointId: String): ApprovedSyncPlanEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPlan(plan: ApprovedSyncPlanEntity)
+
+    @Query("UPDATE approved_sync_plans SET executionState = :state, executedAt = COALESCE(:executedAt, executedAt), completedAt = COALESCE(:completedAt, completedAt), errorMessage = :errorMessage WHERE planId = :planId")
+    suspend fun updateExecutionState(
+        planId: String,
+        state: String,
+        executedAt: Long? = null,
+        completedAt: Long? = null,
+        errorMessage: String? = null,
+    ): Int
+
+    @Query("DELETE FROM approved_sync_plans WHERE planId = :planId")
+    suspend fun deletePlan(planId: String)
+}
+

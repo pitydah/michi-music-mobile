@@ -32,6 +32,7 @@
 | M18-M19-HARDENING | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre completo de defectos P1/P2: autoridad de comandos remotos (fallo getQueue produce REJECTED, anti-stale endpoint affinity), reproducción rápida real de playlists (playPlaylist en PlaylistsViewModel), confianza de dispositivos (distinción anunciado vs verificado y pairing QR), identidad QueueEntry en Media3 (timeline y restauración), clasificación Lossless/Lossy/Unknown, UI/UX Devices (touch targets >=48dp, metadata sin raw IP) |
 | M20 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Sync Preflight inteligente, perfiles de entrega negociados sin fake transcoding, reserva de seguridad >= 100 MB estricta, StorageBreakdownBar, SyncWizardScreen (G14, G15, G29), Room v5->v6 con QueueEntry UUID y autoridad remota ACCEPTED/CONFIRMED |
 | M20.1 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Estabilización e integración real de Sync: catálogo remoto real en Wizard, selección granular (álbumes/playlists/artistas/pistas), invariante de 0 pistas (cero descargas no autorizadas), perfiles AAC/Opus veraces, métricas de disco reales y prueba E2E completa |
+| M20.2 / M21-A | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Autoridad única SyncPlan persistido en Room (v6->v7 ApprovedSyncPlanEntity), invariante DownloadedItems(P) ⊆ AuthorizedDownloadItems(P), resolución DI en EndToEndSyncFlowTest, inspección detallada por pista en ReviewStep, ciclo de vida durable y preflight fail-closed |
 
 ---
 

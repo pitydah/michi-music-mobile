@@ -20,6 +20,7 @@ val dataModule = module {
             MichiDatabase.MIGRATION_3_4,
             MichiDatabase.MIGRATION_4_5,
             MichiDatabase.MIGRATION_5_6,
+            MichiDatabase.MIGRATION_6_7,
         ).build()
     }
     single { get<MichiDatabase>().trackDao() }
@@ -34,6 +35,10 @@ val dataModule = module {
     single { get<MichiDatabase>().syncProfileDao() }
     single { get<MichiDatabase>().syncManifestDao() }
     single { get<MichiDatabase>().transferCheckpointDao() }
+    single { get<MichiDatabase>().approvedSyncPlanDao() }
+    single<org.michimusic.core.models.ApprovedSyncPlanRepository> {
+        org.michimusic.data.repository.RoomApprovedSyncPlanRepository(get())
+    }
     single<org.michimusic.core.models.TransferCheckpointRepository> {
         org.michimusic.data.repository.RoomTransferCheckpointRepository(get())
     }

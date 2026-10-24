@@ -199,3 +199,32 @@ data class TransferCheckpointEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 )
+
+@Entity(
+    tableName = "approved_sync_plans",
+    indices = [
+        Index("endpointId"),
+        Index("executionState"),
+    ],
+)
+data class ApprovedSyncPlanEntity(
+    @PrimaryKey
+    val planId: String,
+    val endpointId: String,
+    val endpointName: String,
+    val scope: String,
+    val selectionJson: String,
+    val deliveryChoiceJson: String,
+    val itemsJson: String,
+    val manifestVersion: Int,
+    val manifestChecksum: String,
+    val totalSelectedTracks: Int,
+    val tracksToDownloadCount: Int,
+    val totalDownloadBytes: Long,
+    val status: String,
+    val executionState: String = "QUEUED",
+    val createdAt: Long = System.currentTimeMillis(),
+    val executedAt: Long? = null,
+    val completedAt: Long? = null,
+    val errorMessage: String? = null,
+)

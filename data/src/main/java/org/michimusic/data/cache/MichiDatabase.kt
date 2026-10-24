@@ -25,8 +25,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncProfileEntity::class,
         SyncManifestEntity::class,
         TransferCheckpointEntity::class,
+        ApprovedSyncPlanEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class MichiDatabase : RoomDatabase() {
     abstract fun syncProfileDao(): SyncProfileDao
     abstract fun syncManifestDao(): SyncManifestDao
     abstract fun transferCheckpointDao(): TransferCheckpointDao
+    abstract fun approvedSyncPlanDao(): ApprovedSyncPlanDao
 
 
     companion object {
@@ -263,6 +265,34 @@ abstract class MichiDatabase : RoomDatabase() {
         val MIGRATION_5_6 = Migration(5, 6) { db ->
             db.execSQL("ALTER TABLE `saved_queue` ADD COLUMN `entryIds` TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE `saved_queue` ADD COLUMN `locationIds` TEXT NOT NULL DEFAULT ''")
+        }
+
+        val MIGRATION_6_7 = Migration(6, 7) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `approved_sync_plans` (
+                    `planId` TEXT NOT NULL,
+                    `endpointId` TEXT NOT NULL,
+                    `endpointName` TEXT NOT NULL,
+                    `scope` TEXT NOT NULL,
+                    `selectionJson` TEXT NOT NULL,
+                    `deliveryChoiceJson` TEXT NOT NULL,
+                    `itemsJson` TEXT NOT NULL,
+                    `manifestVersion` INTEGER NOT NULL,
+                    `manifestChecksum` TEXT NOT NULL,
+                    `totalSelectedTracks` INTEGER NOT NULL,
+                    `tracksToDownloadCount` INTEGER NOT NULL,
+                    `totalDownloadBytes` INTEGER NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `executionState` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `executedAt` INTEGER,
+                    `completedAt` INTEGER,
+                    `errorMessage` TEXT,
+                    PRIMARY KEY(`planId`)
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_approved_sync_plans_endpointId` ON `approved_sync_plans` (`endpointId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_approved_sync_plans_executionState` ON `approved_sync_plans` (`executionState`)")
         }
     }
 }

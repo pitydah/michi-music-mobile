@@ -35,6 +35,7 @@ class SyncWorker(
         const val CHANNEL_ID = "michi_sync"
         const val NOTIFICATION_ID = 1001
         private const val SYNC_WAKELOCK_TIMEOUT_MS = 30 * 60 * 1000L
+        private val planJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
         fun buildInputData(
             baseUrl: String,
@@ -164,6 +165,14 @@ class SyncWorker(
                 }
             }
 
+            val planId = inputData.getString("planId") ?: ""
+            val approvedPlanRepo = org.michimusic.mobile.di.approvedSyncPlanRepository
+            val approvedPlan = if (planId.isNotEmpty()) approvedPlanRepo?.getPlan(planId) else null
+
+            if (approvedPlan != null && planId.isNotEmpty()) {
+                approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.TRANSFERRING)
+            }
+
             val selectedTrackIdsStr = inputData.getString("selectedTrackIds") ?: ""
             val selectedTrackIds = if (selectedTrackIdsStr.isNotEmpty()) {
                 selectedTrackIdsStr.split(",").filter { it.isNotBlank() }.toSet()
@@ -171,12 +180,24 @@ class SyncWorker(
                 emptySet()
             }
 
-            // Zero-selection safety invariant:
-            // If scope is not FULL_LIBRARY, an empty selection MUST NEVER default to manifestTracks!
-            val candidateTracks = when {
-                selectedTrackIds.isNotEmpty() -> manifestTracks.filter { it.trackId in selectedTrackIds }
-                scope.equals("FULL_LIBRARY", ignoreCase = true) -> manifestTracks
-                else -> emptyList() // Strictly zero downloads for empty selection!
+            // Invariant: If approvedPlan exists, it is the sole authoritative source of truth.
+            // DownloadedItems(P) ⊆ AuthorizedDownloadItems(P)
+            val candidateTracks = if (approvedPlan != null) {
+                val approvedItems = runCatching {
+                    planJson.decodeFromString<List<org.michimusic.core.models.SyncItemDecision>>(approvedPlan.itemsJson)
+                }.getOrElse { emptyList() }
+                val authorizedIds = approvedItems
+                    .filter { it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD || it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL }
+                    .map { it.trackId }
+                    .toSet()
+                manifestTracks.filter { it.trackId in authorizedIds }
+            } else {
+                // Fallback for non-plan sync invocations:
+                when {
+                    selectedTrackIds.isNotEmpty() -> manifestTracks.filter { it.trackId in selectedTrackIds }
+                    scope.equals("FULL_LIBRARY", ignoreCase = true) -> manifestTracks
+                    else -> emptyList() // Strictly zero downloads for empty selection!
+                }
             }
 
             val downloadedIds = repository.getDownloadedIds()
@@ -196,6 +217,9 @@ class SyncWorker(
             if (total == 0) {
                 safeSetForeground(createForegroundInfo(0, 0, "Todo sincronizado"))
                 safeSetProgress(workDataOf(PROGRESS_TOTAL to 0, PROGRESS_CURRENT to 0))
+                if (planId.isNotEmpty()) {
+                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.COMPLETED)
+                }
                 client.close()
                 try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
@@ -322,20 +346,50 @@ class SyncWorker(
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to downloaded))
 
             if (errors > 0 && downloaded == 0) {
+                if (planId.isNotEmpty()) {
+                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = "$errors error(es) en sincronización")
+                }
                 Result.failure(workDataOf(RESULT_ERROR to errors, RESULT_DOWNLOADED to 0))
             } else {
+                if (planId.isNotEmpty()) {
+                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.COMPLETED)
+                }
                 Result.success(workDataOf(
                     RESULT_DOWNLOADED to downloaded,
                     RESULT_ERROR to errors,
                 ))
             }
+        } catch (e: java.util.concurrent.CancellationException) {
+            client.close()
+            try { wakeLock?.release() } catch (_: Exception) {}
+            val planId = inputData.getString("planId") ?: ""
+            if (planId.isNotEmpty()) {
+                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.CANCELLED)
+            }
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            client.close()
+            try { wakeLock?.release() } catch (_: Exception) {}
+            val planId = inputData.getString("planId") ?: ""
+            if (planId.isNotEmpty()) {
+                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.CANCELLED)
+            }
+            throw e
         } catch (e: LinkException) {
             client.close()
             try { wakeLock?.release() } catch (_: Exception) {}
+            val planId = inputData.getString("planId") ?: ""
+            if (planId.isNotEmpty()) {
+                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = e.message)
+            }
             Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         } catch (e: Exception) {
             client.close()
             try { wakeLock?.release() } catch (_: Exception) {}
+            val planId = inputData.getString("planId") ?: ""
+            if (planId.isNotEmpty()) {
+                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = e.message)
+            }
             Result.retry()
         }
     }

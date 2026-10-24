@@ -33,4 +33,7 @@ val transferCheckpointRepository: org.michimusic.core.models.TransferCheckpointR
 val airCatTransferClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient?
     get() = runCatching { KoinJavaComponent.get<org.michimusic.mobile.devices.aircat.AirCatTransferClient>(org.michimusic.mobile.devices.aircat.AirCatTransferClient::class.java) }.getOrNull()
 
+val approvedSyncPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository?
+    get() = runCatching { KoinJavaComponent.get<org.michimusic.core.models.ApprovedSyncPlanRepository>(org.michimusic.core.models.ApprovedSyncPlanRepository::class.java) }.getOrNull()
+
 
