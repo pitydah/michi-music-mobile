@@ -32,7 +32,8 @@
 | M18-M19-HARDENING | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre completo de defectos P1/P2: autoridad de comandos remotos (fallo getQueue produce REJECTED, anti-stale endpoint affinity), reproducción rápida real de playlists (playPlaylist en PlaylistsViewModel), confianza de dispositivos (distinción anunciado vs verificado y pairing QR), identidad QueueEntry en Media3 (timeline y restauración), clasificación Lossless/Lossy/Unknown, UI/UX Devices (touch targets >=48dp, metadata sin raw IP) |
 | M20 | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Sync Preflight inteligente, perfiles de entrega negociados sin fake transcoding, reserva de seguridad >= 100 MB estricta, StorageBreakdownBar, SyncWizardScreen (G14, G15, G29), Room v5->v6 con QueueEntry UUID y autoridad remota ACCEPTED/CONFIRMED |
 | M20.2 / M21-A | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 146f163 | Autoridad única SyncPlan persistido en Room (v6->v7 ApprovedSyncPlanEntity), invariante DownloadedItems(P) ⊆ AuthorizedDownloadItems(P), resolución DI en EndToEndSyncFlowTest, inspección detallada por pista en ReviewStep, ciclo de vida durable y preflight fail-closed |
-| M20.3 / M21-B | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre autoritativo y secuenciación Room->WorkManager sin condiciones de carrera, fail-closed ante planId faltante/corrupto/mismatch/stale manifest, máquina de estados estricta (PARTIAL_SUCCESS, RETRY_PENDING), reporte Room de registerTrackWithLocation, no-swallowing de CancellationException, búsqueda/paginación en TrackDecisionListCard y tarjeta de transferencia en Devices |
+| M20.3 / M21-B | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | bfb7f4d | Cierre autoritativo y secuenciación Room->WorkManager sin condiciones de carrera, fail-closed ante planId faltante/corrupto/mismatch/stale manifest, máquina de estados estricta (PARTIAL_SUCCESS, RETRY_PENDING), reporte Room de registerTrackWithLocation, no-swallowing de CancellationException, búsqueda/paginación en TrackDecisionListCard y tarjeta de transferencia en Devices |
+| M20.4 / M21-C | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Aislamiento AirCat por track IDs autorizados, registro atómico no anulable en SyncWorker (verificación física de archivo + fail-closed si falta MusicLibraryRepository), CAS atómico transitionState en ApprovedSyncPlanDao, protección contra desbordamiento numérico en StoragePreflightEvaluator (safeAdd), test de escala de producción con manifiesto de 100 pistas (invariante 100 -> 2), paginación escalonada y botón de cancelación en SyncTransferCard |
 
 ---
 
@@ -1588,6 +1589,74 @@ ROLLBACK_PLAN:
   git revert 4b41378744e1a2ae26650f3e839935657bbee64f..HEAD
 BLOCKERS: Ninguno. Sprint M20.1 concluido exitosamente. Madurez estimada: 94%.
 ```
+
+---
+
+## Checkpoint de Ejecución — Bloque M20.4 + M21-C
+
+```text
+BLOCK_ID: M20.4_M21-C
+MASTER_BASE_SHA: bfb7f4d4f91f353bb04eef6c7dbfaea690c85e8c
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DevicesScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/sync/SyncWizardScreen.kt
+  - core/src/main/java/org/michimusic/core/models/SyncPreflightModels.kt
+  - core/src/main/java/org/michimusic/core/sync/StoragePreflightEvaluator.kt
+  - core/src/test/java/org/michimusic/core/sync/StoragePreflightEvaluatorTest.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryDaos.kt
+  - data/src/main/java/org/michimusic/data/repository/RoomApprovedSyncPlanRepository.kt
+  - app/src/test/java/org/michimusic/mobile/sync/ApprovedSyncPlanExecutionTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. AirCatTransferClient.recoverIncompleteTransfers recuperaba checkpoints incompletos de todo el dispositivo sin
+     aislamiento del plan activo, pudiendo reanudar pistas no autorizadas en el plan de sincronización actual.
+  2. SyncWorker accedía a MusicLibraryRepository de forma opcional (val libraryRepo = ...). Si fallaba Koin o era null,
+     los archivos se descargaban a disco pero quedaban huérfanos sin registrar en las tablas Room de la biblioteca.
+  3. No existía verificación previa de no-vacío (file.exists() && file.length() > 0) antes de registrar la pista en Room,
+     y ante un fallo en el registro de Room el checkpoint no se marcaba explícitamente en FAILED.
+  4. RoomApprovedSyncPlanRepository no disponía de transacción atómica tipo CAS (Compare-And-Swap) para transiciones
+     de estado de ejecución de planes concurrentes.
+  5. StoragePreflightEvaluator utilizaba sumas directas de Long que podían sufrir desbordamiento aritmético si se
+     procesaban colas enormes o tamaños no truncados.
+  6. La UI de SyncWizardScreen mostraba un botón "Ver todas" que cargaba arbitrariamente miles de elementos en Compose;
+     la tarjeta de transferencia en DevicesScreen carecía de botón de cancelación directa de sincronización.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Aislamiento estricto de transferencias AirCat: recoverIncompleteTransfers recibe authorizedTrackIds: Set<String>? y
+     filtra los checkpoints pendientes estrictamente por pertenencia al conjunto autorizado de candidateTracks.
+  2. Registro atómico obligatorio en SyncWorker: se valida la existencia de MusicLibraryRepository antes de procesar
+     descargas (fail-closed inmediato con FAILED en plan y worker). Tras la descarga, se verifica que el archivo existe
+     y no está vacío antes de registrarlo en Room. Si la operación en Room falla, el checkpoint se actualiza a FAILED
+     y el fichero no se da por completado.
+  3. Transición CAS condicional: ApprovedSyncPlanDao cuenta con transitionState(...) condicionado a (planId, expectedState).
+     RoomApprovedSyncPlanRepository implementa tryTransitionState(...) garantizando que solo una ejecución legítima
+     pueda avanzar el ciclo de vida del plan.
+  4. Aritmética a prueba de desbordamiento: StoragePreflightEvaluator utiliza safeAdd con Math.addExact y saturación en
+     Long.MAX_VALUE para evitar overflows ante tamaños anormalmente grandes.
+  5. Rendimiento y UX Premium: TrackDecisionListCard implementa paginación escalonada (carga de 50 en 50 con botón progresivo)
+     evitando jank y freeze en Compose; SyncTransferCard en DevicesScreen incluye botón de cancelación interactivo
+     conectado a WorkManager.cancelUniqueWork().
+  6. Suite de certificación: se añadió prueba a escala de producción (100 pistas en manifiesto de servidor, 2 autorizadas en plan ->
+     exactamente 2 pistas candidatas respetando el invariante de autorización).
+JVM_TESTS_EXECUTED:
+  ./gradlew :core:testDebugUnitTest (16 tests PASSED)
+  ./gradlew :data:testDebugUnitTest (48 tests PASSED)
+  ./gradlew :app:testNormalDebugUnitTest (253 tests PASSED)
+  ./gradlew :app:testFdroidDebugUnitTest (253 tests PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Principio de mínimo privilegio e invariante de autorización certificados:
+  DownloadedItems(P) ⊆ AuthorizedDownloadItems(P). AirCat transfer isolation impide fugas de checkpoints entre planes.
+  Operaciones I/O y transacciones Room fail-closed ante dependencias nulas o archivos vacíos/corruptos.
+ROLLBACK_PLAN:
+  git revert bfb7f4d4f91f353bb04eef6c7dbfaea690c85e8c..HEAD
+BLOCKERS: Ninguno. Sprint M20.4 + M21-C concluido con éxito. Madurez estimada: 95%.
+```
+
 
 
 

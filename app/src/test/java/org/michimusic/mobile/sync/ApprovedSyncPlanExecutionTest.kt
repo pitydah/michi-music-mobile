@@ -206,5 +206,84 @@ class ApprovedSyncPlanExecutionTest {
         val isManifestValid = approvedPlan.manifestChecksum.isEmpty() || approvedPlan.manifestChecksum == currentServerManifestChecksum
         assertTrue("Stale manifest checksum must be rejected", !isManifestValid)
     }
+
+    @Test
+    fun approvedPlan_productionScale100TracksManifest_strictlyDownloadsOnly2AuthorizedTracks() {
+        // 100 tracks in server manifest
+        val manifest100 = (1..100).map { i ->
+            ManifestTrack(
+                trackId = "track_$i",
+                title = "Song $i",
+                artist = "Artist $i",
+                duration = 200,
+                size = 5_000_000,
+                format = "mp3"
+            )
+        }
+
+        // Only 2 tracks authorized in plan (track_42 and track_88)
+        val authorizedDecisions = listOf(
+            SyncItemDecision(
+                trackId = "track_42",
+                title = "Song 42",
+                artist = "Artist 42",
+                action = SyncItemAction.DOWNLOAD,
+                sourceSizeBytes = 5_000_000,
+                estimatedDownloadBytes = 5_000_000,
+                reason = "Selected",
+            ),
+            SyncItemDecision(
+                trackId = "track_88",
+                title = "Song 88",
+                artist = "Artist 88",
+                action = SyncItemAction.RESUME_PARTIAL,
+                sourceSizeBytes = 5_000_000,
+                estimatedDownloadBytes = 2_500_000,
+                reason = "Resume",
+            ),
+            SyncItemDecision(
+                trackId = "track_99",
+                title = "Song 99",
+                artist = "Artist 99",
+                action = SyncItemAction.SKIP_ALREADY_EXISTS,
+                sourceSizeBytes = 5_000_000,
+                estimatedDownloadBytes = 0L,
+                reason = "Exists",
+            )
+        )
+
+        val approvedPlan = ApprovedSyncPlan(
+            planId = "plan_100_tracks",
+            endpointId = "endpoint_desk",
+            endpointName = "Desktop Server",
+            scope = "TRACKS",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = json.encodeToString(authorizedDecisions),
+            manifestVersion = 2,
+            manifestChecksum = "sha_v2",
+            totalSelectedTracks = 3,
+            tracksToDownloadCount = 2,
+            totalDownloadBytes = 7_500_000,
+            status = "READY",
+            executionState = "QUEUED",
+        )
+
+        // SyncWorker execution logic:
+        val approvedItems = json.decodeFromString<List<SyncItemDecision>>(approvedPlan.itemsJson)
+        val authorizedIds = approvedItems
+            .filter { it.action == SyncItemAction.DOWNLOAD || it.action == SyncItemAction.RESUME_PARTIAL }
+            .map { it.trackId }
+            .toSet()
+
+        val candidateTracks = manifest100.filter { it.trackId in authorizedIds }
+
+        // Invariant: DownloadedItems(P) ⊆ AuthorizedDownloadItems(P)
+        assertEquals(2, candidateTracks.size)
+        assertEquals(setOf("track_42", "track_88"), candidateTracks.map { it.trackId }.toSet())
+        assertTrue(candidateTracks.none { it.trackId == "track_99" })
+        assertTrue(candidateTracks.none { it.trackId == "track_1" })
+        assertTrue(candidateTracks.none { it.trackId == "track_100" })
+    }
 }
 

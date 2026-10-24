@@ -1178,6 +1178,16 @@ class SyncViewModel(
             .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.KEEP, workRequest)
     }
 
+    fun cancelSync(deviceId: String? = null) {
+        if (deviceId.isNullOrEmpty()) {
+            WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync")
+        } else {
+            val workName = "michi_sync_${deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
+            WorkManager.getInstance(context).cancelUniqueWork(workName)
+        }
+        _syncProgress.value = SyncProgress.Idle
+    }
+
     override fun onCleared() {
         super.onCleared()
         currentClient?.close()

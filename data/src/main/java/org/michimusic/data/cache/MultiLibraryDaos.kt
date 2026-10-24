@@ -219,6 +219,16 @@ interface ApprovedSyncPlanDao {
         errorMessage: String? = null,
     ): Int
 
+    @Query("UPDATE approved_sync_plans SET executionState = :nextState, executedAt = COALESCE(:executedAt, executedAt), completedAt = COALESCE(:completedAt, completedAt), errorMessage = :errorMessage WHERE planId = :planId AND executionState = :expectedState")
+    suspend fun transitionState(
+        planId: String,
+        expectedState: String,
+        nextState: String,
+        executedAt: Long? = null,
+        completedAt: Long? = null,
+        errorMessage: String? = null,
+    ): Int
+
     @Query("DELETE FROM approved_sync_plans WHERE planId = :planId")
     suspend fun deletePlan(planId: String)
 }

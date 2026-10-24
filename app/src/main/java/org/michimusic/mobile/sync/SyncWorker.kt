@@ -191,28 +191,6 @@ class SyncWorker(
                 }
             }
 
-            // Recover incomplete/paused AirCat checkpoints linked to authorized transfers
-            val aircatClient = org.michimusic.mobile.di.airCatTransferClient
-            if (aircatClient != null) {
-                val recoveryResult = aircatClient.recoverIncompleteTransfers(deviceId, client)
-                if (recoveryResult.isFailure) {
-                    val ex = recoveryResult.exceptionOrNull()
-                    if (ex is java.util.concurrent.CancellationException || ex is kotlinx.coroutines.CancellationException) {
-                        throw ex
-                    }
-                    if (ex is org.michimusic.mobile.devices.aircat.AirCatException.UnauthorizedPeer) {
-                        client.close()
-                        try { wakeLock?.release() } catch (_: Exception) {}
-                        return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
-                    }
-                    android.util.Log.w("SyncWorker", "Error recuperando checkpoints incompletos: ${ex?.message}")
-                }
-            }
-
-            if (approvedPlan != null && planId.isNotEmpty()) {
-                approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.TRANSFERRING)
-            }
-
             val selectedTrackIdsStr = inputData.getString("selectedTrackIds") ?: ""
             val selectedTrackIds = if (selectedTrackIdsStr.isNotEmpty()) {
                 selectedTrackIdsStr.split(",").filter { it.isNotBlank() }.toSet()
@@ -252,6 +230,33 @@ class SyncWorker(
                 }
             }
 
+            // Recover incomplete/paused AirCat checkpoints strictly linked to authorized tracks
+            val aircatClient = org.michimusic.mobile.di.airCatTransferClient
+            if (aircatClient != null) {
+                val authorizedIdsForRecovery = candidateTracks.map { it.trackId }.toSet()
+                val recoveryResult = aircatClient.recoverIncompleteTransfers(
+                    remoteDeviceId = deviceId,
+                    linkClient = client,
+                    authorizedTrackIds = authorizedIdsForRecovery,
+                )
+                if (recoveryResult.isFailure) {
+                    val ex = recoveryResult.exceptionOrNull()
+                    if (ex is java.util.concurrent.CancellationException || ex is kotlinx.coroutines.CancellationException) {
+                        throw ex
+                    }
+                    if (ex is org.michimusic.mobile.devices.aircat.AirCatException.UnauthorizedPeer) {
+                        client.close()
+                        try { wakeLock?.release() } catch (_: Exception) {}
+                        return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                    }
+                    android.util.Log.w("SyncWorker", "Error recuperando checkpoints incompletos: ${ex?.message}")
+                }
+            }
+
+            if (approvedPlan != null && planId.isNotEmpty()) {
+                approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.TRANSFERRING)
+            }
+
             val downloadedIds = repository.getDownloadedIds()
             val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
@@ -280,6 +285,16 @@ class SyncWorker(
             safeSetProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to 0))
 
             val libraryRepo = org.michimusic.mobile.di.musicLibraryRepository
+            if (libraryRepo == null) {
+                android.util.Log.e("SyncWorker", "MusicLibraryRepository no disponible en Koin DI. Abortando sincronización.")
+                if (planId.isNotEmpty()) {
+                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = "MusicLibraryRepository no disponible")
+                }
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
+                return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+            }
+
             val manifestTrackMap = manifestTracks.associateBy { it.trackId }
 
             // Save initial checkpoints for all tracks scheduled to download
@@ -335,6 +350,9 @@ class SyncWorker(
                 result.fold(
                     onSuccess = { file ->
                         val regResult = runCatching {
+                            if (!file.exists() || file.length() == 0L) {
+                                error("Archivo descargado no existe o está vacío: ${file.absolutePath}")
+                            }
                             trackDao.markDownloadedWithPath(id, file.absolutePath)
                             manifestTrackMap[id]?.let { meta ->
                                 val identity = org.michimusic.core.models.TrackIdentity(
@@ -354,13 +372,13 @@ class SyncWorker(
                                     remoteTrackId = meta.trackId,
                                     availability = org.michimusic.core.models.LocationAvailability.AVAILABLE,
                                 )
-                                val regOp = libraryRepo?.registerTrackWithLocation(
+                                val regOp = libraryRepo.registerTrackWithLocation(
                                     identity = identity,
                                     location = location,
                                     libraryId = destLibId,
                                     origin = "SYNCED",
                                 )
-                                if (regOp != null && regOp.isFailure) {
+                                if (regOp.isFailure) {
                                     throw regOp.exceptionOrNull() ?: IllegalStateException("Error registrando pista en Room")
                                 }
                             }
@@ -375,10 +393,11 @@ class SyncWorker(
                             )
                             downloaded++
                         } else {
+                            android.util.Log.e("SyncWorker", "Error al registrar pista $id en la biblioteca: ${regResult.exceptionOrNull()?.message}")
                             checkpointRepo?.updateProgress(
                                 transferKey = transferKey,
-                                receivedBytes = file.length(),
-                                verifiedBytes = file.length(),
+                                receivedBytes = if (file.exists()) file.length() else 0L,
+                                verifiedBytes = 0L,
                                 state = org.michimusic.core.models.TransferStatus.FAILED
                             )
                             errors++

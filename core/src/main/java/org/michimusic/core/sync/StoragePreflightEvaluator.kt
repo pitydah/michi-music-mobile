@@ -29,7 +29,19 @@ object StoragePreflightEvaluator {
         val issues: List<SyncPreflightIssue>,
     )
 
+    private fun safeAdd(a: Long, b: Long): Long {
+        return try {
+            Math.addExact(a, b)
+        } catch (_: ArithmeticException) {
+            Long.MAX_VALUE
+        }
+    }
+
     fun calculateAtomicBuffer(totalDownloadBytes: Long): Long {
+        if (totalDownloadBytes <= 0L) return 0L
+        if (totalDownloadBytes > Long.MAX_VALUE / 20) {
+            return Long.MAX_VALUE
+        }
         val proportional = (totalDownloadBytes * 0.05).toLong()
         return maxOf(MIN_ATOMIC_BUFFER_BYTES, proportional)
     }
@@ -38,7 +50,8 @@ object StoragePreflightEvaluator {
         availableBytes: Long,
         items: List<SyncItemDecision>,
     ): StorageEvaluationResult {
-        val totalDownloadBytes = items.sumOf { item ->
+        var totalDownloadBytes = 0L
+        for (item in items) {
             val bytes = when (item.action) {
                 SyncItemAction.DOWNLOAD -> item.estimatedDownloadBytes
                 SyncItemAction.RESUME_PARTIAL -> item.estimatedDownloadBytes
@@ -46,7 +59,8 @@ object StoragePreflightEvaluator {
                 SyncItemAction.SKIP_ALREADY_EXISTS -> 0L
                 SyncItemAction.BLOCKED_UNSUPPORTED -> 0L
             }
-            if (bytes < 0L) 0L else bytes
+            val positiveBytes = if (bytes < 0L) 0L else bytes
+            totalDownloadBytes = safeAdd(totalDownloadBytes, positiveBytes)
         }
 
         val issues = mutableListOf<SyncPreflightIssue>()
@@ -72,11 +86,11 @@ object StoragePreflightEvaluator {
         }
 
         val atomicBuffer = if (totalDownloadBytes > 0) calculateAtomicBuffer(totalDownloadBytes) else 0L
-        val totalRequiredPeak = totalDownloadBytes + SAFETY_BUFFER_BYTES + atomicBuffer
-        val remainingAfterPeak = availableBytes - totalRequiredPeak
-        val remainingAfterSync = availableBytes - totalDownloadBytes
+        val totalRequiredPeak = safeAdd(safeAdd(totalDownloadBytes, SAFETY_BUFFER_BYTES), atomicBuffer)
+        val remainingAfterPeak = if (availableBytes >= totalRequiredPeak) availableBytes - totalRequiredPeak else 0L
+        val remainingAfterSync = if (availableBytes >= totalDownloadBytes) availableBytes - totalDownloadBytes else 0L
 
-        if (totalDownloadBytes > 0 && availableBytes < totalRequiredPeak) {
+        if (totalDownloadBytes > 0 && (totalRequiredPeak == Long.MAX_VALUE || availableBytes < totalRequiredPeak)) {
             status = SyncPreflightStatus.BLOCKED_NO_STORAGE
             issues.add(
                 SyncPreflightIssue(

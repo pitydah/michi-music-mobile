@@ -252,7 +252,10 @@ fun DevicesScreen(
                 val syncProg = uiState.syncProgress
                 if (syncProg is org.michimusic.mobile.sync.SyncProgress.Downloading) {
                     item {
-                        SyncTransferCard(progress = syncProg)
+                        SyncTransferCard(
+                            progress = syncProg,
+                            onCancel = { viewModel.cancelSync() }
+                        )
                     }
                 }
 
@@ -740,6 +743,7 @@ private fun AirCatTransferCard(
 @Composable
 private fun SyncTransferCard(
     progress: org.michimusic.mobile.sync.SyncProgress.Downloading,
+    onCancel: () -> Unit = {},
 ) {
     GlassCard(
         modifier = Modifier
@@ -811,6 +815,14 @@ private fun SyncTransferCard(
                     style = MichiTypography.metadata,
                     color = TextMuted,
                 )
+
+                OutlinedButton(
+                    onClick = onCancel,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp),
+                ) {
+                    Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
+                }
             }
         }
     }

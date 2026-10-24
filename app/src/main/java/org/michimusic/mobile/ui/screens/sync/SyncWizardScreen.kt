@@ -1132,7 +1132,11 @@ private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncIte
                     }
                 }
 
-                val displayedItems = if (showAll || filtered.size <= 50) filtered else filtered.take(50)
+                var visibleCount by remember { mutableStateOf(50) }
+
+                val displayedItems = remember(filtered, visibleCount) {
+                    filtered.take(visibleCount)
+                }
 
                 displayedItems.forEach { item ->
                     val badgeColor = when (item.action) {
@@ -1190,15 +1194,18 @@ private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncIte
                     }
                 }
 
-                if (!showAll && filtered.size > 50) {
+                if (visibleCount < filtered.size) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Mostrando 50 de ${filtered.size} pistas. Toca para ver todas.",
+                        text = "Mostrando $visibleCount de ${filtered.size} pistas. Cargar 50 más...",
                         style = MichiTypography.metadata,
                         color = AccentCoral,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 12.sp,
-                        modifier = Modifier.clickable { showAll = true }
+                        modifier = Modifier
+                            .clip(MichiShapes.xs)
+                            .clickable { visibleCount = minOf(visibleCount + 50, filtered.size) }
+                            .padding(vertical = 4.dp)
                     )
                 }
             }

@@ -107,4 +107,26 @@ class StoragePreflightEvaluatorTest {
         assertTrue(warning != null)
         assertEquals(IssueSeverity.WARNING, warning!!.severity)
     }
+
+    @Test
+    fun handlesLargeBytesWithoutLongOverflow() {
+        val hugeItems = listOf(
+            SyncItemDecision(
+                trackId = "huge1", title = "H1", artist = "A1",
+                action = SyncItemAction.DOWNLOAD,
+                sourceSizeBytes = Long.MAX_VALUE / 2,
+                estimatedDownloadBytes = Long.MAX_VALUE / 2
+            ),
+            SyncItemDecision(
+                trackId = "huge2", title = "H2", artist = "A2",
+                action = SyncItemAction.DOWNLOAD,
+                sourceSizeBytes = Long.MAX_VALUE / 2,
+                estimatedDownloadBytes = Long.MAX_VALUE / 2
+            )
+        )
+
+        val result = StoragePreflightEvaluator.evaluate(1024L * 1024L * 1024L, hugeItems)
+        assertEquals(SyncPreflightStatus.BLOCKED_NO_STORAGE, result.status)
+        assertTrue(result.issues.any { it.code == "STORAGE_EXCEEDED" })
+    }
 }

@@ -42,6 +42,7 @@ interface AirCatTransferClient {
     suspend fun recoverIncompleteTransfers(
         remoteDeviceId: String,
         linkClient: LinkClient,
+        authorizedTrackIds: Set<String>? = null,
         onProgress: ((AirCatProgressEvent) -> Unit)? = null,
     ): Result<List<File>>
 }
@@ -439,6 +440,7 @@ class DefaultAirCatTransferClient(
     override suspend fun recoverIncompleteTransfers(
         remoteDeviceId: String,
         linkClient: LinkClient,
+        authorizedTrackIds: Set<String>?,
         onProgress: ((AirCatProgressEvent) -> Unit)?,
     ): Result<List<File>> = withContext(Dispatchers.IO) {
         val repo = checkpointRepository ?: return@withContext Result.success(emptyList())
@@ -457,7 +459,9 @@ class DefaultAirCatTransferClient(
 
         val allCheckpoints = repo.getCheckpointsForDevice(remoteDeviceId)
         val pendingCheckpoints = allCheckpoints.filter {
-            it.remoteDeviceId == remoteDeviceId && (
+            it.remoteDeviceId == remoteDeviceId &&
+            (authorizedTrackIds == null || it.trackId in authorizedTrackIds) &&
+            (
                 it.transferState == org.michimusic.core.models.TransferStatus.DOWNLOADING ||
                 it.transferState == org.michimusic.core.models.TransferStatus.PAUSED ||
                 it.transferState == org.michimusic.core.models.TransferStatus.PENDING

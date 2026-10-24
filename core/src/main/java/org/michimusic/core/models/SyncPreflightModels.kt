@@ -179,5 +179,11 @@ interface ApprovedSyncPlanRepository {
         state: TransferLifecycleState,
         errorMessage: String? = null,
     )
+    suspend fun tryTransitionState(
+        planId: String,
+        expectedState: TransferLifecycleState,
+        nextState: TransferLifecycleState,
+        errorMessage: String? = null,
+    ): Boolean
     suspend fun deletePlan(planId: String)
 }

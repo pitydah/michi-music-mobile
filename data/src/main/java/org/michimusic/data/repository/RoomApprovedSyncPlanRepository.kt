@@ -83,6 +83,32 @@ class RoomApprovedSyncPlanRepository(
         )
     }
 
+    override suspend fun tryTransitionState(
+        planId: String,
+        expectedState: TransferLifecycleState,
+        nextState: TransferLifecycleState,
+        errorMessage: String?,
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val executedAt = if (nextState == TransferLifecycleState.PREPARING || nextState == TransferLifecycleState.TRANSFERRING) now else null
+        val completedAt = if (nextState in setOf(
+                TransferLifecycleState.COMPLETED,
+                TransferLifecycleState.PARTIAL_SUCCESS,
+                TransferLifecycleState.FAILED,
+                TransferLifecycleState.CANCELLED
+            )) now else null
+
+        val updatedRows = dao.transitionState(
+            planId = planId,
+            expectedState = expectedState.name,
+            nextState = nextState.name,
+            executedAt = executedAt,
+            completedAt = completedAt,
+            errorMessage = errorMessage,
+        )
+        return updatedRows > 0
+    }
+
     override suspend fun deletePlan(planId: String) {
         dao.deletePlan(planId)
     }
