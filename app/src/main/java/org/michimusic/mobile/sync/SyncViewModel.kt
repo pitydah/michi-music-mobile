@@ -66,6 +66,7 @@ data class SyncUiState(
     val pairingStrategy: PairingStrategy = PairingStrategy.LEGACY,
     val error: String? = null,
     val syncProgress: SyncProgress = SyncProgress.Idle,
+    val deviceSyncProgress: Map<String, SyncProgress> = emptyMap(),
     val airCatProgress: org.michimusic.mobile.devices.aircat.AirCatProgressEvent? = null,
     val availableStorageBytes: Long = 0L,
 )
@@ -91,6 +92,7 @@ class SyncViewModel(
     private val _pairConfirmResponse = MutableStateFlow<LegacyPairConfirmResponseDto?>(null)
     private val _error = MutableStateFlow<String?>(null)
     private val _syncProgress = MutableStateFlow<SyncProgress>(SyncProgress.Idle)
+    private val _deviceSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
     private val _pairingStrategy = MutableStateFlow(PairingStrategy.LEGACY)
 
     val uiState: StateFlow<SyncUiState> = combine(
@@ -166,10 +168,28 @@ class SyncViewModel(
         combine(
             _error,
             _syncProgress,
+            _deviceSyncProgress,
             airCatClient?.progressEvents ?: MutableStateFlow(null)
-        ) { err, progress, airCatEvt -> Triple(err, progress, airCatEvt) }
-    ) { state, (err, progress, airCatEvt) ->
-        state.copy(error = err, syncProgress = progress, airCatProgress = airCatEvt)
+        ) { err, progress, devMap, airCatEvt ->
+            val effectiveProg = if (progress is SyncProgress.Idle) {
+                devMap.values.find { it is SyncProgress.Downloading || it is SyncProgress.Cancelling } ?: progress
+            } else {
+                progress
+            }
+            listOf(err, effectiveProg, devMap, airCatEvt)
+        }
+    ) { state, items ->
+        val err = items[0] as? String
+        val progress = items[1] as SyncProgress
+        @Suppress("UNCHECKED_CAST")
+        val devMap = items[2] as Map<String, SyncProgress>
+        val airCatEvt = items[3] as? org.michimusic.mobile.devices.aircat.AirCatProgressEvent
+        state.copy(
+            error = err,
+            syncProgress = progress,
+            deviceSyncProgress = devMap,
+            airCatProgress = airCatEvt
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = _connectionState.value))
 
     private var clientId: String = ""
@@ -194,14 +214,23 @@ class SyncViewModel(
                 WorkManager.getInstance(context)
                     .getWorkInfosByTagFlow("michi_sync")
                     .collect { workList ->
-                        val activeWork = workList.find { !it.state.isFinished }
-                        if (activeWork != null) {
-                            val progress = activeWork.progress
-                            val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
-                            val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
-                            val devTag = activeWork.tags.find { it.startsWith("michi_sync_") }
+                        val updatedMap = mutableMapOf<String, SyncProgress>()
+                        workList.forEach { workInfo ->
+                            val devTag = workInfo.tags.find { it.startsWith("michi_sync_") }
                             val devId = devTag?.removePrefix("michi_sync_") ?: ""
-                            _syncProgress.value = SyncProgress.Downloading(current, total, devId)
+                            if (devId.isNotEmpty()) {
+                                if (!workInfo.state.isFinished) {
+                                    val progress = workInfo.progress
+                                    val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
+                                    val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
+                                    updatedMap[devId] = SyncProgress.Downloading(current, total, devId)
+                                }
+                            }
+                        }
+                        _deviceSyncProgress.value = updatedMap
+                        val anyActive = updatedMap.values.find { it is SyncProgress.Downloading }
+                        if (anyActive != null) {
+                            _syncProgress.value = anyActive
                         }
                     }
             } catch (_: Exception) {
@@ -754,22 +783,29 @@ class SyncViewModel(
                     val progress = info.progress
                     val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
                     val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
-                    if (info.state.isFinished) {
+                    val currentDevProg = if (info.state.isFinished) {
                         if (info.state == WorkInfo.State.SUCCEEDED) {
                             val output = info.outputData
                             val downloaded = output.getInt(SyncWorker.RESULT_DOWNLOADED, current)
                             val errors = output.getInt(SyncWorker.RESULT_ERROR, 0)
-                            _syncProgress.value = SyncProgress.Complete(tracks = total, downloaded = downloaded, errors = errors)
+                            SyncProgress.Complete(tracks = total, downloaded = downloaded, errors = errors)
                         } else if (info.state == WorkInfo.State.FAILED) {
                             val output = info.outputData
                             val errors = output.getInt(SyncWorker.RESULT_ERROR, 1)
-                            _syncProgress.value = SyncProgress.Error("Sincronización fallida ($errors error(es))")
-                        } else if (info.state == WorkInfo.State.CANCELLED) {
-                            _syncProgress.value = SyncProgress.Error("Sincronización cancelada")
+                            SyncProgress.Error("Sincronización fallida ($errors error(es))")
+                        } else {
+                            SyncProgress.Error("Sincronización cancelada")
                         }
                     } else {
-                        _syncProgress.value = SyncProgress.Downloading(current, total, remoteDeviceId)
+                        SyncProgress.Downloading(current, total, remoteDeviceId)
                     }
+
+                    _deviceSyncProgress.value = if (info.state.isFinished) {
+                        _deviceSyncProgress.value - remoteDeviceId
+                    } else {
+                        _deviceSyncProgress.value + (remoteDeviceId to currentDevProg)
+                    }
+                    _syncProgress.value = currentDevProg
                 }
         }
     }
@@ -1213,13 +1249,22 @@ class SyncViewModel(
         }
         val currentProg = _syncProgress.value
         if (currentProg is SyncProgress.Downloading) {
-            _syncProgress.value = SyncProgress.Cancelling(
+            val cancellingProg = SyncProgress.Cancelling(
                 completed = currentProg.completed,
                 total = currentProg.total,
                 deviceId = currentProg.deviceId,
             )
+            _syncProgress.value = cancellingProg
+            if (!deviceId.isNullOrEmpty()) {
+                _deviceSyncProgress.value = _deviceSyncProgress.value + (deviceId to cancellingProg)
+            }
         } else {
             _syncProgress.value = SyncProgress.Idle
+            if (!deviceId.isNullOrEmpty()) {
+                _deviceSyncProgress.value = _deviceSyncProgress.value - deviceId
+            } else {
+                _deviceSyncProgress.value = emptyMap()
+            }
         }
     }
 

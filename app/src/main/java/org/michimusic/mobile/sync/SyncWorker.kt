@@ -353,7 +353,22 @@ class SyncWorker(
             val downloadedIds = repository.getDownloadedIds()
 
             val itemsToDownload = candidateTracks
-                .filter { it.trackId !in downloadedIds }
+                .filter { track ->
+                    if (track.trackId !in downloadedIds) {
+                        true
+                    } else {
+                        // Track está en base de datos; verificar integridad física en disco
+                        val existingFile = transferManager.getTrackFile(
+                            trackId = track.trackId,
+                            format = track.format,
+                            remoteDeviceId = deviceId,
+                            destinationLibraryId = destLibId,
+                        )
+                        val isIntact = existingFile != null && existingFile.exists() && existingFile.length() > 0 &&
+                            (track.size <= 0L || existingFile.length() == track.size)
+                        !isIntact
+                    }
+                }
                 .map { track ->
                     track.toDownloadItem().copy(
                         remoteDeviceId = deviceId,
@@ -421,15 +436,27 @@ class SyncWorker(
             // Save initial checkpoints for all tracks scheduled to download
             itemsToDownload.forEach { item ->
                 val transferKey = item.effectiveTransferKey
-                val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-                val safeDev = deviceId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
-                val safeLib = destLibId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
-                val safeTrack = item.trackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
-                val safePlan = planId.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                val targetFileName = "${safeDev}_${safeLib}_${safeTrack}.$ext"
-                val existingFile = transferManager.getTrackFile(item.trackId, ext, remoteDeviceId = deviceId, destinationLibraryId = destLibId)
-                val finalPath = existingFile?.absolutePath ?: java.io.File(transferManager.musicDir, targetFileName).absolutePath
-                val tempPartPath = if (safePlan.isNotEmpty()) "$finalPath._$safePlan.part" else "$finalPath.part"
+                val (finalFile, tempFile) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+                    musicDir = transferManager.musicDir,
+                    remoteDeviceId = deviceId,
+                    destinationLibraryId = destLibId,
+                    trackId = item.trackId,
+                    format = item.format,
+                    planId = planId,
+                    representationId = item.representationId,
+                )
+                val finalPath = finalFile.absolutePath
+                val tempPartPath = tempFile.absolutePath
+
+                val existingCp = checkpointRepo?.getCheckpoint(transferKey)
+                val existingBytes = if (tempFile.exists()) tempFile.length() else 0L
+                val initialReceived = if (existingBytes > 0 && existingCp != null && existingCp.receivedBytes > 0) {
+                    minOf(existingBytes, existingCp.receivedBytes)
+                } else if (existingBytes > 0) {
+                    existingBytes
+                } else {
+                    0L
+                }
 
                 checkpointRepo?.saveCheckpoint(
                     org.michimusic.core.models.PersistentCheckpoint(
@@ -443,11 +470,11 @@ class SyncWorker(
                         tempFilePath = tempPartPath,
                         finalFilePath = finalPath,
                         expectedSize = item.size,
-                        receivedBytes = 0L,
-                        verifiedBytes = 0L,
+                        receivedBytes = initialReceived,
+                        verifiedBytes = initialReceived,
                         expectedSha256 = item.checksum,
                         transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
-                        createdAt = System.currentTimeMillis(),
+                        createdAt = existingCp?.createdAt ?: System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis(),
                     )
                 )

@@ -205,23 +205,33 @@ class DefaultAirCatTransferClient(
                     onProgress = onProgress,
                 )
 
-                val transferKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
-                val ext = item.format.lowercase().ifEmpty { "mp3" }
-                val safeDev = intent.sourceMichiId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
-                val safeLib = intent.destinationLibraryId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
-                val safeTrack = item.logicalTrackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
-                val targetFileName = "${safeDev}_${safeLib}_${safeTrack}.$ext"
-                val existingFile = transferManager.getTrackFile(
-                    item.logicalTrackId,
-                    ext,
+                val (finalCandidate, tempCandidate) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+                    musicDir = transferManager.musicDir,
                     remoteDeviceId = intent.sourceMichiId,
                     destinationLibraryId = intent.destinationLibraryId,
+                    trackId = item.logicalTrackId,
+                    format = item.format,
+                    planId = intent.transferId,
                 )
-                val finalPath = existingFile?.absolutePath ?: File(transferManager.musicDir, targetFileName).absolutePath
-                val finalCandidate = File(finalPath)
+                val finalPath = finalCandidate.absolutePath
+                val tempPartPath = tempCandidate.absolutePath
+
+                val downloadItem = DownloadItem(
+                    trackId = item.logicalTrackId,
+                    title = item.title,
+                    format = item.format,
+                    checksum = item.sha256,
+                    size = item.size,
+                    remoteDeviceId = intent.sourceMichiId,
+                    destinationLibraryId = intent.destinationLibraryId,
+                    planId = intent.transferId,
+                )
+                val effectiveKey = downloadItem.effectiveTransferKey
+                val legacyKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
 
                 // Check if track is already completed in persistent checkpoint and file exists on disk
-                val existingCp = checkpointRepository?.getCheckpoint(transferKey)
+                val existingCp = checkpointRepository?.getCheckpoint(effectiveKey)
+                    ?: checkpointRepository?.getCheckpoint(legacyKey)
                 if (existingCp?.transferState == org.michimusic.core.models.TransferStatus.COMPLETED &&
                     finalCandidate.exists() &&
                     existingCp.remoteDeviceId == intent.sourceMichiId &&
@@ -234,23 +244,15 @@ class DefaultAirCatTransferClient(
                     continue
                 }
 
-                val downloadItem = DownloadItem(
-                    trackId = item.logicalTrackId,
-                    title = item.title,
-                    format = item.format,
-                    checksum = item.sha256,
-                    size = item.size,
-                    remoteDeviceId = intent.sourceMichiId,
-                    destinationLibraryId = intent.destinationLibraryId,
-                    transferKey = transferKey,
-                )
-
                 if (libraryRepository != null) {
                     val existingIdentity = libraryRepository.getTrackIdentity(item.logicalTrackId)
                     val existingHash = existingIdentity?.contentHash
                     if (!existingHash.isNullOrEmpty() && item.sha256.isNotEmpty() &&
                         !existingHash.equals(item.sha256, ignoreCase = true)
                     ) {
+                        if (tempCandidate.exists()) {
+                            tempCandidate.delete()
+                        }
                         val err = AirCatException.CorruptedPayload(
                             "Conflicto de contenido: trackId ${item.logicalTrackId} ya existe con hash ${existingHash}, pero la transferencia reporta ${item.sha256}."
                         )
@@ -259,24 +261,33 @@ class DefaultAirCatTransferClient(
                     }
                 }
 
+                val existingBytes = if (tempCandidate.exists()) tempCandidate.length() else 0L
+                val initialReceived = if (existingBytes > 0 && existingCp != null && existingCp.receivedBytes > 0) {
+                    minOf(existingBytes, existingCp.receivedBytes)
+                } else if (existingBytes > 0) {
+                    existingBytes
+                } else {
+                    0L
+                }
+
                 // Record initial DOWNLOADING checkpoint in persistent repository
                 checkpointRepository?.saveCheckpoint(
                     org.michimusic.core.models.PersistentCheckpoint(
-                        transferKey = transferKey,
+                        transferKey = effectiveKey,
                         transferId = intent.transferId,
                         remoteDeviceId = intent.sourceMichiId,
                         sourceLibraryId = intent.sourceLibraryId,
                         destinationLibraryId = intent.destinationLibraryId,
                         trackId = item.logicalTrackId,
                         remoteTrackId = item.remoteTrackId,
-                        tempFilePath = "$finalPath.part",
+                        tempFilePath = tempPartPath,
                         finalFilePath = finalPath,
                         expectedSize = item.size,
-                        receivedBytes = 0L,
-                        verifiedBytes = 0L,
+                        receivedBytes = initialReceived,
+                        verifiedBytes = initialReceived,
                         expectedSha256 = item.sha256,
                         transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
-                        createdAt = System.currentTimeMillis(),
+                        createdAt = existingCp?.createdAt ?: System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis(),
                     )
                 )
@@ -301,7 +312,7 @@ class DefaultAirCatTransferClient(
                         return@withContext Result.failure(AirCatException.ProtocolError("Transferencia pausada"))
                     }
                     checkpointRepository?.updateProgress(
-                        transferKey = transferKey,
+                        transferKey = effectiveKey,
                         receivedBytes = 0L,
                         verifiedBytes = 0L,
                         state = org.michimusic.core.models.TransferStatus.FAILED
@@ -340,7 +351,7 @@ class DefaultAirCatTransferClient(
                         !existingHash.equals(item.sha256, ignoreCase = true)
                     ) {
                         checkpointRepository?.updateProgress(
-                            transferKey = transferKey,
+                            transferKey = effectiveKey,
                             receivedBytes = finalFile.length(),
                             verifiedBytes = finalFile.length(),
                             state = org.michimusic.core.models.TransferStatus.FAILED,
@@ -363,7 +374,7 @@ class DefaultAirCatTransferClient(
                     } catch (e: Exception) {
                         // Compensate: mark checkpoint as FAILED so it does not report completed inconsistently
                         checkpointRepository?.updateProgress(
-                            transferKey = transferKey,
+                            transferKey = effectiveKey,
                             receivedBytes = finalFile.length(),
                             verifiedBytes = finalFile.length(),
                             state = org.michimusic.core.models.TransferStatus.FAILED
@@ -375,7 +386,7 @@ class DefaultAirCatTransferClient(
 
                 // Update persistent checkpoint to COMPLETED only after verified file download AND successful library registration
                 checkpointRepository?.updateProgress(
-                    transferKey = transferKey,
+                    transferKey = effectiveKey,
                     receivedBytes = finalFile.length(),
                     verifiedBytes = finalFile.length(),
                     state = org.michimusic.core.models.TransferStatus.COMPLETED
@@ -557,6 +568,7 @@ class DefaultAirCatTransferClient(
                 remoteDeviceId = cp.remoteDeviceId,
                 destinationLibraryId = cp.destinationLibraryId,
                 transferKey = cp.transferKey,
+                planId = cp.transferId,
             )
 
             emitEvent(

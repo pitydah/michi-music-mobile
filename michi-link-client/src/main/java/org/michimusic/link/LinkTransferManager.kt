@@ -45,19 +45,15 @@ class LinkTransferManager(
         client: LinkClient,
         item: DownloadItem,
     ): Result<File> = withContext(Dispatchers.IO) {
-        val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val fileName = if (item.remoteDeviceId.isNotEmpty() && item.destinationLibraryId.isNotEmpty()) {
-            "${safeFileName(item.remoteDeviceId)}_${safeFileName(item.destinationLibraryId)}_${safeFileName(item.trackId)}.$ext"
-        } else {
-            "${safeFileName(item.trackId)}.$ext"
-        }
-        val file = File(musicDir, fileName)
-        val tempFileName = if (item.planId.isNotEmpty()) {
-            "${fileName}_${safeFileName(item.planId)}.part"
-        } else {
-            "$fileName.part"
-        }
-        val tempFile = File(musicDir, tempFileName)
+        val (file, tempFile) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+            musicDir = musicDir,
+            remoteDeviceId = item.remoteDeviceId,
+            destinationLibraryId = item.destinationLibraryId,
+            trackId = item.trackId,
+            format = item.format,
+            planId = item.planId,
+            representationId = item.representationId,
+        )
 
         // 1. If file already exists and is intact, return immediately
         if (file.exists() && file.length() > 0) {
@@ -85,6 +81,12 @@ class LinkTransferManager(
 
         // 2. Preflight checkpoint inspection: check in-memory or recover from persistent repository
         val transferKey = item.effectiveTransferKey
+        if (!tempFile.exists()) {
+            val legacyDotPart = File(tempFile.parentFile, "${file.absolutePath}._${org.michimusic.core.models.TransferFileIdentity.safeSegment(item.planId)}.part")
+            if (legacyDotPart.exists()) {
+                legacyDotPart.renameTo(tempFile)
+            }
+        }
         var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
         var savedCheckpoint = _checkpoints.value[transferKey] ?: if (item.remoteDeviceId.isEmpty() || item.destinationLibraryId.isEmpty()) _checkpoints.value[item.trackId] else null
         if (savedCheckpoint == null && checkpointRepository != null) {
@@ -375,13 +377,15 @@ class LinkTransferManager(
         format: String,
         remoteDeviceId: String = "",
         destinationLibraryId: String = "",
+        representationId: String = "",
     ): File? {
-        val ext = format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
-        val fileName = if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
-            "${safeFileName(remoteDeviceId)}_${safeFileName(destinationLibraryId)}_${safeFileName(trackId)}.$ext"
-        } else {
-            "${safeFileName(trackId)}.$ext"
-        }
+        val fileName = org.michimusic.core.models.TransferFileIdentity.buildFinalFileName(
+            remoteDeviceId = remoteDeviceId,
+            destinationLibraryId = destinationLibraryId,
+            trackId = trackId,
+            format = format,
+            representationId = representationId,
+        )
         val file = File(musicDir, fileName)
         if (file.exists()) return file
 

@@ -258,18 +258,17 @@ data class DownloadItem(
     val destinationLibraryId: String = "",
     val transferKey: String = "",
     val planId: String = "",
+    val representationId: String = "",
 ) {
     val effectiveTransferKey: String
         get() = transferKey.ifEmpty {
-            if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
-                if (planId.isNotEmpty()) {
-                    "$remoteDeviceId:$destinationLibraryId:$trackId:$planId"
-                } else {
-                    "$remoteDeviceId:$destinationLibraryId:$trackId"
-                }
-            } else {
-                trackId
-            }
+            TransferFileIdentity.buildTransferKey(
+                remoteDeviceId = remoteDeviceId,
+                destinationLibraryId = destinationLibraryId,
+                trackId = trackId,
+                planId = planId,
+                representationId = representationId,
+            )
         }
 }
 

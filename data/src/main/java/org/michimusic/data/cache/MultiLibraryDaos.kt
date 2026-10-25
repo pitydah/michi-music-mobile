@@ -177,7 +177,7 @@ interface SyncManifestDao {
 
 @Dao
 interface TransferCheckpointDao {
-    @Query("SELECT * FROM transfer_checkpoints WHERE transferKey = :key")
+    @Query("SELECT * FROM transfer_checkpoints WHERE transferKey = :key OR transferKey LIKE :key || ':%' ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getCheckpoint(key: String): TransferCheckpointEntity?
 
     @Query("SELECT * FROM transfer_checkpoints WHERE trackId = :trackId ORDER BY updatedAt DESC LIMIT 1")
@@ -189,7 +189,7 @@ interface TransferCheckpointDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCheckpoint(checkpoint: TransferCheckpointEntity)
 
-    @Query("UPDATE transfer_checkpoints SET receivedBytes = :received, verifiedBytes = :verified, transferState = :state, updatedAt = :updatedAt WHERE transferKey = :key")
+    @Query("UPDATE transfer_checkpoints SET receivedBytes = :received, verifiedBytes = :verified, transferState = :state, updatedAt = :updatedAt WHERE transferKey = :key OR transferKey LIKE :key || ':%'")
     suspend fun updateProgress(key: String, received: Long, verified: Long, state: String, updatedAt: Long): Int
 
     @Query("DELETE FROM transfer_checkpoints WHERE transferKey = :key")

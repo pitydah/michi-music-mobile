@@ -769,7 +769,8 @@ class AirCatContractTest {
             }
         }
         coEvery { checkpointRepo.getCheckpoint(any()) } answers {
-            checkpointMap[firstArg()]
+            val queryKey = firstArg<String>()
+            checkpointMap[queryKey] ?: checkpointMap.entries.firstOrNull { it.key.startsWith("$queryKey:") }?.value
         }
 
         val testTransferManager = LinkTransferManager(mockContext, checkpointRepo)

@@ -36,7 +36,8 @@
 | M20.4 / M21-C | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a8b4608 | Aislamiento AirCat por track IDs autorizados, registro atómico no anulable en SyncWorker (verificación física de archivo + fail-closed si falta MusicLibraryRepository), CAS atómico transitionState en ApprovedSyncPlanDao, protección contra desbordamiento numérico en StoragePreflightEvaluator (safeAdd), test de escala de producción con manifiesto de 100 pistas (invariante 100 -> 2), paginación escalonada y botón de cancelación en SyncTransferCard |
 | M20.5 / M21-D | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c1bccaf | Cierre autoritativo definitivo: botón Cancelar conectado en DevicesScreen y SyncScreen con deviceId dinámico y tag 'michi_sync'; aislamiento estricto de checkpoints AirCat por tupla compuesta (remoteDeviceId, destinationLibraryId, trackId, expectedSize, expectedSha256); orden atómico de persistencia y registro multi-library verificado físicamente; integración CAS de tryTransitionState en SyncWorker; preflight validando metadatos negativos; test de integración end-to-end de SyncWorker con TestListenableWorkerBuilder; virtualización LazyColumn en TrackDecisionListCard |
 | M20 / M21 CONSOLIDATION | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a0bc4f8 | Zero-Skip Engineering: Exclusión mutua CAS estricta pre-mutación y pre-red en SyncWorker (fail-closed inmediato); presupuesto de descarga desacoplado para RESUME_PARTIAL (sourceSizeBytes vs estimatedDownloadBytes); matching fail-closed de hashes SHA-256 en AirCat checkpoints; cancelación granular por dispositivo (michi_sync_$safeDev) y estado SyncProgress.Cancelling en UI; pruebas adversariales de concurrencia CAS y reanudación parcial física; 100% suites JVM superadas |
-| M20 / M21 FINAL CLOSURE | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre decisivo de brechas P0/P1/P2: Conciliación estricta de decisiones del plan (pistas rechazadas por tamaño nunca producen éxito total -> PARTIAL_SUCCESS); aislamiento físico de checkpoints y archivos .part por planId (dos planes con la misma pista no intercambian parciales); ciclo de vida CAS determinista QUEUED/RETRY_PENDING -> TRANSFERRING con RETRY_PENDING en error transitorio; verificación de colisión de hash de contenido con fail-closed ante trackId existente con hash distinto; restauración reactiva de WorkInfo tras process death en SyncViewModel; 100% suites JVM superadas en normalDebug y fdroidDebug |
+| M20 / M21 FINAL CLOSURE | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 84be6c8 | Cierre decisivo de brechas P0/P1/P2: Conciliación estricta de decisiones del plan (pistas rechazadas por tamaño nunca producen éxito total -> PARTIAL_SUCCESS); aislamiento físico de checkpoints y archivos .part por planId (dos planes con la misma pista no intercambian parciales); ciclo de vida CAS determinista QUEUED/RETRY_PENDING -> TRANSFERRING con RETRY_PENDING en error transitorio; verificación de colisión de hash de contenido con fail-closed ante trackId existente con hash distinto; restauración reactiva de WorkInfo tras process death en SyncViewModel; 100% suites JVM superadas en normalDebug y fdroidDebug |
+| M21-E | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cross-Component Integrity, Durable Recovery & Multi-Device State: TransferFileIdentity canónico unificado, resolución de parciales .part y claves compuestas sin asimetrías de ruta, preservación de progreso parcial sin sobreescritura ciega a 0L en SyncWorker/AirCat, propagación de planId en recuperación, restauración reactiva multi-dispositivo (deviceSyncProgress) en SyncViewModel, no-destrucción de pistas locales existentes ante colisión de hash, validación de integridad física en disco antes de omitir tracks en SyncWorker |
 
 
 ---
@@ -1730,6 +1731,67 @@ SECURITY_REVIEW:
 ROLLBACK_PLAN:
   git revert b1967c4f07eaa1859dcc257de6aa0205a03df8ff..HEAD
 BLOCKERS: Ninguno. Sprint M20/M21 Consolidado y Certificado con éxito. Madurez alcanzada: 95%.
+```
+
+---
+
+## Checkpoint de Ejecución — Sprint M21-E
+
+```text
+BLOCK_ID: M21-E
+MASTER_BASE_SHA: 84be6c8637a1048987ac266a20ec7bce810d28b3
+FILES_CHANGED:
+  - core/src/main/java/org/michimusic/core/models/TransferFileIdentity.kt
+  - core/src/main/java/org/michimusic/core/models/SyncModels.kt
+  - michi-link-client/src/main/java/org/michimusic/link/LinkTransferManager.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - data/src/main/java/org/michimusic/data/cache/MultiLibraryDaos.kt
+  - app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatContractTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. Asimetría de rutas y claves: SyncWorker construía tempPartPath con sintaxis dispersa ("$finalPath._$safePlan.part"),
+     mientras LinkTransferManager usaba ("${fileName}_${safePlan}.part"), impidiendo reanudación fluida.
+  2. Pérdida de progreso parcial: SyncWorker inicializaba los checkpoints persistentes con receivedBytes = 0L,
+     anulando el progreso previo en caso de reintento.
+  3. Desconexión en recuperación AirCat: recoverIncompleteTransfers no propagaba planId a DownloadItem, perdiendo
+     el mapeo hacia el archivo .part específico del plan.
+  4. Monopolio en UI: SyncViewModel sobreescribía _syncProgress globalmente con el primer trabajo encontrado,
+     descartando el progreso de otros dispositivos que sincronizaban concurrentemente.
+  5. Inseguridad ante colisiones de hash: si se detectaba una colisión de contenido entre una pista local existente
+     y una transferencia entrante, existía riesgo de eliminar la copia local válida preexistente.
+  6. Omisión ciega en SyncWorker: se omitían candidatos solo por presencia en Room sin verificar existencia
+     física en el almacenamiento del dispositivo.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Contrato Canónico TransferFileIdentity: Autoridad única para construir nombres de archivos finales,
+     parciales .part, claves canónicas (transferKey) y verificación estricta contra Path Traversal.
+  2. Preservación estricta de parciales: SyncWorker y AirCatTransferClient inspeccionan los bytes del archivo
+     .part y los checkpoints previos antes de registrar el estado DOWNLOADING, sin sobreescribir a 0L.
+  3. Recuperación aislada: AirCatTransferClient propaga planId = cp.transferId asegurando que la reanudación
+     acceda exactamente al archivo .part de su partición autorizada.
+  4. Estado reactivo multi-dispositivo: SyncUiState y SyncViewModel modelan deviceSyncProgress (Map<String, SyncProgress>),
+     permitiendo observar y cancelar de forma independiente cada dispositivo activo tras process death.
+  5. Protección no destructiva: En caso de conflicto de hash de contenido, solo se elimina el candidato temporal
+     entrante, garantizando la preservación intacta del archivo local preexistente en Room y disco.
+  6. Verificación física antes de omitir: SyncWorker comprueba que el archivo exista en disco y tenga longitud > 0
+     antes de marcar una pista como omitida por existencia previa.
+JVM_TESTS_EXECUTED:
+  ./gradlew :core:testDebugUnitTest (16 tests PASSED)
+  ./gradlew :data:testDebugUnitTest (48 tests PASSED)
+  ./gradlew :michi-link-client:testDebugUnitTest (PASSED)
+  ./gradlew :app:testNormalDebugUnitTest (268 tests PASSED)
+  ./gradlew :app:testFdroidDebugUnitTest (268 tests PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere nodos físicos pareados)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  - Garantía de confinamiento de ruta (canonical path verification contra path traversal en TransferFileIdentity).
+  - Invariante de conservación no destructiva de activos de audio locales.
+  - Fail-closed ante incompatibilidades criptográficas de SHA-256.
+ROLLBACK_PLAN:
+  git revert 84be6c8637a1048987ac266a20ec7bce810d28b3..HEAD
+BLOCKERS: Ninguno. Sprint M21-E completado y certificado. Madurez estimada: 96%.
 ```
 
 
