@@ -813,4 +813,99 @@ class AirCatContractTest {
         val checkpoint = checkpointRepo.getCheckpoint("$sourceId:lib_dest:track_fail_reg")
         assertEquals(org.michimusic.core.models.TransferStatus.FAILED, checkpoint?.transferState)
     }
+
+    @Test
+    fun aircatRecoverIncompleteTransfers_strictCompositeCriteria_matchesDestinationLibraryAndHash() = runBlocking {
+        val deviceId = "node_composite_strict"
+        val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        every { mockClient.deviceToken } returns "token_strict"
+        every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(
+            deviceId = deviceId,
+            deviceName = "Strict Node",
+            deviceToken = "token_strict",
+            lastUrl = "http://192.168.1.10:8400",
+        )
+
+        val cp1 = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib_target_1:track_strict_1",
+            transferId = "xfer_1",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_target_1",
+            trackId = "track_strict_1",
+            remoteTrackId = "track_strict_1",
+            tempFilePath = File(tempDir, "temp1.part").absolutePath,
+            finalFilePath = File(tempDir, "final1.mp3").absolutePath,
+            expectedSize = 1000L,
+            receivedBytes = 500L,
+            verifiedBytes = 0L,
+            expectedSha256 = "hash_valid_1",
+            etag = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 100L,
+            updatedAt = 200L,
+        )
+
+        val cp2 = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib_wrong_dest:track_strict_2",
+            transferId = "xfer_2",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_wrong_dest",
+            trackId = "track_strict_2",
+            remoteTrackId = "track_strict_2",
+            tempFilePath = File(tempDir, "temp2.part").absolutePath,
+            finalFilePath = File(tempDir, "final2.mp3").absolutePath,
+            expectedSize = 2000L,
+            receivedBytes = 1000L,
+            verifiedBytes = 0L,
+            expectedSha256 = "hash_valid_2",
+            etag = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 100L,
+            updatedAt = 200L,
+        )
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cp1, cp2)
+
+        val mockTransferManager = mockk<LinkTransferManager>()
+        val dummyFile = File(tempDir, "final1.mp3").also { it.writeText("hello") }
+        coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
+
+        val client = DefaultAirCatTransferClient(
+            transferManager = mockTransferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        // Only authorize track_strict_1 destined for lib_target_1
+        val criteria = listOf(
+            AuthorizedTransferCriteria(
+                trackId = "track_strict_1",
+                destinationLibraryId = "lib_target_1",
+                expectedSize = 1000L,
+                expectedSha256 = "hash_valid_1",
+            ),
+            AuthorizedTransferCriteria(
+                trackId = "track_strict_2",
+                destinationLibraryId = "lib_correct_dest_not_wrong", // does not match cp2
+                expectedSize = 2000L,
+                expectedSha256 = "hash_valid_2",
+            )
+        )
+
+        val result = client.recoverIncompleteTransfers(
+            remoteDeviceId = deviceId,
+            linkClient = mockClient,
+            authorizedCriteria = criteria,
+        )
+
+        assertTrue(result.isSuccess)
+        val files = result.getOrThrow()
+        assertEquals(1, files.size)
+        // Exactly one download was performed (for track_strict_1), cp2 was rejected
+        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
+    }
 }

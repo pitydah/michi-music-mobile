@@ -37,6 +37,9 @@ class SyncWorker(
         private const val SYNC_WAKELOCK_TIMEOUT_MS = 30 * 60 * 1000L
         private val planJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
+        @androidx.annotation.VisibleForTesting
+        var clientFactory: ((baseUrl: String, token: String, clientDeviceId: String) -> LinkClient)? = null
+
         fun buildInputData(
             baseUrl: String,
             deviceId: String,
@@ -106,12 +109,13 @@ class SyncWorker(
 
         safeSetForeground(createForegroundInfo(0, 0, "Iniciando sincronización..."))
 
-        val client = LinkClient(
-            baseUrl = baseUrl,
-            sessionToken = resolvedDeviceToken,
-            deviceToken = resolvedDeviceToken,
-            clientDeviceId = clientDeviceId.ifEmpty { deviceId },
-        )
+        val client = clientFactory?.invoke(baseUrl, resolvedDeviceToken, clientDeviceId.ifEmpty { deviceId })
+            ?: LinkClient(
+                baseUrl = baseUrl,
+                sessionToken = resolvedDeviceToken,
+                deviceToken = resolvedDeviceToken,
+                clientDeviceId = clientDeviceId.ifEmpty { deviceId },
+            )
         val trackDao = trackDao
         if (trackDao == null) {
             client.close()
@@ -230,14 +234,34 @@ class SyncWorker(
                 }
             }
 
-            // Recover incomplete/paused AirCat checkpoints strictly linked to authorized tracks
+            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
+            org.michimusic.mobile.di.libraryDao?.insertLibrary(
+                org.michimusic.data.cache.LibraryEntity(
+                    libraryId = destLibId,
+                    name = "Biblioteca Sincronizada (${if (alias.isNotBlank()) alias else deviceId})",
+                    type = "SYNCED",
+                    ownerId = deviceId,
+                    isWritable = false,
+                )
+            )
+
+            // Recover incomplete/paused AirCat checkpoints strictly linked to authorized tracks and plan tuple
             val aircatClient = org.michimusic.mobile.di.airCatTransferClient
             if (aircatClient != null) {
                 val authorizedIdsForRecovery = candidateTracks.map { it.trackId }.toSet()
+                val authorizedCriteria = candidateTracks.map {
+                    org.michimusic.mobile.devices.aircat.AuthorizedTransferCriteria(
+                        trackId = it.trackId,
+                        destinationLibraryId = destLibId,
+                        expectedSize = if (it.size > 0L) it.size else null,
+                        expectedSha256 = it.checksum?.ifEmpty { null },
+                    )
+                }
                 val recoveryResult = aircatClient.recoverIncompleteTransfers(
                     remoteDeviceId = deviceId,
                     linkClient = client,
                     authorizedTrackIds = authorizedIdsForRecovery,
+                    authorizedCriteria = authorizedCriteria,
                 )
                 if (recoveryResult.isFailure) {
                     val ex = recoveryResult.exceptionOrNull()
@@ -254,11 +278,22 @@ class SyncWorker(
             }
 
             if (approvedPlan != null && planId.isNotEmpty()) {
-                approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.TRANSFERRING)
+                val transitioned = approvedPlanRepo?.tryTransitionState(
+                    planId = planId,
+                    expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                    nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                ) ?: false
+                if (!transitioned) {
+                    val currentPlan = approvedPlanRepo?.getPlan(planId)
+                    if (currentPlan?.executionState == org.michimusic.core.models.TransferLifecycleState.CANCELLED.name) {
+                        client.close()
+                        try { wakeLock?.release() } catch (_: Exception) {}
+                        return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                    }
+                }
             }
 
             val downloadedIds = repository.getDownloadedIds()
-            val destLibId = "lib_synced_${deviceId.ifEmpty { "node" }}"
 
             val itemsToDownload = candidateTracks
                 .filter { it.trackId !in downloadedIds }
@@ -275,7 +310,18 @@ class SyncWorker(
                 safeSetForeground(createForegroundInfo(0, 0, "Todo sincronizado"))
                 safeSetProgress(workDataOf(PROGRESS_TOTAL to 0, PROGRESS_CURRENT to 0))
                 if (planId.isNotEmpty()) {
-                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.COMPLETED)
+                    val completed = approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
+                    ) ?: false
+                    if (!completed) {
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
+                        )
+                    }
                 }
                 client.close()
                 try { wakeLock?.release() } catch (_: Exception) {}
@@ -288,7 +334,12 @@ class SyncWorker(
             if (libraryRepo == null) {
                 android.util.Log.e("SyncWorker", "MusicLibraryRepository no disponible en Koin DI. Abortando sincronización.")
                 if (planId.isNotEmpty()) {
-                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = "MusicLibraryRepository no disponible")
+                    approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = "MusicLibraryRepository no disponible",
+                    )
                 }
                 client.close()
                 try { wakeLock?.release() } catch (_: Exception) {}
@@ -353,7 +404,6 @@ class SyncWorker(
                             if (!file.exists() || file.length() == 0L) {
                                 error("Archivo descargado no existe o está vacío: ${file.absolutePath}")
                             }
-                            trackDao.markDownloadedWithPath(id, file.absolutePath)
                             manifestTrackMap[id]?.let { meta ->
                                 val identity = org.michimusic.core.models.TrackIdentity(
                                     id = meta.trackId,
@@ -382,6 +432,7 @@ class SyncWorker(
                                     throw regOp.exceptionOrNull() ?: IllegalStateException("Error registrando pista en Room")
                                 }
                             }
+                            trackDao.markDownloadedWithPath(id, file.absolutePath)
                         }
 
                         if (regResult.isSuccess) {
@@ -421,12 +472,22 @@ class SyncWorker(
 
             if (errors > 0 && downloaded == 0) {
                 if (planId.isNotEmpty()) {
-                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = "$errors error(es) en sincronización")
+                    approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = "$errors error(es) en sincronización",
+                    )
                 }
                 Result.failure(workDataOf(RESULT_ERROR to errors, RESULT_DOWNLOADED to 0))
             } else if (errors > 0 && downloaded > 0) {
                 if (planId.isNotEmpty()) {
-                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.PARTIAL_SUCCESS, errorMessage = "$errors error(es) en sincronización parcial")
+                    approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.PARTIAL_SUCCESS,
+                        errorMessage = "$errors error(es) en sincronización parcial",
+                    )
                 }
                 Result.success(workDataOf(
                     RESULT_DOWNLOADED to downloaded,
@@ -434,7 +495,11 @@ class SyncWorker(
                 ))
             } else {
                 if (planId.isNotEmpty()) {
-                    approvedPlanRepo?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.COMPLETED)
+                    approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
+                    )
                 }
                 Result.success(workDataOf(
                     RESULT_DOWNLOADED to downloaded,

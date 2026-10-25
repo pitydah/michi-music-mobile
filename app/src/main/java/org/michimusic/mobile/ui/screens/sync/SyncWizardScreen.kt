@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -1138,59 +1141,17 @@ private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncIte
                     filtered.take(visibleCount)
                 }
 
-                displayedItems.forEach { item ->
-                    val badgeColor = when (item.action) {
-                        SyncItemAction.DOWNLOAD -> AccentCoral
-                        SyncItemAction.SKIP_ALREADY_EXISTS -> TertiaryCyan
-                        SyncItemAction.RESUME_PARTIAL -> Color(0xFFFFB74D)
-                        SyncItemAction.REPLACE_BETTER_QUALITY -> Color(0xFF81C784)
-                        SyncItemAction.BLOCKED_UNSUPPORTED -> ErrorColor
-                    }
-                    val badgeText = when (item.action) {
-                        SyncItemAction.DOWNLOAD -> "Descargar"
-                        SyncItemAction.SKIP_ALREADY_EXISTS -> "Existe"
-                        SyncItemAction.RESUME_PARTIAL -> "Reanudar"
-                        SyncItemAction.REPLACE_BETTER_QUALITY -> "Mejor calidad"
-                        SyncItemAction.BLOCKED_UNSUPPORTED -> "Bloqueada"
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.title,
-                                style = MichiTypography.metadata,
-                                color = PureWhite,
-                                maxLines = 1,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = item.artist,
-                                style = MichiTypography.metadata,
-                                color = TextSecondary,
-                                maxLines = 1,
-                                fontSize = 11.sp
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(badgeColor.copy(alpha = 0.2f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = badgeText,
-                                style = MichiTypography.metadata,
-                                color = badgeColor,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            )
-                        }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(
+                        items = displayedItems,
+                        key = { it.trackId }
+                    ) { item ->
+                        TrackDecisionRow(item = item)
                     }
                 }
 
@@ -1209,6 +1170,63 @@ private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncIte
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TrackDecisionRow(item: org.michimusic.core.models.SyncItemDecision) {
+    val badgeColor = when (item.action) {
+        SyncItemAction.DOWNLOAD -> AccentCoral
+        SyncItemAction.SKIP_ALREADY_EXISTS -> TertiaryCyan
+        SyncItemAction.RESUME_PARTIAL -> Color(0xFFFFB74D)
+        SyncItemAction.REPLACE_BETTER_QUALITY -> Color(0xFF81C784)
+        SyncItemAction.BLOCKED_UNSUPPORTED -> ErrorColor
+    }
+    val badgeText = when (item.action) {
+        SyncItemAction.DOWNLOAD -> "Descargar"
+        SyncItemAction.SKIP_ALREADY_EXISTS -> "Existe"
+        SyncItemAction.RESUME_PARTIAL -> "Reanudar"
+        SyncItemAction.REPLACE_BETTER_QUALITY -> "Mejor calidad"
+        SyncItemAction.BLOCKED_UNSUPPORTED -> "Bloqueada"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.title,
+                style = MichiTypography.metadata,
+                color = PureWhite,
+                maxLines = 1,
+                fontSize = 12.sp
+            )
+            Text(
+                text = item.artist,
+                style = MichiTypography.metadata,
+                color = TextSecondary,
+                maxLines = 1,
+                fontSize = 11.sp
+            )
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(badgeColor.copy(alpha = 0.2f))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = badgeText,
+                style = MichiTypography.metadata,
+                color = badgeColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp
+            )
         }
     }
 }

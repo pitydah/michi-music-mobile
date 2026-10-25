@@ -36,4 +36,7 @@ val airCatTransferClient: org.michimusic.mobile.devices.aircat.AirCatTransferCli
 val approvedSyncPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository?
     get() = runCatching { KoinJavaComponent.get<org.michimusic.core.models.ApprovedSyncPlanRepository>(org.michimusic.core.models.ApprovedSyncPlanRepository::class.java) }.getOrNull()
 
+val libraryDao: org.michimusic.data.cache.LibraryDao?
+    get() = runCatching { KoinJavaComponent.get<org.michimusic.data.cache.LibraryDao>(org.michimusic.data.cache.LibraryDao::class.java) }.getOrNull()
+
 

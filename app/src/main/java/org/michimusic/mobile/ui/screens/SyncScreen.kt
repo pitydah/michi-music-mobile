@@ -338,7 +338,7 @@ fun SyncScreen(
                     item {
                         SyncProgressCard(
                             progress = progress,
-                            onCancel = { /* cancel */ },
+                            onCancel = { viewModel.cancelSync(progress.deviceId) },
                         )
                     }
                 }

@@ -129,4 +129,22 @@ class StoragePreflightEvaluatorTest {
         assertEquals(SyncPreflightStatus.BLOCKED_NO_STORAGE, result.status)
         assertTrue(result.issues.any { it.code == "STORAGE_EXCEEDED" })
     }
+
+    @Test
+    fun evaluate_detectsNegativeMetadataAndBlocksWithIssue() {
+        val invalidItems = listOf(
+            SyncItemDecision(
+                trackId = "neg1",
+                title = "Corrupt Track",
+                artist = "Unknown",
+                action = SyncItemAction.DOWNLOAD,
+                sourceSizeBytes = -500L,
+                estimatedDownloadBytes = 1000L,
+            ),
+        )
+
+        val result = StoragePreflightEvaluator.evaluate(10L * 1024L * 1024L * 1024L, invalidItems)
+        assertEquals(SyncPreflightStatus.BLOCKED_INVALID_SELECTION, result.status)
+        assertTrue(result.issues.any { it.code == "METADATA_INVALID" && it.severity == org.michimusic.core.models.IssueSeverity.BLOCKING })
+    }
 }

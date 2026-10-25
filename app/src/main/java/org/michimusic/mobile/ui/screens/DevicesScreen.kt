@@ -254,7 +254,7 @@ fun DevicesScreen(
                     item {
                         SyncTransferCard(
                             progress = syncProg,
-                            onCancel = { viewModel.cancelSync() }
+                            onCancel = { viewModel.cancelSync(syncProg.deviceId) }
                         )
                     }
                 }

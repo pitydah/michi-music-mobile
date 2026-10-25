@@ -699,7 +699,7 @@ class SyncViewModel(
             ?: currentClient?.pairedClientDeviceId?.ifEmpty { null }
             ?: localMichiId
 
-        _syncProgress.value = SyncProgress.Downloading(0, 0)
+        _syncProgress.value = SyncProgress.Downloading(0, 0, remoteDeviceId)
 
         val inputData = SyncWorker.buildInputData(
             baseUrl = baseUrl,
@@ -715,6 +715,7 @@ class SyncViewModel(
 
         val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(inputData)
+            .addTag("michi_sync")
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
 
@@ -744,7 +745,7 @@ class SyncViewModel(
                             _syncProgress.value = SyncProgress.Error("Sincronización cancelada")
                         }
                     } else {
-                        _syncProgress.value = SyncProgress.Downloading(current, total)
+                        _syncProgress.value = SyncProgress.Downloading(current, total, remoteDeviceId)
                     }
                 }
         }
@@ -1179,12 +1180,11 @@ class SyncViewModel(
     }
 
     fun cancelSync(deviceId: String? = null) {
-        if (deviceId.isNullOrEmpty()) {
-            WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync")
-        } else {
+        if (!deviceId.isNullOrEmpty()) {
             val workName = "michi_sync_${deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
             WorkManager.getInstance(context).cancelUniqueWork(workName)
         }
+        WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync")
         _syncProgress.value = SyncProgress.Idle
     }
 
@@ -1196,7 +1196,7 @@ class SyncViewModel(
 
 sealed class SyncProgress {
     data object Idle : SyncProgress()
-    data class Downloading(val completed: Int, val total: Int) : SyncProgress()
+    data class Downloading(val completed: Int, val total: Int, val deviceId: String = "") : SyncProgress()
     data class Complete(
         val tracks: Int,
         val downloaded: Int,

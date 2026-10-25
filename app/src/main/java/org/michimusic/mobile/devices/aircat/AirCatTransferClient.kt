@@ -21,6 +21,13 @@ import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.PairedDeviceRegistry
 import java.io.File
 
+data class AuthorizedTransferCriteria(
+    val trackId: String,
+    val destinationLibraryId: String? = null,
+    val expectedSize: Long? = null,
+    val expectedSha256: String? = null,
+)
+
 interface AirCatTransferClient {
     val progressEvents: StateFlow<AirCatProgressEvent?>
     val processedTransferIds: StateFlow<Set<String>>
@@ -43,6 +50,7 @@ interface AirCatTransferClient {
         remoteDeviceId: String,
         linkClient: LinkClient,
         authorizedTrackIds: Set<String>? = null,
+        authorizedCriteria: List<AuthorizedTransferCriteria>? = null,
         onProgress: ((AirCatProgressEvent) -> Unit)? = null,
     ): Result<List<File>>
 }
@@ -441,6 +449,7 @@ class DefaultAirCatTransferClient(
         remoteDeviceId: String,
         linkClient: LinkClient,
         authorizedTrackIds: Set<String>?,
+        authorizedCriteria: List<AuthorizedTransferCriteria>?,
         onProgress: ((AirCatProgressEvent) -> Unit)?,
     ): Result<List<File>> = withContext(Dispatchers.IO) {
         val repo = checkpointRepository ?: return@withContext Result.success(emptyList())
@@ -458,14 +467,25 @@ class DefaultAirCatTransferClient(
         }
 
         val allCheckpoints = repo.getCheckpointsForDevice(remoteDeviceId)
-        val pendingCheckpoints = allCheckpoints.filter {
-            it.remoteDeviceId == remoteDeviceId &&
-            (authorizedTrackIds == null || it.trackId in authorizedTrackIds) &&
-            (
-                it.transferState == org.michimusic.core.models.TransferStatus.DOWNLOADING ||
-                it.transferState == org.michimusic.core.models.TransferStatus.PAUSED ||
-                it.transferState == org.michimusic.core.models.TransferStatus.PENDING
-            )
+        val pendingCheckpoints = allCheckpoints.filter { cp ->
+            if (cp.remoteDeviceId != remoteDeviceId) return@filter false
+
+            // Strict composite criteria matching:
+            if (authorizedCriteria != null) {
+                val match = authorizedCriteria.find { crit ->
+                    crit.trackId == cp.trackId &&
+                    (crit.destinationLibraryId == null || crit.destinationLibraryId == cp.destinationLibraryId) &&
+                    (crit.expectedSize == null || crit.expectedSize == cp.expectedSize) &&
+                    (crit.expectedSha256 == null || crit.expectedSha256.isEmpty() || cp.expectedSha256.isEmpty() || crit.expectedSha256 == cp.expectedSha256)
+                }
+                if (match == null) return@filter false
+            } else if (authorizedTrackIds != null) {
+                if (cp.trackId !in authorizedTrackIds) return@filter false
+            }
+
+            cp.transferState == org.michimusic.core.models.TransferStatus.DOWNLOADING ||
+            cp.transferState == org.michimusic.core.models.TransferStatus.PAUSED ||
+            cp.transferState == org.michimusic.core.models.TransferStatus.PENDING
         }
 
         if (pendingCheckpoints.isEmpty()) {

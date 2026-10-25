@@ -51,7 +51,11 @@ object StoragePreflightEvaluator {
         items: List<SyncItemDecision>,
     ): StorageEvaluationResult {
         var totalDownloadBytes = 0L
+        var hasInvalidMetadata = false
         for (item in items) {
+            if (item.sourceSizeBytes < 0L || item.estimatedDownloadBytes < 0L) {
+                hasInvalidMetadata = true
+            }
             val bytes = when (item.action) {
                 SyncItemAction.DOWNLOAD -> item.estimatedDownloadBytes
                 SyncItemAction.RESUME_PARTIAL -> item.estimatedDownloadBytes
@@ -59,12 +63,32 @@ object StoragePreflightEvaluator {
                 SyncItemAction.SKIP_ALREADY_EXISTS -> 0L
                 SyncItemAction.BLOCKED_UNSUPPORTED -> 0L
             }
-            val positiveBytes = if (bytes < 0L) 0L else bytes
-            totalDownloadBytes = safeAdd(totalDownloadBytes, positiveBytes)
+            if (bytes > 0L) {
+                totalDownloadBytes = safeAdd(totalDownloadBytes, bytes)
+            }
         }
 
         val issues = mutableListOf<SyncPreflightIssue>()
         val status: SyncPreflightStatus
+
+        if (hasInvalidMetadata) {
+            status = SyncPreflightStatus.BLOCKED_INVALID_SELECTION
+            issues.add(
+                SyncPreflightIssue(
+                    code = "METADATA_INVALID",
+                    message = "Metadatos de pista corruptos o tamaño inválido detectado.",
+                    severity = IssueSeverity.BLOCKING,
+                )
+            )
+            return StorageEvaluationResult(
+                totalDownloadBytes = totalDownloadBytes,
+                safetyBufferBytes = SAFETY_BUFFER_BYTES,
+                atomicBufferBytes = 0L,
+                remainingAfterSyncBytes = if (availableBytes > 0L) availableBytes else 0L,
+                status = status,
+                issues = issues,
+            )
+        }
 
         if (availableBytes <= 0L) {
             status = SyncPreflightStatus.BLOCKED_NO_STORAGE
