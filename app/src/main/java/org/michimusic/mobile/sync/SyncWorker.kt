@@ -184,11 +184,20 @@ class SyncWorker(
             if (approvedPlan != null && approvedPlan.manifestChecksum.isNotEmpty()) {
                 val currentChecksum = manifest.manifestId.ifEmpty { manifest.createdAt }
                 if (currentChecksum.isNotEmpty() && currentChecksum != approvedPlan.manifestChecksum) {
-                    approvedPlanRepo?.updateExecutionState(
-                        planId,
-                        org.michimusic.core.models.TransferLifecycleState.FAILED,
+                    val transitioned = approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
                         errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
-                    )
+                    ) ?: false
+                    if (!transitioned) {
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                            errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
+                        )
+                    }
                     client.close()
                     try { wakeLock?.release() } catch (_: Exception) {}
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
@@ -210,21 +219,43 @@ class SyncWorker(
                 }.getOrNull()
 
                 if (approvedItems == null) {
-                    approvedPlanRepo?.updateExecutionState(
-                        planId,
-                        org.michimusic.core.models.TransferLifecycleState.FAILED,
+                    val transitioned = approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
                         errorMessage = "Plan corrupto o no deserializable"
-                    )
+                    ) ?: false
+                    if (!transitioned) {
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                            errorMessage = "Plan corrupto o no deserializable"
+                        )
+                    }
                     client.close()
                     try { wakeLock?.release() } catch (_: Exception) {}
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
 
-                val authorizedIds = approvedItems
+                val approvedDecisionsMap = approvedItems
                     .filter { it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD || it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL }
-                    .map { it.trackId }
-                    .toSet()
-                manifestTracks.filter { it.trackId in authorizedIds }
+                    .associateBy { it.trackId }
+
+                manifestTracks.filter { track ->
+                    val decision = approvedDecisionsMap[track.trackId]
+                    if (decision == null) {
+                        false
+                    } else if (decision.estimatedDownloadBytes > 0L && track.size > decision.estimatedDownloadBytes) {
+                        android.util.Log.w(
+                            "SyncWorker",
+                            "Track ${track.trackId} size (${track.size}) exceeds approved budget (${decision.estimatedDownloadBytes}). Rejecting unbudgeted transfer."
+                        )
+                        false
+                    } else {
+                        true
+                    }
+                }
             } else {
                 // Fallback strictly for non-plan sync invocations:
                 when {
@@ -511,7 +542,18 @@ class SyncWorker(
             try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
-                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.CANCELLED)
+                val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                    planId = planId,
+                    expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                    nextState = org.michimusic.core.models.TransferLifecycleState.CANCELLED,
+                ) ?: false
+                if (!transitioned) {
+                    org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.CANCELLED,
+                    )
+                }
             }
             throw e
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -519,7 +561,18 @@ class SyncWorker(
             try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
-                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.CANCELLED)
+                val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                    planId = planId,
+                    expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                    nextState = org.michimusic.core.models.TransferLifecycleState.CANCELLED,
+                ) ?: false
+                if (!transitioned) {
+                    org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.CANCELLED,
+                    )
+                }
             }
             throw e
         } catch (e: LinkException) {
@@ -527,7 +580,20 @@ class SyncWorker(
             try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
-                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = e.message)
+                val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                    planId = planId,
+                    expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                    nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                    errorMessage = e.message,
+                ) ?: false
+                if (!transitioned) {
+                    org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = e.message,
+                    )
+                }
             }
             Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         } catch (e: Exception) {
@@ -535,7 +601,20 @@ class SyncWorker(
             try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
-                org.michimusic.mobile.di.approvedSyncPlanRepository?.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.FAILED, errorMessage = e.message)
+                val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                    planId = planId,
+                    expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                    nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                    errorMessage = e.message,
+                ) ?: false
+                if (!transitioned) {
+                    org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = e.message,
+                    )
+                }
             }
             Result.retry()
         }
