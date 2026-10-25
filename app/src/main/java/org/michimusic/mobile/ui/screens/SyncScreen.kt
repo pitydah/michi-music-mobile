@@ -67,6 +67,7 @@ import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.PulsingRadarRing
 import org.michimusic.mobile.ui.components.QrScannerDialog
 import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
+import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -337,8 +338,19 @@ fun SyncScreen(
                 if (progress is SyncProgress.Downloading) {
                     item {
                         SyncProgressCard(
-                            progress = progress,
+                            completed = progress.completed,
+                            total = progress.total,
+                            isCancelling = false,
                             onCancel = { viewModel.cancelSync(progress.deviceId) },
+                        )
+                    }
+                } else if (progress is SyncProgress.Cancelling) {
+                    item {
+                        SyncProgressCard(
+                            completed = progress.completed,
+                            total = progress.total,
+                            isCancelling = true,
+                            onCancel = {},
                         )
                     }
                 }
@@ -545,11 +557,13 @@ private fun DiscoveredPeerViewItem(
 
 @Composable
 private fun SyncProgressCard(
-    progress: SyncProgress.Downloading,
-    onCancel: () -> Unit,
+    completed: Int,
+    total: Int,
+    isCancelling: Boolean = false,
+    onCancel: () -> Unit = {},
 ) {
-    val fraction = if (progress.total > 0) {
-        (progress.completed.toFloat() / progress.total.toFloat()).coerceIn(0.05f, 1f)
+    val fraction = if (total > 0) {
+        (completed.toFloat() / total.toFloat()).coerceIn(0.05f, 1f)
     } else {
         0.05f
     }
@@ -575,14 +589,14 @@ private fun SyncProgressCard(
             ) {
                 Column {
                     Text(
-                        text = "Sincronizando Biblioteca...",
+                        text = if (isCancelling) "Cancelando Sincronización..." else "Sincronizando Biblioteca...",
                         color = PureWhite,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Descargando pistas...",
+                        text = if (isCancelling) "Deteniendo transferencias..." else "Descargando pistas...",
                         color = OnSurfaceVariant,
                         fontSize = 13.sp,
                         maxLines = 1,
@@ -591,7 +605,7 @@ private fun SyncProgressCard(
 
                 Text(
                     text = "${(fraction * 100).toInt()}%",
-                    color = TertiaryCyan,
+                    color = if (isCancelling) ErrorColor else TertiaryCyan,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -612,7 +626,7 @@ private fun SyncProgressCard(
                         .clip(CircleShape)
                         .background(
                             Brush.horizontalGradient(
-                                listOf(PrimaryPink, TertiaryCyan),
+                                if (isCancelling) listOf(ErrorColor, PrimaryPink) else listOf(PrimaryPink, TertiaryCyan),
                             ),
                         ),
                 )
@@ -624,17 +638,19 @@ private fun SyncProgressCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "${progress.completed} / ${progress.total} canciones transferidas",
+                    text = "$completed / $total canciones transferidas",
                     color = OnSurfaceVariant,
                     fontSize = 11.sp,
                 )
-                Text(
-                    text = "Detener",
-                    color = PrimaryPink,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onCancel() },
-                )
+                if (!isCancelling) {
+                    Text(
+                        text = "Detener",
+                        color = PrimaryPink,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable { onCancel() },
+                    )
+                }
             }
         }
     }

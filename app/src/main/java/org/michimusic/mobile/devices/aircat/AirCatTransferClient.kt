@@ -473,10 +473,15 @@ class DefaultAirCatTransferClient(
             // Strict composite criteria matching:
             if (authorizedCriteria != null) {
                 val match = authorizedCriteria.find { crit ->
-                    crit.trackId == cp.trackId &&
-                    (crit.destinationLibraryId == null || crit.destinationLibraryId == cp.destinationLibraryId) &&
-                    (crit.expectedSize == null || crit.expectedSize == cp.expectedSize) &&
-                    (crit.expectedSha256 == null || crit.expectedSha256.isEmpty() || cp.expectedSha256.isEmpty() || crit.expectedSha256 == cp.expectedSha256)
+                    val trackMatches = crit.trackId == cp.trackId
+                    val libMatches = crit.destinationLibraryId == null || crit.destinationLibraryId == cp.destinationLibraryId
+                    val sizeMatches = crit.expectedSize == null || crit.expectedSize == cp.expectedSize
+                    val hashMatches = if (!crit.expectedSha256.isNullOrEmpty()) {
+                        cp.expectedSha256.isNotEmpty() && crit.expectedSha256.equals(cp.expectedSha256, ignoreCase = true)
+                    } else {
+                        true
+                    }
+                    trackMatches && libMatches && sizeMatches && hashMatches
                 }
                 if (match == null) return@filter false
             } else if (authorizedTrackIds != null) {

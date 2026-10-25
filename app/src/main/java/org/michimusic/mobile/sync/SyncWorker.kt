@@ -127,12 +127,73 @@ class SyncWorker(
         val checkpointRepo = org.michimusic.mobile.di.transferCheckpointRepository
         val transferManager = LinkTransferManager(applicationContext, checkpointRepo)
 
+        val planId = inputData.getString("planId") ?: ""
+        val approvedPlanRepo = org.michimusic.mobile.di.approvedSyncPlanRepository
+        val approvedPlan = if (planId.isNotEmpty()) {
+            val plan = approvedPlanRepo?.getPlan(planId)
+            if (plan == null) {
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
+                return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+            }
+            if (plan.endpointId != deviceId) {
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
+                return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+            }
+            if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.CANCELLED.name) {
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
+                return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+            }
+            if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.COMPLETED.name) {
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
+                return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
+            }
+
+            // Authoritative Execution Control (CAS): Acquire exclusive execution rights
+            // before any mutations, network calls or checkpoint recoveries.
+            val transitioned = approvedPlanRepo?.tryTransitionState(
+                planId = planId,
+                expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+            ) ?: false
+            if (!transitioned) {
+                // Plan is already claimed by another active worker or in non-QUEUED state.
+                // Fail closed immediately to prevent concurrent worker execution.
+                client.close()
+                try { wakeLock?.release() } catch (_: Exception) {}
+                return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+            }
+            plan
+        } else {
+            null
+        }
+
         return try {
             val manifestResult = client.fetchSyncManifest(deviceId)
             if (manifestResult.isFailure) {
                 val error = manifestResult.exceptionOrNull()
                 client.close()
                 try { wakeLock?.release() } catch (_: Exception) {}
+                if (approvedPlan != null && planId.isNotEmpty()) {
+                    if (error is LinkException) {
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                            errorMessage = error.message ?: "Error de sincronización Link"
+                        )
+                    } else {
+                        // Transient failure, roll back to QUEUED for worker retry
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        )
+                    }
+                }
                 if (error is LinkException) {
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
@@ -140,6 +201,22 @@ class SyncWorker(
             }
             val manifest = manifestResult.getOrThrow()
             val manifestTracks = manifest.effectiveTracks
+
+            // Manifest version validation if plan is present
+            if (approvedPlan != null && approvedPlan.manifestChecksum.isNotEmpty()) {
+                val currentChecksum = manifest.manifestId.ifEmpty { manifest.createdAt }
+                if (currentChecksum.isNotEmpty() && currentChecksum != approvedPlan.manifestChecksum) {
+                    approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
+                    )
+                    client.close()
+                    try { wakeLock?.release() } catch (_: Exception) {}
+                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
+                }
+            }
 
             repository.saveLibrary(
                 manifestTracks.map { it.toTrackDto() }
@@ -149,59 +226,6 @@ class SyncWorker(
                 repository.saveManifestPlaylists(
                     manifest.playlists.map { it.toDomainPlaylist() }
                 )
-            }
-
-            val planId = inputData.getString("planId") ?: ""
-            val approvedPlanRepo = org.michimusic.mobile.di.approvedSyncPlanRepository
-            val approvedPlan = if (planId.isNotEmpty()) {
-                val plan = approvedPlanRepo?.getPlan(planId)
-                if (plan == null) {
-                    client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
-                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
-                }
-                if (plan.endpointId != deviceId) {
-                    client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
-                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
-                }
-                if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.CANCELLED.name) {
-                    client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
-                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
-                }
-                if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.COMPLETED.name) {
-                    client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
-                    return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
-                }
-                plan
-            } else {
-                null
-            }
-
-            // Manifest version validation if plan is present
-            if (approvedPlan != null && approvedPlan.manifestChecksum.isNotEmpty()) {
-                val currentChecksum = manifest.manifestId.ifEmpty { manifest.createdAt }
-                if (currentChecksum.isNotEmpty() && currentChecksum != approvedPlan.manifestChecksum) {
-                    val transitioned = approvedPlanRepo?.tryTransitionState(
-                        planId = planId,
-                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
-                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
-                        errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
-                    ) ?: false
-                    if (!transitioned) {
-                        approvedPlanRepo?.tryTransitionState(
-                            planId = planId,
-                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
-                            errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
-                        )
-                    }
-                    client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
-                    return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
-                }
             }
 
             val selectedTrackIdsStr = inputData.getString("selectedTrackIds") ?: ""
@@ -219,20 +243,12 @@ class SyncWorker(
                 }.getOrNull()
 
                 if (approvedItems == null) {
-                    val transitioned = approvedPlanRepo?.tryTransitionState(
+                    approvedPlanRepo?.tryTransitionState(
                         planId = planId,
-                        expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
                         nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
                         errorMessage = "Plan corrupto o no deserializable"
-                    ) ?: false
-                    if (!transitioned) {
-                        approvedPlanRepo?.tryTransitionState(
-                            planId = planId,
-                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
-                            errorMessage = "Plan corrupto o no deserializable"
-                        )
-                    }
+                    )
                     client.close()
                     try { wakeLock?.release() } catch (_: Exception) {}
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
@@ -246,10 +262,20 @@ class SyncWorker(
                     val decision = approvedDecisionsMap[track.trackId]
                     if (decision == null) {
                         false
-                    } else if (decision.estimatedDownloadBytes > 0L && track.size > decision.estimatedDownloadBytes) {
+                    } else if (decision.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD &&
+                        decision.estimatedDownloadBytes > 0L && track.size > decision.estimatedDownloadBytes
+                    ) {
                         android.util.Log.w(
                             "SyncWorker",
-                            "Track ${track.trackId} size (${track.size}) exceeds approved budget (${decision.estimatedDownloadBytes}). Rejecting unbudgeted transfer."
+                            "Track ${track.trackId} size (${track.size}) exceeds approved DOWNLOAD budget (${decision.estimatedDownloadBytes}). Rejecting unbudgeted transfer."
+                        )
+                        false
+                    } else if (decision.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL &&
+                        decision.sourceSizeBytes > 0L && track.size > decision.sourceSizeBytes
+                    ) {
+                        android.util.Log.w(
+                            "SyncWorker",
+                            "Track ${track.trackId} size (${track.size}) exceeds approved RESUME_PARTIAL total size (${decision.sourceSizeBytes}). Rejecting unbudgeted transfer."
                         )
                         false
                     } else {
@@ -305,22 +331,6 @@ class SyncWorker(
                         return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                     }
                     android.util.Log.w("SyncWorker", "Error recuperando checkpoints incompletos: ${ex?.message}")
-                }
-            }
-
-            if (approvedPlan != null && planId.isNotEmpty()) {
-                val transitioned = approvedPlanRepo?.tryTransitionState(
-                    planId = planId,
-                    expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
-                    nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                ) ?: false
-                if (!transitioned) {
-                    val currentPlan = approvedPlanRepo?.getPlan(planId)
-                    if (currentPlan?.executionState == org.michimusic.core.models.TransferLifecycleState.CANCELLED.name) {
-                        client.close()
-                        try { wakeLock?.release() } catch (_: Exception) {}
-                        return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
-                    }
                 }
             }
 

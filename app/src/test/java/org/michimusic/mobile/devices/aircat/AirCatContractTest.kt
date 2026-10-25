@@ -908,4 +908,126 @@ class AirCatContractTest {
         // Exactly one download was performed (for track_strict_1), cp2 was rejected
         coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
     }
+
+    @Test
+    fun aircatRecoverIncompleteTransfers_strictHashMatching_rejectsEmptyOrMismatchingHashWhenHashIsExpected() = runBlocking {
+        val deviceId = "node_hash_matching_strict"
+        val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
+        every { mockClient.deviceToken } returns "token_strict"
+        every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(
+            deviceId = deviceId,
+            deviceName = "Hash Node",
+            deviceToken = "token_strict",
+            lastUrl = "http://192.168.1.10:8400",
+        )
+
+        // cpEmpty: Checkpoint has empty hash, but criteria expects a specific hash -> MUST BE REJECTED
+        val cpEmpty = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib_1:track_empty_hash",
+            transferId = "xfer_empty",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_1",
+            trackId = "track_empty_hash",
+            remoteTrackId = "track_empty_hash",
+            tempFilePath = File(tempDir, "temp_empty.part").absolutePath,
+            finalFilePath = File(tempDir, "final_empty.mp3").absolutePath,
+            expectedSize = 1000L,
+            receivedBytes = 500L,
+            verifiedBytes = 0L,
+            expectedSha256 = "", // Empty hash in checkpoint!
+            etag = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 100L,
+            updatedAt = 200L,
+        )
+
+        // cpMismatch: Checkpoint has mismatched hash -> MUST BE REJECTED
+        val cpMismatch = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib_1:track_mismatch_hash",
+            transferId = "xfer_mismatch",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_1",
+            trackId = "track_mismatch_hash",
+            remoteTrackId = "track_mismatch_hash",
+            tempFilePath = File(tempDir, "temp_mismatch.part").absolutePath,
+            finalFilePath = File(tempDir, "final_mismatch.mp3").absolutePath,
+            expectedSize = 1000L,
+            receivedBytes = 500L,
+            verifiedBytes = 0L,
+            expectedSha256 = "corrupted_hash",
+            etag = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 100L,
+            updatedAt = 200L,
+        )
+
+        // cpValid: Checkpoint has matching hash -> MUST BE ACCEPTED
+        val cpValid = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib_1:track_valid_hash",
+            transferId = "xfer_valid",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_1",
+            trackId = "track_valid_hash",
+            remoteTrackId = "track_valid_hash",
+            tempFilePath = File(tempDir, "temp_valid.part").absolutePath,
+            finalFilePath = File(tempDir, "final_valid.mp3").absolutePath,
+            expectedSize = 1000L,
+            receivedBytes = 500L,
+            verifiedBytes = 0L,
+            expectedSha256 = "EXPECTED_VALID_HASH_A1B2",
+            etag = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 100L,
+            updatedAt = 200L,
+        )
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpEmpty, cpMismatch, cpValid)
+
+        val mockTransferManager = mockk<LinkTransferManager>()
+        val dummyFile = File(tempDir, "final_valid.mp3").also { it.writeText("hello valid") }
+        coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
+
+        val client = DefaultAirCatTransferClient(
+            transferManager = mockTransferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        val criteria = listOf(
+            AuthorizedTransferCriteria(
+                trackId = "track_empty_hash",
+                destinationLibraryId = "lib_1",
+                expectedSize = 1000L,
+                expectedSha256 = "expected_hash_empty",
+            ),
+            AuthorizedTransferCriteria(
+                trackId = "track_mismatch_hash",
+                destinationLibraryId = "lib_1",
+                expectedSize = 1000L,
+                expectedSha256 = "expected_hash_mismatch",
+            ),
+            AuthorizedTransferCriteria(
+                trackId = "track_valid_hash",
+                destinationLibraryId = "lib_1",
+                expectedSize = 1000L,
+                expectedSha256 = "expected_valid_hash_a1b2", // Case insensitive match
+            ),
+        )
+
+        val result = client.recoverIncompleteTransfers(
+            remoteDeviceId = deviceId,
+            linkClient = mockClient,
+            authorizedCriteria = criteria,
+        )
+
+        assertTrue(result.isSuccess)
+        val files = result.getOrThrow()
+        assertEquals("Only cpValid should be recovered; empty and mismatching hashes must be rejected", 1, files.size)
+        coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
+    }
 }

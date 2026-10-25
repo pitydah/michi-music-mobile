@@ -242,7 +242,14 @@ fun ConnectedState(
                         }
                     }
                     is SyncProgress.Downloading -> {
-                        SyncProgressContent(syncProgress)
+                        SyncProgressContent(syncProgress.completed, syncProgress.total)
+                    }
+                    is SyncProgress.Cancelling -> {
+                        Column(Modifier.fillMaxWidth()) {
+                            Text("Cancelando sincronización...", style = MaterialTheme.typography.bodyMedium, color = AccentPink)
+                            Spacer(Modifier.height(8.dp))
+                            SyncProgressContent(syncProgress.completed, syncProgress.total)
+                        }
                     }
                     is SyncProgress.Complete -> {
                         Text("${syncProgress.downloaded} canciones sincronizadas", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
@@ -266,16 +273,16 @@ fun ConnectedState(
 }
 
 @Composable
-private fun SyncProgressContent(progress: SyncProgress.Downloading) {
+private fun SyncProgressContent(completed: Int, total: Int) {
     Column(Modifier.fillMaxWidth()) {
         LinearProgressIndicator(
-            progress = { if (progress.total > 0) progress.completed.toFloat() / progress.total else 0f },
+            progress = { if (total > 0) completed.toFloat() / total else 0f },
             modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
             color = AccentCoral,
             trackColor = SurfaceElevated,
         )
         Spacer(Modifier.height(8.dp))
-        Text("${progress.completed} / ${progress.total}", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        Text("$completed / $total", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
 }
 

@@ -713,13 +713,15 @@ class SyncViewModel(
             expectedBytes = expectedBytes,
         )
 
+        val safeDev = remoteDeviceId.replace(Regex("[^A-Za-z0-9_]"), "_")
         val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(inputData)
             .addTag("michi_sync")
+            .addTag("michi_sync_$safeDev")
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
 
-        val workName = "michi_sync_${remoteDeviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
+        val workName = "michi_sync_$safeDev"
         WorkManager.getInstance(context)
             .enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, workRequest)
 
@@ -1181,11 +1183,23 @@ class SyncViewModel(
 
     fun cancelSync(deviceId: String? = null) {
         if (!deviceId.isNullOrEmpty()) {
-            val workName = "michi_sync_${deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
+            val safeDev = deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")
+            val workName = "michi_sync_$safeDev"
             WorkManager.getInstance(context).cancelUniqueWork(workName)
+            WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync_$safeDev")
+        } else {
+            WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync")
         }
-        WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync")
-        _syncProgress.value = SyncProgress.Idle
+        val currentProg = _syncProgress.value
+        if (currentProg is SyncProgress.Downloading) {
+            _syncProgress.value = SyncProgress.Cancelling(
+                completed = currentProg.completed,
+                total = currentProg.total,
+                deviceId = currentProg.deviceId,
+            )
+        } else {
+            _syncProgress.value = SyncProgress.Idle
+        }
     }
 
     override fun onCleared() {
@@ -1197,6 +1211,7 @@ class SyncViewModel(
 sealed class SyncProgress {
     data object Idle : SyncProgress()
     data class Downloading(val completed: Int, val total: Int, val deviceId: String = "") : SyncProgress()
+    data class Cancelling(val completed: Int, val total: Int, val deviceId: String = "") : SyncProgress()
     data class Complete(
         val tracks: Int,
         val downloaded: Int,

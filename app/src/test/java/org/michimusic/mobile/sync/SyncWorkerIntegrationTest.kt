@@ -49,6 +49,7 @@ import org.michimusic.link.dto.ManifestTrackDto
 import org.michimusic.link.dto.SyncManifestDto
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.io.OutputStream
 
 @RunWith(RobolectricTestRunner::class)
@@ -280,5 +281,188 @@ class SyncWorkerIntegrationTest {
         val updatedPlan = db.approvedSyncPlanDao().getPlan(planId)
         assertNotNull("Plan must exist in database", updatedPlan)
         assertEquals(TransferLifecycleState.COMPLETED.name, updatedPlan?.executionState)
+    }
+
+    @Test
+    fun syncWorker_failsClosedImmediately_whenPlanAlreadyClaimedByAnotherWorker() = runBlocking {
+        val planId = "plan_claimed_concurrent"
+        val approvedDecisions = listOf(
+            SyncItemDecision(
+                trackId = "trk_concurrent",
+                title = "Concurrent Track",
+                artist = "Artist",
+                album = "Album",
+                action = SyncItemAction.DOWNLOAD,
+                sourceSizeBytes = 1000L,
+                estimatedDownloadBytes = 1000L,
+            )
+        )
+
+        // Insert plan already in TRANSFERRING state (simulating a concurrent worker that won the CAS race)
+        val planEntity = ApprovedSyncPlanEntity(
+            planId = planId,
+            endpointId = testDeviceId,
+            endpointName = "Production Desktop Node",
+            scope = "FULL_LIBRARY",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = json.encodeToString(approvedDecisions),
+            manifestVersion = 1,
+            manifestChecksum = "sha_concurrent",
+            totalSelectedTracks = 1,
+            tracksToDownloadCount = 1,
+            totalDownloadBytes = 1000L,
+            status = "READY",
+            executionState = TransferLifecycleState.TRANSFERRING.name, // Already claimed!
+            createdAt = System.currentTimeMillis(),
+        )
+        db.approvedSyncPlanDao().insertPlan(planEntity)
+
+        val worker = TestListenableWorkerBuilder<SyncWorker>(context)
+            .setInputData(
+                SyncWorker.buildInputData(
+                    baseUrl = "http://127.0.0.1:8400",
+                    deviceId = testDeviceId,
+                    alias = "Production Desktop Node",
+                    planId = planId,
+                    expectedBytes = 1000L,
+                )
+            )
+            .build()
+
+        val workResult = worker.doWork()
+
+        // Must fail closed immediately
+        assertTrue("SyncWorker must return Result.Failure, but returned $workResult", workResult is ListenableWorker.Result.Failure)
+        val output = (workResult as ListenableWorker.Result.Failure).outputData
+        assertEquals(0, output.getInt(SyncWorker.RESULT_DOWNLOADED, -1))
+        assertEquals(1, output.getInt(SyncWorker.RESULT_ERROR, -1))
+
+        // Ensure 0 downloaded tracks and no side effects in database
+        val downloaded = db.trackDao().getDownloadedTracks().first()
+        assertTrue("No tracks must be downloaded", downloaded.isEmpty())
+        assertNull(db.trackIdentityDao().getTrackIdentity("trk_concurrent"))
+    }
+
+    @Test
+    fun syncWorker_resumesPartialTrack_whenEstimatedDownloadBytesIsLessThanSourceSize() = runBlocking {
+        val trackId = "trk_partial_resume"
+        val manifestTracks = listOf(
+            ManifestTrackDto(
+                trackId = trackId,
+                title = "Partial Track",
+                artist = "Artist",
+                album = "Album",
+                duration = 200,
+                size = 2000L, // Total file size is 2000 bytes
+                format = "mp3",
+                checksum = "",
+            )
+        )
+
+        coEvery { mockClient.fetchSyncManifest(testDeviceId) } returns Result.success(
+            SyncManifestDto(
+                version = 1,
+                tracks = manifestTracks,
+                manifestId = "sha_partial",
+            )
+        )
+
+        // Ensure synced_music dir exists and prepare .part file with 1000 bytes
+        val syncedMusicDir = File(context.filesDir, "synced_music").also { it.mkdirs() }
+        val safeDev = testDeviceId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
+        val destLibId = "lib_synced_$safeDev"
+        val safeLib = destLibId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
+        val safeTrack = trackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
+        val partFile = File(syncedMusicDir, "${safeDev}_${safeLib}_${safeTrack}.mp3.part")
+        partFile.writeBytes(ByteArray(1000) { 0x41 })
+
+        // Mock streamTrackRange resuming at offset 1000L
+        coEvery {
+            mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = 1000L,
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            val stream = secondArg<OutputStream>()
+            val onProg = arg<((Long, Long?) -> Unit)?>(5)
+            val bytes = ByteArray(1000) { 0x42 }
+            stream.write(bytes)
+            onProg?.invoke(2000L, 2000L)
+            Result.success(
+                org.michimusic.link.StreamRangeResult(
+                    bytesRead = 1000L,
+                    statusCode = 206,
+                    isPartialContent = true,
+                    etag = "etag_partial",
+                )
+            )
+        }
+
+        // Decision specifies RESUME_PARTIAL with sourceSizeBytes = 2000L and estimatedDownloadBytes = 1000L
+        val approvedDecisions = listOf(
+            SyncItemDecision(
+                trackId = trackId,
+                title = "Partial Track",
+                artist = "Artist",
+                album = "Album",
+                action = SyncItemAction.RESUME_PARTIAL,
+                sourceSizeBytes = 2000L,
+                estimatedDownloadBytes = 1000L,
+            )
+        )
+
+        val planId = "plan_partial_resume"
+        val planEntity = ApprovedSyncPlanEntity(
+            planId = planId,
+            endpointId = testDeviceId,
+            endpointName = "Production Desktop Node",
+            scope = "FULL_LIBRARY",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = json.encodeToString(approvedDecisions),
+            manifestVersion = 1,
+            manifestChecksum = "sha_partial",
+            totalSelectedTracks = 1,
+            tracksToDownloadCount = 1,
+            totalDownloadBytes = 1000L,
+            status = "READY",
+            executionState = TransferLifecycleState.QUEUED.name,
+            createdAt = System.currentTimeMillis(),
+        )
+        db.approvedSyncPlanDao().insertPlan(planEntity)
+
+        val worker = TestListenableWorkerBuilder<SyncWorker>(context)
+            .setInputData(
+                SyncWorker.buildInputData(
+                    baseUrl = "http://127.0.0.1:8400",
+                    deviceId = testDeviceId,
+                    alias = "Production Desktop Node",
+                    planId = planId,
+                    expectedBytes = 1000L,
+                )
+            )
+            .build()
+
+        val workResult = worker.doWork()
+
+        assertTrue("SyncWorker must succeed for RESUME_PARTIAL, but returned $workResult", workResult is ListenableWorker.Result.Success)
+        val output = (workResult as ListenableWorker.Result.Success).outputData
+        assertEquals(1, output.getInt(SyncWorker.RESULT_DOWNLOADED, -1))
+        assertEquals(0, output.getInt(SyncWorker.RESULT_ERROR, -1))
+
+        // Verify the track is registered in DB
+        val downloaded = db.trackDao().getDownloadedTracks().first()
+        assertEquals(1, downloaded.size)
+        assertEquals(trackId, downloaded.first().id)
+
+        // Verify final file size is 2000 bytes (1000 pre-existing + 1000 resumed)
+        val finalFile = File(downloaded.first().filepath)
+        assertTrue("Final file must exist", finalFile.exists())
+        assertEquals(2000L, finalFile.length())
     }
 }

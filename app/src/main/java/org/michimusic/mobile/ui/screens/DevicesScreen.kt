@@ -253,8 +253,19 @@ fun DevicesScreen(
                 if (syncProg is org.michimusic.mobile.sync.SyncProgress.Downloading) {
                     item {
                         SyncTransferCard(
-                            progress = syncProg,
-                            onCancel = { viewModel.cancelSync(syncProg.deviceId) }
+                            completed = syncProg.completed,
+                            total = syncProg.total,
+                            isCancelling = false,
+                            onCancel = { viewModel.cancelSync(syncProg.deviceId) },
+                        )
+                    }
+                } else if (syncProg is org.michimusic.mobile.sync.SyncProgress.Cancelling) {
+                    item {
+                        SyncTransferCard(
+                            completed = syncProg.completed,
+                            total = syncProg.total,
+                            isCancelling = true,
+                            onCancel = {},
                         )
                     }
                 }
@@ -742,7 +753,9 @@ private fun AirCatTransferCard(
 
 @Composable
 private fun SyncTransferCard(
-    progress: org.michimusic.mobile.sync.SyncProgress.Downloading,
+    completed: Int,
+    total: Int,
+    isCancelling: Boolean = false,
     onCancel: () -> Unit = {},
 ) {
     GlassCard(
@@ -770,26 +783,26 @@ private fun SyncTransferCard(
                     Icon(
                         imageVector = Icons.Filled.Refresh,
                         contentDescription = null,
-                        tint = AccentCoral,
+                        tint = if (isCancelling) ErrorColor else AccentCoral,
                         modifier = Modifier.size(20.dp),
                     )
                     Text(
-                        text = "Sincronización en curso",
+                        text = if (isCancelling) "Cancelando sincronización" else "Sincronización en curso",
                         style = MichiTypography.cardTitle,
                         color = PureWhite,
                     )
                 }
 
                 Text(
-                    text = "Descargando...",
+                    text = if (isCancelling) "Cancelando..." else "Descargando...",
                     style = MichiTypography.microLabel,
-                    color = AccentCoral,
+                    color = if (isCancelling) ErrorColor else AccentCoral,
                     fontWeight = FontWeight.Bold,
                 )
             }
 
-            val fraction = if (progress.total > 0) {
-                (progress.completed.toFloat() / progress.total.toFloat()).coerceIn(0f, 1f)
+            val fraction = if (total > 0) {
+                (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
             } else {
                 0f
             }
@@ -800,7 +813,7 @@ private fun SyncTransferCard(
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(CircleShape),
-                color = AccentCoral,
+                color = if (isCancelling) ErrorColor else AccentCoral,
                 trackColor = SurfaceObsidian,
             )
 
@@ -811,17 +824,19 @@ private fun SyncTransferCard(
             ) {
                 val pct = (fraction * 100).toInt()
                 Text(
-                    text = "${progress.completed} de ${progress.total} canciones ($pct%)",
+                    text = "$completed de $total canciones ($pct%)",
                     style = MichiTypography.metadata,
                     color = TextMuted,
                 )
 
-                OutlinedButton(
-                    onClick = onCancel,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp),
-                ) {
-                    Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
+                if (!isCancelling) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp),
+                    ) {
+                        Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
+                    }
                 }
             }
         }

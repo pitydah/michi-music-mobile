@@ -34,7 +34,8 @@
 | M20.2 / M21-A | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 146f163 | Autoridad única SyncPlan persistido en Room (v6->v7 ApprovedSyncPlanEntity), invariante DownloadedItems(P) ⊆ AuthorizedDownloadItems(P), resolución DI en EndToEndSyncFlowTest, inspección detallada por pista en ReviewStep, ciclo de vida durable y preflight fail-closed |
 | M20.3 / M21-B | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | bfb7f4d | Cierre autoritativo y secuenciación Room->WorkManager sin condiciones de carrera, fail-closed ante planId faltante/corrupto/mismatch/stale manifest, máquina de estados estricta (PARTIAL_SUCCESS, RETRY_PENDING), reporte Room de registerTrackWithLocation, no-swallowing de CancellationException, búsqueda/paginación en TrackDecisionListCard y tarjeta de transferencia en Devices |
 | M20.4 / M21-C | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a8b4608 | Aislamiento AirCat por track IDs autorizados, registro atómico no anulable en SyncWorker (verificación física de archivo + fail-closed si falta MusicLibraryRepository), CAS atómico transitionState en ApprovedSyncPlanDao, protección contra desbordamiento numérico en StoragePreflightEvaluator (safeAdd), test de escala de producción con manifiesto de 100 pistas (invariante 100 -> 2), paginación escalonada y botón de cancelación en SyncTransferCard |
-| M20.5 / M21-D | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cierre autoritativo definitivo: botón Cancelar conectado en DevicesScreen y SyncScreen con deviceId dinámico y tag 'michi_sync'; aislamiento estricto de checkpoints AirCat por tupla compuesta (remoteDeviceId, destinationLibraryId, trackId, expectedSize, expectedSha256); orden atómico de persistencia y registro multi-library verificado físicamente; integración CAS de tryTransitionState en SyncWorker; preflight validando metadatos negativos; test de integración end-to-end de SyncWorker con TestListenableWorkerBuilder; virtualización LazyColumn en TrackDecisionListCard |
+| M20.5 / M21-D | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c1bccaf | Cierre autoritativo definitivo: botón Cancelar conectado en DevicesScreen y SyncScreen con deviceId dinámico y tag 'michi_sync'; aislamiento estricto de checkpoints AirCat por tupla compuesta (remoteDeviceId, destinationLibraryId, trackId, expectedSize, expectedSha256); orden atómico de persistencia y registro multi-library verificado físicamente; integración CAS de tryTransitionState en SyncWorker; preflight validando metadatos negativos; test de integración end-to-end de SyncWorker con TestListenableWorkerBuilder; virtualización LazyColumn en TrackDecisionListCard |
+| M20 / M21 CONSOLIDATION | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Zero-Skip Engineering: Exclusión mutua CAS estricta pre-mutación y pre-red en SyncWorker (fail-closed inmediato); presupuesto de descarga desacoplado para RESUME_PARTIAL (sourceSizeBytes vs estimatedDownloadBytes); matching fail-closed de hashes SHA-256 en AirCat checkpoints; cancelación granular por dispositivo (michi_sync_$safeDev) y estado SyncProgress.Cancelling en UI; pruebas adversariales de concurrencia CAS y reanudación parcial física; 100% suites JVM superadas |
 
 ---
 
@@ -1657,6 +1658,78 @@ ROLLBACK_PLAN:
   git revert bfb7f4d4f91f353bb04eef6c7dbfaea690c85e8c..HEAD
 BLOCKERS: Ninguno. Sprint M20.4 + M21-C concluido con éxito. Madurez estimada: 95%.
 ```
+
+---
+
+## Checkpoint de Ejecución — Sprint Final de Consolidación M20/M21 (Zero-Skip Engineering)
+
+```text
+BLOCK_ID: M20_M21_CONSOLIDATION
+MASTER_BASE_SHA: b1967c4f07eaa1859dcc257de6aa0205a03df8ff
+FILES_CHANGED:
+  - app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncViewModel.kt
+  - app/src/main/java/org/michimusic/mobile/sync/SyncWorker.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/DevicesScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/SyncScreen.kt
+  - app/src/main/java/org/michimusic/mobile/ui/screens/sync/SyncComponents.kt
+  - app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatContractTest.kt
+  - app/src/test/java/org/michimusic/mobile/sync/SyncWorkerIntegrationTest.kt
+  - docs/implementation/MOBILE_IMPLEMENTATION_LEDGER.md
+PRODUCTION_BEHAVIOR_BEFORE:
+  1. SyncWorker realizaba llamadas de red (fetchSyncManifest) y mutaciones de base de datos (saveLibrary)
+     antes de adquirir el derecho de ejecución exclusiva CAS (tryTransitionState(planId, QUEUED, TRANSFERRING)).
+     Si dos workers se programaban simultáneamente sobre el mismo planId, ambos realizaban efectos secundarios
+     antes de que uno de ellos detectara la contención.
+  2. SyncWorker comprobaba track.size > decision.estimatedDownloadBytes para todas las acciones de transferencia.
+     En pistas autorizadas con RESUME_PARTIAL, estimatedDownloadBytes representa únicamente el delta faltante
+     (ej. 1000B), mientras que track.size representa el tamaño total del archivo en origen (ej. 2000B). Dicha
+     comparación provocaba el descarte erróneo de reanudaciones parciales legítimas presupuestadas.
+  3. AirCatTransferClient en recoverIncompleteTransfers permitía checkpoints con SHA-256 vacío incluso cuando los
+     criterios autorizados especificaban un hash requerido no vacío (crit.expectedSha256).
+  4. SyncViewModel.cancelSync ejecutaba cancelAllWorkByTag("michi_sync") indiscriminadamente, cancelando las
+     sincronizaciones con otros dispositivos pares en lugar de aislar la cancelación al dispositivo solicitado.
+     La UI pasaba de forma instantánea y no determinista a SyncProgress.Idle sin transición observable.
+PRODUCTION_BEHAVIOR_AFTER:
+  1. Control Autoritativo CAS Pre-Mutación y Pre-Red: SyncWorker resuelve y valida el plan y ejecuta estrictamente
+     tryTransitionState(planId, QUEUED, TRANSFERRING) antes de cualquier llamada a fetchSyncManifest, creación
+     de bibliotecas en Room o recuperación de checkpoints. Si la transición CAS no prospera (ej. plan ya tomado
+     o en estado inconsistente), el worker aborta inmediatamente (fail-closed) retornando Result.failure con 0
+     descargas y 0 efectos colaterales en disco o Room.
+  2. Presupuesto desacoplado para RESUME_PARTIAL: SyncWorker distingue el tipo de acción al validar los límites
+     aprobados. Para DOWNLOAD valida contra decision.estimatedDownloadBytes; para RESUME_PARTIAL valida contra
+     decision.sourceSizeBytes, garantizando que descargas parciales reanudadas se procesen correctamente y
+     respeten el tamaño total de audio sin rechazos indebidos.
+  3. Criterios compuestos estrictos y fail-closed en AirCat: el matching de checkpoints exige que si crit.expectedSha256
+     no está vacío, cp.expectedSha256 debe estar presente y coincidir exactamente (case-insensitive), rechazando
+     checkpoints con hash vacío o discrepante.
+  4. Cancelación granular e interactiva: SyncWorker se encola con etiqueta específica "michi_sync_$safeDev".
+     SyncViewModel.cancelSync(deviceId) cancela únicamente el trabajo y etiqueta del dispositivo en cuestión.
+     La UI modela explícitamente SyncProgress.Cancelling con estado visual reactivo en DevicesScreen, SyncScreen
+     y SyncComponents ("Cancelando sincronización...").
+  5. Cobertura adversarial y de concurrencia: se incorporaron pruebas de integración reales en SyncWorkerIntegrationTest
+     (carrera de exclusión mutua CAS donde el segundo worker falla de inmediato sin mutar DB, y prueba física
+     de RESUME_PARTIAL verificando promoción y longitud completa de 2000 bytes) y en AirCatContractTest
+     (rechazo estricto de hashes vacíos o mismatch).
+JVM_TESTS_EXECUTED:
+  ./gradlew :core:testDebugUnitTest (16 tests PASSED)
+  ./gradlew :data:testDebugUnitTest (48 tests PASSED)
+  ./gradlew :michi-link-client:testDebugUnitTest (PASSED)
+  ./gradlew :app:testNormalDebugUnitTest (256 tests PASSED)
+  ./gradlew :app:testFdroidDebugUnitTest (256 tests PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere nodos físicos pareados)
+UPSTREAM_CONTRACTS: N/A
+SECURITY_REVIEW:
+  Principio de mínimo privilegio, autorización estricta e invariante canónico:
+  DownloadedItems(P) ⊆ AuthorizedDownloadItems(P).
+  Exclusión mutua CAS garantiza que dos instancias de WorkManager no compitan sobre el mismo plan.
+  Aislamiento AirCat y matching estricto de hashes previene la inyección o recuperación indebida de fragmentos.
+ROLLBACK_PLAN:
+  git revert b1967c4f07eaa1859dcc257de6aa0205a03df8ff..HEAD
+BLOCKERS: Ninguno. Sprint M20/M21 Consolidado y Certificado con éxito. Madurez alcanzada: 95%.
+```
+
 
 
 
