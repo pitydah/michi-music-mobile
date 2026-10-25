@@ -318,10 +318,11 @@ class DefaultAirCatTransferClient(
                         emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.PAUSED, onProgress = onProgress)
                         return@withContext Result.failure(AirCatException.ProtocolError("Transferencia pausada"))
                     }
+                    val preservedBytes = if (tempCandidate.exists()) tempCandidate.length() else 0L
                     checkpointRepository?.updateProgress(
                         transferKey = effectiveKey,
-                        receivedBytes = 0L,
-                        verifiedBytes = 0L,
+                        receivedBytes = preservedBytes,
+                        verifiedBytes = preservedBytes,
                         state = org.michimusic.core.models.TransferStatus.FAILED
                     )
                     emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = ex.message, onProgress = onProgress)
@@ -363,11 +364,14 @@ class DefaultAirCatTransferClient(
                             verifiedBytes = finalFile.length(),
                             state = org.michimusic.core.models.TransferStatus.FAILED,
                         )
-                        // Non-destructive: do NOT delete finalFile if it is an existing registered track location
-                        val locations = libraryRepository.getLocationsForTrack(item.logicalTrackId)
-                        val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
-                        if (!isRegisteredExistingFile) {
-                            finalFile.delete()
+                        // Non-destructive: restore previous good file if backed up, else preserve if registered
+                        val restored = transferManager.restoreBackup(finalFile)
+                        if (!restored) {
+                            val locations = libraryRepository.getLocationsForTrack(item.logicalTrackId)
+                            val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
+                            if (!isRegisteredExistingFile) {
+                                finalFile.delete()
+                            }
                         }
                         val err = AirCatException.CorruptedPayload(
                             "Conflicto de contenido: trackId ${item.logicalTrackId} ya existe con hash ${existingIdentity.contentHash}, pero la transferencia reporta ${item.sha256}."
@@ -391,6 +395,14 @@ class DefaultAirCatTransferClient(
                             verifiedBytes = finalFile.length(),
                             state = org.michimusic.core.models.TransferStatus.FAILED
                         )
+                        val restored = transferManager.restoreBackup(finalFile)
+                        if (!restored) {
+                            val locations = libraryRepository.getLocationsForTrack(item.logicalTrackId)
+                            val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
+                            if (!isRegisteredExistingFile) {
+                                finalFile.delete()
+                            }
+                        }
                         emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = "Fallo al registrar en biblioteca: ${e.message}", onProgress = onProgress)
                         return@withContext Result.failure(e)
                     }
@@ -403,6 +415,7 @@ class DefaultAirCatTransferClient(
                     verifiedBytes = finalFile.length(),
                     state = org.michimusic.core.models.TransferStatus.COMPLETED
                 )
+                transferManager.discardBackup(finalFile)
             }
 
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
@@ -600,10 +613,12 @@ class DefaultAirCatTransferClient(
             val downloadResult = transferManager.downloadTrack(linkClient, downloadItem)
             if (downloadResult.isFailure) {
                 val ex = downloadResult.exceptionOrNull() ?: Exception("Error reanudando ${cp.trackId}")
+                val tempCandidate = File(cp.tempFilePath)
+                val preservedBytes = if (tempCandidate.exists()) tempCandidate.length() else 0L
                 repo.updateProgress(
                     transferKey = cp.transferKey,
-                    receivedBytes = 0L,
-                    verifiedBytes = 0L,
+                    receivedBytes = preservedBytes,
+                    verifiedBytes = preservedBytes,
                     state = org.michimusic.core.models.TransferStatus.FAILED
                 )
                 emitEvent(
@@ -636,11 +651,14 @@ class DefaultAirCatTransferClient(
                         verifiedBytes = finalFile.length(),
                         state = org.michimusic.core.models.TransferStatus.FAILED
                     )
-                    // Non-destructive: do NOT delete finalFile if it is an existing registered track location
-                    val locations = libraryRepository.getLocationsForTrack(cp.trackId)
-                    val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
-                    if (!isRegisteredExistingFile) {
-                        finalFile.delete()
+                    // Non-destructive: restore previous good file if backed up, else preserve if registered
+                    val restored = transferManager.restoreBackup(finalFile)
+                    if (!restored) {
+                        val locations = libraryRepository.getLocationsForTrack(cp.trackId)
+                        val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
+                        if (!isRegisteredExistingFile) {
+                            finalFile.delete()
+                        }
                     }
                     return@withContext Result.failure(
                         AirCatException.CorruptedPayload(
@@ -679,6 +697,14 @@ class DefaultAirCatTransferClient(
                         verifiedBytes = finalFile.length(),
                         state = org.michimusic.core.models.TransferStatus.FAILED
                     )
+                    val restored = transferManager.restoreBackup(finalFile)
+                    if (!restored) {
+                        val locations = libraryRepository.getLocationsForTrack(cp.trackId)
+                        val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
+                        if (!isRegisteredExistingFile) {
+                            finalFile.delete()
+                        }
+                    }
                     return@withContext Result.failure(e)
                 }
             }
@@ -690,6 +716,7 @@ class DefaultAirCatTransferClient(
                 verifiedBytes = finalFile.length(),
                 state = org.michimusic.core.models.TransferStatus.COMPLETED
             )
+            transferManager.discardBackup(finalFile)
         }
 
         emitEvent(

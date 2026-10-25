@@ -692,7 +692,7 @@ class AirCatContractTest {
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cp1, cp2)
 
-        val mockTransferManager = mockk<LinkTransferManager>()
+        val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(File.createTempFile("t1_", ".mp3").apply { writeBytes(ByteArray(100)) })
 
         val client = DefaultAirCatTransferClient(
@@ -876,7 +876,7 @@ class AirCatContractTest {
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cp1, cp2)
 
-        val mockTransferManager = mockk<LinkTransferManager>()
+        val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
         val dummyFile = File(tempDir, "final1.mp3").also { it.writeText("hello") }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
 
@@ -994,7 +994,7 @@ class AirCatContractTest {
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpEmpty, cpMismatch, cpValid)
 
-        val mockTransferManager = mockk<LinkTransferManager>()
+        val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
         val dummyFile = File(tempDir, "final_valid.mp3").also { it.writeText("hello valid") }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
 
@@ -1066,7 +1066,7 @@ class AirCatContractTest {
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpPlanA)
 
-        val mockTransferManager = mockk<LinkTransferManager>()
+        val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
         val client = DefaultAirCatTransferClient(
             transferManager = mockTransferManager,
             pairedDeviceRegistry = pairedRegistry,

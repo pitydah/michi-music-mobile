@@ -117,16 +117,42 @@ class LinkTransferManager(
         var shouldAppend = false
 
         if (existingPartBytes > 0) {
-            val recordedBytes = savedCheckpoint?.bytesVerified ?: 0L
+            val recordedBytes = savedCheckpoint?.bytesVerified ?: existingPartBytes
             val sizeOverflow = item.size > 0 && existingPartBytes >= item.size
-            // If the partial file exists but its size is wildly inconsistent with the checkpoint,
-            // or if it exceeds expected size, discard it to avoid corruption.
             if (sizeOverflow || (recordedBytes > 0 && existingPartBytes < recordedBytes)) {
+                // Inconsistent or overflowing partial file: purge to prevent corruption
                 tempFile.delete()
                 existingPartBytes = 0L
+                startOffset = 0L
+                shouldAppend = false
+            } else if (recordedBytes > 0) {
+                // Align physical file size with recordedBytes to guarantee that
+                // FileOutputStream(tempFile, append=true) starts writing at EXACTLY the same byte position
+                // requested in the HTTP Range: header (startBytes = recordedBytes)
+                if (existingPartBytes > recordedBytes) {
+                    try {
+                        java.io.RandomAccessFile(tempFile, "rw").use { raf ->
+                            raf.setLength(recordedBytes)
+                        }
+                        existingPartBytes = tempFile.length()
+                    } catch (_: Exception) {
+                        tempFile.delete()
+                        existingPartBytes = 0L
+                    }
+                }
+                if (existingPartBytes == recordedBytes && existingPartBytes > 0) {
+                    startOffset = recordedBytes
+                    shouldAppend = true
+                } else {
+                    startOffset = 0L
+                    shouldAppend = false
+                }
             } else {
-                startOffset = minOf(existingPartBytes, if (recordedBytes > 0) recordedBytes else existingPartBytes)
-                shouldAppend = true
+                // If there's no accredited verifiedBytes in checkpoint, do not blindly append unverified bytes
+                tempFile.delete()
+                existingPartBytes = 0L
+                startOffset = 0L
+                shouldAppend = false
             }
         }
 
@@ -203,18 +229,27 @@ class LinkTransferManager(
 
             if (streamResult.isFailure) {
                 val error = streamResult.exceptionOrNull() ?: Exception("Unknown error")
-                // On failure, if it was an ETag mismatch or partial content error, we can handle it
+                val currentBytes = if (tempFile.exists()) tempFile.length() else 0L
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(error.message ?: "Download failed"))
                 updateCheckpoint(transferKey) {
-                    it?.copy(state = TransferState.FAILED) ?: TransferCheckpoint(
+                    it?.copy(
+                        bytesVerified = currentBytes,
+                        state = TransferState.FAILED,
+                    ) ?: TransferCheckpoint(
                         trackId = item.trackId,
                         tempPath = tempFile.absolutePath,
                         finalPath = file.absolutePath,
-                        bytesVerified = if (tempFile.exists()) tempFile.length() else 0L,
+                        bytesVerified = currentBytes,
                         expectedSize = item.size,
                         state = TransferState.FAILED,
                     )
                 }
+                checkpointRepository?.updateProgress(
+                    transferKey = transferKey,
+                    receivedBytes = currentBytes,
+                    verifiedBytes = currentBytes,
+                    state = org.michimusic.core.models.TransferStatus.FAILED
+                )
                 return@withContext Result.failure(error)
             }
 
@@ -426,6 +461,7 @@ class LinkTransferManager(
     /**
      * Promotes .part to final file atomically.
      * If finalFile already exists and is valid, preserves it until promotion succeeds.
+     * The backup file (.bak) is preserved so callers can roll back if Room registration or post-transfer integrity fails.
      */
     private fun promoteDownload(tempFile: File, finalFile: File): Boolean {
         if (!tempFile.exists() || tempFile.length() <= 0L) return false
@@ -439,12 +475,32 @@ class LinkTransferManager(
 
         val renamed = tempFile.renameTo(finalFile)
         if (renamed) {
-            backupFile?.delete()
+            // Keep backupFile on disk so callers can roll back via restoreBackup(finalFile)
+            // Callers that succeed in registration should call discardBackup(finalFile)
             return true
         } else {
             // Restore previous good file if rename failed
             backupFile?.renameTo(finalFile)
             return false
+        }
+    }
+
+    fun restoreBackup(finalFile: File): Boolean {
+        val backupFile = File(finalFile.parentFile, "${finalFile.name}.bak")
+        return if (backupFile.exists()) {
+            if (finalFile.exists()) finalFile.delete()
+            backupFile.renameTo(finalFile)
+        } else {
+            false
+        }
+    }
+
+    fun discardBackup(finalFile: File): Boolean {
+        val backupFile = File(finalFile.parentFile, "${finalFile.name}.bak")
+        return if (backupFile.exists()) {
+            backupFile.delete()
+        } else {
+            false
         }
     }
 

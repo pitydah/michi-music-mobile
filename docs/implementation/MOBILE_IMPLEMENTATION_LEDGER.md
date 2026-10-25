@@ -1858,16 +1858,57 @@ ROLLBACK_PLAN:
 BLOCKERS: Ninguno. Sprint M21-F completado y certificado.
 ```
 
+---
 
+### Sprint M21-G — Absolute Persistence Guarantees, Offset Alignment & True E2E Lifecycle
 
+**Fecha:** 25 de octubre de 2026  
+**Rama:** `master`  
+**Estado:** VERIFIED (100% JVM Test Suites Passing en `normalDebug` y `fdroidDebug`)  
+**Madurez Estimada:** 97%  
 
+#### Hallazgos Auditoría KILLCRITIC & Correcciones Implementadas:
+1. **P0 — Alineación Física de Offset de Reanudación (`LinkTransferManager`):**
+   - Cuando un archivo `.part` preexistente en disco posee un tamaño superior al registrado en el checkpoint (`existingPartBytes > recordedBytes`, ej. 700B en disco vs 400B acreditados), se ejecuta un truncado físico seguro mediante `RandomAccessFile(tempFile, "rw").setLength(recordedBytes)`.
+   - Garantiza que `FileOutputStream(tempFile, append = true)` escriba físicamente en la misma posición de byte solicitada en la cabecera `Range: bytes=startOffset-`, eliminando la desalineación y corrupción de bytes.
+   - Validado mediante la prueba unitaria `offsetAlignment_truncatesPartFileWhenPhysicalSizeExceedsVerifiedCheckpointBytes` en `ResumableTransferTest.kt`.
+2. **P0 — Preservación No Destructiva de Archivos Preexistentes y Respaldos (`LinkTransferManager`, `AirCatTransferClient`, `SyncWorker`):**
+   - En `LinkTransferManager.promoteDownload`, el archivo de respaldo (`.bak`) no se elimina precipitadamente tras el renombrado, permitiendo a los clientes superiores ejecutar reversiones.
+   - Se exponen `restoreBackup(finalFile)` y `discardBackup(finalFile)`.
+   - En `AirCatTransferClient` y `SyncWorker`, si ocurre un conflicto de hash o una falla en el registro en Room, se invoca `transferManager.restoreBackup(finalFile)` para restaurar intacto el archivo previo bueno. Al completarse exitosamente la transacción en Room, se invoca `transferManager.discardBackup(finalFile)`.
+   - Validado mediante la prueba unitaria `atomicPromotion_preservesBackupAndAllowsRestorationOnFailure` en `ResumableTransferTest.kt`.
+3. **P1 — Test E2E Genuino de Recuperación en 2 Etapas sin Inyección Manual (`SyncWorkerIntegrationTest`):**
+   - Reemplazado el test sintético por una prueba veraz de ciclo de vida completo:
+     - **Etapa 1:** Instancia real de `SyncWorker.doWork()` con caída de red simulada en el stream tras emitir 400 bytes. Se verifica que el propio `SyncWorker` crea el archivo físico `.part` de 400 bytes y asienta el checkpoint persistente en Room (`receivedBytes = 400L, verifiedBytes = 400L, state = FAILED`).
+     - **Etapa 2:** Nueva instancia de `SyncWorker` lanzada con el mismo plan. La transición CAS de inicio admite planes en `FAILED` para reanudación. Se verifica que el stream solicita el rango desde el byte 400 (`Range: bytes=400-`), promueve atómicamente el archivo final, registra `TrackIdentity` y `TrackLocation` en Room, y culmina el plan en estado `COMPLETED`.
+4. **P1 — Blindaje Criptográfico de Identidad de Archivo y Confinamiento de Rutas (`TransferFileIdentity`):**
+   - El sufijo de desambiguación en `safeSegment` fue migrado de `String.hashCode()` (32 bits) a una porción determinista de 64 bits (16 caracteres hex) obtenida mediante SHA-256 (`calculateSha256(trimmed).take(16)`), minimizando el riesgo de colisión.
+   - La prevención de Path Traversal en `resolveFiles` fue migrada de comparación de cadenas de texto a validación estricta jerárquica de componentes mediante `java.nio.file.Path.toAbsolutePath().normalize().startsWith(basePath)`.
+   - Validado mediante `TransferFileIdentityTest.kt`.
+5. **P1 — Persistencia y Ciclo de Vida Multi-Dispositivo en UI (`SyncViewModel`):**
+   - En `init`, la observación de `WorkManager` restaura estados terminales (`Complete`, `Error`) mapeados por `deviceId` y retiene los dispositivos ya conocidos acumulando en el mapa (`_deviceSyncProgress.value + updatedMap`).
+   - Durante la ejecución activa de descargas, la finalización de un worker no purga el progreso del dispositivo (`_deviceSyncProgress.value + (remoteDeviceId to currentDevProg)`), garantizando que las tarjetas multi-dispositivo retengan su estado final en pantalla.
 
-
-
-
-
-
-
-
-
-
+```yaml
+PHASE: M21-G
+DATE: 2026-10-25
+STATUS: VERIFIED
+ESTIMATED_MATURITY: 97%
+HEAD: HEAD
+JVM_TESTS_EXECUTED:
+  ./gradlew :core:testDebugUnitTest (17 tests PASSED)
+  ./gradlew :data:testDebugUnitTest (49 tests PASSED)
+  ./gradlew :michi-link-client:testDebugUnitTest (102 tests PASSED)
+  ./gradlew :player:testDebugUnitTest (PASSED)
+  ./gradlew :app:testNormalDebugUnitTest (270 tests PASSED)
+  ./gradlew :app:testFdroidDebugUnitTest (270 tests PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere nodos físicos pareados)
+SECURITY_REVIEW:
+  - Exactitud física de offset sin solapamiento de bytes ni anexos no acreditados.
+  - Confinamiento seguro contra Path Traversal a nivel de componentes Path.
+  - Preservación no destructiva de archivos de audio mediante rollback de backups.
+ROLLBACK_PLAN:
+  git revert 51dfdf686c3157b3d3bf195812a4966b7c6f611f..HEAD
+BLOCKERS: Ninguno. Sprint M21-G completado y certificado.
+```

@@ -1,6 +1,7 @@
 package org.michimusic.link.transfer
 
 import android.content.Context
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
@@ -389,6 +390,152 @@ class ResumableTransferTest {
         val checkpoint = transferManager.checkpoints.value[trackId]
         assertEquals(ResumeMode.RESTARTED_FROM_ZERO, checkpoint?.resumeMode)
         assertEquals(TransferState.COMPLETED, checkpoint?.state)
+    }
+
+    @Test
+    fun offsetAlignment_truncatesPartFileWhenPhysicalSizeExceedsVerifiedCheckpointBytes() = runBlocking {
+        val fullData = ByteArray(1000) { (it % 100).toByte() }
+        val totalSize = fullData.size.toLong()
+        val expectedHash = sha256(fullData)
+        val trackId = "track_align_test"
+
+        // Simulated scenario: physical .part file has 700 bytes on disk (e.g. 400 good bytes + 300 unverified bytes)
+        val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
+        val partFile = File(musicDir, "$trackId.mp3.part")
+        // Write 400 valid bytes + 300 garbage bytes
+        val initialPartData = fullData.sliceArray(0 until 400) + ByteArray(300) { 0xFF.toByte() }
+        partFile.writeBytes(initialPartData)
+        assertEquals(700L, partFile.length())
+
+        val mockCheckpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val cp = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = trackId,
+            transferId = "plan_1",
+            remoteDeviceId = "dev_1",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+            trackId = trackId,
+            remoteTrackId = trackId,
+            tempFilePath = partFile.absolutePath,
+            finalFilePath = File(musicDir, "$trackId.mp3").absolutePath,
+            expectedSize = totalSize,
+            receivedBytes = 400L,
+            verifiedBytes = 400L,
+            expectedSha256 = expectedHash,
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+        )
+        coEvery { mockCheckpointRepo.getCheckpoint(trackId) } returns cp
+
+        val alignedTransferManager = LinkTransferManager(mockContext, mockCheckpointRepo)
+        val mockClient = mockk<LinkClient>()
+
+        // LinkClient must be called with startBytes = 400L
+        every {
+            runBlocking {
+                mockClient.streamTrackRange(
+                    trackId = trackId,
+                    outputStream = any(),
+                    startBytes = 400L,
+                    expectedEtag = any(),
+                    bufferSize = any(),
+                    onProgress = any(),
+                )
+            }
+        } answers {
+            val os = secondArg<OutputStream>()
+            // Server streams remaining 600 bytes
+            val remaining = fullData.sliceArray(400 until 1000)
+            os.write(remaining)
+            Result.success(
+                StreamRangeResult(
+                    bytesRead = remaining.size.toLong(),
+                    statusCode = 206,
+                    isPartialContent = true,
+                    etag = "etag-align",
+                )
+            )
+        }
+
+        val item = DownloadItem(
+            trackId = trackId,
+            title = "Aligned Track",
+            format = "mp3",
+            size = totalSize,
+            checksum = expectedHash,
+            transferKey = trackId,
+        )
+
+        val result = alignedTransferManager.downloadTrack(mockClient, item)
+        assertTrue("Download must succeed with offset alignment", result.isSuccess)
+
+        val finalFile = result.getOrThrow()
+        assertEquals(1000L, finalFile.length())
+        assertEquals("Sha256 must match exactly without corrupted byte overlap", expectedHash, sha256(finalFile.readBytes()))
+    }
+
+    @Test
+    fun atomicPromotion_preservesBackupAndAllowsRestorationOnFailure() = runBlocking {
+        val originalData = "original_good_audio_content".toByteArray()
+        val originalHash = sha256(originalData)
+        val trackId = "track_backup_test"
+
+        val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
+        val finalFile = File(musicDir, "$trackId.mp3")
+        finalFile.writeBytes(originalData)
+
+        val newData = "new_downloaded_audio_content_that_replaces_old".toByteArray()
+        val newHash = sha256(newData)
+        val mockClient = mockk<LinkClient>()
+
+        every {
+            runBlocking {
+                mockClient.streamTrackRange(
+                    trackId = trackId,
+                    outputStream = any(),
+                    startBytes = 0L,
+                    expectedEtag = any(),
+                    bufferSize = any(),
+                    onProgress = any(),
+                )
+            }
+        } answers {
+            val os = secondArg<OutputStream>()
+            os.write(newData)
+            Result.success(
+                StreamRangeResult(
+                    bytesRead = newData.size.toLong(),
+                    statusCode = 200,
+                    isPartialContent = false,
+                    etag = "etag-new",
+                )
+            )
+        }
+
+        val item = DownloadItem(
+            trackId = trackId,
+            title = "Backup Test Track",
+            format = "mp3",
+            size = newData.size.toLong(),
+            checksum = newHash,
+            transferKey = trackId,
+        )
+
+        val result = transferManager.downloadTrack(mockClient, item)
+        assertTrue(result.isSuccess)
+
+        // After download, finalFile has new content
+        assertEquals(newHash, sha256(finalFile.readBytes()))
+
+        // .bak file exists with original data
+        val backupFile = File(musicDir, "$trackId.mp3.bak")
+        assertTrue(".bak must be preserved on disk for caller rollback", backupFile.exists())
+        assertEquals(originalHash, sha256(backupFile.readBytes()))
+
+        // Simulate rollback by caller
+        val restored = transferManager.restoreBackup(finalFile)
+        assertTrue("restoreBackup should succeed", restored)
+        assertEquals("File must be restored to original content", originalHash, sha256(finalFile.readBytes()))
+        assertFalse(".bak must not exist after restoration", backupFile.exists())
     }
 }
 

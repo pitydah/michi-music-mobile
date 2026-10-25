@@ -14,16 +14,18 @@ object TransferFileIdentity {
     /**
      * Sanitiza un segmento de ruta para evitar path traversal, caracteres prohibidos
      * o colisiones por espacios en blanco. Si la cadena original contiene caracteres
-     * sanitizados o potencialmente ambiguos, se adjunta un sufijo determinista basado en hash
-     * para evitar colisiones entre distintos valores que produzcan el mismo segmento sanitizado.
+     * sanitizados o potencialmente ambiguos, se adjunta un sufijo determinista basado en SHA-256
+     * (16 caracteres hexadecimales) para garantizar resistencia criptográfica contra colisiones.
      */
     fun safeSegment(value: String, default: String = "segment"): String {
         val trimmed = value.trim()
         val sanitized = trimmed.replace(UNSAFE_CHARS_REGEX, "_")
         val base = sanitized.ifBlank { default }
         return if (trimmed != sanitized && trimmed.isNotBlank()) {
-            val hash = (trimmed.hashCode().toLong() and 0xFFFFFFFFL).toString(16)
-            "${base}_$hash"
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val hashBytes = md.digest(trimmed.toByteArray(Charsets.UTF_8))
+            val hashHex = hashBytes.take(8).joinToString("") { "%02x".format(it) }
+            "${base}_$hashHex"
         } else {
             base
         }
@@ -109,12 +111,15 @@ object TransferFileIdentity {
         val finalFile = File(musicDir, finalName)
         val tempFile = File(musicDir, tempName)
 
-        // Verificación de seguridad: asegurar que las rutas permanezcan dentro de musicDir
-        val canonicalBase = musicDir.canonicalPath
-        check(finalFile.canonicalPath.startsWith(canonicalBase)) {
+        // Verificación de seguridad robusta: confinamiento estricto por componentes jerárquicos de ruta
+        val basePath = musicDir.toPath().toAbsolutePath().normalize()
+        val finalPath = finalFile.toPath().toAbsolutePath().normalize()
+        val tempPath = tempFile.toPath().toAbsolutePath().normalize()
+
+        check(finalPath.startsWith(basePath)) {
             "Path traversal detectado en archivo final: ${finalFile.absolutePath}"
         }
-        check(tempFile.canonicalPath.startsWith(canonicalBase)) {
+        check(tempPath.startsWith(basePath)) {
             "Path traversal detectado en archivo temporal: ${tempFile.absolutePath}"
         }
 

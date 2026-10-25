@@ -14,6 +14,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -856,7 +857,6 @@ class SyncWorkerIntegrationTest {
         val planId = "plan_e2e_resume"
         val destLibId = "lib_synced_${testDeviceId}"
 
-        // Simulate interruption: Seed a valid checkpoint and partial .part file
         val musicDir = File(context.filesDir, "synced_music").also { it.mkdirs() }
         val (finalFile, tempFile) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
             musicDir = musicDir,
@@ -866,10 +866,6 @@ class SyncWorkerIntegrationTest {
             format = "flac",
             planId = planId,
         )
-
-        // Write first 400 bytes to tempFile
-        tempFile.writeBytes(fullData.copyOfRange(0, partialBytes.toInt()))
-
         val transferKey = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(
             remoteDeviceId = testDeviceId,
             destinationLibraryId = destLibId,
@@ -877,53 +873,10 @@ class SyncWorkerIntegrationTest {
             planId = planId,
         )
 
-        db.transferCheckpointDao().insertCheckpoint(
-            org.michimusic.data.cache.TransferCheckpointEntity(
-                transferKey = transferKey,
-                transferId = planId,
-                remoteDeviceId = testDeviceId,
-                sourceLibraryId = testDeviceId,
-                destinationLibraryId = destLibId,
-                trackId = trackId,
-                remoteTrackId = trackId,
-                tempFilePath = tempFile.absolutePath,
-                finalFilePath = finalFile.absolutePath,
-                expectedSize = totalBytes,
-                receivedBytes = partialBytes,
-                verifiedBytes = partialBytes,
-                etag = "etag_interrupted_123",
-                expectedSha256 = expectedSha,
-                transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING.name,
-                createdAt = System.currentTimeMillis() - 5000,
-                updatedAt = System.currentTimeMillis() - 5000,
-            )
-        )
-
-        // Mock range streaming from offset 400L
-        var streamStartBytes: Long = -1L
-        coEvery {
-            mockClient.streamTrackRange(
-                trackId = trackId,
-                outputStream = any(),
-                startBytes = any(),
-                expectedEtag = any(),
-                bufferSize = any(),
-                onProgress = any(),
-            )
-        } answers {
-            streamStartBytes = thirdArg<Long>()
-            val stream = secondArg<OutputStream>()
-            val remaining = fullData.copyOfRange(streamStartBytes.toInt(), fullData.size)
-            stream.write(remaining)
-            Result.success(
-                org.michimusic.link.StreamRangeResult(
-                    bytesRead = remaining.size.toLong(),
-                    statusCode = 206,
-                    isPartialContent = true,
-                    etag = "etag_interrupted_123",
-                )
-            )
-        }
+        // Ensure clean state before Stage 1
+        if (finalFile.exists()) finalFile.delete()
+        if (tempFile.exists()) tempFile.delete()
+        db.transferCheckpointDao().deleteCheckpoint(transferKey)
 
         val approvedDecisions = listOf(
             SyncItemDecision(
@@ -931,9 +884,9 @@ class SyncWorkerIntegrationTest {
                 title = "Resumable Track",
                 artist = "Artist Resume",
                 album = "Album Resume",
-                action = SyncItemAction.RESUME_PARTIAL,
+                action = SyncItemAction.DOWNLOAD,
                 sourceSizeBytes = totalBytes,
-                estimatedDownloadBytes = totalBytes - partialBytes,
+                estimatedDownloadBytes = totalBytes,
             )
         )
 
@@ -949,41 +902,126 @@ class SyncWorkerIntegrationTest {
             manifestChecksum = "sha_manifest_resume",
             totalSelectedTracks = 1,
             tracksToDownloadCount = 1,
-            totalDownloadBytes = totalBytes - partialBytes,
+            totalDownloadBytes = totalBytes,
             status = "READY",
             executionState = TransferLifecycleState.QUEUED.name,
             createdAt = System.currentTimeMillis(),
         )
         db.approvedSyncPlanDao().insertPlan(planEntity)
 
-        // Instantiate brand-new worker after process restart
-        val newWorker = TestListenableWorkerBuilder<SyncWorker>(context)
+        // =========================================================================
+        // STAGE 1: Genuine Worker 1 execution with network interruption mid-transfer
+        // =========================================================================
+        var stage1Called = false
+        coEvery {
+            mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = 0L,
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            stage1Called = true
+            val stream = secondArg<OutputStream>()
+            val onProg = arg<((Long, Long?) -> Unit)?>(5)
+            // Stream writes first 400 bytes physically to disk
+            stream.write(fullData.copyOfRange(0, partialBytes.toInt()))
+            stream.flush()
+            onProg?.invoke(partialBytes, totalBytes)
+            // Simulate sudden network connection drop / socket reset
+            Result.failure(java.io.IOException("Simulated network drop mid-transfer"))
+        }
+
+        val workerStage1 = TestListenableWorkerBuilder<SyncWorker>(context)
             .setInputData(
                 SyncWorker.buildInputData(
                     baseUrl = "http://127.0.0.1:8400",
                     deviceId = testDeviceId,
                     alias = "Production Desktop Node",
                     planId = planId,
-                    expectedBytes = totalBytes - partialBytes,
+                    expectedBytes = totalBytes,
                 )
             )
             .build()
 
-        val workResult = newWorker.doWork()
+        val stage1Result = workerStage1.doWork()
+        assertTrue("Stage 1 was invoked", stage1Called)
+        assertTrue("Stage 1 must fail due to network interruption, got $stage1Result", stage1Result is ListenableWorker.Result.Failure)
 
-        // Decisive Checks:
+        // Stage 1 Invariant Verification:
+        // 1. SyncWorker itself created the physical .part file on disk with exactly 400 bytes
+        assertTrue(".part file must exist on disk after stage 1", tempFile.exists())
+        assertEquals(partialBytes, tempFile.length())
+
+        // 2. SyncWorker itself saved the persistent checkpoint in Room with 400 bytes
+        val checkpointAfterStage1 = db.transferCheckpointDao().getCheckpoint(transferKey)
+        assertNotNull("Checkpoint must have been written to Room by SyncWorker in Stage 1", checkpointAfterStage1)
+        assertEquals(partialBytes, checkpointAfterStage1?.receivedBytes)
+        assertEquals(partialBytes, checkpointAfterStage1?.verifiedBytes)
+        assertEquals(org.michimusic.core.models.TransferStatus.FAILED.name, checkpointAfterStage1?.transferState)
+
+        // 3. Final file must NOT exist yet and track must NOT be registered in Room
+        assertFalse("Final file must not exist after Stage 1 failure", finalFile.exists())
+        assertNull("TrackIdentity must not be registered after Stage 1 failure", db.trackIdentityDao().getTrackIdentity(trackId))
+
+        // =========================================================================
+        // STAGE 2: Second Worker instance executes with same plan and resumes transfer
+        // =========================================================================
+        var stage2StreamStartBytes: Long = -1L
+        coEvery {
+            mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = any(),
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            stage2StreamStartBytes = thirdArg<Long>()
+            val stream = secondArg<OutputStream>()
+            val remaining = fullData.copyOfRange(stage2StreamStartBytes.toInt(), fullData.size)
+            stream.write(remaining)
+            Result.success(
+                org.michimusic.link.StreamRangeResult(
+                    bytesRead = remaining.size.toLong(),
+                    statusCode = 206,
+                    isPartialContent = true,
+                    etag = "etag_interrupted_123",
+                )
+            )
+        }
+
+        val workerStage2 = TestListenableWorkerBuilder<SyncWorker>(context)
+            .setInputData(
+                SyncWorker.buildInputData(
+                    baseUrl = "http://127.0.0.1:8400",
+                    deviceId = testDeviceId,
+                    alias = "Production Desktop Node",
+                    planId = planId,
+                    expectedBytes = totalBytes,
+                )
+            )
+            .build()
+
+        val stage2Result = workerStage2.doWork()
+
+        // Stage 2 Invariant Verification:
         // 1. Worker succeeds
-        assertTrue("Resumed worker must succeed, got $workResult", workResult is ListenableWorker.Result.Success)
-        val output = (workResult as ListenableWorker.Result.Success).outputData
+        assertTrue("Stage 2 resumed worker must succeed, got $stage2Result", stage2Result is ListenableWorker.Result.Success)
+        val output = (stage2Result as ListenableWorker.Result.Success).outputData
         assertEquals(1, output.getInt(SyncWorker.RESULT_DOWNLOADED, -1))
         assertEquals(0, output.getInt(SyncWorker.RESULT_ERROR, -1))
 
-        // 2. Stream started precisely from partialBytes (400L)
-        assertEquals(partialBytes, streamStartBytes)
+        // 2. Stream started precisely from partialBytes (400L) without restarting from 0L
+        assertEquals(partialBytes, stage2StreamStartBytes)
 
-        // 3. Final promoted file exists and has full length
+        // 3. Final promoted file exists and has full length (1000L)
         assertTrue("Final file must exist", finalFile.exists())
         assertEquals(totalBytes, finalFile.length())
+        assertFalse(".part file must be cleaned up upon promotion", tempFile.exists())
 
         // 4. Room Multi-Library registration completed atomically
         val trackIdentity = db.trackIdentityDao().getTrackIdentity(trackId)

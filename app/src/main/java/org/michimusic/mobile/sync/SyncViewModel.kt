@@ -224,10 +224,19 @@ class SyncViewModel(
                                     val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
                                     val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
                                     updatedMap[devId] = SyncProgress.Downloading(current, total, devId)
+                                } else if (workInfo.state == WorkInfo.State.SUCCEEDED) {
+                                    val output = workInfo.outputData
+                                    val downloaded = output.getInt(SyncWorker.RESULT_DOWNLOADED, 0)
+                                    val errors = output.getInt(SyncWorker.RESULT_ERROR, 0)
+                                    updatedMap[devId] = SyncProgress.Complete(tracks = downloaded + errors, downloaded = downloaded, errors = errors)
+                                } else if (workInfo.state == WorkInfo.State.FAILED) {
+                                    val output = workInfo.outputData
+                                    val errors = output.getInt(SyncWorker.RESULT_ERROR, 1)
+                                    updatedMap[devId] = SyncProgress.Error("Sincronización fallida ($errors error(es))")
                                 }
                             }
                         }
-                        _deviceSyncProgress.value = updatedMap
+                        _deviceSyncProgress.value = _deviceSyncProgress.value + updatedMap
                         val anyActive = updatedMap.values.find { it is SyncProgress.Downloading }
                         if (anyActive != null) {
                             _syncProgress.value = anyActive
@@ -800,11 +809,7 @@ class SyncViewModel(
                         SyncProgress.Downloading(current, total, remoteDeviceId)
                     }
 
-                    _deviceSyncProgress.value = if (info.state.isFinished) {
-                        _deviceSyncProgress.value - remoteDeviceId
-                    } else {
-                        _deviceSyncProgress.value + (remoteDeviceId to currentDevProg)
-                    }
+                    _deviceSyncProgress.value = _deviceSyncProgress.value + (remoteDeviceId to currentDevProg)
                     _syncProgress.value = currentDevProg
                 }
         }

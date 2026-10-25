@@ -161,11 +161,20 @@ class SyncWorker(
                 nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
             ) ?: false
             val transitioned = if (!transitionedFromQueued) {
-                approvedPlanRepo?.tryTransitionState(
+                val fromRetry = approvedPlanRepo?.tryTransitionState(
                     planId = planId,
                     expectedState = org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING,
                     nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
                 ) ?: false
+                if (!fromRetry) {
+                    approvedPlanRepo?.tryTransitionState(
+                        planId = planId,
+                        expectedState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                    ) ?: false
+                } else {
+                    true
+                }
             } else {
                 true
             }
@@ -555,6 +564,7 @@ class SyncWorker(
                         }
 
                         if (regResult.isSuccess) {
+                            transferManager.discardBackup(file)
                             checkpointRepo?.updateProgress(
                                 transferKey = transferKey,
                                 receivedBytes = file.length(),
@@ -564,6 +574,10 @@ class SyncWorker(
                             downloaded++
                         } else {
                             android.util.Log.e("SyncWorker", "Error al registrar pista $id en la biblioteca: ${regResult.exceptionOrNull()?.message}")
+                            val restored = transferManager.restoreBackup(file)
+                            if (!restored && file.exists()) {
+                                file.delete()
+                            }
                             checkpointRepo?.updateProgress(
                                 transferKey = transferKey,
                                 receivedBytes = if (file.exists()) file.length() else 0L,
@@ -574,10 +588,19 @@ class SyncWorker(
                         }
                     },
                     onFailure = {
+                        val (_, tempCandidate) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+                            musicDir = transferManager.musicDir,
+                            remoteDeviceId = deviceId,
+                            destinationLibraryId = destLibId,
+                            trackId = id,
+                            format = manifestTrackMap[id]?.format ?: "mp3",
+                            planId = planId,
+                        )
+                        val preservedBytes = if (tempCandidate.exists()) tempCandidate.length() else 0L
                         checkpointRepo?.updateProgress(
                             transferKey = transferKey,
-                            receivedBytes = 0L,
-                            verifiedBytes = 0L,
+                            receivedBytes = preservedBytes,
+                            verifiedBytes = preservedBytes,
                             state = org.michimusic.core.models.TransferStatus.FAILED
                         )
                         errors++

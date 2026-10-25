@@ -29,6 +29,11 @@ class TransferFileIdentityTest {
         assertTrue(segSlash.startsWith("album_2026_"))
         assertTrue(segQuestion.startsWith("album_2026_"))
         assertTrue(segColon.startsWith("album_2026_"))
+
+        // Verify that the hash suffix is 16 hex characters (64-bit deterministic hash slice)
+        val hashSlice = segSlash.removePrefix("album_2026_")
+        assertEquals(16, hashSlice.length)
+        assertTrue(hashSlice.all { it in "0123456789abcdef" })
     }
 
     @Test
