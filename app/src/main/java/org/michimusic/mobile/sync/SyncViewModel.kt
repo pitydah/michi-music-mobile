@@ -67,6 +67,7 @@ data class SyncUiState(
     val error: String? = null,
     val syncProgress: SyncProgress = SyncProgress.Idle,
     val deviceSyncProgress: Map<String, SyncProgress> = emptyMap(),
+    val planSyncProgress: Map<String, SyncProgress> = emptyMap(),
     val airCatProgress: org.michimusic.mobile.devices.aircat.AirCatProgressEvent? = null,
     val availableStorageBytes: Long = 0L,
 )
@@ -93,6 +94,7 @@ class SyncViewModel(
     private val _error = MutableStateFlow<String?>(null)
     private val _syncProgress = MutableStateFlow<SyncProgress>(SyncProgress.Idle)
     private val _deviceSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
+    private val _planSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
     private val _pairingStrategy = MutableStateFlow(PairingStrategy.LEGACY)
 
     val uiState: StateFlow<SyncUiState> = combine(
@@ -169,25 +171,31 @@ class SyncViewModel(
             _error,
             _syncProgress,
             _deviceSyncProgress,
+            _planSyncProgress,
             airCatClient?.progressEvents ?: MutableStateFlow(null)
-        ) { err, progress, devMap, airCatEvt ->
+        ) { err, progress, devMap, planMap, airCatEvt ->
             val effectiveProg = if (progress is SyncProgress.Idle) {
-                devMap.values.find { it is SyncProgress.Downloading || it is SyncProgress.Cancelling } ?: progress
+                devMap.values.find { it is SyncProgress.Downloading || it is SyncProgress.Cancelling }
+                    ?: planMap.values.find { it is SyncProgress.Downloading || it is SyncProgress.Cancelling }
+                    ?: progress
             } else {
                 progress
             }
-            listOf(err, effectiveProg, devMap, airCatEvt)
+            listOf(err, effectiveProg, devMap, planMap, airCatEvt)
         }
     ) { state, items ->
         val err = items[0] as? String
         val progress = items[1] as SyncProgress
         @Suppress("UNCHECKED_CAST")
         val devMap = items[2] as Map<String, SyncProgress>
-        val airCatEvt = items[3] as? org.michimusic.mobile.devices.aircat.AirCatProgressEvent
+        @Suppress("UNCHECKED_CAST")
+        val planMap = items[3] as Map<String, SyncProgress>
+        val airCatEvt = items[4] as? org.michimusic.mobile.devices.aircat.AirCatProgressEvent
         state.copy(
             error = err,
             syncProgress = progress,
             deviceSyncProgress = devMap,
+            planSyncProgress = planMap,
             airCatProgress = airCatEvt
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = _connectionState.value))
@@ -773,16 +781,27 @@ class SyncViewModel(
         )
 
         val safeDev = remoteDeviceId.replace(Regex("[^A-Za-z0-9_]"), "_")
-        val workRequest = OneTimeWorkRequestBuilder<SyncWorker>()
+        val safePlan = if (planId.isNotEmpty()) planId.replace(Regex("[^A-Za-z0-9_]"), "_") else ""
+        val workRequestBuilder = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(inputData)
             .addTag("michi_sync")
             .addTag("michi_sync_$safeDev")
+
+        if (safePlan.isNotEmpty()) {
+            workRequestBuilder.addTag("michi_sync_plan_$safePlan")
+        }
+
+        val workRequest = workRequestBuilder
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
 
-        val workName = "michi_sync_$safeDev"
+        val workName = if (safePlan.isNotEmpty()) "michi_sync_plan_$safePlan" else "michi_sync_$safeDev"
         WorkManager.getInstance(context)
             .enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, workRequest)
+
+        if (planId.isNotEmpty()) {
+            _planSyncProgress.value = _planSyncProgress.value + (planId to SyncProgress.Downloading(0, 0, remoteDeviceId))
+        }
 
         viewModelScope.launch {
             WorkManager.getInstance(context)
@@ -792,7 +811,7 @@ class SyncViewModel(
                     val progress = info.progress
                     val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
                     val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
-                    val currentDevProg = if (info.state.isFinished) {
+                    val currentProg = if (info.state.isFinished) {
                         if (info.state == WorkInfo.State.SUCCEEDED) {
                             val output = info.outputData
                             val downloaded = output.getInt(SyncWorker.RESULT_DOWNLOADED, current)
@@ -809,9 +828,45 @@ class SyncViewModel(
                         SyncProgress.Downloading(current, total, remoteDeviceId)
                     }
 
-                    _deviceSyncProgress.value = _deviceSyncProgress.value + (remoteDeviceId to currentDevProg)
-                    _syncProgress.value = currentDevProg
+                    _deviceSyncProgress.value = _deviceSyncProgress.value + (remoteDeviceId to currentProg)
+                    if (planId.isNotEmpty()) {
+                        _planSyncProgress.value = _planSyncProgress.value + (planId to currentProg)
+                    }
+                    _syncProgress.value = currentProg
                 }
+        }
+    }
+
+    fun retryPlan(planId: String) {
+        val approvedRepo = approvedPlanRepository ?: org.michimusic.mobile.di.approvedSyncPlanRepository
+        if (approvedRepo == null) return
+
+        viewModelScope.launch {
+            val approvedPlan = approvedRepo.getPlan(planId) ?: return@launch
+            if (approvedPlan.executionState == org.michimusic.core.models.TransferLifecycleState.FAILED.name) {
+                // Transition plan explicitly from FAILED back to QUEUED to allow re-acquisition
+                approvedRepo.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.QUEUED)
+            }
+            val decisions = try {
+                kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    .decodeFromString<List<org.michimusic.core.models.SyncItemDecision>>(approvedPlan.itemsJson)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val tracksToDownload = decisions.filter {
+                it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
+                it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
+                it.action == org.michimusic.core.models.SyncItemAction.REPLACE_BETTER_QUALITY
+            }.map { it.trackId }
+
+            syncLibrary(
+                targetDeviceId = approvedPlan.endpointId,
+                selectedTrackIds = tracksToDownload,
+                profile = "ORIGINAL",
+                scope = approvedPlan.scope,
+                planId = approvedPlan.planId,
+                expectedBytes = approvedPlan.totalDownloadBytes,
+            )
         }
     }
 

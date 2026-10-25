@@ -948,19 +948,23 @@ class SyncWorkerIntegrationTest {
 
         val stage1Result = workerStage1.doWork()
         assertTrue("Stage 1 was invoked", stage1Called)
-        assertTrue("Stage 1 must fail due to network interruption, got $stage1Result", stage1Result is ListenableWorker.Result.Failure)
+        assertTrue("Stage 1 must request retry on transient network interruption, got $stage1Result", stage1Result is ListenableWorker.Result.Retry)
 
         // Stage 1 Invariant Verification:
         // 1. SyncWorker itself created the physical .part file on disk with exactly 400 bytes
         assertTrue(".part file must exist on disk after stage 1", tempFile.exists())
         assertEquals(partialBytes, tempFile.length())
 
-        // 2. SyncWorker itself saved the persistent checkpoint in Room with 400 bytes
+        // 2. SyncWorker itself saved the persistent checkpoint in Room with 400 received bytes and 0 verified bytes
         val checkpointAfterStage1 = db.transferCheckpointDao().getCheckpoint(transferKey)
         assertNotNull("Checkpoint must have been written to Room by SyncWorker in Stage 1", checkpointAfterStage1)
         assertEquals(partialBytes, checkpointAfterStage1?.receivedBytes)
-        assertEquals(partialBytes, checkpointAfterStage1?.verifiedBytes)
+        assertEquals(0L, checkpointAfterStage1?.verifiedBytes)
         assertEquals(org.michimusic.core.models.TransferStatus.FAILED.name, checkpointAfterStage1?.transferState)
+
+        // Plan lifecycle must be in RETRY_PENDING (transient network failure)
+        val planAfterStage1 = db.approvedSyncPlanDao().getPlan(planId)
+        assertEquals(TransferLifecycleState.RETRY_PENDING.name, planAfterStage1?.executionState)
 
         // 3. Final file must NOT exist yet and track must NOT be registered in Room
         assertFalse("Final file must not exist after Stage 1 failure", finalFile.exists())
@@ -1035,4 +1039,49 @@ class SyncWorkerIntegrationTest {
         val planInDb = db.approvedSyncPlanDao().getPlan(planId)
         assertEquals(TransferLifecycleState.COMPLETED.name, planInDb?.executionState)
     }
+
+    @Test
+    fun syncWorker_terminalFailedPlan_failsClosedWithoutAutoRetry() = runBlocking {
+        // P0 Invariant: A plan in FAILED terminal state must NEVER be automatically claimed or retried
+        val planId = "plan_terminal_failed_test"
+        val planEntity = ApprovedSyncPlanEntity(
+            planId = planId,
+            endpointId = testDeviceId,
+            endpointName = "Production Desktop Node",
+            scope = "FULL_LIBRARY",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = "[]",
+            manifestVersion = 1,
+            manifestChecksum = "sha_test",
+            totalSelectedTracks = 0,
+            tracksToDownloadCount = 0,
+            totalDownloadBytes = 0L,
+            status = "FAILED",
+            executionState = TransferLifecycleState.FAILED.name,
+            createdAt = System.currentTimeMillis(),
+        )
+        db.approvedSyncPlanDao().insertPlan(planEntity)
+
+        val worker = TestListenableWorkerBuilder<SyncWorker>(context)
+            .setInputData(
+                SyncWorker.buildInputData(
+                    baseUrl = "http://127.0.0.1:8400",
+                    deviceId = testDeviceId,
+                    alias = "Production Desktop Node",
+                    planId = planId,
+                )
+            )
+            .build()
+
+        val result = worker.doWork()
+
+        // Must fail closed immediately
+        assertTrue("Worker must fail closed on terminal FAILED plan, got $result", result is ListenableWorker.Result.Failure)
+
+        // Plan state in Room must remain untouched as FAILED
+        val planAfterWork = db.approvedSyncPlanDao().getPlan(planId)
+        assertEquals(TransferLifecycleState.FAILED.name, planAfterWork?.executionState)
+    }
 }
+

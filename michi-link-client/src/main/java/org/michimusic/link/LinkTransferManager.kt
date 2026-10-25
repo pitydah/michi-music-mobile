@@ -233,13 +233,13 @@ class LinkTransferManager(
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(error.message ?: "Download failed"))
                 updateCheckpoint(transferKey) {
                     it?.copy(
-                        bytesVerified = currentBytes,
+                        bytesVerified = startOffset,
                         state = TransferState.FAILED,
                     ) ?: TransferCheckpoint(
                         trackId = item.trackId,
                         tempPath = tempFile.absolutePath,
                         finalPath = file.absolutePath,
-                        bytesVerified = currentBytes,
+                        bytesVerified = startOffset,
                         expectedSize = item.size,
                         state = TransferState.FAILED,
                     )
@@ -247,7 +247,7 @@ class LinkTransferManager(
                 checkpointRepository?.updateProgress(
                     transferKey = transferKey,
                     receivedBytes = currentBytes,
-                    verifiedBytes = currentBytes,
+                    verifiedBytes = startOffset,
                     state = org.michimusic.core.models.TransferStatus.FAILED
                 )
                 return@withContext Result.failure(error)
@@ -349,7 +349,7 @@ class LinkTransferManager(
             checkpointRepository?.updateProgress(
                 transferKey = transferKey,
                 receivedBytes = currentBytes,
-                verifiedBytes = currentBytes,
+                verifiedBytes = startOffset,
                 state = org.michimusic.core.models.TransferStatus.PAUSED
             )
             throw ce
@@ -358,7 +358,7 @@ class LinkTransferManager(
             _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed(e.message ?: "Error"))
             updateCheckpoint(transferKey) {
                 it?.copy(
-                    bytesVerified = currentBytes,
+                    bytesVerified = startOffset,
                     state = TransferState.FAILED,
                     updatedAt = System.currentTimeMillis(),
                 )
@@ -366,7 +366,7 @@ class LinkTransferManager(
             checkpointRepository?.updateProgress(
                 transferKey = transferKey,
                 receivedBytes = currentBytes,
-                verifiedBytes = currentBytes,
+                verifiedBytes = startOffset,
                 state = org.michimusic.core.models.TransferStatus.FAILED
             )
             Result.failure(e)
@@ -467,10 +467,14 @@ class LinkTransferManager(
         if (!tempFile.exists() || tempFile.length() <= 0L) return false
 
         val backupFile = if (finalFile.exists()) {
-            File(finalFile.parentFile, "${finalFile.name}.bak").also {
-                if (it.exists()) it.delete()
-                finalFile.renameTo(it)
+            val bak = File(finalFile.parentFile, "${finalFile.name}.bak")
+            if (bak.exists()) bak.delete()
+            val moved = finalFile.renameTo(bak)
+            if (!moved) {
+                // Moving existing file to backup failed: abort immediately without touching finalFile
+                return false
             }
+            bak
         } else null
 
         val renamed = tempFile.renameTo(finalFile)
@@ -502,6 +506,30 @@ class LinkTransferManager(
         } else {
             false
         }
+    }
+
+    /**
+     * Reconciles orphan .bak files remaining in musicDir after an unexpected process crash.
+     * If a target file is missing or corrupted/empty while its .bak exists, restores the .bak.
+     * If a target file is already present and valid, safely purges the redundant .bak.
+     * Returns the count of restored files.
+     */
+    fun reconcileOrphanBackups(targetDir: File = musicDir): Int {
+        if (!targetDir.exists() || !targetDir.isDirectory) return 0
+        var reconciledCount = 0
+        val backupFiles = targetDir.listFiles { file -> file.isFile && file.name.endsWith(".bak") } ?: return 0
+        for (backup in backupFiles) {
+            val targetName = backup.name.removeSuffix(".bak")
+            val targetFile = File(targetDir, targetName)
+            if (!targetFile.exists() || targetFile.length() == 0L) {
+                if (targetFile.exists()) targetFile.delete()
+                val restored = backup.renameTo(targetFile)
+                if (restored) reconciledCount++
+            } else if (targetFile.length() > 0L && backup.length() > 0L) {
+                backup.delete()
+            }
+        }
+        return reconciledCount
     }
 
     private fun safeFileName(value: String): String =

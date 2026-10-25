@@ -185,6 +185,7 @@ class DefaultAirCatTransferClient(
         }
 
         // 8. Transfer execution
+        transferManager.reconcileOrphanBackups(transferManager.musicDir)
         val downloadedFiles = mutableListOf<File>()
         var transferredBytesAcc = 0L
 
@@ -574,6 +575,9 @@ class DefaultAirCatTransferClient(
         if (pendingCheckpoints.isEmpty()) {
             return@withContext Result.success(emptyList())
         }
+
+        // Reconcile any orphan .bak files left from previously interrupted transfers
+        transferManager.reconcileOrphanBackups(transferManager.musicDir)
 
         val recoveredFiles = mutableListOf<File>()
         val totalExpectedBytes = pendingCheckpoints.sumOf { it.expectedSize }

@@ -82,4 +82,34 @@ class TransferFileIdentityTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test(expected = SecurityException::class)
+    fun resolveFiles_rejectsSymbolicLinks() {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "test_symlink_${System.currentTimeMillis()}").also { it.mkdirs() }
+        val outsideTarget = File(System.getProperty("java.io.tmpdir"), "outside_secret_${System.currentTimeMillis()}").also { it.writeText("secret") }
+        try {
+            val (finalFile, _) = TransferFileIdentity.resolveFiles(
+                musicDir = tempDir,
+                remoteDeviceId = "node",
+                destinationLibraryId = "lib",
+                trackId = "symtrack",
+                format = "mp3",
+            )
+            // Create a symlink in tempDir with the finalFile name pointing to outsideTarget
+            java.nio.file.Files.createSymbolicLink(finalFile.toPath(), outsideTarget.toPath())
+            assertTrue(java.nio.file.Files.isSymbolicLink(finalFile.toPath()))
+
+            // Calling resolveFiles again should detect the symlink and reject with SecurityException
+            TransferFileIdentity.resolveFiles(
+                musicDir = tempDir,
+                remoteDeviceId = "node",
+                destinationLibraryId = "lib",
+                trackId = "symtrack",
+                format = "mp3",
+            )
+        } finally {
+            tempDir.deleteRecursively()
+            outsideTarget.delete()
+        }
+    }
 }

@@ -123,6 +123,17 @@ object TransferFileIdentity {
             "Path traversal detectado en archivo temporal: ${tempFile.absolutePath}"
         }
 
+        // Rechazo estricto de enlaces simbólicos (symlinks)
+        if (java.nio.file.Files.isSymbolicLink(finalPath)) {
+            throw SecurityException("Acceso no autorizado: archivo final es un enlace simbólico (${finalFile.absolutePath})")
+        }
+        if (java.nio.file.Files.isSymbolicLink(tempPath)) {
+            throw SecurityException("Acceso no autorizado: archivo temporal es un enlace simbólico (${tempFile.absolutePath})")
+        }
+        if (java.nio.file.Files.isSymbolicLink(basePath)) {
+            throw SecurityException("Acceso no autorizado: directorio base de música es un enlace simbólico (${musicDir.absolutePath})")
+        }
+
         return Pair(finalFile, tempFile)
     }
 }

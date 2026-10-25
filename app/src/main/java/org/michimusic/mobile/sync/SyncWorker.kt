@@ -154,33 +154,25 @@ class SyncWorker(
 
             // Authoritative Execution Control (CAS): Acquire exclusive execution rights
             // before any mutations, network calls or checkpoint recoveries.
-            // Accepts plans in QUEUED or RETRY_PENDING state.
+            // Accepts plans in QUEUED or RETRY_PENDING state ONLY.
+            // Terminal FAILED plans must NOT be automatically re-acquired.
             val transitionedFromQueued = approvedPlanRepo?.tryTransitionState(
                 planId = planId,
                 expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
                 nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
             ) ?: false
             val transitioned = if (!transitionedFromQueued) {
-                val fromRetry = approvedPlanRepo?.tryTransitionState(
+                approvedPlanRepo?.tryTransitionState(
                     planId = planId,
                     expectedState = org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING,
                     nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
                 ) ?: false
-                if (!fromRetry) {
-                    approvedPlanRepo?.tryTransitionState(
-                        planId = planId,
-                        expectedState = org.michimusic.core.models.TransferLifecycleState.FAILED,
-                        nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                    ) ?: false
-                } else {
-                    true
-                }
             } else {
                 true
             }
             if (!transitioned) {
-                // Plan is already claimed by another active worker or in non-resumable state.
-                // Fail closed immediately to prevent concurrent worker execution.
+                // Plan is already claimed by another active worker, cancelled, or in terminal FAILED state.
+                // Fail closed immediately to prevent unauthorized or automatic loops.
                 client.close()
                 try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
@@ -496,6 +488,8 @@ class SyncWorker(
                     )
                 )
             }
+            // Reconcile any orphan .bak files from previous interrupted promotions
+            transferManager.reconcileOrphanBackups()
 
             val results = transferManager.downloadTracks(
                 client = client,
@@ -597,10 +591,11 @@ class SyncWorker(
                             planId = planId,
                         )
                         val preservedBytes = if (tempCandidate.exists()) tempCandidate.length() else 0L
+                        val existingCp = checkpointRepo?.getCheckpoint(transferKey)
                         checkpointRepo?.updateProgress(
                             transferKey = transferKey,
                             receivedBytes = preservedBytes,
-                            verifiedBytes = preservedBytes,
+                            verifiedBytes = existingCp?.verifiedBytes ?: 0L,
                             state = org.michimusic.core.models.TransferStatus.FAILED
                         )
                         errors++
@@ -615,15 +610,33 @@ class SyncWorker(
             val totalPlanErrors = errors + rejectedPlanTracksCount
 
             if (totalPlanErrors > 0 && downloaded == 0) {
-                if (planId.isNotEmpty()) {
-                    approvedPlanRepo?.tryTransitionState(
-                        planId = planId,
-                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
-                        errorMessage = "$totalPlanErrors error(es) en sincronización",
-                    )
+                val hasTransientError = results.values.any { res ->
+                    val ex = res.exceptionOrNull()
+                    ex is java.io.IOException && ex !is org.michimusic.link.errors.LinkException &&
+                        ex !is org.michimusic.link.transfer.TransferChecksumMismatchException &&
+                        ex !is org.michimusic.link.transfer.TransferSizeMismatchException
                 }
-                Result.failure(workDataOf(RESULT_ERROR to totalPlanErrors, RESULT_DOWNLOADED to 0))
+                if (hasTransientError && runAttemptCount < 3) {
+                    if (planId.isNotEmpty()) {
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING,
+                            errorMessage = "Fallo transitorio de red, reintento pendiente",
+                        )
+                    }
+                    Result.retry()
+                } else {
+                    if (planId.isNotEmpty()) {
+                        approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                            errorMessage = "$totalPlanErrors error(es) en sincronización",
+                        )
+                    }
+                    Result.failure(workDataOf(RESULT_ERROR to totalPlanErrors, RESULT_DOWNLOADED to 0))
+                }
             } else if (totalPlanErrors > 0 && downloaded > 0) {
                 if (planId.isNotEmpty()) {
                     approvedPlanRepo?.tryTransitionState(

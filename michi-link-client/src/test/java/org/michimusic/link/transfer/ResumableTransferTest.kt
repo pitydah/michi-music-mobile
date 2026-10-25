@@ -537,5 +537,79 @@ class ResumableTransferTest {
         assertEquals("File must be restored to original content", originalHash, sha256(finalFile.readBytes()))
         assertFalse(".bak must not exist after restoration", backupFile.exists())
     }
+
+    @Test
+    fun reconcileOrphanBackups_restoresMissingTargetFromBackup() {
+        val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
+        val goodContent = "survived_backup_content".toByteArray()
+        val backupFile = File(musicDir, "track_reconcile.mp3.bak").also { it.writeBytes(goodContent) }
+        val targetFile = File(musicDir, "track_reconcile.mp3")
+
+        assertFalse("Target file should not exist initially", targetFile.exists())
+        assertTrue("Backup file must exist", backupFile.exists())
+
+        val restoredCount = transferManager.reconcileOrphanBackups(musicDir)
+        assertEquals(1, restoredCount)
+        assertTrue("Target file must be restored", targetFile.exists())
+        assertEquals(goodContent.size.toLong(), targetFile.length())
+        assertFalse("Backup file must have been renamed to target", backupFile.exists())
+    }
+
+    @Test
+    fun receivedBytesSeparatedFromVerifiedBytes_onMidStreamFailure() = runBlocking {
+        val trackId = "track_byte_separation"
+        val totalSize = 1000L
+        val mockCheckpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        val managerWithRepo = LinkTransferManager(mockContext, mockCheckpointRepo)
+        val mockClient = mockk<LinkClient>()
+
+        var recordedReceived = -1L
+        var recordedVerified = -1L
+        coEvery {
+            mockCheckpointRepo.updateProgress(
+                transferKey = trackId,
+                receivedBytes = any(),
+                verifiedBytes = any(),
+                state = any(),
+            )
+        } answers {
+            recordedReceived = secondArg()
+            recordedVerified = thirdArg()
+        }
+
+        coEvery {
+            mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = 0L,
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            val os = secondArg<OutputStream>()
+            val onProg = arg<((Long, Long?) -> Unit)?>(5)
+            os.write(ByteArray(350) { 0x11 })
+            onProg?.invoke(350L, totalSize)
+            // Stream fails abruptly after 350 bytes
+            Result.failure(java.io.IOException("Socket timeout"))
+        }
+
+        val item = DownloadItem(
+            trackId = trackId,
+            title = "Byte Separation",
+            format = "mp3",
+            size = totalSize,
+            checksum = "dummy",
+            transferKey = trackId,
+        )
+
+        val result = managerWithRepo.downloadTrack(mockClient, item)
+        assertTrue("Transfer must fail", result.isFailure)
+
+        // Physical bytes (received) must be 350L, while verifiedBytes must stay strictly at startOffset (0L)
+        assertEquals(350L, recordedReceived)
+        assertEquals("verifiedBytes must NOT be credited when stream fails", 0L, recordedVerified)
+    }
 }
 
