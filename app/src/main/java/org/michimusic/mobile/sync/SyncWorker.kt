@@ -480,7 +480,7 @@ class SyncWorker(
                         finalFilePath = finalPath,
                         expectedSize = item.size,
                         receivedBytes = initialReceived,
-                        verifiedBytes = initialReceived,
+                        verifiedBytes = existingCp?.verifiedBytes ?: 0L,
                         expectedSha256 = item.checksum,
                         transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
                         createdAt = existingCp?.createdAt ?: System.currentTimeMillis(),
@@ -488,8 +488,14 @@ class SyncWorker(
                     )
                 )
             }
-            // Reconcile any orphan .bak files from previous interrupted promotions
-            transferManager.reconcileOrphanBackups()
+            // Reconcile any orphan .bak files from previous interrupted promotions (Room-aware)
+            val libraryRepoForReconcile = org.michimusic.mobile.di.musicLibraryRepository
+            transferManager.reconcileOrphanBackups(
+                targetDir = transferManager.musicDir,
+                isRegisteredInDatabase = { file ->
+                    libraryRepoForReconcile?.isLocationRegistered(file.absolutePath) ?: false
+                }
+            )
 
             val results = transferManager.downloadTracks(
                 client = client,

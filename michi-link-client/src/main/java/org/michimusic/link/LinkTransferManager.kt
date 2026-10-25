@@ -117,7 +117,7 @@ class LinkTransferManager(
         var shouldAppend = false
 
         if (existingPartBytes > 0) {
-            val recordedBytes = savedCheckpoint?.bytesVerified ?: existingPartBytes
+            val recordedBytes = savedCheckpoint?.bytesVerified?.takeIf { it > 0L } ?: existingPartBytes
             val sizeOverflow = item.size > 0 && existingPartBytes >= item.size
             if (sizeOverflow || (recordedBytes > 0 && existingPartBytes < recordedBytes)) {
                 // Inconsistent or overflowing partial file: purge to prevent corruption
@@ -462,74 +462,130 @@ class LinkTransferManager(
      * Promotes .part to final file atomically.
      * If finalFile already exists and is valid, preserves it until promotion succeeds.
      * The backup file (.bak) is preserved so callers can roll back if Room registration or post-transfer integrity fails.
+     * If a .bak already exists from an earlier interrupted cycle, it is safely preserved (never deleted blindly).
      */
     private fun promoteDownload(tempFile: File, finalFile: File): Boolean {
         if (!tempFile.exists() || tempFile.length() <= 0L) return false
 
+        val bak = File(finalFile.parentFile, "${finalFile.name}.bak")
         val backupFile = if (finalFile.exists()) {
-            val bak = File(finalFile.parentFile, "${finalFile.name}.bak")
-            if (bak.exists()) bak.delete()
-            val moved = finalFile.renameTo(bak)
-            if (!moved) {
-                // Moving existing file to backup failed: abort immediately without touching finalFile
-                return false
+            if (bak.exists()) {
+                // If a backup already exists (e.g. from an interrupted earlier attempt),
+                // verify if finalFile is identical or if we need to preserve both.
+                // In all cases, never delete an existing .bak before finalFile is successfully replaced.
+                val stagedBak = File(finalFile.parentFile, "${finalFile.name}.bak.staged")
+                if (stagedBak.exists()) stagedBak.delete()
+                val movedToStaged = finalFile.renameTo(stagedBak)
+                if (!movedToStaged) return false
+                stagedBak
+            } else {
+                val moved = finalFile.renameTo(bak)
+                if (!moved) {
+                    // Moving existing file to backup failed: abort immediately without touching finalFile
+                    return false
+                }
+                bak
             }
-            bak
         } else null
 
         val renamed = tempFile.renameTo(finalFile)
         if (renamed) {
+            // If we used a staged backup and finalFile was promoted, atomically consolidate to .bak
+            if (backupFile != null && backupFile.name.endsWith(".bak.staged")) {
+                if (bak.exists()) bak.delete()
+                backupFile.renameTo(bak)
+            }
             // Keep backupFile on disk so callers can roll back via restoreBackup(finalFile)
             // Callers that succeed in registration should call discardBackup(finalFile)
             return true
         } else {
             // Restore previous good file if rename failed
-            backupFile?.renameTo(finalFile)
+            if (backupFile != null) {
+                if (backupFile.name.endsWith(".bak.staged")) {
+                    backupFile.renameTo(finalFile)
+                } else {
+                    backupFile.renameTo(finalFile)
+                }
+            }
             return false
         }
     }
 
     fun restoreBackup(finalFile: File): Boolean {
         val backupFile = File(finalFile.parentFile, "${finalFile.name}.bak")
-        return if (backupFile.exists()) {
-            if (finalFile.exists()) finalFile.delete()
-            backupFile.renameTo(finalFile)
-        } else {
-            false
-        }
+        val stagedBackup = File(finalFile.parentFile, "${finalFile.name}.bak.staged")
+        val effectiveBackup = when {
+            backupFile.exists() && backupFile.length() > 0L -> backupFile
+            stagedBackup.exists() && stagedBackup.length() > 0L -> stagedBackup
+            backupFile.exists() -> backupFile
+            stagedBackup.exists() -> stagedBackup
+            else -> null
+        } ?: return false
+
+        if (finalFile.exists()) finalFile.delete()
+        val restored = effectiveBackup.renameTo(finalFile)
+        if (stagedBackup.exists()) stagedBackup.delete()
+        return restored
     }
 
     fun discardBackup(finalFile: File): Boolean {
         val backupFile = File(finalFile.parentFile, "${finalFile.name}.bak")
-        return if (backupFile.exists()) {
-            backupFile.delete()
-        } else {
-            false
+        val stagedBackup = File(finalFile.parentFile, "${finalFile.name}.bak.staged")
+        var deleted = false
+        if (backupFile.exists()) {
+            deleted = backupFile.delete() || deleted
         }
+        if (stagedBackup.exists()) {
+            deleted = stagedBackup.delete() || deleted
+        }
+        return deleted
     }
 
     /**
      * Reconciles orphan .bak files remaining in musicDir after an unexpected process crash.
      * If a target file is missing or corrupted/empty while its .bak exists, restores the .bak.
-     * If a target file is already present and valid, safely purges the redundant .bak.
+     * If a target file is already present and non-empty, checks Room registration via [isRegisteredInDatabase]:
+     *   - If targetFile is confirmed registered in Room, the redundant .bak is safely purged.
+     *   - If targetFile is NOT registered in Room, targetFile is considered an uncommitted orphaned promotion
+     *     and the valid .bak is restored over it to prevent loss of the previously registered audio copy.
      * Returns the count of restored files.
      */
-    fun reconcileOrphanBackups(targetDir: File = musicDir): Int {
-        if (!targetDir.exists() || !targetDir.isDirectory) return 0
+    suspend fun reconcileOrphanBackups(
+        targetDir: File = musicDir,
+        isRegisteredInDatabase: (suspend (File) -> Boolean)? = null,
+    ): Int = withContext(Dispatchers.IO) {
+        if (!targetDir.exists() || !targetDir.isDirectory) return@withContext 0
         var reconciledCount = 0
-        val backupFiles = targetDir.listFiles { file -> file.isFile && file.name.endsWith(".bak") } ?: return 0
+        val backupFiles = targetDir.listFiles { file ->
+            file.isFile && (file.name.endsWith(".bak") || file.name.endsWith(".bak.staged"))
+        } ?: return@withContext 0
+
         for (backup in backupFiles) {
-            val targetName = backup.name.removeSuffix(".bak")
+            val targetName = backup.name.removeSuffix(".bak.staged").removeSuffix(".bak")
             val targetFile = File(targetDir, targetName)
+
             if (!targetFile.exists() || targetFile.length() == 0L) {
                 if (targetFile.exists()) targetFile.delete()
                 val restored = backup.renameTo(targetFile)
                 if (restored) reconciledCount++
             } else if (targetFile.length() > 0L && backup.length() > 0L) {
-                backup.delete()
+                val isRegistered = isRegisteredInDatabase?.invoke(targetFile)
+                if (isRegistered == true) {
+                    // Confirmed: target file is valid and registered in Room. Safe to purge backup.
+                    backup.delete()
+                } else if (isRegistered == false) {
+                    // Unconfirmed: target file is not registered in Room (interrupted before registration).
+                    // Roll back to previous good copy to preserve user's valid audio data.
+                    targetFile.delete()
+                    val restored = backup.renameTo(targetFile)
+                    if (restored) reconciledCount++
+                } else {
+                    // No verifier provided: if target exists and is non-empty, do not delete backup blindly;
+                    // preserve backup until caller explicitly validates registration.
+                }
             }
         }
-        return reconciledCount
+        reconciledCount
     }
 
     private fun safeFileName(value: String): String =

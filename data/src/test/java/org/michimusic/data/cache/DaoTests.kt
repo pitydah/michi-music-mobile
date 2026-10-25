@@ -157,4 +157,38 @@ class DaoTests {
         assertEquals(200L, retrievedPlanA?.receivedBytes)
         assertEquals("DOWNLOADING", retrievedPlanA?.transferState)
     }
+
+    @Test
+    fun `TrackLocationDao queries location by exact uri`() = runBlocking {
+        val locationDao = database.trackLocationDao()
+        val identityDao = database.trackIdentityDao()
+
+        val trackId = "trk_uri_test"
+        identityDao.insertIdentity(
+            TrackIdentityEntity(
+                trackId = trackId,
+                title = "Title",
+                artist = "Artist",
+                album = "Album",
+                durationMs = 180000L,
+            )
+        )
+
+        val uri = "/data/user/0/org.michimusic/files/synced_music/song.mp3"
+        locationDao.insertLocation(
+            TrackLocationEntity(
+                locationId = "loc_1",
+                trackId = trackId,
+                kind = "SYNCED_MANAGED",
+                uri = uri,
+            )
+        )
+
+        val found = locationDao.getLocationByUri(uri)
+        assertNotNull("Should find location by exact URI", found)
+        assertEquals("loc_1", found?.locationId)
+
+        val notFound = locationDao.getLocationByUri("/unregistered/path/song.mp3")
+        assertNull("Should return null for non-registered URI", notFound)
+    }
 }

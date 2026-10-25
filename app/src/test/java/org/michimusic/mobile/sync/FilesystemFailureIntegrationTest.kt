@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -117,7 +118,7 @@ class FilesystemFailureIntegrationTest {
     }
 
     @Test
-    fun reconcileOrphanBackups_restoresValidBackup_whenFinalFileIsMissing() {
+    fun reconcileOrphanBackups_restoresValidBackup_whenFinalFileIsMissing() = runBlocking {
         val transferManager = LinkTransferManager(context)
         val musicDir = transferManager.musicDir
 
@@ -285,4 +286,101 @@ class FilesystemFailureIntegrationTest {
         val bakFile = File("${finalFile.absolutePath}.bak")
         assertFalse("Backup file must not linger after restoration", bakFile.exists())
     }
+
+    @Test
+    fun syncWorker_startupReconciliation_restoresPreviousBackup_whenTargetExistsButRoomRegistrationFailed() = runBlocking {
+        // Critical P0 Scenario from Audit:
+        // 1. Valid copy A exists.
+        // 2. Download B is promoted to finalFile, creating cancion.flac.bak containing A.
+        // 3. Android crashes / process dies BEFORE B is registered in Room.
+        // 4. On next app launch / SyncWorker start, cancion.flac exists and has length > 0.
+        // 5. reconcileOrphanBackups MUST NOT delete cancion.flac.bak because B is not in Room.
+        //    It MUST restore A over uncommitted B!
+        val transferManager = LinkTransferManager(context)
+        val musicDir = transferManager.musicDir
+        val trackId = "trk_uncommitted_crash"
+        val (finalFile, _) = TransferFileIdentity.resolveFiles(
+            musicDir = musicDir,
+            remoteDeviceId = testDeviceId,
+            destinationLibraryId = "lib_default",
+            trackId = trackId,
+            format = "flac",
+        )
+
+        val copyA = "Original Valid Audio Copy A".toByteArray()
+        val copyB = "Uncommitted Audio Copy B (never recorded in Room)".toByteArray()
+
+        // Setup disk state representing crash between promotion and Room registration:
+        val bakFile = File("${finalFile.absolutePath}.bak")
+        bakFile.writeBytes(copyA)
+        finalFile.writeBytes(copyB)
+
+        assertTrue(bakFile.exists())
+        assertTrue(finalFile.exists())
+
+        // Verify that finalFile is NOT registered in Room track_locations
+        val musicRepo = org.michimusic.mobile.di.musicLibraryRepository
+        assertNotNull(musicRepo)
+        assertFalse("finalFile is uncommitted and must not be registered in Room",
+            musicRepo!!.isLocationRegistered(finalFile.absolutePath))
+
+        // Reconcile orphan backups with Room verification
+        val restoredCount = transferManager.reconcileOrphanBackups(
+            targetDir = musicDir,
+            isRegisteredInDatabase = { file -> musicRepo.isLocationRegistered(file.absolutePath) }
+        )
+
+        assertEquals("Must restore 1 uncommitted file from valid backup", 1, restoredCount)
+        assertTrue("Final file must exist", finalFile.exists())
+        assertEquals("Final file must be restored to copy A", copyA.size.toLong(), finalFile.length())
+        assertEquals(String(copyA), finalFile.readText())
+        assertFalse("Backup must be consumed during restoration", bakFile.exists())
+    }
+
+    @Test
+    fun syncViewModel_retryPlan_rejectsAutomaticRetry_whenPlanFailedWithStaleManifest() = runBlocking {
+        // P1 Invariant: Irreversible errors like PLAN_STALE must not be blindly reactivated
+        val planId = "plan_stale_rejection_test"
+        val planEntity = ApprovedSyncPlanEntity(
+            planId = planId,
+            endpointId = testDeviceId,
+            endpointName = "Production Desktop Node",
+            scope = "FULL_LIBRARY",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = "[]",
+            manifestVersion = 1,
+            manifestChecksum = "sha_old_manifest",
+            totalSelectedTracks = 1,
+            tracksToDownloadCount = 1,
+            totalDownloadBytes = 5000L,
+            status = "FAILED",
+            executionState = TransferLifecycleState.FAILED.name,
+            errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan.",
+            createdAt = System.currentTimeMillis(),
+        )
+        db.approvedSyncPlanDao().insertPlan(planEntity)
+
+        val approvedRepo = RoomApprovedSyncPlanRepository(db.approvedSyncPlanDao())
+        val syncVm = SyncViewModel(
+            context = context,
+            linkDiscovery = mockk(relaxed = true),
+            registry = mockPairedRegistry,
+            connectionManager = mockk(relaxed = true),
+            identity = mockk(relaxed = true),
+            trackRepository = mockk(relaxed = true),
+            approvedPlanRepository = approvedRepo,
+        )
+
+        // Attempt retry on stale plan
+        syncVm.retryPlan(planId)
+
+        // Give coroutine a tick to execute
+        kotlinx.coroutines.delay(100)
+
+        // Plan state in DB must remain FAILED and NOT be transitioned to QUEUED
+        val planInDb = approvedRepo.getPlan(planId)
+        assertEquals(TransferLifecycleState.FAILED.name, planInDb?.executionState)
+    }
 }
+

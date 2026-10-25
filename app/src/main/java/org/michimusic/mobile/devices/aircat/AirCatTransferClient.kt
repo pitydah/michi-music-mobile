@@ -184,8 +184,13 @@ class DefaultAirCatTransferClient(
             }
         }
 
-        // 8. Transfer execution
-        transferManager.reconcileOrphanBackups(transferManager.musicDir)
+        // 8. Transfer execution (Room-aware backup reconciliation)
+        transferManager.reconcileOrphanBackups(
+            targetDir = transferManager.musicDir,
+            isRegisteredInDatabase = { file ->
+                libraryRepository?.isLocationRegistered(file.absolutePath) ?: false
+            }
+        )
         val downloadedFiles = mutableListOf<File>()
         var transferredBytesAcc = 0L
 
@@ -292,7 +297,7 @@ class DefaultAirCatTransferClient(
                         finalFilePath = finalPath,
                         expectedSize = item.size,
                         receivedBytes = initialReceived,
-                        verifiedBytes = initialReceived,
+                        verifiedBytes = existingCp?.verifiedBytes ?: 0L,
                         expectedSha256 = item.sha256,
                         transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
                         createdAt = existingCp?.createdAt ?: System.currentTimeMillis(),
@@ -323,7 +328,7 @@ class DefaultAirCatTransferClient(
                     checkpointRepository?.updateProgress(
                         transferKey = effectiveKey,
                         receivedBytes = preservedBytes,
-                        verifiedBytes = preservedBytes,
+                        verifiedBytes = existingCp?.verifiedBytes ?: 0L,
                         state = org.michimusic.core.models.TransferStatus.FAILED
                     )
                     emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = ex.message, onProgress = onProgress)
@@ -576,8 +581,13 @@ class DefaultAirCatTransferClient(
             return@withContext Result.success(emptyList())
         }
 
-        // Reconcile any orphan .bak files left from previously interrupted transfers
-        transferManager.reconcileOrphanBackups(transferManager.musicDir)
+        // Reconcile any orphan .bak files left from previously interrupted transfers (Room-aware)
+        transferManager.reconcileOrphanBackups(
+            targetDir = transferManager.musicDir,
+            isRegisteredInDatabase = { file ->
+                libraryRepository?.isLocationRegistered(file.absolutePath) ?: false
+            }
+        )
 
         val recoveredFiles = mutableListOf<File>()
         val totalExpectedBytes = pendingCheckpoints.sumOf { it.expectedSize }
@@ -622,7 +632,7 @@ class DefaultAirCatTransferClient(
                 repo.updateProgress(
                     transferKey = cp.transferKey,
                     receivedBytes = preservedBytes,
-                    verifiedBytes = preservedBytes,
+                    verifiedBytes = cp.verifiedBytes,
                     state = org.michimusic.core.models.TransferStatus.FAILED
                 )
                 emitEvent(

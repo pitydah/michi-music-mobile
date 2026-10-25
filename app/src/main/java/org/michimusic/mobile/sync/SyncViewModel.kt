@@ -216,36 +216,49 @@ class SyncViewModel(
             }
         }
 
-        // Restore active sync state after process death
+        // Restore active sync state after process death (both per-device and per-plan)
         viewModelScope.launch {
             try {
                 WorkManager.getInstance(context)
                     .getWorkInfosByTagFlow("michi_sync")
                     .collect { workList ->
-                        val updatedMap = mutableMapOf<String, SyncProgress>()
+                        val updatedDevMap = mutableMapOf<String, SyncProgress>()
+                        val updatedPlanMap = mutableMapOf<String, SyncProgress>()
                         workList.forEach { workInfo ->
-                            val devTag = workInfo.tags.find { it.startsWith("michi_sync_") }
+                            val planTag = workInfo.tags.find { it.startsWith("michi_sync_plan_") }
+                            val planTagId = planTag?.removePrefix("michi_sync_plan_") ?: ""
+                            val devTag = workInfo.tags.find { it.startsWith("michi_sync_") && !it.startsWith("michi_sync_plan_") }
                             val devId = devTag?.removePrefix("michi_sync_") ?: ""
+
+                            val currentProg: SyncProgress = if (!workInfo.state.isFinished) {
+                                val progress = workInfo.progress
+                                val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
+                                val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
+                                SyncProgress.Downloading(current, total, devId)
+                            } else if (workInfo.state == WorkInfo.State.SUCCEEDED) {
+                                val output = workInfo.outputData
+                                val downloaded = output.getInt(SyncWorker.RESULT_DOWNLOADED, 0)
+                                val errors = output.getInt(SyncWorker.RESULT_ERROR, 0)
+                                SyncProgress.Complete(tracks = downloaded + errors, downloaded = downloaded, errors = errors)
+                            } else if (workInfo.state == WorkInfo.State.FAILED) {
+                                val output = workInfo.outputData
+                                val errors = output.getInt(SyncWorker.RESULT_ERROR, 1)
+                                SyncProgress.Error("Sincronización fallida ($errors error(es))")
+                            } else {
+                                SyncProgress.Error("Sincronización cancelada")
+                            }
+
                             if (devId.isNotEmpty()) {
-                                if (!workInfo.state.isFinished) {
-                                    val progress = workInfo.progress
-                                    val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
-                                    val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
-                                    updatedMap[devId] = SyncProgress.Downloading(current, total, devId)
-                                } else if (workInfo.state == WorkInfo.State.SUCCEEDED) {
-                                    val output = workInfo.outputData
-                                    val downloaded = output.getInt(SyncWorker.RESULT_DOWNLOADED, 0)
-                                    val errors = output.getInt(SyncWorker.RESULT_ERROR, 0)
-                                    updatedMap[devId] = SyncProgress.Complete(tracks = downloaded + errors, downloaded = downloaded, errors = errors)
-                                } else if (workInfo.state == WorkInfo.State.FAILED) {
-                                    val output = workInfo.outputData
-                                    val errors = output.getInt(SyncWorker.RESULT_ERROR, 1)
-                                    updatedMap[devId] = SyncProgress.Error("Sincronización fallida ($errors error(es))")
-                                }
+                                updatedDevMap[devId] = currentProg
+                            }
+                            if (planTagId.isNotEmpty()) {
+                                updatedPlanMap[planTagId] = currentProg
                             }
                         }
-                        _deviceSyncProgress.value = _deviceSyncProgress.value + updatedMap
-                        val anyActive = updatedMap.values.find { it is SyncProgress.Downloading }
+                        _deviceSyncProgress.value = _deviceSyncProgress.value + updatedDevMap
+                        _planSyncProgress.value = _planSyncProgress.value + updatedPlanMap
+                        val anyActive = updatedPlanMap.values.find { it is SyncProgress.Downloading }
+                            ?: updatedDevMap.values.find { it is SyncProgress.Downloading }
                         if (anyActive != null) {
                             _syncProgress.value = anyActive
                         }
@@ -843,6 +856,19 @@ class SyncViewModel(
 
         viewModelScope.launch {
             val approvedPlan = approvedRepo.getPlan(planId) ?: return@launch
+
+            // Authorization / Cause Check: If failure was due to irreversible causes
+            // (e.g. STALE manifest, unauthorized, budget or permanent constraint),
+            // do not allow automatic blind retry. Require new review.
+            val errMsg = approvedPlan.errorMessage ?: ""
+            if (errMsg.contains("PLAN_STALE", ignoreCase = true) ||
+                errMsg.contains("Unauthorized", ignoreCase = true) ||
+                errMsg.contains("Revocado", ignoreCase = true)
+            ) {
+                _error.value = "El plan $planId requiere revisión y nueva aprobación antes de ejecutarse ($errMsg)"
+                return@launch
+            }
+
             if (approvedPlan.executionState == org.michimusic.core.models.TransferLifecycleState.FAILED.name) {
                 // Transition plan explicitly from FAILED back to QUEUED to allow re-acquisition
                 approvedRepo.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.QUEUED)
@@ -1298,13 +1324,19 @@ class SyncViewModel(
             .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.KEEP, workRequest)
     }
 
-    fun cancelSync(deviceId: String? = null) {
+    fun cancelSync(deviceId: String? = null, planId: String? = null) {
+        if (!planId.isNullOrEmpty()) {
+            val safePlan = planId.replace(Regex("[^A-Za-z0-9_]"), "_")
+            WorkManager.getInstance(context).cancelUniqueWork("michi_sync_plan_$safePlan")
+            WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync_plan_$safePlan")
+            _planSyncProgress.value = _planSyncProgress.value - planId
+        }
         if (!deviceId.isNullOrEmpty()) {
             val safeDev = deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")
             val workName = "michi_sync_$safeDev"
             WorkManager.getInstance(context).cancelUniqueWork(workName)
             WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync_$safeDev")
-        } else {
+        } else if (planId.isNullOrEmpty()) {
             WorkManager.getInstance(context).cancelAllWorkByTag("michi_sync")
         }
         val currentProg = _syncProgress.value

@@ -60,6 +60,9 @@ interface TrackLocationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLocations(locations: List<TrackLocationEntity>)
 
+    @Query("SELECT * FROM track_locations WHERE uri = :uri LIMIT 1")
+    suspend fun getLocationByUri(uri: String): TrackLocationEntity?
+
     @Query("DELETE FROM track_locations WHERE locationId = :locationId")
     suspend fun deleteLocation(locationId: String)
 

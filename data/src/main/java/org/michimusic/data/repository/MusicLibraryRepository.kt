@@ -36,6 +36,7 @@ interface MusicLibraryRepository {
     suspend fun resolvePreferredLocation(trackId: String): PlayableLocation?
     suspend fun getTrackIdentity(trackId: String): TrackIdentity?
     suspend fun getLocationsForTrack(trackId: String): List<TrackLocation> = emptyList()
+    suspend fun isLocationRegistered(uri: String): Boolean = false
     suspend fun registerTrackWithLocation(
         identity: TrackIdentity,
         location: TrackLocation,
@@ -142,6 +143,10 @@ class DefaultMusicLibraryRepository(
 
     override suspend fun getLocationsForTrack(trackId: String): List<TrackLocation> {
         return locationDao.getLocationsForTrack(trackId).map { it.toDomain() }
+    }
+
+    override suspend fun isLocationRegistered(uri: String): Boolean {
+        return locationDao.getLocationByUri(uri) != null
     }
 
     override suspend fun registerTrackWithLocation(

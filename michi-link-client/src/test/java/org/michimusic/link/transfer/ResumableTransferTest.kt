@@ -539,7 +539,7 @@ class ResumableTransferTest {
     }
 
     @Test
-    fun reconcileOrphanBackups_restoresMissingTargetFromBackup() {
+    fun reconcileOrphanBackups_restoresMissingTargetFromBackup() = runBlocking {
         val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
         val goodContent = "survived_backup_content".toByteArray()
         val backupFile = File(musicDir, "track_reconcile.mp3.bak").also { it.writeBytes(goodContent) }
@@ -553,6 +553,59 @@ class ResumableTransferTest {
         assertTrue("Target file must be restored", targetFile.exists())
         assertEquals(goodContent.size.toLong(), targetFile.length())
         assertFalse("Backup file must have been renamed to target", backupFile.exists())
+    }
+
+    @Test
+    fun reconcileOrphanBackups_restoresBackup_whenTargetFileExistsButIsNotRegisteredInRoom() = runBlocking {
+        // Critical P0 Test: If target file exists on disk (e.g. from an uncommitted promotion)
+        // but is NOT registered in Room, reconcileOrphanBackups must NOT delete the backup.
+        // It must restore the previous valid backup over the unconfirmed target.
+        val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
+        val validOriginal = "valid_original_audio_content".toByteArray()
+        val uncommittedNew = "uncommitted_unregistered_audio".toByteArray()
+
+        val backupFile = File(musicDir, "track_unregistered.mp3.bak").also { it.writeBytes(validOriginal) }
+        val targetFile = File(musicDir, "track_unregistered.mp3").also { it.writeBytes(uncommittedNew) }
+
+        assertTrue(backupFile.exists())
+        assertTrue(targetFile.exists())
+
+        // isRegisteredInDatabase returns false (not registered)
+        val restoredCount = transferManager.reconcileOrphanBackups(
+            targetDir = musicDir,
+            isRegisteredInDatabase = { false }
+        )
+
+        assertEquals(1, restoredCount)
+        assertTrue("Target file must still exist", targetFile.exists())
+        assertEquals("Target file must contain restored original content, not uncommitted",
+            validOriginal.size.toLong(), targetFile.length())
+        assertEquals(String(validOriginal), targetFile.readText())
+        assertFalse("Backup file should have been restored over target", backupFile.exists())
+    }
+
+    @Test
+    fun reconcileOrphanBackups_purgesBackup_whenTargetFileIsConfirmedRegisteredInRoom() = runBlocking {
+        val musicDir = File(tempDir, "synced_music").also { it.mkdirs() }
+        val oldBackup = "old_backup_audio_content".toByteArray()
+        val confirmedNew = "confirmed_registered_audio".toByteArray()
+
+        val backupFile = File(musicDir, "track_confirmed.mp3.bak").also { it.writeBytes(oldBackup) }
+        val targetFile = File(musicDir, "track_confirmed.mp3").also { it.writeBytes(confirmedNew) }
+
+        assertTrue(backupFile.exists())
+        assertTrue(targetFile.exists())
+
+        // isRegisteredInDatabase returns true (confirmed in Room)
+        val restoredCount = transferManager.reconcileOrphanBackups(
+            targetDir = musicDir,
+            isRegisteredInDatabase = { true }
+        )
+
+        assertEquals(0, restoredCount)
+        assertTrue("Target file must remain intact", targetFile.exists())
+        assertEquals(confirmedNew.size.toLong(), targetFile.length())
+        assertFalse("Redundant backup must be purged once confirmed in Room", backupFile.exists())
     }
 
     @Test
