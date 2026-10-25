@@ -154,13 +154,23 @@ class SyncWorker(
 
             // Authoritative Execution Control (CAS): Acquire exclusive execution rights
             // before any mutations, network calls or checkpoint recoveries.
-            val transitioned = approvedPlanRepo?.tryTransitionState(
+            // Accepts plans in QUEUED or RETRY_PENDING state.
+            val transitionedFromQueued = approvedPlanRepo?.tryTransitionState(
                 planId = planId,
                 expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
                 nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
             ) ?: false
+            val transitioned = if (!transitionedFromQueued) {
+                approvedPlanRepo?.tryTransitionState(
+                    planId = planId,
+                    expectedState = org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING,
+                    nextState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                ) ?: false
+            } else {
+                true
+            }
             if (!transitioned) {
-                // Plan is already claimed by another active worker or in non-QUEUED state.
+                // Plan is already claimed by another active worker or in non-resumable state.
                 // Fail closed immediately to prevent concurrent worker execution.
                 client.close()
                 try { wakeLock?.release() } catch (_: Exception) {}
@@ -186,11 +196,12 @@ class SyncWorker(
                             errorMessage = error.message ?: "Error de sincronización Link"
                         )
                     } else {
-                        // Transient failure, roll back to QUEUED for worker retry
+                        // Transient failure, roll back to RETRY_PENDING for worker retry
                         approvedPlanRepo?.tryTransitionState(
                             planId = planId,
                             expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                            nextState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING,
+                            errorMessage = error?.message ?: "Error transitorio de red"
                         )
                     }
                 }
@@ -237,6 +248,7 @@ class SyncWorker(
 
             // Invariant: If approvedPlan exists, it is the sole authoritative source of truth.
             // DownloadedItems(P) ⊆ AuthorizedDownloadItems(P)
+            var rejectedPlanTracksCount = 0
             val candidateTracks = if (approvedPlan != null) {
                 val approvedItems = runCatching {
                     planJson.decodeFromString<List<org.michimusic.core.models.SyncItemDecision>>(approvedPlan.itemsJson)
@@ -254,11 +266,12 @@ class SyncWorker(
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
 
-                val approvedDecisionsMap = approvedItems
+                val approvedDownloadableItems = approvedItems
                     .filter { it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD || it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL }
+                val approvedDecisionsMap = approvedDownloadableItems
                     .associateBy { it.trackId }
 
-                manifestTracks.filter { track ->
+                val filtered = manifestTracks.filter { track ->
                     val decision = approvedDecisionsMap[track.trackId]
                     if (decision == null) {
                         false
@@ -282,6 +295,8 @@ class SyncWorker(
                         true
                     }
                 }
+                rejectedPlanTracksCount = (approvedDownloadableItems.size - filtered.size).coerceAtLeast(0)
+                filtered
             } else {
                 // Fallback strictly for non-plan sync invocations:
                 when {
@@ -312,6 +327,7 @@ class SyncWorker(
                         destinationLibraryId = destLibId,
                         expectedSize = if (it.size > 0L) it.size else null,
                         expectedSha256 = it.checksum?.ifEmpty { null },
+                        planId = planId.ifEmpty { null },
                     )
                 }
                 val recoveryResult = aircatClient.recoverIncompleteTransfers(
@@ -342,7 +358,8 @@ class SyncWorker(
                     track.toDownloadItem().copy(
                         remoteDeviceId = deviceId,
                         destinationLibraryId = destLibId,
-                        transferKey = "$deviceId:$destLibId:${track.trackId}",
+                        transferKey = if (planId.isNotEmpty()) "$deviceId:$destLibId:${track.trackId}:$planId" else "$deviceId:$destLibId:${track.trackId}",
+                        planId = planId,
                     )
                 }
 
@@ -351,17 +368,29 @@ class SyncWorker(
                 safeSetForeground(createForegroundInfo(0, 0, "Todo sincronizado"))
                 safeSetProgress(workDataOf(PROGRESS_TOTAL to 0, PROGRESS_CURRENT to 0))
                 if (planId.isNotEmpty()) {
-                    val completed = approvedPlanRepo?.tryTransitionState(
-                        planId = planId,
-                        expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                        nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
-                    ) ?: false
-                    if (!completed) {
+                    if (rejectedPlanTracksCount > 0) {
                         approvedPlanRepo?.tryTransitionState(
                             planId = planId,
-                            expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
-                            nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                            errorMessage = "$rejectedPlanTracksCount pista(s) autorizada(s) fueron rechazadas por exceder presupuesto",
                         )
+                        client.close()
+                        try { wakeLock?.release() } catch (_: Exception) {}
+                        return Result.failure(workDataOf(RESULT_ERROR to rejectedPlanTracksCount, RESULT_DOWNLOADED to 0))
+                    } else {
+                        val completed = approvedPlanRepo?.tryTransitionState(
+                            planId = planId,
+                            expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
+                            nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
+                        ) ?: false
+                        if (!completed) {
+                            approvedPlanRepo?.tryTransitionState(
+                                planId = planId,
+                                expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
+                                nextState = org.michimusic.core.models.TransferLifecycleState.COMPLETED,
+                            )
+                        }
                     }
                 }
                 client.close()
@@ -391,25 +420,27 @@ class SyncWorker(
 
             // Save initial checkpoints for all tracks scheduled to download
             itemsToDownload.forEach { item ->
-                val transferKey = "$deviceId:$destLibId:${item.trackId}"
+                val transferKey = item.effectiveTransferKey
                 val ext = item.format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
                 val safeDev = deviceId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "device" }
                 val safeLib = destLibId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "lib" }
                 val safeTrack = item.trackId.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "track" }
+                val safePlan = planId.replace(Regex("[^A-Za-z0-9._-]"), "_")
                 val targetFileName = "${safeDev}_${safeLib}_${safeTrack}.$ext"
                 val existingFile = transferManager.getTrackFile(item.trackId, ext, remoteDeviceId = deviceId, destinationLibraryId = destLibId)
                 val finalPath = existingFile?.absolutePath ?: java.io.File(transferManager.musicDir, targetFileName).absolutePath
+                val tempPartPath = if (safePlan.isNotEmpty()) "$finalPath._$safePlan.part" else "$finalPath.part"
 
                 checkpointRepo?.saveCheckpoint(
                     org.michimusic.core.models.PersistentCheckpoint(
                         transferKey = transferKey,
-                        transferId = "sync_${deviceId}_${item.trackId}",
+                        transferId = if (planId.isNotEmpty()) planId else "sync_${deviceId}_${item.trackId}",
                         remoteDeviceId = deviceId,
                         sourceLibraryId = deviceId,
                         destinationLibraryId = destLibId,
                         trackId = item.trackId,
                         remoteTrackId = item.trackId,
-                        tempFilePath = "$finalPath.part",
+                        tempFilePath = tempPartPath,
                         finalFilePath = finalPath,
                         expectedSize = item.size,
                         receivedBytes = 0L,
@@ -438,7 +469,8 @@ class SyncWorker(
             var errors = 0
 
             results.forEach { (id, result) ->
-                val transferKey = "$deviceId:$destLibId:$id"
+                val itemForTrack = itemsToDownload.find { it.trackId == id }
+                val transferKey = itemForTrack?.effectiveTransferKey ?: "$deviceId:$destLibId:$id"
                 result.fold(
                     onSuccess = { file ->
                         val regResult = runCatching {
@@ -446,6 +478,17 @@ class SyncWorker(
                                 error("Archivo descargado no existe o está vacío: ${file.absolutePath}")
                             }
                             manifestTrackMap[id]?.let { meta ->
+                                // Integrity check: Reject if an existing track identity has conflicting content hash
+                                val metaChecksum = meta.checksum
+                                val existingIdentity = libraryRepo.getTrackIdentity(meta.trackId)
+                                if (existingIdentity != null &&
+                                    existingIdentity.contentHash != null &&
+                                    !metaChecksum.isNullOrEmpty() &&
+                                    !existingIdentity.contentHash.equals(metaChecksum, ignoreCase = true)
+                                ) {
+                                    throw IllegalStateException("CONTENT_HASH_CONFLICT: Track ${meta.trackId} existing hash ${existingIdentity.contentHash} conflicts with incoming hash $metaChecksum")
+                                }
+
                                 val identity = org.michimusic.core.models.TrackIdentity(
                                     id = meta.trackId,
                                     title = meta.title,
@@ -511,28 +554,30 @@ class SyncWorker(
             try { wakeLock?.release() } catch (_: Exception) {}
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to downloaded))
 
-            if (errors > 0 && downloaded == 0) {
+            val totalPlanErrors = errors + rejectedPlanTracksCount
+
+            if (totalPlanErrors > 0 && downloaded == 0) {
                 if (planId.isNotEmpty()) {
                     approvedPlanRepo?.tryTransitionState(
                         planId = planId,
                         expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
                         nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
-                        errorMessage = "$errors error(es) en sincronización",
+                        errorMessage = "$totalPlanErrors error(es) en sincronización",
                     )
                 }
-                Result.failure(workDataOf(RESULT_ERROR to errors, RESULT_DOWNLOADED to 0))
-            } else if (errors > 0 && downloaded > 0) {
+                Result.failure(workDataOf(RESULT_ERROR to totalPlanErrors, RESULT_DOWNLOADED to 0))
+            } else if (totalPlanErrors > 0 && downloaded > 0) {
                 if (planId.isNotEmpty()) {
                     approvedPlanRepo?.tryTransitionState(
                         planId = planId,
                         expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
                         nextState = org.michimusic.core.models.TransferLifecycleState.PARTIAL_SUCCESS,
-                        errorMessage = "$errors error(es) en sincronización parcial",
+                        errorMessage = "$totalPlanErrors error(es) en sincronización parcial",
                     )
                 }
                 Result.success(workDataOf(
                     RESULT_DOWNLOADED to downloaded,
-                    RESULT_ERROR to errors,
+                    RESULT_ERROR to totalPlanErrors,
                 ))
             } else {
                 if (planId.isNotEmpty()) {
@@ -544,7 +589,7 @@ class SyncWorker(
                 }
                 Result.success(workDataOf(
                     RESULT_DOWNLOADED to downloaded,
-                    RESULT_ERROR to errors,
+                    RESULT_ERROR to 0,
                 ))
             }
         } catch (e: java.util.concurrent.CancellationException) {

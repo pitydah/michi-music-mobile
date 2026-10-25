@@ -86,5 +86,6 @@ sealed class AirCatException(message: String) : Exception(message) {
     class TransferIdMismatch(expected: String, actual: String) : AirCatException("ID de transferencia no coincide: esperado $expected, actual $actual")
     class SourceMismatch(expected: String, actual: String) : AirCatException("Origen no coincide con el manifiesto: esperado $expected, actual $actual")
     class InvalidManifestStructure(reason: String) : AirCatException("Estructura de manifiesto inválida: $reason")
+    class CorruptedPayload(msg: String) : AirCatException(msg)
     class ProtocolError(msg: String) : AirCatException(msg)
 }

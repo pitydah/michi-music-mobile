@@ -52,7 +52,12 @@ class LinkTransferManager(
             "${safeFileName(item.trackId)}.$ext"
         }
         val file = File(musicDir, fileName)
-        val tempFile = File(musicDir, "$fileName.part")
+        val tempFileName = if (item.planId.isNotEmpty()) {
+            "${fileName}_${safeFileName(item.planId)}.part"
+        } else {
+            "$fileName.part"
+        }
+        val tempFile = File(musicDir, tempFileName)
 
         // 1. If file already exists and is intact, return immediately
         if (file.exists() && file.length() > 0) {

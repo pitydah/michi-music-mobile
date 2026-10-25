@@ -14,6 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.michimusic.data.repository.MusicLibraryRepository
+import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.PairedDevice
 import org.michimusic.link.PairedDeviceRegistry
@@ -729,6 +730,7 @@ class AirCatContractTest {
         peer.setupTrackStreaming("track_fail_reg", trackData)
 
         val failingLibraryRepo = mockk<MusicLibraryRepository>()
+        coEvery { failingLibraryRepo.getTrackIdentity(any()) } returns null
         coEvery {
             failingLibraryRepo.registerTrackWithLocation(any(), any(), any(), any())
         } returns Result.failure(IllegalStateException("Database constraint violation"))
@@ -1030,4 +1032,111 @@ class AirCatContractTest {
         assertEquals("Only cpValid should be recovered; empty and mismatching hashes must be rejected", 1, files.size)
         coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
     }
+
+    @Test
+    fun recoverIncompleteTransfers_rejectsCheckpoint_whenPlanIdDoesNotMatch() = runBlocking {
+        val deviceId = "dev_plan_isolation"
+        every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(deviceId = deviceId, deviceName = "Node", deviceToken = "tok")
+
+        val cpPlanA = org.michimusic.core.models.PersistentCheckpoint(
+            transferKey = "$deviceId:lib_1:track_iso:plan_A",
+            transferId = "plan_A",
+            remoteDeviceId = deviceId,
+            sourceLibraryId = "lib_1",
+            destinationLibraryId = "lib_1",
+            trackId = "track_iso",
+            remoteTrackId = "track_iso",
+            tempFilePath = File(tempDir, "plan_A.part").absolutePath,
+            finalFilePath = File(tempDir, "plan_A.mp3").absolutePath,
+            expectedSize = 1000L,
+            receivedBytes = 500L,
+            verifiedBytes = 500L,
+            expectedSha256 = "hash123",
+            etag = "",
+            transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
+            createdAt = 100L,
+            updatedAt = 200L,
+        )
+
+        val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
+        coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpPlanA)
+
+        val mockTransferManager = mockk<LinkTransferManager>()
+        val client = DefaultAirCatTransferClient(
+            transferManager = mockTransferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = libraryRepo,
+            checkpointRepository = checkpointRepo,
+        )
+
+        // Authorized criteria specifies plan_B
+        val criteria = listOf(
+            AuthorizedTransferCriteria(
+                trackId = "track_iso",
+                destinationLibraryId = "lib_1",
+                expectedSize = 1000L,
+                expectedSha256 = "hash123",
+                planId = "plan_B",
+            )
+        )
+
+        val mockClient = mockk<LinkClient>(relaxed = true)
+        every { mockClient.deviceToken } returns "tok"
+
+        val result = client.recoverIncompleteTransfers(
+            remoteDeviceId = deviceId,
+            linkClient = mockClient,
+            authorizedCriteria = criteria,
+        )
+
+        assertTrue(result.isSuccess)
+        val files = result.getOrThrow()
+        assertEquals("Checkpoints from plan_A must NOT be recovered under plan_B criteria", 0, files.size)
+        coVerify(exactly = 0) { mockTransferManager.downloadTrack(any(), any()) }
+    }
+
+    @Test
+    fun executeTransfer_failsClosed_whenExistingIdentityHasConflictingContentHash() = runBlocking {
+        val sourceId = "peer_conflict"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        // Seed library repository with an existing identity for trk_conflict with hash_OLD
+        coEvery { libraryRepo.getTrackIdentity("trk_conflict") } returns org.michimusic.core.models.TrackIdentity(
+            id = "trk_conflict",
+            title = "Existing Track",
+            artist = "Artist",
+            album = "Album",
+            durationMs = 1000L,
+            contentHash = "hash_OLD_123",
+        )
+
+        val intent = TransferIntent(
+            transferId = "xfer_conflict",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_conflict",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 1000L,
+            items = listOf(
+                AirCatManifestItem("trk_conflict", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "hash_NEW_456")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue("Conflicting content hash must fail execution", result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.CorruptedPayload)
+    }
 }
+

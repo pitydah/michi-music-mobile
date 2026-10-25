@@ -257,11 +257,16 @@ data class DownloadItem(
     val remoteDeviceId: String = "",
     val destinationLibraryId: String = "",
     val transferKey: String = "",
+    val planId: String = "",
 ) {
     val effectiveTransferKey: String
         get() = transferKey.ifEmpty {
             if (remoteDeviceId.isNotEmpty() && destinationLibraryId.isNotEmpty()) {
-                "$remoteDeviceId:$destinationLibraryId:$trackId"
+                if (planId.isNotEmpty()) {
+                    "$remoteDeviceId:$destinationLibraryId:$trackId:$planId"
+                } else {
+                    "$remoteDeviceId:$destinationLibraryId:$trackId"
+                }
             } else {
                 trackId
             }

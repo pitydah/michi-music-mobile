@@ -187,6 +187,27 @@ class SyncViewModel(
                 "android_000000"
             }
         }
+
+        // Restore active sync state after process death
+        viewModelScope.launch {
+            try {
+                WorkManager.getInstance(context)
+                    .getWorkInfosByTagFlow("michi_sync")
+                    .collect { workList ->
+                        val activeWork = workList.find { !it.state.isFinished }
+                        if (activeWork != null) {
+                            val progress = activeWork.progress
+                            val total = progress.getInt(SyncWorker.PROGRESS_TOTAL, 0)
+                            val current = progress.getInt(SyncWorker.PROGRESS_CURRENT, 0)
+                            val devTag = activeWork.tags.find { it.startsWith("michi_sync_") }
+                            val devId = devTag?.removePrefix("michi_sync_") ?: ""
+                            _syncProgress.value = SyncProgress.Downloading(current, total, devId)
+                        }
+                    }
+            } catch (_: Exception) {
+                // Ignore in headless/test environments where WorkManager is not initialized
+            }
+        }
     }
 
     fun startDiscovery() {

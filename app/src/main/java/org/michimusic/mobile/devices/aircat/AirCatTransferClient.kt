@@ -26,6 +26,7 @@ data class AuthorizedTransferCriteria(
     val destinationLibraryId: String? = null,
     val expectedSize: Long? = null,
     val expectedSha256: String? = null,
+    val planId: String? = null,
 )
 
 interface AirCatTransferClient {
@@ -244,6 +245,20 @@ class DefaultAirCatTransferClient(
                     transferKey = transferKey,
                 )
 
+                if (libraryRepository != null) {
+                    val existingIdentity = libraryRepository.getTrackIdentity(item.logicalTrackId)
+                    val existingHash = existingIdentity?.contentHash
+                    if (!existingHash.isNullOrEmpty() && item.sha256.isNotEmpty() &&
+                        !existingHash.equals(item.sha256, ignoreCase = true)
+                    ) {
+                        val err = AirCatException.CorruptedPayload(
+                            "Conflicto de contenido: trackId ${item.logicalTrackId} ya existe con hash ${existingHash}, pero la transferencia reporta ${item.sha256}."
+                        )
+                        emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                        return@withContext Result.failure(err)
+                    }
+                }
+
                 // Record initial DOWNLOADING checkpoint in persistent repository
                 checkpointRepository?.saveCheckpoint(
                     org.michimusic.core.models.PersistentCheckpoint(
@@ -319,6 +334,25 @@ class DefaultAirCatTransferClient(
                 )
 
                 if (libraryRepository != null) {
+                    val existingIdentity = libraryRepository.getTrackIdentity(item.logicalTrackId)
+                    val existingHash = existingIdentity?.contentHash
+                    if (!existingHash.isNullOrEmpty() && item.sha256.isNotEmpty() &&
+                        !existingHash.equals(item.sha256, ignoreCase = true)
+                    ) {
+                        checkpointRepository?.updateProgress(
+                            transferKey = transferKey,
+                            receivedBytes = finalFile.length(),
+                            verifiedBytes = finalFile.length(),
+                            state = org.michimusic.core.models.TransferStatus.FAILED,
+                        )
+                        finalFile.delete()
+                        val err = AirCatException.CorruptedPayload(
+                            "Conflicto de contenido: trackId ${item.logicalTrackId} ya existe con hash ${existingIdentity.contentHash}, pero la transferencia reporta ${item.sha256}."
+                        )
+                        emitEvent(intent.transferId, index, manifest.totalTracks, transferredBytesAcc, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                        return@withContext Result.failure(err)
+                    }
+
                     try {
                         libraryRepository.registerTrackWithLocation(
                             identity = trackIdentity,
@@ -481,7 +515,12 @@ class DefaultAirCatTransferClient(
                     } else {
                         true
                     }
-                    trackMatches && libMatches && sizeMatches && hashMatches
+                    val planMatches = if (!crit.planId.isNullOrEmpty()) {
+                        cp.transferId.isNotEmpty() && crit.planId == cp.transferId
+                    } else {
+                        true
+                    }
+                    trackMatches && libMatches && sizeMatches && hashMatches && planMatches
                 }
                 if (match == null) return@filter false
             } else if (authorizedTrackIds != null) {
@@ -560,6 +599,23 @@ class DefaultAirCatTransferClient(
             // Register into Multi-Library domain transactionally preserving existing identity
             if (libraryRepository != null) {
                 val existingIdentity = libraryRepository.getTrackIdentity(cp.trackId)
+                val existingHash = existingIdentity?.contentHash
+                if (!existingHash.isNullOrEmpty() && cp.expectedSha256.isNotEmpty() &&
+                    !existingHash.equals(cp.expectedSha256, ignoreCase = true)
+                ) {
+                    repo.updateProgress(
+                        transferKey = cp.transferKey,
+                        receivedBytes = finalFile.length(),
+                        verifiedBytes = finalFile.length(),
+                        state = org.michimusic.core.models.TransferStatus.FAILED
+                    )
+                    finalFile.delete()
+                    return@withContext Result.failure(
+                        AirCatException.CorruptedPayload(
+                            "Conflicto de contenido: trackId ${cp.trackId} ya existe con hash ${existingIdentity.contentHash}, pero el checkpoint reporta ${cp.expectedSha256}."
+                        )
+                    )
+                }
                 val trackIdentity = existingIdentity ?: TrackIdentity(
                     id = cp.trackId,
                     title = cp.trackId,
