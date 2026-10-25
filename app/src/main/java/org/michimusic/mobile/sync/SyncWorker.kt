@@ -357,16 +357,24 @@ class SyncWorker(
                     if (track.trackId !in downloadedIds) {
                         true
                     } else {
-                        // Track está en base de datos; verificar integridad física en disco
+                        // Track está en base de datos; verificar integridad física en disco y hash
                         val existingFile = transferManager.getTrackFile(
                             trackId = track.trackId,
                             format = track.format,
                             remoteDeviceId = deviceId,
                             destinationLibraryId = destLibId,
                         )
-                        val isIntact = existingFile != null && existingFile.exists() && existingFile.length() > 0 &&
+                        val basicIntact = existingFile != null && existingFile.exists() && existingFile.length() > 0 &&
                             (track.size <= 0L || existingFile.length() == track.size)
-                        !isIntact
+                        val cs = track.checksum
+                        if (!basicIntact || existingFile == null) {
+                            true
+                        } else if (!cs.isNullOrEmpty()) {
+                            // Si se declaró checksum en el manifiesto/decisión, verificarlo
+                            !transferManager.verifyChecksum(existingFile, cs)
+                        } else {
+                            false
+                        }
                     }
                 }
                 .map { track ->

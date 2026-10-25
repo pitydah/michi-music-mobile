@@ -21,11 +21,12 @@ class AirCatSecurityTokenBindingTest {
     private val transferManager = mockk<LinkTransferManager>(relaxed = true)
     private val pairedDeviceRegistry = mockk<PairedDeviceRegistry>(relaxed = true)
     private val checkpointRepository = mockk<TransferCheckpointRepository>(relaxed = true)
+    private val libraryRepository = mockk<org.michimusic.data.repository.MusicLibraryRepository>(relaxed = true)
 
     private val client = DefaultAirCatTransferClient(
         transferManager = transferManager,
         pairedDeviceRegistry = pairedDeviceRegistry,
-        libraryRepository = null,
+        libraryRepository = libraryRepository,
         checkpointRepository = checkpointRepository,
     )
 

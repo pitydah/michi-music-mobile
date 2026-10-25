@@ -13,11 +13,20 @@ object TransferFileIdentity {
 
     /**
      * Sanitiza un segmento de ruta para evitar path traversal, caracteres prohibidos
-     * o colisiones por espacios en blanco.
+     * o colisiones por espacios en blanco. Si la cadena original contiene caracteres
+     * sanitizados o potencialmente ambiguos, se adjunta un sufijo determinista basado en hash
+     * para evitar colisiones entre distintos valores que produzcan el mismo segmento sanitizado.
      */
     fun safeSegment(value: String, default: String = "segment"): String {
-        val sanitized = value.trim().replace(UNSAFE_CHARS_REGEX, "_")
-        return sanitized.ifBlank { default }
+        val trimmed = value.trim()
+        val sanitized = trimmed.replace(UNSAFE_CHARS_REGEX, "_")
+        val base = sanitized.ifBlank { default }
+        return if (trimmed != sanitized && trimmed.isNotBlank()) {
+            val hash = (trimmed.hashCode().toLong() and 0xFFFFFFFFL).toString(16)
+            "${base}_$hash"
+        } else {
+            base
+        }
     }
 
     /**

@@ -169,7 +169,7 @@ class EndToEndOfflineSyncTest {
         assertEquals(2, checkpoints.size)
         assertTrue(checkpoints.all { it.transferState == TransferStatus.COMPLETED })
 
-        val key1 = "$serverId:$destLibId:trk_lossless_1"
+        val key1 = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(serverId, destLibId, "trk_lossless_1", "xfer_e2e_resumable_001")
         val cp1 = checkpointRepo.getCheckpoint(key1)
         assertNotNull("Checkpoint 1 must exist in Room", cp1)
         assertEquals(trackData1.size.toLong(), cp1?.receivedBytes)
@@ -350,7 +350,7 @@ class EndToEndOfflineSyncTest {
         assertTrue("Transfer must fail when library registration fails", result.isFailure)
 
         // Verify checkpoint does NOT remain COMPLETED
-        val key = "$serverId:$destLibId:trk_fail"
+        val key = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(serverId, destLibId, "trk_fail", "xfer_fail_test")
         val cp = checkpointRepo.getCheckpoint(key)
         assertNotNull(cp)
         assertEquals("Checkpoint must be FAILED if library registration fails", TransferStatus.FAILED, cp?.transferState)
@@ -766,9 +766,12 @@ class EndToEndOfflineSyncTest {
             )
         }
 
+        val key_p1 = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(serverId, destLibId, "trk_p_1", transferId)
+        val key_p2 = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(serverId, destLibId, "trk_p_2", transferId)
+
         // Wait with timeout until track 1 finishes
         var attempts = 0
-        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")?.transferState != TransferStatus.COMPLETED && attempts < 200) {
+        while (checkpointRepo.getCheckpoint(key_p1)?.transferState != TransferStatus.COMPLETED && attempts < 200) {
             Thread.sleep(15)
             attempts++
         }
@@ -785,13 +788,13 @@ class EndToEndOfflineSyncTest {
 
         // Wait with timeout until track 2 finishes
         attempts = 0
-        while (checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_2")?.transferState != TransferStatus.COMPLETED && attempts < 200) {
+        while (checkpointRepo.getCheckpoint(key_p2)?.transferState != TransferStatus.COMPLETED && attempts < 200) {
             Thread.sleep(15)
             attempts++
         }
 
-        val cp1 = checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_1")
-        val cp2 = checkpointRepo.getCheckpoint("$serverId:$destLibId:trk_p_2")
+        val cp1 = checkpointRepo.getCheckpoint(key_p1)
+        val cp2 = checkpointRepo.getCheckpoint(key_p2)
         assertNotNull(cp1)
         assertNotNull(cp2)
         assertEquals(TransferStatus.COMPLETED, cp1?.transferState)

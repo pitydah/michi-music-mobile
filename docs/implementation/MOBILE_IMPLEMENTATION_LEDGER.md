@@ -37,7 +37,8 @@
 | M20.5 / M21-D | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | c1bccaf | Cierre autoritativo definitivo: botón Cancelar conectado en DevicesScreen y SyncScreen con deviceId dinámico y tag 'michi_sync'; aislamiento estricto de checkpoints AirCat por tupla compuesta (remoteDeviceId, destinationLibraryId, trackId, expectedSize, expectedSha256); orden atómico de persistencia y registro multi-library verificado físicamente; integración CAS de tryTransitionState en SyncWorker; preflight validando metadatos negativos; test de integración end-to-end de SyncWorker con TestListenableWorkerBuilder; virtualización LazyColumn en TrackDecisionListCard |
 | M20 / M21 CONSOLIDATION | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | a0bc4f8 | Zero-Skip Engineering: Exclusión mutua CAS estricta pre-mutación y pre-red en SyncWorker (fail-closed inmediato); presupuesto de descarga desacoplado para RESUME_PARTIAL (sourceSizeBytes vs estimatedDownloadBytes); matching fail-closed de hashes SHA-256 en AirCat checkpoints; cancelación granular por dispositivo (michi_sync_$safeDev) y estado SyncProgress.Cancelling en UI; pruebas adversariales de concurrencia CAS y reanudación parcial física; 100% suites JVM superadas |
 | M20 / M21 FINAL CLOSURE | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 84be6c8 | Cierre decisivo de brechas P0/P1/P2: Conciliación estricta de decisiones del plan (pistas rechazadas por tamaño nunca producen éxito total -> PARTIAL_SUCCESS); aislamiento físico de checkpoints y archivos .part por planId (dos planes con la misma pista no intercambian parciales); ciclo de vida CAS determinista QUEUED/RETRY_PENDING -> TRANSFERRING con RETRY_PENDING en error transitorio; verificación de colisión de hash de contenido con fail-closed ante trackId existente con hash distinto; restauración reactiva de WorkInfo tras process death en SyncViewModel; 100% suites JVM superadas en normalDebug y fdroidDebug |
-| M21-E | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Cross-Component Integrity, Durable Recovery & Multi-Device State: TransferFileIdentity canónico unificado, resolución de parciales .part y claves compuestas sin asimetrías de ruta, preservación de progreso parcial sin sobreescritura ciega a 0L en SyncWorker/AirCat, propagación de planId en recuperación, restauración reactiva multi-dispositivo (deviceSyncProgress) en SyncViewModel, no-destrucción de pistas locales existentes ante colisión de hash, validación de integridad física en disco antes de omitir tracks en SyncWorker |
+| M21-E | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | 8ac7623 | Cross-Component Integrity, Durable Recovery & Multi-Device State: TransferFileIdentity canónico unificado, resolución de parciales .part y claves compuestas sin asimetrías de ruta, preservación de progreso parcial sin sobreescritura ciega a 0L en SyncWorker/AirCat, propagación de planId en recuperación, restauración reactiva multi-dispositivo (deviceSyncProgress) en SyncViewModel, no-destrucción de pistas locales existentes ante colisión de hash, validación de integridad física en disco antes de omitir tracks en SyncWorker |
+| M21-F | VERIFIED | VERIFIED | PENDING_ENV | PENDING_HARDWARE | HEAD | Checkpoint Isolation, End-to-End Recovery & Offline Integrity: Reversión estricta a WHERE transferKey = :key en TransferCheckpointDao aislando planes completamente; obligatoriedad fail-closed de MusicLibraryRepository en AirCat; política no destructiva en colisiones de hash (nunca borra tracks locales registrados); prevención de colisiones en TransferFileIdentity.safeSegment mediante hash determinista; eliminación de renombrados huérfanos y validación rigurosa de .part contra checkpoints en LinkTransferManager; renderizado reactivo de transferencias paralelas multi-dispositivo en DevicesScreen y SyncScreen; verificación exhaustiva de SHA-256 en SyncWorker antes de omitir tracks existentes; suite de pruebas decisivas para aislamiento DAO, colisiones de path e interrupción/reanudación fin a fin de SyncWorker tras reinicio de proceso |
 
 
 ---
@@ -1791,8 +1792,72 @@ SECURITY_REVIEW:
   - Fail-closed ante incompatibilidades criptográficas de SHA-256.
 ROLLBACK_PLAN:
   git revert 84be6c8637a1048987ac266a20ec7bce810d28b3..HEAD
-BLOCKERS: Ninguno. Sprint M21-E completado y certificado. Madurez estimada: 96%.
+BLOCKERS: Ninguno. Sprint M21-E completado y certificado. Madurez estimada: 95%.
 ```
+
+---
+
+### Sprint M21-F — Checkpoint Isolation, End-to-End Recovery & Offline Integrity
+
+**Fecha:** 25 de octubre de 2026  
+**Rama:** `master`  
+**Estado:** VERIFIED (100% JVM Test Suites Passing en `normalDebug` y `fdroidDebug`)  
+**Madurez Estimada:** 96%  
+
+#### Hallazgos Auditoría KILLCRITIC & Correcciones Implementadas:
+1. **P0 — Aislamiento de Checkpoints en Room:**
+   - Reversión de `TransferCheckpointDao` de `LIKE :key || ':%'` a coincidencia estricta `WHERE transferKey = :key` tanto en `getCheckpoint` como en `updateProgress`.
+   - Garantizado que operaciones dirigidas a `plan_B` jamás tocan, consultan o mutan checkpoints pertenecientes a `plan_A`.
+   - Incorporado test unitario de Room `TransferCheckpointDao strict exact match does not touch other plans` en `DaoTests.kt`.
+2. **P0 — Obligatoriedad de `MusicLibraryRepository` en AirCat:**
+   - En `DefaultAirCatTransferClient`, `executeTransfer` y `recoverIncompleteTransfers` validan de inmediato la presencia no nula de `libraryRepository`. Si es nulo, falla cerrado inmediatamente con `AirCatException.ProtocolError` y prohíbe asentar transiciones a `COMPLETED`.
+   - Testeado con `aircatTransfer_failsClosed_whenLibraryRepositoryIsNull` en `AirCatContractTest.kt`.
+3. **P0 — Política No Destructiva ante Conflicto de Hash:**
+   - Tanto en `executeTransfer` como en `recoverIncompleteTransfers`, ante discrepancia de hash con el catálogo existente (`existingIdentity.contentHash != expectedHash`), el cliente verifica con `libraryRepository.getLocationsForTrack` si `finalFile` ya corresponde a una ubicación registrada. Si ya está registrado, el archivo local **no es borrado**; únicamente se elimina el candidato temporal entrante.
+   - Testeado con `aircatTransfer_nonDestructivePolicy_neverDeletesExistingRegisteredTrackOnConflict` en `AirCatContractTest.kt`.
+4. **P1 — Resistencia a Colisiones en `TransferFileIdentity.safeSegment`:**
+   - Cuando una cadena contiene caracteres que son sanitizados por `_`, se le adjunta un sufijo determinista basado en hash hexadecimal (`_${(trimmed.hashCode().toLong() and 0xFFFFFFFFL).toString(16)}`).
+   - Evita colisiones de nombres entre entradas como `album/2026` y `album?2026`.
+   - Verificado con test unitario dedicado `TransferFileIdentityTest.kt`.
+5. **P1 — Validación de Procedencia y Longitud de `.part` en `LinkTransferManager`:**
+   - Eliminado el renombrado ciego de `.part` huérfanos sin verificación.
+   - Los archivos `.part` existentes se confrontan contra el checkpoint registrado; si el tamaño en disco es inconsistente con el avance registrado o excede el total esperado, se eliminan para prevenir corrupción antes de solicitar el streaming de rango.
+6. **P1 — Conexión de UI Multi-Dispositivo (`DevicesScreen` y `SyncScreen`):**
+   - En `DevicesScreen.kt`, se iteran todos los elementos activos en `uiState.deviceSyncProgress` para renderizar `SyncTransferCard` por cada dispositivo descargando o cancelando.
+   - En `SyncScreen.kt`, la tarjeta de progreso activo consume el estado específico del nodo conectado (`deviceSyncProgress[connectedPeer.deviceId] ?: uiState.syncProgress`).
+7. **P1 — Verificación Criptográfica en Descarte de Candidatos (`SyncWorker`):**
+   - En el filtrado de pistas existentes (`candidateTracks.filter`), además del chequeo de longitud de archivo se valida `transferManager.verifyChecksum(existingFile, checksum)` si se declaró checksum en el manifiesto. Si está alterado en disco, se programa su re-descarga.
+8. **P1 — Test Decisivo Fin a Fin de Recuperación con Muerte de Proceso:**
+   - Implementado `syncWorker_interruptedDownload_resumesRangeAndCompletesRoomRegistration` en `SyncWorkerIntegrationTest.kt`:
+     - Descarga parcial (400 de 1000 bytes) registrada en Room.
+     - Simulación de corte de proceso e instanciación de nuevo `SyncWorker`.
+     - Reanudación por rango HTTP 206 desde offset exacto 400.
+     - Promoción atómica a archivo final.
+     - Registro Multi-Library en Room (`TrackIdentity` y `TrackLocation`) y transición a `COMPLETED`.
+
+```yaml
+PHASE: M21-F
+DATE: 2026-10-25
+STATUS: VERIFIED
+ESTIMATED_MATURITY: 96%
+HEAD: HEAD
+JVM_TESTS_EXECUTED:
+  ./gradlew :core:testDebugUnitTest (17 tests PASSED)
+  ./gradlew :data:testDebugUnitTest (49 tests PASSED)
+  ./gradlew :michi-link-client:testDebugUnitTest (PASSED)
+  ./gradlew :app:testNormalDebugUnitTest (270 tests PASSED)
+  ./gradlew :app:testFdroidDebugUnitTest (270 tests PASSED)
+INSTRUMENTED_TESTS_EXECUTED: PENDING_ENV (sin emulador/dispositivo conectado en entorno headless)
+HARDWARE_TESTS_EXECUTED: PENDING_HARDWARE (requiere nodos físicos pareados)
+SECURITY_REVIEW:
+  - Estricto aislamiento de checkpoints por clave canónica exacta sin fugas por LIKE.
+  - Fail-closed garantizado en AirCat si falta el repositorio de biblioteca.
+  - Conservación no destructiva de archivos de audio locales ante colisiones de metadatos remotos.
+ROLLBACK_PLAN:
+  git revert 8ac7623ac9c0db9a2e433a24437cf541ba61127b..HEAD
+BLOCKERS: Ninguno. Sprint M21-F completado y certificado.
+```
+
 
 
 

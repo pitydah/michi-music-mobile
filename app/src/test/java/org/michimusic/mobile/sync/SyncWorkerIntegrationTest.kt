@@ -820,4 +820,181 @@ class SyncWorkerIntegrationTest {
         val planInDb = db.approvedSyncPlanDao().getPlan(planId)
         assertEquals(TransferLifecycleState.FAILED.name, planInDb?.executionState)
     }
+
+    @Test
+    fun syncWorker_interruptedDownload_resumesRangeAndCompletesRoomRegistration() = runBlocking {
+        // P1 Decisive Test: Interrupción después de inicio -> nuevo Worker -> reanudación de rango -> Room registration
+        val trackId = "trk_e2e_resume"
+        val totalBytes = 1000L
+        val partialBytes = 400L
+        val fullData = ByteArray(totalBytes.toInt()) { (it % 128).toByte() }
+
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val expectedSha = md.digest(fullData).joinToString("") { "%02x".format(it) }
+
+        val manifestTracks = listOf(
+            ManifestTrackDto(
+                trackId = trackId,
+                title = "Resumable Track",
+                artist = "Artist Resume",
+                album = "Album Resume",
+                duration = 180,
+                size = totalBytes,
+                format = "flac",
+                checksum = expectedSha,
+            )
+        )
+
+        coEvery { mockClient.fetchSyncManifest(testDeviceId) } returns Result.success(
+            SyncManifestDto(
+                version = 1,
+                tracks = manifestTracks,
+                manifestId = "sha_manifest_resume",
+            )
+        )
+
+        val planId = "plan_e2e_resume"
+        val destLibId = "lib_synced_${testDeviceId}"
+
+        // Simulate interruption: Seed a valid checkpoint and partial .part file
+        val musicDir = File(context.filesDir, "synced_music").also { it.mkdirs() }
+        val (finalFile, tempFile) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+            musicDir = musicDir,
+            remoteDeviceId = testDeviceId,
+            destinationLibraryId = destLibId,
+            trackId = trackId,
+            format = "flac",
+            planId = planId,
+        )
+
+        // Write first 400 bytes to tempFile
+        tempFile.writeBytes(fullData.copyOfRange(0, partialBytes.toInt()))
+
+        val transferKey = org.michimusic.core.models.TransferFileIdentity.buildTransferKey(
+            remoteDeviceId = testDeviceId,
+            destinationLibraryId = destLibId,
+            trackId = trackId,
+            planId = planId,
+        )
+
+        db.transferCheckpointDao().insertCheckpoint(
+            org.michimusic.data.cache.TransferCheckpointEntity(
+                transferKey = transferKey,
+                transferId = planId,
+                remoteDeviceId = testDeviceId,
+                sourceLibraryId = testDeviceId,
+                destinationLibraryId = destLibId,
+                trackId = trackId,
+                remoteTrackId = trackId,
+                tempFilePath = tempFile.absolutePath,
+                finalFilePath = finalFile.absolutePath,
+                expectedSize = totalBytes,
+                receivedBytes = partialBytes,
+                verifiedBytes = partialBytes,
+                etag = "etag_interrupted_123",
+                expectedSha256 = expectedSha,
+                transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING.name,
+                createdAt = System.currentTimeMillis() - 5000,
+                updatedAt = System.currentTimeMillis() - 5000,
+            )
+        )
+
+        // Mock range streaming from offset 400L
+        var streamStartBytes: Long = -1L
+        coEvery {
+            mockClient.streamTrackRange(
+                trackId = trackId,
+                outputStream = any(),
+                startBytes = any(),
+                expectedEtag = any(),
+                bufferSize = any(),
+                onProgress = any(),
+            )
+        } answers {
+            streamStartBytes = thirdArg<Long>()
+            val stream = secondArg<OutputStream>()
+            val remaining = fullData.copyOfRange(streamStartBytes.toInt(), fullData.size)
+            stream.write(remaining)
+            Result.success(
+                org.michimusic.link.StreamRangeResult(
+                    bytesRead = remaining.size.toLong(),
+                    statusCode = 206,
+                    isPartialContent = true,
+                    etag = "etag_interrupted_123",
+                )
+            )
+        }
+
+        val approvedDecisions = listOf(
+            SyncItemDecision(
+                trackId = trackId,
+                title = "Resumable Track",
+                artist = "Artist Resume",
+                album = "Album Resume",
+                action = SyncItemAction.RESUME_PARTIAL,
+                sourceSizeBytes = totalBytes,
+                estimatedDownloadBytes = totalBytes - partialBytes,
+            )
+        )
+
+        val planEntity = ApprovedSyncPlanEntity(
+            planId = planId,
+            endpointId = testDeviceId,
+            endpointName = "Production Desktop Node",
+            scope = "FULL_LIBRARY",
+            selectionJson = "{}",
+            deliveryChoiceJson = "{}",
+            itemsJson = json.encodeToString(approvedDecisions),
+            manifestVersion = 1,
+            manifestChecksum = "sha_manifest_resume",
+            totalSelectedTracks = 1,
+            tracksToDownloadCount = 1,
+            totalDownloadBytes = totalBytes - partialBytes,
+            status = "READY",
+            executionState = TransferLifecycleState.QUEUED.name,
+            createdAt = System.currentTimeMillis(),
+        )
+        db.approvedSyncPlanDao().insertPlan(planEntity)
+
+        // Instantiate brand-new worker after process restart
+        val newWorker = TestListenableWorkerBuilder<SyncWorker>(context)
+            .setInputData(
+                SyncWorker.buildInputData(
+                    baseUrl = "http://127.0.0.1:8400",
+                    deviceId = testDeviceId,
+                    alias = "Production Desktop Node",
+                    planId = planId,
+                    expectedBytes = totalBytes - partialBytes,
+                )
+            )
+            .build()
+
+        val workResult = newWorker.doWork()
+
+        // Decisive Checks:
+        // 1. Worker succeeds
+        assertTrue("Resumed worker must succeed, got $workResult", workResult is ListenableWorker.Result.Success)
+        val output = (workResult as ListenableWorker.Result.Success).outputData
+        assertEquals(1, output.getInt(SyncWorker.RESULT_DOWNLOADED, -1))
+        assertEquals(0, output.getInt(SyncWorker.RESULT_ERROR, -1))
+
+        // 2. Stream started precisely from partialBytes (400L)
+        assertEquals(partialBytes, streamStartBytes)
+
+        // 3. Final promoted file exists and has full length
+        assertTrue("Final file must exist", finalFile.exists())
+        assertEquals(totalBytes, finalFile.length())
+
+        // 4. Room Multi-Library registration completed atomically
+        val trackIdentity = db.trackIdentityDao().getTrackIdentity(trackId)
+        assertNotNull("TrackIdentity must be registered in Room", trackIdentity)
+        assertEquals(expectedSha, trackIdentity?.contentHash)
+
+        val locations = db.trackLocationDao().getLocationsForTrack(trackId)
+        assertTrue("TrackLocation must be registered in Room", locations.any { it.uri == finalFile.absolutePath })
+
+        // 5. Plan lifecycle in Room must be COMPLETED
+        val planInDb = db.approvedSyncPlanDao().getPlan(planId)
+        assertEquals(TransferLifecycleState.COMPLETED.name, planInDb?.executionState)
+    }
 }

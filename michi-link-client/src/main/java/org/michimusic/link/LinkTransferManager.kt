@@ -81,13 +81,6 @@ class LinkTransferManager(
 
         // 2. Preflight checkpoint inspection: check in-memory or recover from persistent repository
         val transferKey = item.effectiveTransferKey
-        if (!tempFile.exists()) {
-            val legacyDotPart = File(tempFile.parentFile, "${file.absolutePath}._${org.michimusic.core.models.TransferFileIdentity.safeSegment(item.planId)}.part")
-            if (legacyDotPart.exists()) {
-                legacyDotPart.renameTo(tempFile)
-            }
-        }
-        var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
         var savedCheckpoint = _checkpoints.value[transferKey] ?: if (item.remoteDeviceId.isEmpty() || item.destinationLibraryId.isEmpty()) _checkpoints.value[item.trackId] else null
         if (savedCheckpoint == null && checkpointRepository != null) {
             val persisted = checkpointRepository.getCheckpoint(transferKey)
@@ -119,16 +112,20 @@ class LinkTransferManager(
         }
         val expectedEtag = savedCheckpoint?.etag?.ifEmpty { null }
 
+        var existingPartBytes = if (tempFile.exists()) tempFile.length() else 0L
         var startOffset = 0L
         var shouldAppend = false
 
         if (existingPartBytes > 0) {
-            if (item.size > 0 && existingPartBytes >= item.size) {
-                // .part is larger or equal to full size; reset to prevent corruption
+            val recordedBytes = savedCheckpoint?.bytesVerified ?: 0L
+            val sizeOverflow = item.size > 0 && existingPartBytes >= item.size
+            // If the partial file exists but its size is wildly inconsistent with the checkpoint,
+            // or if it exceeds expected size, discard it to avoid corruption.
+            if (sizeOverflow || (recordedBytes > 0 && existingPartBytes < recordedBytes)) {
                 tempFile.delete()
                 existingPartBytes = 0L
             } else {
-                startOffset = existingPartBytes
+                startOffset = minOf(existingPartBytes, if (recordedBytes > 0) recordedBytes else existingPartBytes)
                 shouldAppend = true
             }
         }
@@ -404,7 +401,7 @@ class LinkTransferManager(
         _checkpoints.value = if (updated != null) current + (trackId to updated) else current - trackId
     }
 
-    private fun verifyChecksum(file: File, expected: String): Boolean {
+    fun verifyChecksum(file: File, expected: String): Boolean {
         if (!file.exists()) return false
         val hex = calculateSha256(file)
         return hex.equals(expected.trim(), ignoreCase = true)

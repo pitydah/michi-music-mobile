@@ -35,6 +35,7 @@ interface MusicLibraryRepository {
     suspend fun removeMembership(libraryId: String, trackId: String): Result<Unit>
     suspend fun resolvePreferredLocation(trackId: String): PlayableLocation?
     suspend fun getTrackIdentity(trackId: String): TrackIdentity?
+    suspend fun getLocationsForTrack(trackId: String): List<TrackLocation> = emptyList()
     suspend fun registerTrackWithLocation(
         identity: TrackIdentity,
         location: TrackLocation,
@@ -137,6 +138,10 @@ class DefaultMusicLibraryRepository(
 
     override suspend fun getTrackIdentity(trackId: String): TrackIdentity? {
         return identityDao.getTrackIdentity(trackId)?.toDomain()
+    }
+
+    override suspend fun getLocationsForTrack(trackId: String): List<TrackLocation> {
+        return locationDao.getLocationsForTrack(trackId).map { it.toDomain() }
     }
 
     override suspend fun registerTrackWithLocation(

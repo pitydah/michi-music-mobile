@@ -333,8 +333,13 @@ fun SyncScreen(
                     }
                 }
 
-                // Active Sync Progress Card
-                val progress = uiState.syncProgress
+                // Active Sync Progress Card (Peer-aware)
+                val targetDeviceId = uiState.connectedPeer?.deviceId
+                val progress = if (!targetDeviceId.isNullOrEmpty() && uiState.deviceSyncProgress.containsKey(targetDeviceId)) {
+                    uiState.deviceSyncProgress[targetDeviceId] ?: SyncProgress.Idle
+                } else {
+                    uiState.syncProgress
+                }
                 if (progress is SyncProgress.Downloading) {
                     item {
                         SyncProgressCard(

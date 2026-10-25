@@ -13,6 +13,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.michimusic.core.models.LocationAvailability
+import org.michimusic.core.models.TrackIdentity
+import org.michimusic.core.models.TrackLocation
+import org.michimusic.core.models.TrackLocationType
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
@@ -1138,6 +1142,112 @@ class AirCatContractTest {
 
         assertTrue("Conflicting content hash must fail execution", result.isFailure)
         assertTrue(result.exceptionOrNull() is AirCatException.CorruptedPayload)
+    }
+
+    @Test
+    fun aircatTransfer_failsClosed_whenLibraryRepositoryIsNull() = runBlocking {
+        val clientWithoutRepo = DefaultAirCatTransferClient(
+            transferManager = transferManager,
+            pairedDeviceRegistry = pairedRegistry,
+            libraryRepository = null,
+            checkpointRepository = mockk(relaxed = true),
+        )
+
+        val intent = TransferIntent(
+            transferId = "xfer_no_repo",
+            sourceMichiId = "dev_src",
+            destinationMichiId = "client_me",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_no_repo",
+            sourceDeviceId = "dev_src",
+            totalTracks = 0,
+            totalBytes = 0L,
+            items = emptyList(),
+        )
+
+        val execResult = clientWithoutRepo.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+        assertTrue("executeTransfer must fail when libraryRepository is null", execResult.isFailure)
+        assertTrue(execResult.exceptionOrNull() is AirCatException.ProtocolError)
+
+        val recoverResult = clientWithoutRepo.recoverIncompleteTransfers(
+            remoteDeviceId = "dev_src",
+            linkClient = mockk(relaxed = true),
+        )
+        assertTrue("recoverIncompleteTransfers must fail when libraryRepository is null", recoverResult.isFailure)
+        assertTrue(recoverResult.exceptionOrNull() is AirCatException.ProtocolError)
+    }
+
+    @Test
+    fun aircatTransfer_nonDestructivePolicy_neverDeletesExistingRegisteredTrackOnConflict() = runBlocking {
+        val sourceId = "node_registered_conflict"
+        val existingFile = File(tempDir, "existing_valid_song.flac")
+        existingFile.writeBytes("Pre-existing high quality audio".toByteArray())
+        assertTrue(existingFile.exists())
+
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(
+            deviceId = sourceId,
+            deviceName = "Conflict Node",
+            deviceToken = "token_ok",
+            lastUrl = "http://192.168.1.100:8400",
+        )
+
+        coEvery { libraryRepo.getTrackIdentity("trk_registered") } returns TrackIdentity(
+            id = "trk_registered",
+            title = "Existing Song",
+            artist = "Artist",
+            album = "Album",
+            durationMs = 120000L,
+            contentHash = "hash_ORIGINAL_LOCAL",
+        )
+        // Simulate existing file is a registered location
+        coEvery { libraryRepo.getLocationsForTrack("trk_registered") } returns listOf(
+            TrackLocation(
+                id = "loc_local_1",
+                trackId = "trk_registered",
+                type = TrackLocationType.SYNCED_MANAGED,
+                uri = existingFile.absolutePath,
+                availability = LocationAvailability.AVAILABLE,
+            )
+        )
+
+        val intent = TransferIntent(
+            transferId = "xfer_reg_conflict",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_me",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dest",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_reg_conflict",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 1000L,
+            items = listOf(
+                AirCatManifestItem("trk_registered", "rem_1", "Song", "Artist", "Album", "flac", 1000L, "hash_DIFFERENT_INCOMING")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.CorruptedPayload)
+        // Decisive check: existing valid local file MUST NOT be deleted
+        assertTrue("Registered local file must remain intact and non-deleted", existingFile.exists())
     }
 }
 

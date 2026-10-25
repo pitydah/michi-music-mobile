@@ -98,4 +98,63 @@ class DaoTests {
         val playlists = playlistDao.getAllPlaylists()
         assertEquals(0, playlists.size)
     }
+
+    @Test
+    fun `TransferCheckpointDao strict exact match does not touch other plans`() = runBlocking {
+        val checkpointDao = database.transferCheckpointDao()
+
+        val cpPlanA = TransferCheckpointEntity(
+            transferKey = "dev1:lib1:trk1:plan_A",
+            transferId = "plan_A",
+            remoteDeviceId = "dev1",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib1",
+            trackId = "trk1",
+            remoteTrackId = "trk1",
+            tempFilePath = "/tmp/a.part",
+            finalFilePath = "/tmp/a.mp3",
+            expectedSize = 1000L,
+            receivedBytes = 200L,
+            verifiedBytes = 200L,
+            etag = "etag_a",
+            expectedSha256 = "hash_a",
+            transferState = "DOWNLOADING",
+            createdAt = 1000L,
+            updatedAt = 1000L,
+        )
+
+        checkpointDao.insertCheckpoint(cpPlanA)
+
+        // Exact query on prefix or another plan must return null
+        val prefixQuery = checkpointDao.getCheckpoint("dev1:lib1:trk1")
+        assertNull("Prefix query without planId must not match plan_A checkpoint", prefixQuery)
+
+        val planBQuery = checkpointDao.getCheckpoint("dev1:lib1:trk1:plan_B")
+        assertNull("Query for plan_B must not match plan_A", planBQuery)
+
+        // Updating progress with prefix or plan_B key must not touch plan_A
+        val updatedRowsPrefix = checkpointDao.updateProgress(
+            key = "dev1:lib1:trk1",
+            received = 999L,
+            verified = 999L,
+            state = "COMPLETED",
+            updatedAt = 2000L
+        )
+        assertEquals(0, updatedRowsPrefix)
+
+        val updatedRowsPlanB = checkpointDao.updateProgress(
+            key = "dev1:lib1:trk1:plan_B",
+            received = 888L,
+            verified = 888L,
+            state = "COMPLETED",
+            updatedAt = 2000L
+        )
+        assertEquals(0, updatedRowsPlanB)
+
+        // Verify plan_A record remained pristine
+        val retrievedPlanA = checkpointDao.getCheckpoint("dev1:lib1:trk1:plan_A")
+        assertNotNull(retrievedPlanA)
+        assertEquals(200L, retrievedPlanA?.receivedBytes)
+        assertEquals("DOWNLOADING", retrievedPlanA?.transferState)
+    }
 }

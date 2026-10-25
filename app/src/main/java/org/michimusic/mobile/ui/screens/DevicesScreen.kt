@@ -248,25 +248,54 @@ fun DevicesScreen(
                     }
                 }
 
-                // SyncWorker Active Transfer Card
-                val syncProg = uiState.syncProgress
-                if (syncProg is org.michimusic.mobile.sync.SyncProgress.Downloading) {
-                    item {
-                        SyncTransferCard(
-                            completed = syncProg.completed,
-                            total = syncProg.total,
-                            isCancelling = false,
-                            onCancel = { viewModel.cancelSync(syncProg.deviceId) },
-                        )
+                // SyncWorker Active Transfer Cards (Multi-Device Support)
+                val activeDeviceSyncs = uiState.deviceSyncProgress.filter { (_, prog) ->
+                    prog is org.michimusic.mobile.sync.SyncProgress.Downloading ||
+                    prog is org.michimusic.mobile.sync.SyncProgress.Cancelling
+                }
+
+                if (activeDeviceSyncs.isNotEmpty()) {
+                    activeDeviceSyncs.forEach { (devId, prog) ->
+                        if (prog is org.michimusic.mobile.sync.SyncProgress.Downloading) {
+                            item(key = "sync_card_$devId") {
+                                SyncTransferCard(
+                                    completed = prog.completed,
+                                    total = prog.total,
+                                    isCancelling = false,
+                                    onCancel = { viewModel.cancelSync(devId) },
+                                )
+                            }
+                        } else if (prog is org.michimusic.mobile.sync.SyncProgress.Cancelling) {
+                            item(key = "sync_card_$devId") {
+                                SyncTransferCard(
+                                    completed = prog.completed,
+                                    total = prog.total,
+                                    isCancelling = true,
+                                    onCancel = {},
+                                )
+                            }
+                        }
                     }
-                } else if (syncProg is org.michimusic.mobile.sync.SyncProgress.Cancelling) {
-                    item {
-                        SyncTransferCard(
-                            completed = syncProg.completed,
-                            total = syncProg.total,
-                            isCancelling = true,
-                            onCancel = {},
-                        )
+                } else {
+                    val syncProg = uiState.syncProgress
+                    if (syncProg is org.michimusic.mobile.sync.SyncProgress.Downloading) {
+                        item {
+                            SyncTransferCard(
+                                completed = syncProg.completed,
+                                total = syncProg.total,
+                                isCancelling = false,
+                                onCancel = { viewModel.cancelSync(syncProg.deviceId) },
+                            )
+                        }
+                    } else if (syncProg is org.michimusic.mobile.sync.SyncProgress.Cancelling) {
+                        item {
+                            SyncTransferCard(
+                                completed = syncProg.completed,
+                                total = syncProg.total,
+                                isCancelling = true,
+                                onCancel = {},
+                            )
+                        }
                     }
                 }
 

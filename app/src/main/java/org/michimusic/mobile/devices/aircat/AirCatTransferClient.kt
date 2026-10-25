@@ -108,6 +108,13 @@ class DefaultAirCatTransferClient(
             activeJobs[intent.transferId] = job
         }
 
+        // 0. Enforce mandatory MusicLibraryRepository for managed transfers
+        if (libraryRepository == null) {
+            val err = AirCatException.ProtocolError("MusicLibraryRepository es obligatorio para transferencias gestionadas")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
         // 1. Check idempotency
         if (intent.transferId in _processedTransferIds.value) {
             return@withContext Result.failure(AirCatException.DuplicatedTransfer(intent.transferId))
@@ -356,7 +363,12 @@ class DefaultAirCatTransferClient(
                             verifiedBytes = finalFile.length(),
                             state = org.michimusic.core.models.TransferStatus.FAILED,
                         )
-                        finalFile.delete()
+                        // Non-destructive: do NOT delete finalFile if it is an existing registered track location
+                        val locations = libraryRepository.getLocationsForTrack(item.logicalTrackId)
+                        val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
+                        if (!isRegisteredExistingFile) {
+                            finalFile.delete()
+                        }
                         val err = AirCatException.CorruptedPayload(
                             "Conflicto de contenido: trackId ${item.logicalTrackId} ya existe con hash ${existingIdentity.contentHash}, pero la transferencia reporta ${item.sha256}."
                         )
@@ -498,6 +510,9 @@ class DefaultAirCatTransferClient(
         onProgress: ((AirCatProgressEvent) -> Unit)?,
     ): Result<List<File>> = withContext(Dispatchers.IO) {
         val repo = checkpointRepository ?: return@withContext Result.success(emptyList())
+        if (libraryRepository == null) {
+            return@withContext Result.failure(AirCatException.ProtocolError("MusicLibraryRepository es obligatorio para transferencias gestionadas"))
+        }
 
         // 1. Verify remote device trust and token binding
         val pairedDevice = pairedDeviceRegistry.getDevice(remoteDeviceId)
@@ -621,7 +636,12 @@ class DefaultAirCatTransferClient(
                         verifiedBytes = finalFile.length(),
                         state = org.michimusic.core.models.TransferStatus.FAILED
                     )
-                    finalFile.delete()
+                    // Non-destructive: do NOT delete finalFile if it is an existing registered track location
+                    val locations = libraryRepository.getLocationsForTrack(cp.trackId)
+                    val isRegisteredExistingFile = locations.any { it.uri == finalFile.absolutePath }
+                    if (!isRegisteredExistingFile) {
+                        finalFile.delete()
+                    }
                     return@withContext Result.failure(
                         AirCatException.CorruptedPayload(
                             "Conflicto de contenido: trackId ${cp.trackId} ya existe con hash ${existingIdentity.contentHash}, pero el checkpoint reporta ${cp.expectedSha256}."
