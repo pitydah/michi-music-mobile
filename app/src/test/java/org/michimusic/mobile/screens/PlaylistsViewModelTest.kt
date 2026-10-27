@@ -692,6 +692,48 @@ class PlaylistsViewModelTest {
         io.mockk.verify(exactly = 0) { mockAudioController.playQueue(any(), any()) }
         assertEquals(PlayPlaylistResult.NotFound, result)
     }
+
+    @Test
+    fun createPlaylist_validName_callsRepositoryAndInvokesCallback() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var completed = false
+
+        vm.createPlaylist(" My Jazz Playlist ") { completed = true }
+        advanceUntilIdle()
+
+        assertEquals("My Jazz Playlist", recordingRepo.createPlaylistCalledWith)
+        assertEquals(1, recordingRepo.createPlaylistCallCount)
+        assertTrue(completed)
+    }
+
+    @Test
+    fun createPlaylist_blankName_doesNotCallRepository() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo()
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var completed = false
+
+        vm.createPlaylist("   ") { completed = true }
+        advanceUntilIdle()
+
+        assertEquals(null, recordingRepo.createPlaylistCalledWith)
+        assertEquals(0, recordingRepo.createPlaylistCallCount)
+        assertTrue(completed)
+    }
+
+    @Test
+    fun createPlaylist_failure_handlesGracefullyAndInvokesCallback() = runTest(testDispatcher) {
+        val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        var completed = false
+
+        vm.createPlaylist("Failing Playlist") { completed = true }
+        advanceUntilIdle()
+
+        assertEquals(1, recordingRepo.createPlaylistCallCount)
+        assertFalse(vm.isLoading.value)
+        assertTrue(completed)
+    }
 }
 
 private open class FakePlaylistRepo : PlaylistRepository(
@@ -716,6 +758,10 @@ private class RecordingPlaylistRepo(
 ) {
 
     private var currentTracks: List<Track> = initialTracks
+    var createPlaylistCalledWith: String? = null
+        private set
+    var createPlaylistCallCount: Int = 0
+        private set
     var addTracksCalledWith: Pair<String, List<String>>? = null
         private set
     var removeTrackCalledWith: Pair<String, String>? = null
@@ -733,6 +779,13 @@ private class RecordingPlaylistRepo(
     var moveTrackCallCount: Int = 0
         private set
     private var currentName: String = "Mix"
+
+    override suspend fun createPlaylist(name: String, trackIds: List<String>): Playlist {
+        createPlaylistCalledWith = name
+        createPlaylistCallCount++
+        if (shouldFail) throw RuntimeException("boom")
+        return Playlist(id = "new_pl", name = name, trackCount = trackIds.size)
+    }
 
     override suspend fun getById(id: String) = if (id == "non-existent-id") null else Playlist(id = id, name = currentName, trackCount = currentTracks.size)
 
