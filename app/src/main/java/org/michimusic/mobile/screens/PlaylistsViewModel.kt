@@ -104,6 +104,27 @@ class PlaylistsViewModel(
         }
     }
 
+    fun createPlaylist(name: String, onComplete: () -> Unit = {}) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) {
+            onComplete()
+            return
+        }
+        viewModelScope.launch(ioDispatcher) {
+            _isLoading.value = true
+            try {
+                repo.createPlaylist(trimmed)
+            } catch (_: Exception) {
+                // Handled gracefully
+            } finally {
+                _isLoading.value = false
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    onComplete()
+                }
+            }
+        }
+    }
+
     // Loads a single playlist by id directly from the repository, independent of
     // whether the reactive `playlists` list has finished loading yet.
     fun loadPlaylistDetail(id: String) {

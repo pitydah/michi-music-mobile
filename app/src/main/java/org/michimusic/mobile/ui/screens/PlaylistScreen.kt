@@ -245,5 +245,15 @@ fun PlaylistScreen(
                 }
             }
         }
+
+        if (showCreateDialog) {
+            CreatePlaylistDialog(
+                onCreate = { name ->
+                    viewModel.createPlaylist(name)
+                    showCreateDialog = false
+                },
+                onDismiss = { showCreateDialog = false },
+            )
+        }
     }
 }

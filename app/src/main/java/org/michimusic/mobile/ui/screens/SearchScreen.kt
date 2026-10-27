@@ -221,7 +221,7 @@ fun SearchScreen(
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(SearchFilter.values()) { filter ->
+                items(SearchFilter.entries) { filter ->
                     val isSelected = filter == selectedFilter
                     Box(
                         modifier = Modifier

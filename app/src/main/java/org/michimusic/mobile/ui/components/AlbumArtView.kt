@@ -63,7 +63,7 @@ enum class CoverStyle {
 }
 
 fun coverStyleFor(key: String?): CoverStyle {
-    val styles = CoverStyle.values()
+    val styles = CoverStyle.entries
     val hash = (key?.hashCode() ?: 0) and Int.MAX_VALUE
     return styles[hash % styles.size]
 }
