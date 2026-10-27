@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,6 +48,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -57,6 +63,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -67,6 +74,14 @@ import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlin.math.sin
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.components.aeroArtworkBackdropAllowed
+import org.michimusic.mobile.ui.components.aeroSafeFraction
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.GlassHighlight
@@ -92,15 +107,15 @@ data class PlaybackSource(
 
 @Composable
 fun PlayerBackdrop(coverId: String?, accent: Color) {
-    val context = LocalContext.current
+    val visualPrefs = LocalVisualPreferences.current
     Box(modifier = Modifier.fillMaxSize()) {
-        if (coverId != null && coverId.isNotEmpty()) {
+        if (aeroArtworkBackdropAllowed(!coverId.isNullOrBlank(), visualPrefs.highContrast, visualPrefs.reducedMotion)) {
             AsyncImage(
                 model = coverId,
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(80.dp),
+                    .blur(24.dp),
                 contentScale = ContentScale.Crop,
             )
         }
@@ -110,7 +125,7 @@ fun PlayerBackdrop(coverId: String?, accent: Color) {
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            accent.copy(alpha = 0.18f),
+                            accent.copy(alpha = if (visualPrefs.highContrast) 0f else 0.07f),
                             BgDark.copy(alpha = 0.62f),
                             BgDark,
                         )
@@ -151,22 +166,27 @@ fun PlaybackSourceDropdown(
 ) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onToggle)
-            .background(PremiumGlass, RoundedCornerShape(20.dp))
-            .border(0.5.dp, GlassBorder, RoundedCornerShape(20.dp))
+            .heightIn(min = MichiSpacing.minTouchTarget)
+            .clip(MichiShapes.pill)
+            .background(AeroGraphiteRaised)
+            .border(0.75.dp, AeroHairline, MichiShapes.pill)
+            .clickable(enabled = sources.isNotEmpty(), role = Role.Button, onClick = onToggle)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (sources.isNotEmpty()) {
+        if (sources.isEmpty()) {
+            Text("Sin fuentes disponibles", color = TextSecondary, fontSize = 12.sp)
+        } else {
             val active = sources.firstOrNull { it.isActive } ?: sources.first()
             active.icon()
             Spacer(Modifier.width(6.dp))
             Text(
                 text = active.label,
-                color = TextSecondary,
-                fontSize = 11.sp,
+                color = TextPrimary,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.width(4.dp))
             Icon(
@@ -186,7 +206,7 @@ fun PlaybackSourceMenu(
     onDismiss: () -> Unit,
     onSelect: (PlaybackSource) -> Unit,
 ) {
-    if (expanded) {
+    if (expanded && sources.isNotEmpty()) {
         Popup(
             alignment = Alignment.TopCenter,
             onDismissRequest = onDismiss,
@@ -194,6 +214,7 @@ fun PlaybackSourceMenu(
         ) {
             Column(
                 modifier = Modifier
+                    .widthIn(min = 180.dp, max = 320.dp)
                     .background(
                         Brush.verticalGradient(
                             listOf(Color(0xFF1A1D26), Color(0xFF13151C))
@@ -208,7 +229,9 @@ fun PlaybackSourceMenu(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onSelect(source) }
+                            .heightIn(min = MichiSpacing.minTouchTarget)
+                            .semantics { selected = source.isActive }
+                            .clickable(role = Role.Button) { onSelect(source) }
                             .background(
                                 if (source.isActive) GlassHighlight else Color.Transparent,
                                 RoundedCornerShape(12.dp),
@@ -316,6 +339,8 @@ private fun CleanAlbumPlaceholder() {
 
 @Composable
 fun TrackInfo(title: String, artist: String, album: String) {
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion
+    val enlargedText = LocalConfiguration.current.fontScale > 1.2f
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -329,10 +354,11 @@ fun TrackInfo(title: String, artist: String, album: String) {
             fontSize = 22.sp,
             color = Color.White,
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = if (reducedMotion || enlargedText) 2 else 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
-                .basicMarquee(iterations = 30, initialDelayMillis = 2000)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(if (reducedMotion || enlargedText) Modifier else Modifier.basicMarquee(iterations = 1, initialDelayMillis = 2200)),
         )
         Spacer(Modifier.height(4.dp))
         Text(
@@ -340,7 +366,8 @@ fun TrackInfo(title: String, artist: String, album: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary.copy(alpha = 0.8f),
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = if (enlargedText) 2 else 1,
+            overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(1.dp))
         Text(
@@ -348,7 +375,8 @@ fun TrackInfo(title: String, artist: String, album: String) {
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary.copy(alpha = 0.5f),
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = if (enlargedText) 2 else 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -420,31 +448,31 @@ fun MichiSlider(
 ) {
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 28.dp)) {
         Slider(
-            value = value,
-            onValueChange = onValueChange,
-            onValueChangeFinished = { onSeekEnd(value) },
+            value = aeroSafeFraction(value),
+            onValueChange = { onValueChange(aeroSafeFraction(it)) },
+            onValueChangeFinished = { onSeekEnd(aeroSafeFraction(value)) },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(22.dp),
+                .heightIn(min = MichiSpacing.minTouchTarget),
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
                 activeTrackColor = accent,
                 inactiveTrackColor = Color.White.copy(alpha = 0.18f),
             ),
             thumb = {
-                Canvas(
+                Box(
                     modifier = Modifier
-                        .size(10.dp)
-                        .blur(6.dp)
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .border(1.dp, accent, CircleShape),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    drawCircle(color = accent.copy(alpha = 0.5f), radius = 16f)
-                }
-                Canvas(modifier = Modifier.size(8.dp)) {
-                    drawCircle(color = Color.White, radius = 4f)
+                    Box(Modifier.size(8.dp).background(accent, CircleShape))
                 }
             },
             track = { sliderState ->
-                val active = sliderState.value / (sliderState.valueRange.endInclusive - sliderState.valueRange.start)
+                val active = aeroSafeFraction(sliderState.value)
                 val barHeightPx = with(LocalDensity.current) { 3.dp.toPx() }
                 Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
                     val barTop = (size.height - barHeightPx) / 2f
@@ -482,7 +510,6 @@ fun MediaControlsBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MichiIconButton(Icons.AutoMirrored.Rounded.VolumeDown, size = 17.dp, tint = TextSecondary, contentDescription = "Bajar volumen")
         MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious, contentDescription = "Anterior")
         Box(
             modifier = Modifier
@@ -513,7 +540,6 @@ fun MediaControlsBar(
             )
         }
         MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext, contentDescription = "Siguiente")
-        MichiIconButton(Icons.Rounded.Equalizer, size = 17.dp, tint = TextSecondary, contentDescription = "Ecualizador")
     }
 }
 
@@ -527,13 +553,13 @@ fun MichiIconButton(
 ) {
     if (onClick == null) {
         Box(
-            modifier = Modifier.size(size + 16.dp),
+            modifier = Modifier.size((size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
         }
     } else {
-        IconButton(onClick = onClick, modifier = Modifier.size(size + 16.dp)) {
+        IconButton(onClick = onClick, modifier = Modifier.size((size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget))) {
             Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
         }
     }

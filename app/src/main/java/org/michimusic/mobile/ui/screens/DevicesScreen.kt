@@ -1,5 +1,12 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.mobile.ui.components.sameDiscoveredEndpoint
+import org.michimusic.mobile.ui.components.matchesObservedPeer
+import org.michimusic.mobile.ui.components.parseManualEndpoint
+import org.michimusic.mobile.ui.components.syncProgressPresentation
+import org.michimusic.mobile.ui.components.allowLegacyReceiverButton
+import org.michimusic.mobile.ui.components.UNVERIFIED_RECEIVER_GUIDANCE
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,6 +49,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -78,6 +87,13 @@ import org.michimusic.mobile.sync.DeviceActionResolver
 import org.michimusic.mobile.sync.DeviceActionType
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.isProvisionedMichiStream
+import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
+import org.michimusic.mobile.ui.components.airCatUiPresentation
+import org.michimusic.mobile.ui.components.AeroInfoPanel
+import org.michimusic.mobile.ui.components.AeroStatusPill
+import org.michimusic.mobile.ui.components.transferProgressPercent
+import org.michimusic.mobile.ui.components.linkOverviewSummary
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.QrScannerDialog
@@ -113,9 +129,11 @@ fun DevicesScreen(
     val scope = rememberCoroutineScope()
 
     val sessionManager: PlaybackSessionManager = koinInject()
+    val playbackSession by sessionManager.sessionState.collectAsStateWithLifecycle()
 
     var showQrDialog by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
+    var showUnverifiedReceiverNotice by remember { mutableStateOf(false) }
     var pendingQrForPin by remember { mutableStateOf<String?>(null) }
     var pendingPeerForPin by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
@@ -134,13 +152,26 @@ fun DevicesScreen(
         }
     }
 
+    // Discovery proves presence, pairing proves stored trust: these are different states.
+    val activeDevices = uiState.unifiedDevices.filter { device ->
+        device.connectionState in setOf(
+            SyncConnectionState.CONNECTED, SyncConnectionState.CONNECTING, SyncConnectionState.PAIRING,
+        ) || uiState.peers.any { peer ->
+            matchesObservedPeer(device.id, device.ip, device.port, peer.deviceId, peer.ip, peer.port)
+        }
+    }
+    val rememberedOfflineDevices = uiState.unifiedDevices.filterNot { it in activeDevices }
+
     val onPerformDeviceAction: (UnifiedDevice, DeviceAction) -> Unit = { device, action ->
         when (action.type) {
             org.michimusic.mobile.sync.DeviceActionType.CONNECT -> {
                 if (device.isPaired) {
                     viewModel.connectToDevice(device.id)
                 } else {
-                    val peer = uiState.peers.find { it.ip == device.ip }
+                    val peer = uiState.peers.firstOrNull { it.deviceId.isNotBlank() && it.deviceId == device.id }
+                        ?: uiState.peers.firstOrNull {
+                            matchesObservedPeer(device.id, device.ip, device.port, it.deviceId, it.ip, it.port)
+                        }
                     if (peer != null) {
                         viewModel.preparePairing(peer) { strategy, serverName ->
                             when (strategy) {
@@ -148,7 +179,11 @@ fun DevicesScreen(
                                     pendingPeerForPin = peer to serverName
                                 }
                                 org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
-                                    pendingPeerForReceiver = peer to serverName
+                                    if (isProvisionedMichiStream(peer.deviceType)) {
+                                        scope.launch { snackbarHostState.showSnackbar(STREAM_PROVISIONING_GUIDANCE) }
+                                    } else {
+                                        pendingPeerForReceiver = peer to serverName
+                                    }
                                 }
                                 org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> {
                                     pendingPeerForPassword = peer to serverName
@@ -226,12 +261,35 @@ fun DevicesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = MichiSpacing.screenHorizontal),
-                contentPadding = PaddingValues(bottom = 120.dp, top = 8.dp),
+                contentPadding = PaddingValues(bottom = 24.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(MichiSpacing.md),
             ) {
+                // Michi Link summary derives all values from real discovered and active states.
+                item(key = "michi_link_overview") {
+                    AeroInfoPanel(
+                        overline = "Michi Link · red local",
+                        title = when {
+                            isSearching -> "Explorando tu red"
+                            uiState.unifiedDevices.isEmpty() -> "Tus equipos Michi"
+                            else -> "Ecosistema disponible"
+                        },
+                        detail = linkOverviewSummary(
+                            discovered = uiState.peers.size,
+                            paired = uiState.unifiedDevices.count { it.isPaired },
+                            connected = uiState.unifiedDevices.count { it.connectionState == SyncConnectionState.CONNECTED },
+                        ),
+                        accent = TertiaryCyan,
+                    ) {
+                        AeroStatusPill(
+                            label = "Salida: ${playbackSession.activeEndpoint.name}",
+                            accent = if (playbackSession.activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
+                        )
+                    }
+                }
+
                 // Local Phone Card
                 item {
-                    LocalDeviceCard(availableStorageBytes = uiState.availableStorageBytes)
+                    LocalDeviceCard(availableStorageBytes = uiState.availableStorageBytes, isActiveOutput = playbackSession.activeEndpoint.isLocal)
                 }
 
                 // AirCat Active Transfer Card
@@ -316,7 +374,7 @@ fun DevicesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Dispositivos en tu red local",
+                            text = "Dispositivos Michi",
                             style = MichiTypography.sectionTitle,
                         )
                         if (isSearching) {
@@ -348,19 +406,29 @@ fun DevicesScreen(
                         )
                     }
                 } else {
-                    items(uiState.unifiedDevices) { device ->
-                        val isConnecting = device.connectionState == SyncConnectionState.CONNECTING || device.connectionState == SyncConnectionState.DISCOVERING
-                        val deviceUiItem = org.michimusic.mobile.ui.screens.devices.DeviceUiItem.fromUnifiedDevice(
-                            device = device,
-                            isConnecting = isConnecting,
-                        )
-                        
-                        DeviceNodeCard(
-                            item = deviceUiItem,
-                            onActionClick = { action -> onPerformDeviceAction(device, action) },
-                            onInfoClick = { selectedDeviceForDetails = deviceUiItem },
-                        )
-                        Spacer(modifier = Modifier.height(MichiSpacing.sm))
+                    if (activeDevices.isNotEmpty()) {
+                        item(key = "discovered_section") {
+                            Text("En la red o conectados", style = MichiTypography.microLabel, color = TextSecondary)
+                        }
+                        items(activeDevices, key = { "active_${it.id}" }) { device ->
+                            val item = org.michimusic.mobile.ui.screens.devices.DeviceUiItem.fromUnifiedDevice(
+                                device = device,
+                                isConnecting = device.connectionState == SyncConnectionState.CONNECTING,
+                                isDiscovered = true,
+                            )
+                            DeviceNodeCard(item, { onPerformDeviceAction(device, it) }, { selectedDeviceForDetails = item })
+                        }
+                    }
+                    if (rememberedOfflineDevices.isNotEmpty()) {
+                        item(key = "offline_section") {
+                            Text("Guardados · fuera de línea", style = MichiTypography.microLabel, color = TextSecondary)
+                        }
+                        items(rememberedOfflineDevices, key = { "offline_${it.id}" }) { device ->
+                            val item = org.michimusic.mobile.ui.screens.devices.DeviceUiItem.fromUnifiedDevice(
+                                device = device, isDiscovered = false,
+                            )
+                            DeviceNodeCard(item, { onPerformDeviceAction(device, it) }, { selectedDeviceForDetails = item })
+                        }
                     }
                 }
             }
@@ -436,26 +504,56 @@ fun DevicesScreen(
             )
         }
 
+        if (showUnverifiedReceiverNotice) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showUnverifiedReceiverNotice = false },
+                title = { androidx.compose.material3.Text("Receptor no identificado") },
+                text = { androidx.compose.material3.Text(UNVERIFIED_RECEIVER_GUIDANCE) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showUnverifiedReceiverNotice = false
+                        viewModel.startDiscovery()
+                    }) { androidx.compose.material3.Text("Buscar dispositivos") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showUnverifiedReceiverNotice = false }) {
+                        androidx.compose.material3.Text("Cerrar")
+                    }
+                },
+            )
+        }
+
         // Manual Connection Dialog
         if (showManualDialog) {
             ManualConnectionDialog(
                 onConnect = { name, ipStr ->
                     showManualDialog = false
-                    val parts = ipStr.split(":")
-                    val host = parts[0]
-                    val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 8400 else 8400
-                    val peer = org.michimusic.core.models.DiscoveredPeer(
+                    val endpoint = parseManualEndpoint(ipStr)
+                    if (endpoint == null) {
+                        showUnverifiedReceiverNotice = true
+                    } else {
+                    val discovered = uiState.peers.firstOrNull {
+                        sameDiscoveredEndpoint(endpoint.host, endpoint.port, it.ip, it.port)
+                    }
+                    val peer = discovered ?: org.michimusic.core.models.DiscoveredPeer(
                         alias = name.ifBlank { "Michi Node" },
-                        ip = host.trim(),
-                        port = port,
+                        ip = endpoint.host,
+                        port = endpoint.port,
                     )
-                    viewModel.connectManual(name, ipStr) { strategy, serverName ->
+                    viewModel.preparePairing(peer) { strategy, serverName ->
                         when (strategy) {
                             org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> pendingPeerForPin = peer to serverName
-                            org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> pendingPeerForReceiver = peer to serverName
+                            org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
+                                when {
+                                    isProvisionedMichiStream(peer.deviceType) -> scope.launch { snackbarHostState.showSnackbar(STREAM_PROVISIONING_GUIDANCE) }
+                                    !allowLegacyReceiverButton(peer.deviceType, discovered != null) -> showUnverifiedReceiverNotice = true
+                                    else -> pendingPeerForReceiver = peer to serverName
+                                }
+                            }
                             org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> pendingPeerForPassword = peer to serverName
                             org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> viewModel.confirmPairing(pin = "", peer = peer)
                         }
+                    }
                     }
                 },
                 onDismiss = { showManualDialog = false },
@@ -496,84 +594,48 @@ private fun DevicesTopBar(
     onQrClick: () -> Unit,
     onSettingsClick: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 4.dp),
     ) {
-        Column {
-            Text(
-                text = "MICHI LINK",
-                style = MichiTypography.screenEyebrow,
-            )
-            Text(
-                text = "Tus Dispositivos",
-                style = MichiTypography.screenTitle,
-            )
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onRefreshClick,
-                modifier = Modifier
-                    .size(MichiSpacing.minTouchTarget)
-                    .clip(CircleShape)
-                    .background(GlassFillLow)
-                    .testTag("devices_refresh_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = "Buscar Dispositivos",
-                    tint = if (isSearching) TertiaryCyan else PureWhite,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            IconButton(
-                onClick = onQrClick,
-                modifier = Modifier
-                    .size(MichiSpacing.minTouchTarget)
-                    .clip(CircleShape)
-                    .background(GlassFillLow)
-                    .testTag("devices_qr_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.QrCodeScanner,
-                    contentDescription = "Escanear QR",
-                    tint = PureWhite,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-
-            Spacer(modifier = Modifier.width(6.dp))
-
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier
-                    .size(MichiSpacing.minTouchTarget)
-                    .clip(CircleShape)
-                    .background(GlassFillLow)
-                    .testTag("devices_settings_button"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Ajustes",
-                    tint = PureWhite,
-                    modifier = Modifier.size(20.dp),
-                )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("MICHI LINK", style = MichiTypography.screenEyebrow)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onRefreshClick,
+                    modifier = Modifier.size(MichiSpacing.minTouchTarget).testTag("devices_refresh_button"),
+                ) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Buscar dispositivos",
+                        tint = if (isSearching) TertiaryCyan else PureWhite)
+                }
+                IconButton(
+                    onClick = onQrClick,
+                    modifier = Modifier.size(MichiSpacing.minTouchTarget).testTag("devices_qr_button"),
+                ) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "Escanear QR", tint = PureWhite)
+                }
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier.size(MichiSpacing.minTouchTarget).testTag("devices_settings_button"),
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Ajustes", tint = PureWhite)
+                }
             }
         }
+        Text("Tus dispositivos", style = MichiTypography.screenTitle,
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
     }
 }
 
 @Composable
 private fun LocalDeviceCard(
     availableStorageBytes: Long = 0L,
+    isActiveOutput: Boolean = true,
 ) {
     GlassCard(
         modifier = Modifier
@@ -591,7 +653,7 @@ private fun LocalDeviceCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .clip(MichiShapes.sm)
                     .background(PrimaryPinkContainer.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center,
@@ -616,7 +678,7 @@ private fun LocalDeviceCard(
                     ""
                 }
                 val subtext = buildString {
-                    append("Reproducción local · ${android.os.Build.MODEL}")
+                    append("Reproducción en este teléfono")
                     if (storageStr.isNotEmpty()) {
                         append(" · ")
                         append(storageStr)
@@ -631,13 +693,13 @@ private fun LocalDeviceCard(
             Box(
                 modifier = Modifier
                     .clip(MichiShapes.pill)
-                    .background(TertiaryCyan.copy(alpha = 0.15f))
+                    .background((if (isActiveOutput) TertiaryCyan else TextSecondary).copy(alpha = 0.12f))
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Text(
-                    text = "● Activo",
+                    text = if (isActiveOutput) "● Salida local" else "Disponible",
                     style = MichiTypography.microLabel,
-                    color = TertiaryCyan,
+                    color = if (isActiveOutput) TertiaryCyan else TextSecondary,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -652,6 +714,7 @@ private fun AirCatTransferCard(
     onResume: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val presentation = airCatUiPresentation(progress.state.name)
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -665,10 +728,9 @@ private fun AirCatTransferCard(
                 .padding(MichiSpacing.md),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -687,25 +749,23 @@ private fun AirCatTransferCard(
                     )
                 }
 
-                val statusLabel = when (progress.state) {
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.PENDING_AUTHORIZATION -> "Esperando autorización..."
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.NEGOTIATING -> "Negociando..."
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING -> "Transfiriendo"
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.VERIFYING -> "Verificando..."
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED -> "Pausado"
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED -> "Completado"
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED -> "Error"
-                    org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED -> "Cancelado"
-                }
-
-                Text(
-                    text = statusLabel,
-                    style = MichiTypography.microLabel,
-                    color = if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED) ErrorColor else TertiaryCyan,
-                    fontWeight = FontWeight.Bold,
+                AeroStatusPill(
+                    label = presentation.label,
+                    accent = when {
+                        presentation.isError -> ErrorColor
+                        presentation.isTerminal -> TextSecondary
+                        else -> TertiaryCyan
+                    },
                 )
             }
 
+            if (presentation.isError) {
+                Text(
+                    text = "La transferencia no se completó. Revisa la conexión antes de volver a iniciarla.",
+                    style = MichiTypography.metadata,
+                    color = ErrorColor,
+                )
+            }
             Text(
                 text = progress.activeTrackTitle.ifBlank { "Archivo de audio" },
                 style = MichiTypography.trackTitle,
@@ -713,66 +773,77 @@ private fun AirCatTransferCard(
                 maxLines = 1,
             )
 
-            // Progress bar
+            // Progress bar. A missing total is indeterminate, never zero percent.
             val fraction = if (progress.totalBytes > 0) {
                 (progress.bytesTransferred.toFloat() / progress.totalBytes.toFloat()).coerceIn(0f, 1f)
             } else {
                 0f
             }
 
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape),
-                color = TertiaryCyan,
-                trackColor = SurfaceObsidian,
-            )
+            if (progress.totalBytes > 0L) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = TertiaryCyan,
+                    trackColor = SurfaceObsidian,
+                )
+            } else {
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = TertiaryCyan,
+                    trackColor = SurfaceObsidian,
+                )
+            }
 
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val transferredMb = progress.bytesTransferred / (1024.0 * 1024.0)
                 val totalMb = progress.totalBytes / (1024.0 * 1024.0)
-                val pct = (fraction * 100).toInt()
+                val pct = transferProgressPercent(progress.bytesTransferred, progress.totalBytes)
 
                 Text(
-                    text = String.format(java.util.Locale.US, "%.1f / %.1f MB (%d%%)", transferredMb, totalMb, pct),
+                    text = if (pct != null) {
+                        String.format(java.util.Locale.US, "%.1f / %.1f MB (%d%%)", transferredMb, totalMb, pct)
+                    } else {
+                        String.format(java.util.Locale.US, "%.1f MB transferidos · calculando total", transferredMb)
+                    },
                     style = MichiTypography.metadata,
                     color = TextMuted,
                 )
 
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING) {
+                    if (presentation.showPause) {
                         OutlinedButton(
                             onClick = onPause,
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(text = "Pausar", style = MichiTypography.microLabel)
                         }
-                    } else if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED) {
+                    } else if (presentation.showResume) {
                         Button(
                             onClick = onResume,
                             colors = ButtonDefaults.buttonColors(containerColor = TertiaryCyan),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(text = "Reanudar", style = MichiTypography.microLabel, color = SurfaceObsidian)
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = onCancel,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp),
-                    ) {
-                        Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
+                    if (presentation.showCancel) {
+                        OutlinedButton(
+                            onClick = onCancel,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) {
+                            Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
+                        }
                     }
                 }
             }
@@ -830,30 +901,29 @@ private fun SyncTransferCard(
                 )
             }
 
-            val fraction = if (total > 0) {
-                (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+            val progress = syncProgressPresentation(completed, total)
+            if (progress.fraction == null) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = if (isCancelling) ErrorColor else AccentCoral,
+                    trackColor = SurfaceObsidian,
+                )
             } else {
-                0f
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { progress.fraction },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = if (isCancelling) ErrorColor else AccentCoral,
+                    trackColor = SurfaceObsidian,
+                )
             }
-
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape),
-                color = if (isCancelling) ErrorColor else AccentCoral,
-                trackColor = SurfaceObsidian,
-            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val pct = (fraction * 100).toInt()
                 Text(
-                    text = "$completed de $total canciones ($pct%)",
+                    text = progress.detail,
                     style = MichiTypography.metadata,
                     color = TextMuted,
                 )
@@ -862,7 +932,7 @@ private fun SyncTransferCard(
                     OutlinedButton(
                         onClick = onCancel,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),
                     ) {
                         Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
                     }
@@ -886,12 +956,8 @@ private fun AddDeviceShortcutsRow(
             modifier = Modifier
                 .weight(1f)
                 .height(48.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(color = PrimaryPinkContainer),
-                    onClick = onScanQr,
-                )
                 .testTag("scan_qr_shortcut"),
+            onClick = onScanQr,
             backgroundColor = GlassFillLow,
             borderColor = GlassBorderLow,
             shape = MichiShapes.sm,
@@ -921,12 +987,8 @@ private fun AddDeviceShortcutsRow(
             modifier = Modifier
                 .weight(1f)
                 .height(48.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(color = TertiaryCyan),
-                    onClick = onManualIp,
-                )
                 .testTag("manual_ip_shortcut"),
+            onClick = onManualIp,
             backgroundColor = GlassFillLow,
             borderColor = GlassBorderLow,
             shape = MichiShapes.sm,
@@ -960,170 +1022,112 @@ internal fun DeviceNodeCard(
     onActionClick: (DeviceAction) -> Unit,
     onInfoClick: () -> Unit,
 ) {
-    val isConnected = item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTED
-    val isConnecting = item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTING
+    val connected = item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTED
+    var showAllActions by rememberSaveable(item.id) { mutableStateOf(false) }
     val icon = getNodeIcon(item.deviceType)
-
+    val (connectionColor, connectionLabel) = when (item.connectionStatus) {
+        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTED -> TertiaryCyan to "Conectado"
+        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTING -> PrimaryPinkContainer to "Conectando"
+        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE -> TextSecondary to "Sin conexión"
+        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.ERROR -> ErrorColor to "Error"
+        else -> TextSecondary to "Disponible"
+    }
+    val (trustColor, trustLabel) = when (item.trustStatus) {
+        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED -> TertiaryCyan to "Vinculado"
+        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.REVOKED -> ErrorColor to "Confianza revocada"
+        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.IDENTITY_MISMATCH -> ErrorColor to "Identidad no coincide"
+        else -> TextSecondary to "Identidad no verificada"
+    }
     GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("device_node_${item.ip}"),
-        backgroundColor = if (isConnected) GlassFillHigh else GlassFillLow,
-        borderColor = if (isConnected) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
+        modifier = Modifier.fillMaxWidth().testTag("device_node_${item.ip}"),
+        backgroundColor = if (connected) GlassFillHigh else GlassFillLow,
+        borderColor = GlassBorderLow,
+        shape = MichiShapes.md,
     ) {
-        Column(modifier = Modifier.padding(MichiSpacing.md)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(MichiShapes.sm)
-                        .background(
-                            if (isConnected) TertiaryCyan.copy(alpha = 0.15f)
-                            else GlassBorderLow,
-                        ),
+                    modifier = Modifier.size(48.dp).clip(MichiShapes.sm)
+                        .background(connectionColor.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (isConnected) TertiaryCyan else PureWhite,
-                        modifier = Modifier.size(24.dp),
-                    )
+                    Icon(icon, contentDescription = null, tint = connectionColor,
+                        modifier = Modifier.size(24.dp))
                 }
-
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.name,
-                        style = MichiTypography.cardTitle,
-                    )
-                    val subtitle = buildString {
-                        append(formatDeviceTypeLabel(item.deviceType))
-                        if (item.capabilities.isNotEmpty()) {
-                            append(" · ")
-                            append(item.capabilities.joinToString(" · "))
-                        } else if (item.trustStatus == org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED) {
-                            append(" · Verificado")
-                        } else {
-                            append(" · Red local")
-                        }
-                    }
-                    Text(
-                        text = subtitle,
-                        style = MichiTypography.metadata,
-                        color = if (item.connectionStatus == org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE) GlassBorderLow else TextSecondary,
-                    )
+                    Text(item.name, style = MichiTypography.cardTitle,
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    val kind = formatDeviceTypeLabel(item.deviceType)
+                    Text(kind, style = MichiTypography.metadata, color = TextSecondary,
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
-
                 IconButton(
                     onClick = onInfoClick,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("device_info_${item.ip}"),
+                    modifier = Modifier.size(48.dp).testTag("device_info_${item.ip}"),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = "Detalles de ${item.name}",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    // Trust / Verification badge (Anunciado vs Verificado)
-                    val (trustColor, trustText) = when (item.trustStatus) {
-                        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED -> TertiaryCyan to "● Verificado"
-                        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.REVOKED -> ErrorColor to "● Revocado"
-                        org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.IDENTITY_MISMATCH -> ErrorColor to "● Clave inválida"
-                        else -> TextMuted to "● Anunciado"
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(MichiShapes.pill)
-                            .background(trustColor.copy(alpha = 0.12f))
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            text = trustText,
-                            style = MichiTypography.microLabel,
-                            color = trustColor,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    // Reactive connection status badge
-                    val (connColor, connText) = when (item.connectionStatus) {
-                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTED -> TertiaryCyan to "Conectado"
-                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTING -> PrimaryPinkContainer to "Conectando..."
-                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE -> GlassBorderLow to "Fuera de línea"
-                        org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.ERROR -> ErrorColor to "Error"
-                        else -> TextSecondary to "Disponible"
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(MichiShapes.pill)
-                            .background(Color.White.copy(alpha = 0.06f))
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            text = connText,
-                            style = MichiTypography.microLabel,
-                            color = connColor,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
+                    Icon(Icons.Filled.Info, contentDescription = "Detalles de ${item.name}",
+                        tint = TextSecondary, modifier = Modifier.size(20.dp))
                 }
             }
-
-            Spacer(modifier = Modifier.height(MichiSpacing.sm))
-
-            // Action Buttons: Exactly 1 primary CTA prominent, and secondary actions accessible or via Details
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Secondary actions in card row (max 1 secondary visible for compactness, remaining in Details sheet)
-                val visibleSecondary = item.secondaryActions.firstOrNull()
-                if (visibleSecondary != null) {
-                    OutlinedButton(
-                        onClick = { onActionClick(visibleSecondary) },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                        shape = MichiShapes.sm,
-                    ) {
-                        Text(
-                            text = visibleSecondary.label,
-                            color = if (visibleSecondary.isDestructive) ErrorColor else PureWhite,
-                            fontSize = 12.sp,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
+            // Avoid compressing connection and trust badges into the title row.
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AeroStatusPill(connectionLabel, connectionColor)
                 }
-
-                item.primaryAction?.let { primary ->
-                    Button(
-                        onClick = { onActionClick(primary) },
-                        modifier = Modifier
-                            .heightIn(min = 48.dp)
-                            .testTag("device_primary_action_${item.ip}"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (primary.isDestructive) ErrorColor else PrimaryPinkContainer,
-                        ),
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AeroStatusPill(trustLabel, trustColor)
+                }
+                if (item.capabilities.isNotEmpty()) {
+                    Text(item.capabilities.sorted().joinToString(" · "),
+                        style = MichiTypography.metadata, color = TextSecondary,
+                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                }
+            }
+            // One action per row: long localized labels remain readable at 320dp.
+            item.primaryAction?.let { action ->
+                Button(
+                    onClick = { onActionClick(action) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("device_primary_action_${item.ip}"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (action.isDestructive) ErrorColor else PrimaryPinkContainer,
+                    ),
+                    shape = MichiShapes.sm,
+                ) {
+                    Text(action.label, color = PureWhite, fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp, maxLines = 2)
+                }
+            }
+            // Keep every domain-provided action reachable. M25 displayed only
+            // firstOrNull(), silently hiding transfer, remote and other actions.
+            (if (showAllActions) item.secondaryActions else item.secondaryActions.take(1))
+                .forEach { action ->
+                    OutlinedButton(
+                        onClick = { onActionClick(action) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         shape = MichiShapes.sm,
                     ) {
-                        Text(
-                            text = primary.label,
-                            color = PureWhite,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                        )
+                        Text(action.label,
+                            color = if (action.isDestructive) ErrorColor else PureWhite,
+                            fontSize = 13.sp, maxLines = 2)
                     }
+                }
+            if (item.secondaryActions.size > 1) {
+                TextButton(
+                    onClick = { showAllActions = !showAllActions },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        if (showAllActions) "Mostrar menos" else "Ver ${item.secondaryActions.size - 1} acciones más",
+                        color = TertiaryCyan,
+                    )
                 }
             }
         }
@@ -1160,7 +1164,7 @@ private fun DeviceDetailsDialog(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(MichiSpacing.minTouchTarget)) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = "Cerrar",
@@ -1186,8 +1190,8 @@ private fun DeviceDetailsDialog(
                     onClick = onForget,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(10.dp),
+                        .heightIn(min = MichiSpacing.minTouchTarget),
+                    shape = MichiShapes.sm,
                 ) {
                     Icon(
                         imageVector = Icons.Filled.DeleteOutline,
@@ -1247,11 +1251,14 @@ private fun EmptyDevicesCard(
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
             Spacer(modifier = Modifier.height(MichiSpacing.xs))
-            Row(horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md)) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 OutlinedButton(
                     onClick = onSearchAgain,
                     shape = MichiShapes.sm,
-                    modifier = Modifier.height(44.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 ) {
                     Text("Buscar de nuevo", color = PureWhite, fontSize = 12.sp)
                 }
@@ -1259,9 +1266,9 @@ private fun EmptyDevicesCard(
                     onClick = onManualConnect,
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = MichiShapes.sm,
-                    modifier = Modifier.height(44.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 ) {
-                    Text("Conexión manual", color = PureWhite, fontSize = 12.sp)
+                    Text("Conexión manual", color = PureWhite, fontSize = 13.sp)
                 }
             }
         }
@@ -1269,6 +1276,7 @@ private fun EmptyDevicesCard(
 }
 
 private fun getNodeIcon(deviceType: String): ImageVector {
+    if (isProvisionedMichiStream(deviceType)) return Icons.Filled.Speaker
     return when (deviceType.lowercase()) {
         "server" -> Icons.Filled.Dns
         "desktop", "player", "pc" -> Icons.Filled.LaptopMac
@@ -1279,6 +1287,7 @@ private fun getNodeIcon(deviceType: String): ImageVector {
 }
 
 private fun formatDeviceTypeLabel(deviceType: String): String {
+    if (isProvisionedMichiStream(deviceType)) return "Michi Stream"
     return when (deviceType.lowercase()) {
         "server" -> "Micro Server"
         "desktop", "player" -> "Michi Player"

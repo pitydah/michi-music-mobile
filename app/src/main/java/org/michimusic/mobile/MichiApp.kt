@@ -34,6 +34,9 @@ class MichiApp : Application() {
             PlayerDependencies.trackDao = koin.getOrNull()
             PlayerDependencies.audioEffects = koin.getOrNull()
             PlayerDependencies.usbDacManager = koin.getOrNull()
+            PlayerDependencies.replayGainProcessor = koin.getOrNull()
+            PlayerDependencies.audioModeManager = koin.getOrNull()
+            PlayerDependencies.signalTruthTracker = koin.getOrNull()
         } catch (e: Exception) {
             Log.w("MichiApp", "No se pudieron resolver dependencias para PlayerDependencies: ${e.message}")
         }

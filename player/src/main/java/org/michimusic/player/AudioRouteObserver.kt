@@ -22,6 +22,8 @@ interface AudioRouteObserver {
     fun onDeviceRequested(descriptor: OutputDescriptor?)
     fun onDeviceDetected(descriptor: OutputDescriptor?)
     fun onRoutingFailed(deviceId: Int?, failure: RouteFailure)
+    // Implementations without an AudioTrack (e.g. fake test sources) may ignore playback transitions.
+    fun onPlaybackStateChanged(isPlaying: Boolean) {}
     fun attachAudioTrack(audioTrack: AudioTrack)
     fun detachAudioTrack()
     fun release()
@@ -32,6 +34,7 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
     private val _routeStatus = MutableStateFlow<AudioRouteStatus>(AudioRouteStatus.NoDevice)
     override val routeStatus: StateFlow<AudioRouteStatus> = _routeStatus.asStateFlow()
 
+    private val evidenceGate = PlaybackRouteEvidenceGate()
     private var currentRequestedDescriptor: OutputDescriptor? = null
     private var observedAudioTrack: AudioTrack? = null
     private var routingListener: AudioRouting.OnRoutingChangedListener? = null
@@ -43,7 +46,9 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
             return
         }
         val current = _routeStatus.value
-        if (current !is AudioRouteStatus.Requested && current !is AudioRouteStatus.Confirmed) {
+        // Never downgrade an actual observation or an error to mere detection.
+        // A new user selection is handled separately by onDeviceRequested().
+        if (current == AudioRouteStatus.NoDevice || current is AudioRouteStatus.Detected) {
             _routeStatus.value = AudioRouteStatus.Detected(descriptor)
         }
     }
@@ -51,7 +56,9 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
     override fun onDeviceRequested(descriptor: OutputDescriptor?) {
         currentRequestedDescriptor = descriptor
         if (descriptor == null) {
+            // Releasing a preference does not prove which device is now playing.
             _routeStatus.value = AudioRouteStatus.NoDevice
+            verifyRoutingIfPossible()
             return
         }
         _routeStatus.value = AudioRouteStatus.Requested(descriptor)
@@ -62,23 +69,40 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
         _routeStatus.value = AudioRouteStatus.Failed(deviceId, failure)
     }
 
+    override fun onPlaybackStateChanged(isPlaying: Boolean) {
+        evidenceGate.onPlaybackChanged(isPlaying)
+        if (isPlaying) {
+            verifyRoutingIfPossible()
+        } else {
+            val previous = _routeStatus.value
+            when (previous) {
+                is AudioRouteStatus.Confirmed -> _routeStatus.value = AudioRouteStatus.LastObserved(previous.device, previous.observedAtMs)
+                is AudioRouteStatus.RoutedElsewhere -> _routeStatus.value = AudioRouteStatus.LastObserved(previous.actual, previous.observedAtMs)
+                else -> Unit
+            }
+        }
+    }
+
     override fun attachAudioTrack(audioTrack: AudioTrack) {
         detachAudioTrack()
         observedAudioTrack = audioTrack
 
         val listener = AudioRouting.OnRoutingChangedListener { routing ->
-            val routedDevice = routing.routedDevice
-            handleRoutedDevice(routedDevice)
+            // Android may deliver an already queued callback after a hot-swap.
+            // Never attribute the OLD AudioTrack route to the newly attached one.
+            if (observedAudioTrack === audioTrack) {
+                if (evidenceGate.isCurrent(audioTrack.playState == AudioTrack.PLAYSTATE_PLAYING)) {
+                    handleRoutedDevice(routing.routedDevice)
+                } else {
+                    onPlaybackStateChanged(false)
+                }
+            }
         }
         routingListener = listener
         try {
             audioTrack.addOnRoutingChangedListener(listener, Handler(Looper.getMainLooper()))
-            val currentRoutedDevice = audioTrack.routedDevice
-            if (currentRoutedDevice != null) {
-                handleRoutedDevice(currentRoutedDevice)
-            } else {
-                verifyRoutingIfPossible()
-            }
+            // An initialized AudioTrack is not necessarily playing yet.
+            verifyRoutingIfPossible()
         } catch (e: Exception) {
             Log.w(TAG, "Error registering OnRoutingChangedListener on AudioTrack", e)
             verifyRoutingIfPossible()
@@ -97,6 +121,12 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
         }
         observedAudioTrack = null
         routingListener = null
+        val prior = _routeStatus.value
+        when (prior) {
+            is AudioRouteStatus.Confirmed -> _routeStatus.value = AudioRouteStatus.LastObserved(prior.device, prior.observedAtMs)
+            is AudioRouteStatus.RoutedElsewhere -> _routeStatus.value = AudioRouteStatus.LastObserved(prior.actual, prior.observedAtMs)
+            else -> Unit
+        }
     }
 
     private fun handleRoutedDevice(routedDevice: AudioDeviceInfo?) {
@@ -117,37 +147,36 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
             announcedEncodings = routedDevice.encodings.toList(),
         )
 
-        if (requested == null || requested.androidDeviceId == routedDevice.id) {
-            _routeStatus.value = AudioRouteStatus.Confirmed(
-                device = observedDescriptor,
-                observedAtMs = System.currentTimeMillis(),
-            )
-        } else {
-            // Se solicitó un dispositivo pero Android enrutó hacia otro diferente
-            _routeStatus.value = AudioRouteStatus.Confirmed(
-                device = observedDescriptor,
-                observedAtMs = System.currentTimeMillis(),
-            )
-        }
+        _routeStatus.value = classifyObservedAudioRoute(
+            requested = requested,
+            actual = observedDescriptor,
+            observedAtMs = System.currentTimeMillis(),
+        )
     }
 
     private fun verifyRoutingIfPossible() {
         val track = observedAudioTrack
         val requested = currentRequestedDescriptor
-        if (track != null) {
+        if (track != null && evidenceGate.isCurrent(track.playState == AudioTrack.PLAYSTATE_PLAYING)) {
             val routed = track.routedDevice
             if (routed != null) {
                 handleRoutedDevice(routed)
                 return
             }
         }
-        // Si no hay AudioTrack observada aún, mantener Requested o pasar a Unknown
-        if (requested != null && _routeStatus.value !is AudioRouteStatus.Confirmed) {
+        // A stopped/paused track cannot confirm the *current* route.
+        // Preserve a historical observation unless the user explicitly changes selection.
+        if (requested != null && _routeStatus.value !is AudioRouteStatus.LastObserved &&
+            _routeStatus.value !is AudioRouteStatus.Failed) {
             _routeStatus.value = AudioRouteStatus.Requested(requested)
+        } else if (requested == null && _routeStatus.value is AudioRouteStatus.Confirmed) {
+            val prior = _routeStatus.value as AudioRouteStatus.Confirmed
+            _routeStatus.value = AudioRouteStatus.LastObserved(prior.device, prior.observedAtMs)
         }
     }
 
     override fun release() {
+        evidenceGate.reset()
         detachAudioTrack()
         _routeStatus.value = AudioRouteStatus.NoDevice
         currentRequestedDescriptor = null

@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -45,34 +47,24 @@ fun MichiSurface(
     borderStroke: BorderStroke? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val visualPrefs = LocalVisualPreferences.current
-    val highContrast = visualPrefs.highContrast
-
-    val backgroundColor = when (level) {
-        MichiSurfaceLevel.Canvas -> if (highContrast) Color.Black else SurfaceObsidian
-        MichiSurfaceLevel.Content -> if (highContrast) Color(0xFF101216) else SurfaceDark
-        MichiSurfaceLevel.Raised -> if (highContrast) Color(0xFF181B22) else GlassFillLow
-        MichiSurfaceLevel.Floating -> if (highContrast) Color(0xFF22252E) else GlassFillHigh
-    }
-
-    val effectiveBorder: BorderStroke? = borderStroke ?: when {
-        highContrast -> BorderStroke(1.dp, PureWhite.copy(alpha = 0.85f))
-        level == MichiSurfaceLevel.Floating -> BorderStroke(1.dp, GlassBorderHigh)
-        level == MichiSurfaceLevel.Raised -> BorderStroke(1.dp, GlassBorderLow)
-        else -> null
-    }
-
-    val elevation: Dp = when (level) {
-        MichiSurfaceLevel.Floating -> 12.dp
-        MichiSurfaceLevel.Raised -> 4.dp
-        else -> 0.dp
-    }
+    val material = aeroMaterialStyle(
+        role = when (level) {
+            MichiSurfaceLevel.Canvas -> AeroSurfaceRole.Canvas
+            MichiSurfaceLevel.Content -> AeroSurfaceRole.Content
+            MichiSurfaceLevel.Raised -> AeroSurfaceRole.Raised
+            MichiSurfaceLevel.Floating -> AeroSurfaceRole.Floating
+        },
+        highContrast = LocalVisualPreferences.current.highContrast,
+    )
+    val effectiveBorder = borderStroke ?: if (material.borderWidth > 0.dp) {
+        BorderStroke(material.borderWidth, material.outline)
+    } else null
 
     Box(
         modifier = modifier
-            .then(if (elevation > 0.dp && !highContrast) Modifier.shadow(elevation, shape) else Modifier)
+            .then(if (material.elevation > 0.dp) Modifier.shadow(material.elevation, shape) else Modifier)
             .clip(shape)
-            .background(backgroundColor)
+            .background(material.fill)
             .then(if (effectiveBorder != null) Modifier.border(effectiveBorder, shape) else Modifier),
         content = content,
     )

@@ -165,7 +165,12 @@ class UsbDacManager(
     var onUsbDisconnectedListener: (() -> Unit)? = null
 
     private var preferredUsbDevice: AudioDeviceInfo? = null
+    // Android device IDs are ephemeral. A missing selected USB route requires user recovery.
     private var lastKnownUsbDeviceId: Int? = null
+    private var recoveryRequired = false
+    // Repeated AudioDeviceCallback emissions must not erase observed routing truth.
+    private var issuedRouteRequest = false
+    private var lastIssuedDescriptor: OutputDescriptor? = null
 
     private val deviceChangeListener = object : AudioDeviceSource.DeviceChangeListener {
         override fun onDevicesChanged() {
@@ -182,122 +187,125 @@ class UsbDacManager(
 
     fun scanDevices() {
         val descriptors = source.getOutputDevices()
-        val am = audioManager
         val nativeDevices = try {
-            am?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.toList() ?: emptyList()
+            audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.toList() ?: emptyList()
         } catch (e: Exception) {
+            Log.w(TAG, "Unable to query output devices", e)
             emptyList()
         }
 
-        val usbDescriptor = descriptors.firstOrNull { isUsbAudioType(it.androidType) }
-        val usbNativeDevice = nativeDevices.firstOrNull { isUsbAudioType(it.type) }
-
-        // Detección de desconexión de USB para auto-pausa
-        if (usbDescriptor == null && lastKnownUsbDeviceId != null) {
-            val wasSelected = _selectedDeviceId.value == lastKnownUsbDeviceId || _selectedDeviceId.value == null
-            lastKnownUsbDeviceId = null
-            preferredUsbDevice = null
-            _dacState.value = UsbDacInfo(isConnected = false)
+        val connectedIds = descriptors.map { it.androidDeviceId }.toSet()
+        val explicitId = _selectedDeviceId.value
+        val lostId = missingSelectedUsbOutput(explicitId, lastKnownUsbDeviceId, connectedIds)
+        if (lostId != null && !recoveryRequired) {
+            // Pause BEFORE Android silently changes to a speaker or a different DAC.
+            recoveryRequired = true
+            issuedRouteRequest = false
+            lastIssuedDescriptor = null
             _selectedDeviceId.value = null
-            routeObserver.onRoutingFailed(null, RouteFailure.DISCONNECTED)
-            if (wasSelected) {
-                try {
-                    onUsbDisconnectedListener?.invoke()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error invoking onUsbDisconnectedListener", e)
-                }
+            _preferredDeviceFlow.value = null
+            routeObserver.onRoutingFailed(lostId, RouteFailure.DISCONNECTED)
+            try {
+                onUsbDisconnectedListener?.invoke()
+            } catch (e: Exception) {
+                Log.w(TAG, "Disconnect callback failed", e)
             }
         }
 
-        if (usbDescriptor != null) {
-            lastKnownUsbDeviceId = usbDescriptor.androidDeviceId
-            preferredUsbDevice = usbNativeDevice
-            _dacState.value = UsbDacInfo(
+        val selectedId = _selectedDeviceId.value
+        val selectedDescriptor = selectedId?.let { id ->
+            descriptors.firstOrNull { it.androidDeviceId == id }
+        }
+        val automaticUsb = descriptors.firstOrNull { isUsbAudioType(it.androidType) }
+        val desiredDescriptor = if (recoveryRequired) null else selectedDescriptor ?: automaticUsb
+        lastKnownUsbDeviceId = desiredDescriptor?.takeIf { isUsbAudioType(it.androidType) }?.androidDeviceId
+
+        val displayedUsb = selectedDescriptor?.takeIf { isUsbAudioType(it.androidType) }
+            ?: automaticUsb
+        _dacState.value = if (displayedUsb != null) {
+            UsbDacInfo(
                 isConnected = true,
-                deviceName = usbDescriptor.name.takeIf { it.isNotBlank() } ?: if (usbDescriptor.androidType == AudioDeviceInfo.TYPE_USB_HEADSET) "Auriculares USB" else "DAC USB Externo",
-                sampleRates = usbDescriptor.announcedSampleRates,
-                channelCounts = usbDescriptor.announcedChannelCounts,
-                encodings = usbDescriptor.announcedEncodings,
-                deviceId = usbDescriptor.androidDeviceId,
-                isUsbHeadset = usbDescriptor.androidType == AudioDeviceInfo.TYPE_USB_HEADSET,
+                deviceName = displayedUsb.name.ifBlank { "DAC USB Externo" },
+                sampleRates = displayedUsb.announcedSampleRates,
+                channelCounts = displayedUsb.announcedChannelCounts,
+                encodings = displayedUsb.announcedEncodings,
+                deviceId = displayedUsb.androidDeviceId,
+                isUsbHeadset = displayedUsb.androidType == AudioDeviceInfo.TYPE_USB_HEADSET,
             )
-            routeObserver.onDeviceDetected(usbDescriptor)
-        } else if (lastKnownUsbDeviceId == null) {
-            preferredUsbDevice = null
-            _dacState.value = UsbDacInfo(isConnected = false)
+        } else {
+            UsbDacInfo()
         }
 
-        val currentSelectedId = _selectedDeviceId.value
-        val targetPreferredDevice = if (currentSelectedId != null) {
-            nativeDevices.firstOrNull { it.id == currentSelectedId }
-        } else {
-            usbNativeDevice
+        val nativePreferred = desiredDescriptor?.let { desired ->
+            nativeDevices.firstOrNull { it.id == desired.androidDeviceId }
         }
-        _preferredDeviceFlow.value = targetPreferredDevice
-
-        val selectedDescriptor = if (currentSelectedId != null) {
-            descriptors.firstOrNull { it.androidDeviceId == currentSelectedId }
-        } else {
-            usbDescriptor
-        }
-        if (selectedDescriptor != null) {
-            routeObserver.onDeviceRequested(selectedDescriptor)
-        } else if (descriptors.isEmpty() && lastKnownUsbDeviceId == null && _dacState.value.isConnected) {
-            routeObserver.onDeviceRequested(null)
+        preferredUsbDevice = nativePreferred?.takeIf { isUsbAudioType(it.type) }
+        _preferredDeviceFlow.value = nativePreferred
+        if (!recoveryRequired &&
+            (!issuedRouteRequest || !sameRequestedRoute(lastIssuedDescriptor, desiredDescriptor))) {
+            // Only actual selection changes issue a new request. A routine USB rescan
+            // must not demote a CONFIRMED or ROUTED_ELSEWHERE observation.
+            issuedRouteRequest = true
+            lastIssuedDescriptor = desiredDescriptor
+            if (desiredDescriptor == null) {
+                routeObserver.onDeviceRequested(null)
+            } else {
+                routeObserver.onDeviceDetected(desiredDescriptor)
+                routeObserver.onDeviceRequested(desiredDescriptor)
+            }
         }
 
         val deviceList = descriptors.map { desc ->
-            val isUsbDevice = desc.androidType == AudioDeviceInfo.TYPE_USB_DEVICE || desc.androidType == AudioDeviceInfo.TYPE_USB_ACCESSORY
-            val isUsbHeadset = desc.androidType == AudioDeviceInfo.TYPE_USB_HEADSET
-            val isBt = desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            val isUsb = desc.androidType == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                desc.androidType == AudioDeviceInfo.TYPE_USB_ACCESSORY
+            val headset = desc.androidType == AudioDeviceInfo.TYPE_USB_HEADSET
+            val bluetooth = desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                 desc.androidType == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                 desc.androidType == AudioDeviceInfo.TYPE_HEARING_AID
-            val isWired = desc.androidType == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+            val wired = desc.androidType == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
                 desc.androidType == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
-            val isSpk = desc.androidType == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+            val speaker = desc.androidType == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
                 desc.androidType == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-
-            val isSelected = when {
-                currentSelectedId != null -> desc.androidDeviceId == currentSelectedId
-                usbDescriptor != null -> desc.androidDeviceId == usbDescriptor.androidDeviceId
-                else -> isSpk || isWired || isBt
-            }
-
             AudioOutputDevice(
                 id = desc.androidDeviceId,
                 name = desc.name,
                 type = desc.androidType,
-                isSelected = isSelected,
-                isUsbDac = isUsbDevice,
-                isUsbHeadset = isUsbHeadset,
-                isBluetooth = isBt,
-                isWired = isWired,
-                isSpeaker = isSpk,
+                // A request is only a preference, not yet confirmed by AudioTrack.
+                isSelected = !recoveryRequired && desiredDescriptor?.androidDeviceId == desc.androidDeviceId,
+                isUsbDac = isUsb,
+                isUsbHeadset = headset,
+                isBluetooth = bluetooth,
+                isWired = wired,
+                isSpeaker = speaker,
                 sampleRates = desc.announcedSampleRates,
             )
         }
-
         _outputDevices.value = if (deviceList.isEmpty()) {
-            listOf(
-                AudioOutputDevice(
-                    id = 1,
-                    name = "Altavoz del Dispositivo",
-                    type = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
-                    isSelected = true,
-                    isSpeaker = true,
-                ),
-            )
-        } else {
-            deviceList
-        }
+            listOf(AudioOutputDevice(
+                id = 1,
+                name = "Altavoz del Dispositivo",
+                type = AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                isSelected = !recoveryRequired,
+                isSpeaker = true,
+            ))
+        } else deviceList
     }
 
     fun selectDevice(deviceId: Int) {
+        // Reject stale or synthetic IDs: merely requesting a route cannot create a device.
+        if (source.getOutputDevices().none { it.androidDeviceId == deviceId }) {
+            routeObserver.onRoutingFailed(deviceId, RouteFailure.DEVICE_NOT_FOUND)
+            return
+        }
+        recoveryRequired = false
+        issuedRouteRequest = false // explicit reselect is a genuine retry
         _selectedDeviceId.value = deviceId
         scanDevices()
     }
 
     fun clearDeviceSelection() {
+        issuedRouteRequest = false // user deliberately returns to automatic routing
+        recoveryRequired = false
         _selectedDeviceId.value = null
         scanDevices()
     }

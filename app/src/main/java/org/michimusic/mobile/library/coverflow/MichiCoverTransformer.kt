@@ -6,12 +6,12 @@ import com.yarolegovich.discretescrollview.transform.DiscreteScrollItemTransform
 class MichiCoverTransformer : DiscreteScrollItemTransformer {
 
     companion object {
-        private const val MAX_ROTATION = 60f
-        private const val CENTER_SCALE = 1.05f
-        private const val MIN_SCALE = 0.45f
-        private const val SCALE_DECAY = 0.22f
+        private const val MAX_ROTATION = 42f
+        private const val CENTER_SCALE = 1.0f
+        private const val MIN_SCALE = 0.76f
+        private const val SCALE_DECAY = 0.12f
         private const val SCALE_DEAD_ZONE = 0.2f
-        private const val ALPHA_FADE_RATE = 0.12f
+        private const val ALPHA_FADE_RATE = 0.08f
     }
 
     override fun transformItem(view: View, position: Float) {
@@ -22,8 +22,8 @@ class MichiCoverTransformer : DiscreteScrollItemTransformer {
 
         val rotation = when {
             absPos <= 0.10f -> 0f
-            position < 0 -> -MAX_ROTATION.coerceAtMost(absPos * 50f)
-            else -> MAX_ROTATION.coerceAtMost(absPos * 50f)
+            position < 0 -> -MAX_ROTATION.coerceAtMost(absPos * 40f)
+            else -> MAX_ROTATION.coerceAtMost(absPos * 40f)
         }
         view.rotationY = rotation
 

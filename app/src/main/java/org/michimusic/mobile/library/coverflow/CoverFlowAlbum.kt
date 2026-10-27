@@ -8,4 +8,5 @@ data class CoverFlowAlbum(
     val trackCount: Int,
     val hasArt: Boolean = true,
     val coverUri: String = "",
+    val sourceAudioUri: String = "",
 )

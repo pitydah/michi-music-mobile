@@ -1,5 +1,18 @@
 package org.michimusic.mobile.ui.components
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.util.LruCache
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +34,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -48,21 +64,87 @@ enum class CoverStyle {
 
 fun coverStyleFor(key: String?): CoverStyle {
     val styles = CoverStyle.values()
-    val hash = (key?.hashCode() ?: 0).let { if (it < 0) -it else it }
+    val hash = (key?.hashCode() ?: 0) and Int.MAX_VALUE
     return styles[hash % styles.size]
 }
 
+/** A bounded cache of decoded cover thumbnails; runs MediaMetadataRetriever only off main. */
+private object EmbeddedCoverCache {
+    private val thumbnails = object : LruCache<String, Bitmap>(16 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+    }
+    private const val MISS_TTL_MS = 45_000L
+    private val missing = LinkedHashMap<String, Long>()
+
+    fun load(context: Context, mediaUri: String): Bitmap? {
+        synchronized(this) {
+            thumbnails.get(mediaUri)?.let { return it }
+            val retryAt = missing[mediaUri]
+            if (retryAt != null && android.os.SystemClock.elapsedRealtime() < retryAt) return null
+            if (retryAt != null) missing.remove(mediaUri)
+        }
+        val result = runCatching {
+            val uri = Uri.parse(mediaUri)
+            if (uri.scheme != "content" && uri.scheme != "file") return@runCatching null
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, uri)
+                val bytes = retriever.embeddedPicture ?: return@runCatching null
+                if (bytes.size > 25 * 1024 * 1024) return@runCatching null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+                val factor = if (maxDim <= 0) 1 else ((maxDim + 511) / 512).coerceAtLeast(1)
+                val opts = BitmapFactory.Options().apply { inSampleSize = factor }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            } finally {
+                retriever.release()
+            }
+        }.getOrNull()
+        synchronized(this) {
+            if (result != null) thumbnails.put(mediaUri, result)
+            else {
+                if (missing.size >= 512) missing.remove(missing.keys.first())
+                missing[mediaUri] = android.os.SystemClock.elapsedRealtime() + MISS_TTL_MS
+            }
+        }
+        return result
+    }
+}
+
+/** Supports cover URLs/URIs, numeric MediaStore album IDs and embedded artwork fallback. */
 @Composable
 fun AlbumArtView(
     coverStyle: CoverStyle = CoverStyle.NEON_NEBULA,
     imageModel: Any? = null,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 12.dp,
-    borderWidth: Dp = 1.dp,
+    borderWidth: Dp = 0.dp,
     borderColor: Color = GlassBorderLow,
+    fallbackMediaUri: String? = null,
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    var isError by androidx.compose.runtime.remember(imageModel) { androidx.compose.runtime.mutableStateOf(false) }
+    val raw = imageModel?.toString()?.trim().orEmpty()
+    // MediaStore album IDs such as "42" cannot be loaded as bare strings by Coil.
+    val coverModel: Any? = when {
+        raw.isBlank() -> null
+        raw.toLongOrNull()?.let { it > 0 } == true -> "content://media/external/audio/albumart/$raw"
+        else -> imageModel
+    }
+    var coverFailed by remember(coverModel) { mutableStateOf(false) }
+    val context = LocalContext.current.applicationContext
+    val embedded by produceState<Bitmap?>(
+        initialValue = null,
+        key1 = fallbackMediaUri,
+        key2 = coverFailed,
+        key3 = coverModel,
+    ) {
+        if ((coverModel == null || coverFailed) && !fallbackMediaUri.isNullOrBlank()) {
+            value = withContext(Dispatchers.IO) {
+                EmbeddedCoverCache.load(context, fallbackMediaUri)
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -70,17 +152,45 @@ fun AlbumArtView(
             .background(SurfaceObsidian)
             .border(borderWidth, borderColor, shape),
     ) {
-        if (!isError && imageModel != null && imageModel.toString().isNotBlank()) {
+        if (coverModel != null && !coverFailed) {
             AsyncImage(
-                model = imageModel,
-                contentDescription = "Carátula del Álbum",
+                model = coverModel,
+                contentDescription = "Carátula del álbum",
                 contentScale = ContentScale.Crop,
-                onError = { isError = true },
+                onError = { coverFailed = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else if (embedded != null) {
+            Image(
+                bitmap = embedded!!.asImageBitmap(),
+                contentDescription = "Carátula del álbum",
+                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            GenerativeCoverCanvas(coverStyle = coverStyle)
+            MissingAlbumArtwork()
         }
+    }
+}
+
+/** A neutral placeholder, unmistakably not a real album cover. */
+@Composable
+private fun MissingAlbumArtwork(modifier: Modifier = Modifier) {
+    Canvas(
+        modifier = modifier.fillMaxSize()
+            .semantics { contentDescription = "Carátula no disponible" }
+            .testTag("album_artwork_unavailable"),
+    ) {
+        drawRect(brush = Brush.verticalGradient(
+            listOf(Color(0xFF262B34), Color(0xFF111419)),
+        ))
+        val radius = size.minDimension * 0.32f
+        drawCircle(Color(0xFF101217), radius = radius)
+        drawCircle(Color(0xFF636A76).copy(alpha = 0.25f), radius = radius * 0.79f,
+            style = Stroke(width = 1.dp.toPx()))
+        drawCircle(Color(0xFF636A76).copy(alpha = 0.24f), radius = radius * 0.54f,
+            style = Stroke(width = 1.dp.toPx()))
+        drawCircle(Color(0xFFB7BFCC).copy(alpha = 0.68f), radius = radius * 0.12f)
     }
 }
 

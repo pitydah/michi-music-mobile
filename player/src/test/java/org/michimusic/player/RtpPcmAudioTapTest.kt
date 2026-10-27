@@ -191,4 +191,139 @@ class RtpPcmAudioTapTest {
         val expectedSilence = byteArrayOf(0, 0, 0, 0)
         assertTrue("La salida local debe ser silencio cuando muteLocalOutput es true", expectedSilence.contentEquals(outBytes))
     }
+
+    @Test
+    fun `sender exception stays inside audio tap and latches a fault`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        tap.isEnabled = true
+        tap.muteLocalOutput = true
+        var count = 0
+        tap.pcmChunkListener = { count++; throw IllegalStateException("receiver offline") }
+
+        tap.queueInput(ByteBuffer.wrap(byteArrayOf(1, 2, 3, 4)))
+        assertTrue(tap.hasDeliveryFault)
+        assertTrue(tap.isPaused)
+        assertEquals(1, count)
+        tap.queueInput(ByteBuffer.wrap(byteArrayOf(5, 6, 7, 8)))
+        assertEquals("Delivery must remain suspended until explicit recovery", 1, count)
+        val output = tap.output
+        val pcm = ByteArray(output.remaining())
+        output.get(pcm)
+        assertTrue("A remote-only output must remain silent on the handset", pcm.contentEquals(byteArrayOf(0, 0, 0, 0)))
+    }
+
+    @Test
+    fun `new streaming connection can explicitly reset the fault latch`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        tap.isEnabled = true
+        tap.pcmChunkListener = { throw IllegalStateException("network down") }
+        tap.queueInput(ByteBuffer.wrap(byteArrayOf(1, 2)))
+        assertTrue(tap.hasDeliveryFault)
+        tap.resetDeliveryFault()
+        tap.isPaused = false
+        var delivered = false
+        tap.pcmChunkListener = { delivered = true }
+        tap.queueInput(ByteBuffer.wrap(byteArrayOf(3, 4)))
+        assertFalse(tap.hasDeliveryFault)
+        assertTrue(delivered)
+    }
+
+    @Test
+    fun `format first seen while sender enabled must be renegotiated`() {
+        val tap = RtpPcmAudioTap()
+        tap.isEnabled = true
+        tap.configure(AudioProcessor.AudioFormat(96000, 2, C.ENCODING_PCM_24BIT))
+        assertTrue(tap.isRenegotiating)
+        var count = 0
+        tap.pcmChunkListener = { count++ }
+        tap.queueInput(ByteBuffer.wrap(byteArrayOf(1, 2, 3, 4, 5, 6)))
+        assertEquals(0, count)
+    }
+
+    @Test
+    fun `Media3 reset while remote sender is enabled invalidates format negotiation`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        tap.isEnabled = true
+        tap.reset()
+        assertNull(tap.activeFormat)
+        assertTrue(tap.isRenegotiating)
+    }
+
+    @Test
+    fun `float PCM encoding is not mislabeled as integer 32 bit`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(96000, 2, C.ENCODING_PCM_FLOAT))
+        assertEquals("pcm_f32le", tap.activeFormat?.codec)
+        assertEquals(32, tap.activeFormat?.bitDepth)
+    }
+
+    @Test
+    fun `callback from previous sender cannot poison replacement connection`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val obsolete = Thread {
+            tap.queueInput(ByteBuffer.wrap(byteArrayOf(1, 2)))
+        }
+        tap.startSender {
+            entered.countDown()
+            check(release.await(3, java.util.concurrent.TimeUnit.SECONDS))
+            throw IllegalStateException("stale sender failed after replacement")
+        }
+        obsolete.start()
+        assertTrue("Old callback never started", entered.await(3, java.util.concurrent.TimeUnit.SECONDS))
+        var received = false
+        tap.startSender { received = true }
+        release.countDown()
+        obsolete.join(3_000)
+        assertFalse("Old sender fault must not affect new sender", tap.hasDeliveryFault)
+        assertFalse(tap.isPaused)
+        tap.queueInput(ByteBuffer.wrap(byteArrayOf(3, 4)))
+        assertTrue(received)
+    }
+
+    @Test
+    fun `stop disconnects old callback without reactivating it`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        tap.startSender { throw IllegalStateException("broken") }
+        tap.stopSender()
+        assertFalse(tap.isEnabled)
+        assertNull(tap.pcmChunkListener)
+        assertFalse(tap.muteLocalOutput)
+    }
+
+    @Test
+    fun `asynchronous sender failure only latches its own active listener`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        val old: (ByteArray) -> Unit = {}
+        val replacement: (ByteArray) -> Unit = {}
+        tap.startSender(old)
+        tap.startSender(replacement)
+        tap.reportSenderFailureIfCurrent(old)
+        assertFalse("Stale worker cannot poison new sender", tap.hasDeliveryFault)
+        tap.reportSenderFailureIfCurrent(replacement)
+        assertTrue(tap.hasDeliveryFault)
+        assertTrue(tap.isPaused)
+        assertTrue(tap.muteLocalOutput)
+    }
+
+    @Test
+    fun `format discontinuity drains registered network buffer`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(44100, 2, C.ENCODING_PCM_16BIT))
+        var cleared = 0
+        tap.onFormatDiscontinuity = { cleared++ }
+        tap.startSender { }
+        tap.configure(AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT))
+        assertEquals(1, cleared)
+        assertTrue(tap.isRenegotiating)
+        tap.reset()
+        assertEquals(2, cleared)
+    }
 }

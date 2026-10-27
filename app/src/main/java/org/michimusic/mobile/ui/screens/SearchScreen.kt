@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -23,6 +25,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
@@ -51,6 +55,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,6 +105,7 @@ fun SearchScreen(
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
     val structuredResults by viewModel.structuredResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+    val keyboardController = LocalSoftwareKeyboardController.current
     val audioController: AudioController = koinInject()
     val playerState by audioController.state.collectAsStateWithLifecycle()
 
@@ -125,7 +136,7 @@ fun SearchScreen(
                 style = MichiTypography.screenEyebrow,
             )
             Text(
-                text = "Buscar en tu Música",
+                text = "Busca tu música",
                 style = MichiTypography.screenTitle,
             )
 
@@ -135,19 +146,19 @@ fun SearchScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .heightIn(min = 56.dp)
                     .clip(MichiShapes.md)
-                    .background(GlassFillHigh)
+                    .background(org.michimusic.mobile.ui.theme.AeroGraphite)
                     .border(
-                        width = 1.dp,
-                        color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.5f) else GlassBorderHigh,
+                        width = 0.65.dp,
+                        color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.48f) else GlassBorderLow,
                         shape = MichiShapes.md,
                     )
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -163,6 +174,7 @@ fun SearchScreen(
                         onValueChange = viewModel::setQuery,
                         modifier = Modifier
                             .weight(1f)
+                            .semantics { contentDescription = "Buscar en la biblioteca" }
                             .testTag("search_text_field"),
                         textStyle = TextStyle(
                             color = PureWhite,
@@ -171,6 +183,8 @@ fun SearchScreen(
                         ),
                         cursorBrush = SolidColor(PrimaryPinkContainer),
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
                         decorationBox = { innerTextField ->
                             if (query.isEmpty()) {
                                 Text(
@@ -212,15 +226,17 @@ fun SearchScreen(
                     Box(
                         modifier = Modifier
                             .clip(MichiShapes.sm)
-                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.2f) else GlassFillLow)
-                            .border(1.dp, if (isSelected) PrimaryPinkContainer else GlassBorderLow, MichiShapes.sm)
-                            .clickable { viewModel.setFilter(filter) }
+                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
+                            .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.38f) else GlassBorderLow, MichiShapes.sm)
+                            .selectable(selected = isSelected, role = Role.Tab, onClick = { viewModel.setFilter(filter) })
+                            .heightIn(min = 48.dp)
                             .padding(horizontal = 14.dp, vertical = 8.dp)
                             .testTag("search_filter_${filter.name.lowercase()}"),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = filter.displayName,
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             color = if (isSelected) PureWhite else TextSecondary,
                         )
@@ -272,7 +288,7 @@ fun SearchScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(MichiSpacing.lg),
                 ) {
                     // 1. Artistas
@@ -455,6 +471,8 @@ private fun ArtistSearchRow(
                 Text(
                     text = artist.artist,
                     style = MichiTypography.cardTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "${artist.trackCount} canciones en tu biblioteca",
@@ -486,7 +504,8 @@ private fun AlbumSearchRow(
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(album.sampleTrack?.coverId?.ifEmpty { album.album } ?: album.album),
-                imageModel = album.sampleTrack?.filepath?.ifEmpty { album.sampleTrack.coverId } ?: album.sampleTrack?.coverId,
+                imageModel = album.sampleTrack?.coverId,
+                fallbackMediaUri = album.sampleTrack?.filepath,
                 modifier = Modifier
                     .size(44.dp)
                     .clip(MichiShapes.xs),
@@ -496,10 +515,14 @@ private fun AlbumSearchRow(
                 Text(
                     text = album.album,
                     style = MichiTypography.cardTitle,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "${album.artist} · ${album.trackCount} temas",
                     style = MichiTypography.metadata,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -531,7 +554,8 @@ private fun TrackSearchRow(
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                imageModel = track.filepath.ifEmpty { track.coverId },
+                imageModel = track.coverId,
+                fallbackMediaUri = track.filepath,
                 modifier = Modifier
                     .size(44.dp)
                     .clip(MichiShapes.xs),
@@ -735,7 +759,8 @@ private fun AlbumDetailDialog(
                     ) {
                         AlbumArtView(
                             coverStyle = coverStyleFor(album.sampleTrack?.coverId?.ifEmpty { album.album } ?: album.album),
-                            imageModel = album.sampleTrack?.filepath?.ifEmpty { album.sampleTrack.coverId } ?: album.sampleTrack?.coverId,
+                            imageModel = album.sampleTrack?.coverId,
+                fallbackMediaUri = album.sampleTrack?.filepath,
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(MichiShapes.xs),

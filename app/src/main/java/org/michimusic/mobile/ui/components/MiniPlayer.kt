@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -15,9 +17,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -36,10 +40,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -65,11 +74,12 @@ fun MiniPlayer(
     val localState by audioController.state.collectAsState()
 
     val currentTrack = sessionState.currentTrack ?: localState.currentTrack
+    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
 
     AnimatedVisibility(
         visible = visible && currentTrack != null,
-        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        enter = if (reducedMotion) EnterTransition.None else slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = if (reducedMotion) ExitTransition.None else slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         modifier = modifier,
     ) {
         if (currentTrack != null) {
@@ -85,29 +95,27 @@ fun MiniPlayer(
                     .fillMaxWidth()
                     .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 4.dp)
                     .clip(MichiShapes.md)
-                    .background(GlassFillHigh)
-                    .border(1.dp, GlassBorderLow, MichiShapes.md)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = ripple(color = PrimaryPinkContainer),
-                        onClick = onClick,
-                    )
+                    .background(AeroGraphiteRaised)
+                    .border(0.65.dp, AeroHairline, MichiShapes.md)
                     .testTag("mini_player_bar"),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Top mini progress bar
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .background(Color(0x22FFFFFF)),
-                    ) {
+                    // Unknown duration is not 0% completion. Hide the timeline
+                    // instead of rendering a misleading empty progress bar.
+                    if (sessionState.duration > 0) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(fraction = progressFraction)
+                                .fillMaxWidth()
                                 .height(2.dp)
-                                .background(PrimaryPinkContainer),
-                        )
+                                .background(Color(0x22FFFFFF)),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction = progressFraction)
+                                    .height(2.dp)
+                                    .background(PrimaryPinkContainer),
+                            )
+                        }
                     }
 
                     // Player row content
@@ -117,44 +125,73 @@ fun MiniPlayer(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        // Album artwork thumbnail
-                        AlbumArtView(
-                            coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
-                            imageModel = currentTrack.filepath.ifEmpty { currentTrack.coverId },
+                        // One coherent opening target, separate from actual transport buttons.
+                        Row(
                             modifier = Modifier
-                                .size(42.dp)
-                                .clip(MichiShapes.xs),
-                        )
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Title, Artist & Real Active Endpoint
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = currentTrack.title,
-                                color = PureWhite,
-                                style = MichiTypography.trackTitle,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                .weight(1f)
+                                .heightIn(min = MichiSpacing.minTouchTarget)
+                                .clip(MichiShapes.sm)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(color = PrimaryPinkContainer),
+                                    role = Role.Button,
+                                    onClick = onClick,
+                                )
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = "Abrir reproductor: ${currentTrack.title}, ${currentTrack.artist}"
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Album artwork thumbnail
+                            AlbumArtView(
+                                coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
+                                imageModel = currentTrack.coverId.takeIf { it.isNotBlank() },
+                                fallbackMediaUri = currentTrack.filepath,
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(MichiShapes.xs),
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Title, Artist & Real Active Endpoint
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = currentTrack.artist,
-                                    color = OnSurfaceVariant,
-                                    style = MichiTypography.metadata,
+                                    text = currentTrack.title,
+                                    color = PureWhite,
+                                    style = MichiTypography.trackTitle,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false),
                                 )
-                                Text(
-                                    text = " · ${activeEndpoint.name}",
-                                    color = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
-                                    style = MichiTypography.microLabel,
-                                    maxLines = 1,
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = currentTrack.artist,
+                                        color = OnSurfaceVariant,
+                                        style = MichiTypography.metadata,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer),
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = activeEndpoint.name,
+                                        color = OnSurfaceVariant,
+                                        style = MichiTypography.microLabel,
+                                        modifier = Modifier.widthIn(max = 84.dp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
-                        }
 
+                        }
                         Spacer(modifier = Modifier.width(6.dp))
 
                         // Play / Pause Button
@@ -168,7 +205,7 @@ fun MiniPlayer(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(34.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(PrimaryPinkContainer),
                                 contentAlignment = Alignment.Center,

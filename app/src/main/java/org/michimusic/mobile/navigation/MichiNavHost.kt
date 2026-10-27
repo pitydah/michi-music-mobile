@@ -34,6 +34,11 @@ import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.player.AudioController
+import org.koin.compose.koinInject
+import androidx.compose.runtime.collectAsState
 
 @Composable
 fun MichiNavHost() {
@@ -41,15 +46,23 @@ fun MichiNavHost() {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDest = backStackEntry?.destination
     val currentRoute = currentDest?.route
-    val isFullscreenNowPlaying = currentRoute == "nowplaying"
-    val miniPlayerVisible = !isFullscreenNowPlaying
+    val chrome = navigationPresentationFor(currentRoute)
+    val immersive = chrome.level == MichiScreenLevel.IMMERSIVE
+    val miniPlayerVisible = chrome.showMiniPlayer
+    // Reserve mini player height only when a track actually exists.
+    val sessionManager: PlaybackSessionManager = koinInject()
+    val sessionState by sessionManager.sessionState.collectAsState()
+    val audioController: AudioController = koinInject()
+    val localState by audioController.state.collectAsState()
+    val hasMiniPlayer = sessionState.currentTrack != null || localState.currentTrack != null
 
     Scaffold(
         containerColor = SurfaceObsidian,
         bottomBar = {
-            if (!isFullscreenNowPlaying) {
+            if (chrome.showDock) {
                 BottomNavBar(
                     currentRoute = currentRoute,
+                    selectedRoute = chrome.selectedPrimaryTab,
                     onTabSelected = { route ->
                         // No saveState/restoreState: this NavHost is a single flat graph, not
                         // one nested graph per tab, so secondary screens pushed on top of a tab
@@ -68,14 +81,14 @@ fun MichiNavHost() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (isFullscreenNowPlaying) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding),
+                .padding(if (immersive) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding),
         ) {
             NavHost(
                 navController = navController,
                 startDestination = "home",
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(bottom = if (miniPlayerVisible) 68.dp else 0.dp),
+                    .padding(bottom = if (miniPlayerVisible && hasMiniPlayer) MichiSpacing.miniPlayerSpace else 0.dp),
             ) {
                 composable("home") {
                     HomeScreen(
@@ -168,7 +181,7 @@ fun MichiNavHost() {
             MiniPlayer(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 onClick = { navController.navigate("nowplaying") },
-                visible = miniPlayerVisible,
+                visible = miniPlayerVisible && hasMiniPlayer,
             )
         }
     }

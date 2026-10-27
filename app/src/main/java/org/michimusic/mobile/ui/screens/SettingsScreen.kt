@@ -7,12 +7,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -49,6 +51,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,10 +60,14 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.edit
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -68,6 +75,7 @@ import org.michimusic.data.cache.AppDao
 import org.michimusic.mobile.ui.components.AudioRouteDialog
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.shouldStackAudioActions
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -84,6 +92,8 @@ import org.michimusic.player.ReplayGainMode
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -122,7 +132,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
-    var currentSection by remember { mutableStateOf(SettingsSection.ROOT) }
+    var currentSection by rememberSaveable { mutableStateOf(SettingsSection.ROOT) }
 
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
@@ -153,19 +163,7 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(SurfaceObsidian)
-            .drawBehind {
-                drawCircle(
-                    color = PrimaryPinkContainer.copy(alpha = 0.08f),
-                    radius = size.width * 0.7f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.1f),
-                )
-                drawCircle(
-                    color = TertiaryCyan.copy(alpha = 0.05f),
-                    radius = size.width * 0.6f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.85f),
-                )
-            },
+            .background(SurfaceObsidian),
     ) {
         Column(
             modifier = Modifier
@@ -203,10 +201,7 @@ fun SettingsScreen(
                     Column {
                         Text(
                             text = "AJUSTES",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TertiaryCyan,
-                            letterSpacing = 2.sp,
+                            style = org.michimusic.mobile.ui.theme.MichiTypography.screenEyebrow,
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
@@ -217,11 +212,9 @@ fun SettingsScreen(
                                 SettingsSection.ACCESSIBILITY -> "Accesibilidad & Visual"
                                 SettingsSection.PRIVACY -> "Privacidad & Datos"
                             },
-                            style = MaterialTheme.typography.headlineMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = PureWhite,
-                                letterSpacing = (-0.5).sp,
-                            ),
+                            style = org.michimusic.mobile.ui.theme.MichiTypography.screenTitle,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -231,7 +224,13 @@ fun SettingsScreen(
 
             AnimatedContent(
                 targetState = currentSection,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                transitionSpec = {
+                    if (visualPrefs.reducedMotion) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        fadeIn() togetherWith fadeOut()
+                    }
+                },
                 label = "settings_hierarchy",
             ) { target ->
                 when (target) {
@@ -287,55 +286,15 @@ fun SettingsScreen(
                                 subtitle = "Ecualización, Salidas y ReplayGain",
                                 accent = TertiaryCyan,
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    GlassCard(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(72.dp),
-                                        backgroundColor = GlassFillLow,
-                                        borderColor = GlassBorderLow,
-                                        onClick = { showEqualizerDialog = true },
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(10.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            Icon(Icons.Default.Tune, contentDescription = null, tint = PrimaryPink, modifier = Modifier.size(22.dp))
-                                            Column {
-                                                Text("Ecualizador", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                                Text("5 Bandas & 3D", color = TextMuted, fontSize = 10.sp)
-                                            }
-                                        }
-                                    }
-
-                                    GlassCard(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(72.dp),
-                                        backgroundColor = GlassFillLow,
-                                        borderColor = GlassBorderLow,
-                                        onClick = { showAudioRouteDialog = true },
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(10.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            Icon(Icons.Default.Headphones, contentDescription = null, tint = TertiaryCyan, modifier = Modifier.size(22.dp))
-                                            Column {
-                                                Text("Salidas de Audio", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                                Text("DAC USB & Enrutamiento", color = TextMuted, fontSize = 10.sp)
-                                            }
-                                        }
-                                    }
+                                // Adaptive DSP actions: stacking avoids squashing labels on narrow phones.
+                                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                    SettingsAudioQuickActions(
+                                        stacked = shouldStackAudioActions(
+                                            maxWidth.value, LocalConfiguration.current.fontScale,
+                                        ),
+                                        onEqualizer = { showEqualizerDialog = true },
+                                        onAudioRoute = { showAudioRouteDialog = true },
+                                    )
                                 }
 
                                 Spacer(Modifier.height(16.dp))
@@ -362,14 +321,15 @@ fun SettingsScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(42.dp)
+                                                    .height(48.dp)
                                                     .clip(RoundedCornerShape(10.dp))
                                                     .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
                                                     .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
                                                     .clickable {
                                                         selectedMode = mode
                                                         prefs.edit { putString(KEY_RG_MODE, mode.name) }
-                                                    },
+                                                    }
+                                                    .semantics { selected = isSelected },
                                                 contentAlignment = Alignment.Center,
                                             ) {
                                                 Text(
@@ -395,7 +355,7 @@ fun SettingsScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(42.dp)
+                                                    .height(48.dp)
                                                     .clip(RoundedCornerShape(10.dp))
                                                     .background(if (isSelected) TertiaryCyan.copy(alpha = 0.20f) else GlassFillLow)
                                                     .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(10.dp))
@@ -409,7 +369,8 @@ fun SettingsScreen(
                                                                 without = preAmpWithout.floatValue,
                                                             ),
                                                         )
-                                                    },
+                                                    }
+                                                    .semantics { selected = isSelected },
                                                 contentAlignment = Alignment.Center,
                                             ) {
                                                 Text(
@@ -659,6 +620,74 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsAudioQuickActions(
+    stacked: Boolean,
+    onEqualizer: () -> Unit,
+    onAudioRoute: () -> Unit,
+) {
+    if (stacked) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingsAudioQuickActionCard(
+                icon = Icons.Default.Tune, title = "Ecualizador",
+                subtitle = "5 bandas y efectos", accent = PrimaryPink,
+                onClick = onEqualizer, modifier = Modifier.fillMaxWidth(),
+            )
+            SettingsAudioQuickActionCard(
+                icon = Icons.Default.Headphones, title = "Salidas de audio",
+                subtitle = "DAC USB y enrutamiento", accent = TertiaryCyan,
+                onClick = onAudioRoute, modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    } else {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SettingsAudioQuickActionCard(
+                icon = Icons.Default.Tune, title = "Ecualizador",
+                subtitle = "5 bandas y efectos", accent = PrimaryPink,
+                onClick = onEqualizer, modifier = Modifier.weight(1f),
+            )
+            SettingsAudioQuickActionCard(
+                icon = Icons.Default.Headphones, title = "Salidas de audio",
+                subtitle = "DAC USB y enrutamiento", accent = TertiaryCyan,
+                onClick = onAudioRoute, modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsAudioQuickActionCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier,
+) {
+    GlassCard(
+        modifier = modifier.heightIn(min = 72.dp),
+        backgroundColor = GlassFillLow,
+        borderColor = GlassBorderLow,
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = PureWhite, fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = TextSecondary, fontSize = 12.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsCategoryNavCard(
     icon: ImageVector,
     title: String,
@@ -668,7 +697,7 @@ private fun SettingsCategoryNavCard(
 ) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        backgroundColor = SurfaceObsidian.copy(alpha = 0.7f),
+        backgroundColor = GlassFillLow,
         borderColor = GlassBorderLow,
         onClick = onClick,
     ) {
@@ -693,9 +722,9 @@ private fun SettingsCategoryNavCard(
                 ) {
                     Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
                 }
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = TextSecondary, fontSize = 12.sp)
+                    Text(subtitle, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
                 }
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
@@ -713,7 +742,7 @@ private fun SettingsSectionCard(
 ) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        backgroundColor = SurfaceObsidian.copy(alpha = 0.7f),
+        backgroundColor = GlassFillLow,
         borderColor = GlassBorderLow,
     ) {
         Column(
@@ -734,9 +763,11 @@ private fun SettingsSectionCard(
                 ) {
                     Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
                 }
-                Column {
-                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = TextSecondary, fontSize = 11.sp)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = TextSecondary, fontSize = 12.sp,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
                 }
             }
 
@@ -755,13 +786,13 @@ private fun SettingSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-            Text(title, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Text(subtitle, color = TextMuted, fontSize = 11.sp)
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
         Switch(
             checked = checked,

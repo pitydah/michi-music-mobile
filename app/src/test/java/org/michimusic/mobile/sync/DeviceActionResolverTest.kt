@@ -1,5 +1,6 @@
 package org.michimusic.mobile.sync
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -171,5 +172,26 @@ class DeviceActionResolverTest {
         val receiverActions = DeviceActionResolver.resolveActions(receiver, false)
         assertEquals(1, receiverActions.count { it.isPrimary })
         assertEquals(DeviceActionType.PLAY_ON_DEVICE, receiverActions.first { it.isPrimary }.type)
+    }
+
+    private fun device(features: List<String> = emptyList()) = UnifiedDevice(
+        id = "node-a", name = "Node", ip = "192.168.1.2", port = 8400,
+        connectionState = SyncConnectionState.CONNECTED, isPaired = true,
+        deviceType = "server", roles = listOf("sync_host"), features = features,
+    )
+
+    // M29 regression tests: capability honesty and Stream provisioning.
+    @Test fun genericSyncHostDoesNotAutomaticallyClaimAirCat() {
+        val actions = DeviceActionResolver.resolveActions(device(), isConnecting = false)
+        assertFalse(actions.any { it.type == DeviceActionType.AIRCAT_TRANSFER })
+    }
+    @Test fun explicitlyAdvertisedAirCatIsAvailableWithinDevices() {
+        val actions = DeviceActionResolver.resolveActions(device(listOf("devices.aircat")), isConnecting = false)
+        assertTrue(actions.any { it.type == DeviceActionType.AIRCAT_TRANSFER })
+        assertEquals(1, actions.count { it.isPrimary })
+    }
+    @Test fun unrelatedCapabilitiesAreNotMisclassifiedAsAirCat() {
+        assertFalse(DeviceActionResolver.supportsAirCat(device(listOf("aircatapult", "streaming"))))
+        assertTrue(DeviceActionResolver.supportsAirCat(device(listOf("AirCat-Transfer"))))
     }
 }

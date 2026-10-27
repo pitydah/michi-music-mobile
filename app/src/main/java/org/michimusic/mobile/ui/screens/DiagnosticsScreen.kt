@@ -86,6 +86,10 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
 
 @Composable
 fun DiagnosticsScreen() {
@@ -101,26 +105,14 @@ fun DiagnosticsScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
-            .drawBehind {
-                drawCircle(
-                    color = TertiaryCyan.copy(alpha = 0.08f),
-                    radius = size.width * 0.7f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.1f),
-                )
-                drawCircle(
-                    color = PrimaryPinkContainer.copy(alpha = 0.05f),
-                    radius = size.width * 0.6f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.85f),
-                )
-            },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = MichiSpacing.screenHorizontal)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             // Header
             Row(
@@ -128,21 +120,15 @@ fun DiagnosticsScreen() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "TELEMETRÍA",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TertiaryCyan,
-                        letterSpacing = 2.sp,
+                        style = MichiTypography.screenEyebrow,
                     )
                     Text(
                         text = "Diagnóstico Michi Link",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = PureWhite,
-                            letterSpacing = (-0.5).sp,
-                        ),
+                        style = MichiTypography.sectionTitle,
+                        maxLines = 2,
                     )
                 }
 
@@ -150,10 +136,10 @@ fun DiagnosticsScreen() {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (savedUrl != null) TertiaryCyan.copy(alpha = 0.15f) else GlassFillLow)
+                        .background(AeroGraphiteRaised)
                         .border(
                             1.dp,
-                            if (savedUrl != null) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
+                            AeroHairline,
                             RoundedCornerShape(12.dp),
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -162,15 +148,17 @@ fun DiagnosticsScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        PulsingDot(
-                            color = if (savedUrl != null) TertiaryCyan else TextMuted,
-                            size = 8.dp,
+                        Box(
+                            modifier = Modifier.size(8.dp).background(
+                                if (!savedUrl.isNullOrBlank()) TertiaryCyan else TextMuted,
+                                CircleShape,
+                            ),
                         )
                         Text(
-                            text = if (savedUrl != null) "ENLACE ACTIVO" else "STANDBY",
+                            text = if (!savedUrl.isNullOrBlank()) "CONFIGURADO" else "SIN CONFIGURAR",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (savedUrl != null) TertiaryCyan else TextMuted,
+                            color = if (!savedUrl.isNullOrBlank()) TertiaryCyan else TextMuted,
                             letterSpacing = 1.sp,
                         )
                     }
@@ -188,14 +176,14 @@ fun DiagnosticsScreen() {
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Dns,
                     title = "Servidor",
-                    value = if (savedUrl != null) "Configurado" else "No vinculado",
-                    accent = if (savedUrl != null) TertiaryCyan else TextMuted,
+                    value = if (!savedUrl.isNullOrBlank()) "Configurado" else "No vinculado",
+                    accent = if (!savedUrl.isNullOrBlank()) TertiaryCyan else TextMuted,
                 )
                 TelemetryCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.VpnKey,
-                    title = "Token Cifrado",
-                    value = if (hasToken) "Presente (AES)" else "Sin Token",
+                    title = "Credencial local",
+                    value = if (hasToken) "Guardada" else "Sin credencial",
                     accent = if (hasToken) PrimaryPink else TextMuted,
                 )
             }
@@ -210,22 +198,22 @@ fun DiagnosticsScreen() {
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Lan,
                     title = "Host Destino",
-                    value = savedUrl ?: "Sin asignar",
-                    accent = if (savedUrl != null) SecondaryPurple else TextMuted,
+                    value = savedUrl?.takeIf { it.isNotBlank() } ?: "Sin asignar",
+                    accent = if (!savedUrl.isNullOrBlank()) SecondaryPurple else TextMuted,
                 )
                 TelemetryCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Speed,
                     title = "Protocolo",
-                    value = if (savedUrl != null) "HTTP/2 + WS" else "Desconectado",
-                    accent = if (savedUrl != null) TertiaryCyan else TextMuted,
+                    value = if (savedUrl.isNullOrBlank()) "Sin configurar" else "Pendiente de verificar",
+                    accent = TextMuted,
                 )
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             // Run Diagnostic Action Button
-            val isConfigured = !savedUrl.isNullOrEmpty()
+            val isConfigured = !savedUrl.isNullOrBlank()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -234,7 +222,7 @@ fun DiagnosticsScreen() {
                     .background(
                         if (isConfigured) {
                             Brush.horizontalGradient(
-                                colors = listOf(PrimaryPinkContainer, SecondaryPurple, TertiaryCyan),
+                                colors = listOf(PrimaryPinkContainer, PrimaryPinkContainer),
                             )
                         } else {
                             Brush.horizontalGradient(
@@ -250,19 +238,26 @@ fun DiagnosticsScreen() {
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = ripple(color = PureWhite),
-                        enabled = !running,
+                        enabled = !running && isConfigured,
                         onClick = {
+                            val targetUrl = savedUrl?.takeIf { it.isNotBlank() } ?: return@clickable
                             running = true
                             report = null
                             scope.launch {
                                 val client = LinkClient(
-                                    baseUrl = savedUrl ?: "http://127.0.0.1:0",
+                                    baseUrl = targetUrl,
                                     deviceToken = tokenStore.getDeviceToken() ?: "",
                                     clientDeviceId = tokenStore.getClientDeviceId() ?: "",
                                 )
                                 val diagnostics = LinkDiagnostics(context)
-                                report = diagnostics.runAll(client)
-                                running = false
+                                try {
+                                    report = diagnostics.runAll(client)
+                                } catch (error: Exception) {
+                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    Toast.makeText(context, "No se pudo completar el diagnóstico", Toast.LENGTH_LONG).show()
+                                } finally {
+                                    running = false
+                                }
                             }
                         },
                     ),
@@ -292,7 +287,7 @@ fun DiagnosticsScreen() {
                             modifier = Modifier.size(20.dp),
                         )
                         Text(
-                            text = "Ejecutar Diagnóstico Completo",
+                            text = if (isConfigured) "Ejecutar diagnóstico completo" else "Configura un servidor para diagnosticar",
                             color = PureWhite,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,

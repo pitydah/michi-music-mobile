@@ -66,6 +66,9 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 
 @Composable
 fun PlaylistScreen(
@@ -83,25 +86,13 @@ fun PlaylistScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
-            .drawBehind {
-                drawCircle(
-                    color = SecondaryPurple.copy(alpha = 0.08f),
-                    radius = size.width * 0.7f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.1f),
-                )
-                drawCircle(
-                    color = TertiaryCyan.copy(alpha = 0.06f),
-                    radius = size.width * 0.6f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.85f),
-                )
-            },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             // Header
             Row(
@@ -112,27 +103,20 @@ fun PlaylistScreen(
                 Column {
                     Text(
                         text = "COLECCIONES",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SecondaryPurple,
-                        letterSpacing = 2.sp,
+                        style = MichiTypography.screenEyebrow,
                     )
                     Text(
                         text = "Tus Playlists",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = PureWhite,
-                            letterSpacing = (-0.5).sp,
-                        ),
+                        style = MichiTypography.screenTitle,
                     )
                 }
 
                 // Add Playlist Button
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(MichiSpacing.minTouchTarget)
                         .clip(CircleShape)
-                        .background(GlassFillHigh)
+                        .background(AeroGraphiteRaised)
                         .border(1.dp, GlassBorderHigh, CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -184,6 +168,7 @@ fun PlaylistScreen(
                             text = "Crea una lista o sincroniza desde Michi Desktop",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextMuted,
+                            modifier = Modifier.padding(horizontal = 14.dp),
                         )
                     }
                 }
@@ -199,7 +184,7 @@ fun PlaylistScreen(
                                 .testTag("playlist_item_${playlist.id}"),
                             backgroundColor = GlassFillLow,
                             borderColor = GlassBorderLow,
-                            accent = SecondaryPurple,
+                            accent = null,
                             onClick = { onNavigateToPlaylist(playlist.id) },
                         ) {
                             Row(
@@ -226,7 +211,7 @@ fun PlaylistScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = "${playlist.trackCount} pistas • Sincronizada",
+                                        text = if (playlist.trackCount == 1) "1 canción" else "${playlist.trackCount} canciones",
                                         fontSize = 12.sp,
                                         color = TextSecondary,
                                     )
@@ -236,7 +221,7 @@ fun PlaylistScreen(
                                     modifier = Modifier
                                         .size(48.dp)
                                         .clip(CircleShape)
-                                        .background(SecondaryPurple.copy(alpha = 0.15f))
+                                        .background(PrimaryPinkContainer.copy(alpha = 0.12f))
                                         .clickable {
                                             viewModel.playPlaylist(playlist.id, audioController)
                                         }
@@ -246,7 +231,7 @@ fun PlaylistScreen(
                                     Icon(
                                         Icons.Default.PlayArrow,
                                         contentDescription = "Reproducir ${playlist.name}",
-                                        tint = SecondaryPurple,
+                                        tint = PrimaryPinkContainer,
                                         modifier = Modifier.size(24.dp),
                                     )
                                 }

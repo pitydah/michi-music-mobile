@@ -52,8 +52,20 @@ class MichiPlaybackServiceThreadingTest {
         return field.get(this) as T
     }
 
+    private var currentController: org.robolectric.android.controller.ServiceController<MichiPlaybackService>? = null
+
+    @org.junit.After
+    fun tearDown() {
+        try {
+            currentController?.destroy()
+        } catch (_: Throwable) {}
+        currentController = null
+        PlayerDependencies.resetTestingOverrides()
+    }
+
     private fun buildStartedService(): MichiPlaybackService {
         val controller = Robolectric.buildService(MichiPlaybackService::class.java)
+        currentController = controller
         controller.create()
         val service = controller.get()
         val player = service.readPrivateField<ExoPlayer>("player")

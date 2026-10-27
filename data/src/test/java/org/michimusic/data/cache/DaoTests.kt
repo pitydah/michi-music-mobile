@@ -1,4 +1,5 @@
-package org.michimusic.data.cache
+﻿package org.michimusic.data.cache
+
 
 import android.content.Context
 import androidx.room.Room
@@ -15,13 +16,16 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 class DaoTests {
 
+
     private lateinit var database: MichiDatabase
     private lateinit var trackDao: TrackDao
     private lateinit var playlistDao: PlaylistDao
+
 
     @Before
     fun setup() {
@@ -33,10 +37,12 @@ class DaoTests {
         playlistDao = database.playlistDao()
     }
 
+
     @After
     fun teardown() {
         database.close()
     }
+
 
     @Test
     fun `TrackDao inserts and retrieves tracks`() = runBlocking {
@@ -52,6 +58,7 @@ class DaoTests {
         assertEquals("Z Song", tracks[1].title)
     }
 
+
     @Test
     fun `TrackDao marks track as downloaded`() = runBlocking {
         val track = CachedTrack(id = "1", title = "A Song", downloaded = false)
@@ -64,6 +71,7 @@ class DaoTests {
         assertEquals(true, retrieved?.downloaded)
     }
 
+
     @Test
     fun `TrackDao deletes track`() = runBlocking {
         val track = CachedTrack(id = "1", title = "A Song")
@@ -74,6 +82,7 @@ class DaoTests {
         val retrieved = trackDao.getTrackById("1")
         assertNull(retrieved)
     }
+
 
     @Test
     fun `PlaylistDao inserts and retrieves playlists ordered by name`() = runBlocking {
@@ -88,6 +97,7 @@ class DaoTests {
         assertEquals("Z Playlist", playlists[1].name)
     }
 
+
     @Test
     fun `PlaylistDao deletes playlist by id`() = runBlocking {
         val p1 = CachedPlaylist(id = "p1", name = "Z Playlist")
@@ -99,9 +109,11 @@ class DaoTests {
         assertEquals(0, playlists.size)
     }
 
+
     @Test
     fun `TransferCheckpointDao strict exact match does not touch other plans`() = runBlocking {
         val checkpointDao = database.transferCheckpointDao()
+
 
         val cpPlanA = TransferCheckpointEntity(
             transferKey = "dev1:lib1:trk1:plan_A",
@@ -123,14 +135,18 @@ class DaoTests {
             updatedAt = 1000L,
         )
 
+
         checkpointDao.insertCheckpoint(cpPlanA)
+
 
         // Exact query on prefix or another plan must return null
         val prefixQuery = checkpointDao.getCheckpoint("dev1:lib1:trk1")
         assertNull("Prefix query without planId must not match plan_A checkpoint", prefixQuery)
 
+
         val planBQuery = checkpointDao.getCheckpoint("dev1:lib1:trk1:plan_B")
         assertNull("Query for plan_B must not match plan_A", planBQuery)
+
 
         // Updating progress with prefix or plan_B key must not touch plan_A
         val updatedRowsPrefix = checkpointDao.updateProgress(
@@ -142,6 +158,7 @@ class DaoTests {
         )
         assertEquals(0, updatedRowsPrefix)
 
+
         val updatedRowsPlanB = checkpointDao.updateProgress(
             key = "dev1:lib1:trk1:plan_B",
             received = 888L,
@@ -151,6 +168,7 @@ class DaoTests {
         )
         assertEquals(0, updatedRowsPlanB)
 
+
         // Verify plan_A record remained pristine
         val retrievedPlanA = checkpointDao.getCheckpoint("dev1:lib1:trk1:plan_A")
         assertNotNull(retrievedPlanA)
@@ -158,10 +176,12 @@ class DaoTests {
         assertEquals("DOWNLOADING", retrievedPlanA?.transferState)
     }
 
+
     @Test
     fun `TrackLocationDao queries location by exact uri`() = runBlocking {
         val locationDao = database.trackLocationDao()
         val identityDao = database.trackIdentityDao()
+
 
         val trackId = "trk_uri_test"
         identityDao.insertIdentity(
@@ -174,6 +194,7 @@ class DaoTests {
             )
         )
 
+
         val uri = "/data/user/0/org.michimusic/files/synced_music/song.mp3"
         locationDao.insertLocation(
             TrackLocationEntity(
@@ -184,11 +205,59 @@ class DaoTests {
             )
         )
 
+
         val found = locationDao.getLocationByUri(uri)
         assertNotNull("Should find location by exact URI", found)
         assertEquals("loc_1", found?.locationId)
 
+
         val notFound = locationDao.getLocationByUri("/unregistered/path/song.mp3")
         assertNull("Should return null for non-registered URI", notFound)
     }
+    @Test
+    fun `re-registering identity preserves all locations and memberships`() = runBlocking {
+        val ids = database.trackIdentityDao()
+        val locations = database.trackLocationDao()
+        val membership = database.libraryMembershipDao()
+        database.libraryDao().insertLibrary(LibraryEntity("lib_A", "A", "USER_CUSTOM"))
+        database.libraryDao().insertLibrary(LibraryEntity("lib_B", "B", "USER_CUSTOM"))
+        ids.insertIdentity(TrackIdentityEntity("track_shared", "Before", "Artist", "Album", 100L))
+        locations.insertLocation(TrackLocationEntity("loc_A", "track_shared", "SYNCED_MANAGED", "/test/a"))
+        locations.insertLocation(TrackLocationEntity("loc_B", "track_shared", "SYNCED_MANAGED", "/test/b"))
+        membership.addMembership(LibraryTrackCrossRef("lib_A", "track_shared"))
+        membership.addMembership(LibraryTrackCrossRef("lib_B", "track_shared"))
+
+
+        ids.insertIdentity(TrackIdentityEntity("track_shared", "After", "Artist", "Album", 100L))
+        assertEquals("After", ids.getTrackIdentity("track_shared")?.title)
+        assertEquals(2, locations.getLocationsForTrack("track_shared").size)
+        assertEquals(setOf("lib_A", "lib_B"), membership.getLibrariesForTrack("track_shared").toSet())
+    }
+
+
+    @Test
+    fun `updating library preserves existing memberships`() = runBlocking {
+        val libraries = database.libraryDao()
+        val identities = database.trackIdentityDao()
+        val membership = database.libraryMembershipDao()
+        libraries.insertLibrary(LibraryEntity("lib_saved", "Old", "USER_CUSTOM"))
+        identities.insertIdentity(TrackIdentityEntity("track_saved", "Song", "Artist", "Album", 200L))
+        membership.addMembership(LibraryTrackCrossRef("lib_saved", "track_saved"))
+        libraries.insertLibrary(LibraryEntity("lib_saved", "New", "USER_CUSTOM"))
+        assertEquals("New", libraries.getLibraryById("lib_saved")?.name)
+        assertEquals(listOf("lib_saved"), membership.getLibrariesForTrack("track_saved"))
+    }
+
+
+    @Test
+    fun `renaming playlist header does not delete entries`() = runBlocking {
+        val playlists = database.normalizedPlaylistDao()
+        playlists.insertHeader(PlaylistHeaderEntity("p_keep", "Old"))
+        playlists.insertEntry(PlaylistEntryEntity("entry_keep", "p_keep", "track_keep", 0))
+        playlists.insertHeader(PlaylistHeaderEntity("p_keep", "New"))
+        assertEquals("New", playlists.getPlaylistHeader("p_keep")?.name)
+        assertEquals(listOf("track_keep"), playlists.getEntries("p_keep").map { it.trackId })
+    }
+
+
 }

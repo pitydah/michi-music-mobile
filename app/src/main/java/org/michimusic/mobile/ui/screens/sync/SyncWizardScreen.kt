@@ -45,6 +45,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,13 +109,15 @@ fun SyncWizardScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var currentStep by remember { mutableStateOf(SyncWizardStep.SELECTION) }
-    var selectedScope by remember { mutableStateOf(SyncScope.FULL_LIBRARY) }
-    var selectedAlbumIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedArtistIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedPlaylistIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedTrackIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectedProfile by remember { mutableStateOf(DeliveryProfile.ORIGINAL) }
+    // Keep the wizard's choices when Android recreates the Activity. These are
+    // UI selections only; a sync can start only after the fresh preflight passes.
+    var currentStep by rememberSaveable(endpointId) { mutableStateOf(SyncWizardStep.SELECTION) }
+    var selectedScope by rememberSaveable(endpointId) { mutableStateOf(SyncScope.FULL_LIBRARY) }
+    var selectedAlbumIds by rememberSaveable(endpointId) { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedArtistIds by rememberSaveable(endpointId) { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedPlaylistIds by rememberSaveable(endpointId) { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTrackIds by rememberSaveable(endpointId) { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedProfile by rememberSaveable(endpointId) { mutableStateOf(DeliveryProfile.ORIGINAL) }
     val scrollState = rememberScrollState()
 
     androidx.compose.runtime.LaunchedEffect(currentStep) {
@@ -172,7 +175,7 @@ fun SyncWizardScreen(
                             SyncWizardStep.REVIEW -> currentStep = SyncWizardStep.QUALITY
                         }
                     },
-                    modifier = Modifier.testTag("sync_wizard_back_button")
+                    modifier = Modifier.size(48.dp).testTag("sync_wizard_back_button")
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -248,7 +251,7 @@ fun SyncWizardScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = onRetry,
-                            colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = PureWhite),
+                            colors = ButtonDefaults.buttonColors(containerColor = org.michimusic.mobile.ui.theme.PrimaryPinkContainer, contentColor = PureWhite),
                             modifier = Modifier.testTag("sync_wizard_retry_button")
                         ) {
                             Icon(Icons.Filled.Refresh, contentDescription = null)

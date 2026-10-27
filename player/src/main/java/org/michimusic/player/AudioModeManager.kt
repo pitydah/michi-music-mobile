@@ -55,10 +55,16 @@ class AudioModeManager(
                 replayGainProcessor?.isBypassed = false
             }
             AudioProcessingMode.AUTO -> {
-                // En AUTO: si hay un DAC USB conectado, aplicar transparencia conservadora; si es altavoz/BT, mantener DSP
-                val isUsbConnected = usbDacManager?.dacState?.value?.isConnected == true
-                audioEffects?.isBypassedByMode = isUsbConnected
-                replayGainProcessor?.isBypassed = isUsbConnected
+                // A connected DAC is not proof that Android routed audio to it.
+                val route = usbDacManager?.routeStatus?.value
+                val observed = currentlyObservedOutput(route)
+                val isUsbRouted = observed?.androidType?.let { type ->
+                    type == android.media.AudioDeviceInfo.TYPE_USB_DEVICE ||
+                        type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET ||
+                        type == android.media.AudioDeviceInfo.TYPE_USB_ACCESSORY
+                } == true
+                audioEffects?.isBypassedByMode = isUsbRouted
+                replayGainProcessor?.isBypassed = isUsbRouted
             }
         }
     }

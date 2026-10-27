@@ -73,6 +73,9 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
+import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.player.AudioController
 
 @Composable
@@ -124,30 +127,13 @@ fun PlaylistDetailScreen(
             .background(SurfaceObsidian)
             .testTag("playlist_detail_screen"),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawBehind {
-                    drawCircle(
-                        color = SecondaryPurple.copy(alpha = 0.08f),
-                        radius = size.width * 0.7f,
-                        center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.1f),
-                    )
-                    drawCircle(
-                        color = TertiaryCyan.copy(alpha = 0.06f),
-                        radius = size.width * 0.6f,
-                        center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.85f),
-                    )
-                },
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -156,7 +142,7 @@ fun PlaylistDetailScreen(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(MichiSpacing.minTouchTarget)
                         .clip(CircleShape)
                         .background(GlassFillLow)
                         .testTag("playlist_detail_back_button"),
@@ -169,15 +155,12 @@ fun PlaylistDetailScreen(
                     )
                 }
 
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(10.dp))
 
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "PLAYLIST",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SecondaryPurple,
-                        letterSpacing = 2.sp,
+                        style = MichiTypography.screenEyebrow,
                     )
                     Text(
                         text = when (val state = uiState) {
@@ -186,10 +169,7 @@ fun PlaylistDetailScreen(
                             is PlaylistDetailUiState.Error -> "Error"
                             PlaylistDetailUiState.Loading -> "Cargando..."
                         },
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = PureWhite,
-                        ),
+                        style = MichiTypography.sectionTitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.testTag("playlist_detail_title"),
@@ -209,14 +189,12 @@ fun PlaylistDetailScreen(
                     }
                 }
 
-                Spacer(Modifier.weight(1f))
-
                 if (uiState !is PlaylistDetailUiState.NotFound) {
                     Box {
                         IconButton(
                             onClick = { showOptionsMenu = true },
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(MichiSpacing.minTouchTarget)
                                 .clip(CircleShape)
                                 .background(GlassFillLow)
                                 .testTag("playlist_detail_options_button"),
@@ -267,7 +245,7 @@ fun PlaylistDetailScreen(
                             showAddTracksDialog = true
                         },
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(GlassFillLow)
                             .testTag("playlist_detail_add_tracks_button"),
@@ -292,7 +270,7 @@ fun PlaylistDetailScreen(
                             .testTag("playlist_detail_loading"),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator(color = SecondaryPurple)
+                        CircularProgressIndicator(color = org.michimusic.mobile.ui.theme.PrimaryPinkContainer)
                     }
                 }
 
@@ -457,7 +435,8 @@ private fun PlaylistTrackRow(
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                imageModel = track.filepath.ifEmpty { track.coverId },
+                imageModel = track.coverId,
+                fallbackMediaUri = track.filepath,
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(8.dp)),
@@ -486,7 +465,7 @@ private fun PlaylistTrackRow(
                 IconButton(
                     onClick = { showTrackMenu = true },
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(MichiSpacing.minTouchTarget)
                         .testTag("playlist_detail_track_options_${track.id}"),
                 ) {
                     Icon(
@@ -533,7 +512,7 @@ private fun PlaylistTrackRow(
                 onClick = onRemoveClick,
                 enabled = removeEnabled,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(MichiSpacing.minTouchTarget)
                     .testTag("playlist_detail_remove_track_${track.id}"),
             ) {
                 Icon(

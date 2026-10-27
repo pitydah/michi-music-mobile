@@ -1,4 +1,5 @@
-package org.michimusic.mobile.sync
+﻿package org.michimusic.mobile.sync
+
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -25,9 +26,11 @@ import org.michimusic.data.repository.SyncedTrackRepository
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkDiscovery
 
+
 import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.ConnectionManager
 import org.michimusic.link.PairedDevice
+
 
 import org.michimusic.link.TokenStore
 import org.michimusic.link.dto.LegacyPairConfirmResponseDto
@@ -36,6 +39,14 @@ import org.michimusic.link.dto.PairingStrategy
 import org.michimusic.link.dto.QrClaimRequest
 import org.michimusic.link.dto.ServerInfoDto
 import org.michimusic.link.errors.LinkException
+import org.michimusic.mobile.ui.components.parseManualEndpoint
+import org.michimusic.mobile.ui.components.sameDiscoveredEndpoint
+import org.michimusic.mobile.ui.components.matchesObservedPeer
+import org.michimusic.mobile.ui.components.isProvisionedMichiStream
+import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
+import org.michimusic.mobile.ui.components.refusesPhysicalButtonForMichiStream
+import java.net.URI
+
 
 data class WizardUiState(
     val isLoading: Boolean = false,
@@ -56,6 +67,7 @@ data class WizardUiState(
     val storageStatus: org.michimusic.core.models.StoragePreflightStatus = org.michimusic.core.models.StoragePreflightStatus.AVAILABLE,
 )
 
+
 data class SyncUiState(
     val state: SyncConnectionState = SyncConnectionState.DISCONNECTED,
     val peers: List<DiscoveredPeer> = emptyList(),
@@ -72,6 +84,7 @@ data class SyncUiState(
     val availableStorageBytes: Long = 0L,
 )
 
+
 class SyncViewModel(
     private val context: Context,
     private val linkDiscovery: LinkDiscovery,
@@ -84,8 +97,10 @@ class SyncViewModel(
     private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
 ) : ViewModel() {
 
+
     private val _wizardUiState = MutableStateFlow(WizardUiState())
     val wizardUiState: StateFlow<WizardUiState> = _wizardUiState.asStateFlow()
+
 
     private val _connectionState = MutableStateFlow(SyncConnectionState.DISCONNECTED)
     private val _connectedPeer = MutableStateFlow<DiscoveredPeer?>(null)
@@ -96,6 +111,10 @@ class SyncViewModel(
     private val _deviceSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
     private val _planSyncProgress = MutableStateFlow<Map<String, SyncProgress>>(emptyMap())
     private val _pairingStrategy = MutableStateFlow(PairingStrategy.LEGACY)
+    // A receiver's advertised service/type is not proof of identity, but it can
+    // prevent offering an impossible physical-button workflow for Michi Stream.
+    private var pairingTargetIsMichiStream = false
+
 
     val uiState: StateFlow<SyncUiState> = combine(
         combine(
@@ -118,9 +137,14 @@ class SyncViewModel(
         
         // Add all registered devices first
         registered.forEach { reg ->
-            val hostFromUrl = reg.lastUrl.substringAfter("://").substringBefore("/").substringBefore(":")
-            val portFromUrl = reg.lastUrl.substringAfter("://").substringBefore("/").substringAfter(":", "").toIntOrNull() ?: 8400
-            val dPeer = peers.find { it.deviceId == reg.deviceId || (it.ip.isNotEmpty() && it.ip == hostFromUrl) }
+            val previousEndpoint = runCatching { URI(reg.lastUrl) }.getOrNull()
+            val hostFromUrl = previousEndpoint?.host.orEmpty()
+            val portFromUrl = previousEndpoint?.port?.takeIf { it in 1..65535 } ?: 8400
+            // A reused IP is NOT proof that a new Michi ID belongs to the old
+            // paired device. Prefer exact nonblank identity, else exact endpoint.
+            val dPeer = peers.find {
+                matchesObservedPeer(reg.deviceId, hostFromUrl, portFromUrl, it.deviceId, it.ip, it.port)
+            }
             unified.add(
                 org.michimusic.core.models.UnifiedDevice(
                     id = reg.deviceId,
@@ -129,7 +153,7 @@ class SyncViewModel(
                     port = dPeer?.port ?: portFromUrl,
                     connectionState = connStates[reg.deviceId] ?: (if (dPeer != null) SyncConnectionState.DISCONNECTED else SyncConnectionState.OFFLINE),
                     isPaired = true,
-                    deviceType = reg.serviceType.ifEmpty { "server" },
+                    deviceType = reg.serviceType.ifBlank { dPeer?.deviceType?.takeIf { it.isNotBlank() } ?: "unknown" },
                     roles = reg.roles,
                     features = reg.features,
                     isRevoked = reg.isRevoked,
@@ -138,7 +162,16 @@ class SyncViewModel(
         }
         
         // Add discovered devices that are not registered (roles remain empty/UNKNOWN until ServerInfo is queried)
-        peers.filter { p -> registered.none { it.deviceId == p.deviceId || it.lastUrl.contains(p.ip) } }.forEach { p ->
+        peers.filter { p ->
+            registered.none { reg ->
+                val endpoint = runCatching { URI(reg.lastUrl) }.getOrNull()
+                matchesObservedPeer(
+                    reg.deviceId, endpoint?.host.orEmpty(),
+                    endpoint?.port?.takeIf { it in 1..65535 } ?: 8400,
+                    p.deviceId, p.ip, p.port,
+                )
+            }
+        }.forEach { p ->
             unified.add(
                 org.michimusic.core.models.UnifiedDevice(
                     id = p.deviceId.ifEmpty { p.ip },
@@ -154,8 +187,10 @@ class SyncViewModel(
             )
         }
 
+
         val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
         val freeBytes = statFs?.availableBytes ?: 0L
+
 
         SyncUiState(
             state = connState,
@@ -200,9 +235,11 @@ class SyncViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncUiState(state = _connectionState.value))
 
+
     private var clientId: String = ""
     private var pendingPairingId: String = ""
     private var currentClient: LinkClient? = null
+
 
     init {
         clientId = identity.michiId.ifEmpty {
@@ -215,6 +252,7 @@ class SyncViewModel(
                 "android_000000"
             }
         }
+
 
         // Restore active sync state after process death (both per-device and per-plan)
         viewModelScope.launch {
@@ -229,6 +267,7 @@ class SyncViewModel(
                             val planTagId = planTag?.removePrefix("michi_sync_plan_") ?: ""
                             val devTag = workInfo.tags.find { it.startsWith("michi_sync_") && !it.startsWith("michi_sync_plan_") }
                             val devId = devTag?.removePrefix("michi_sync_") ?: ""
+
 
                             val currentProg: SyncProgress = if (!workInfo.state.isFinished) {
                                 val progress = workInfo.progress
@@ -247,6 +286,7 @@ class SyncViewModel(
                             } else {
                                 SyncProgress.Error("Sincronización cancelada")
                             }
+
 
                             if (devId.isNotEmpty()) {
                                 updatedDevMap[devId] = currentProg
@@ -269,11 +309,13 @@ class SyncViewModel(
         }
     }
 
+
     fun startDiscovery() {
         if (_connectionState.value != SyncConnectionState.DISCONNECTED) return
         _connectionState.value = SyncConnectionState.DISCOVERING
         viewModelScope.launch { linkDiscovery.start() }
     }
+
 
     fun stopDiscovery() {
         viewModelScope.launch {
@@ -284,24 +326,35 @@ class SyncViewModel(
         }
     }
 
+
     fun connectManual(
         name: String,
         host: String,
         port: Int = 8400,
         onStrategyResolved: (PairingStrategy, String) -> Unit = { _, _ -> }
     ) {
-        val parsedHost = if (host.contains(":")) host.substringBefore(":") else host
-        val parsedPort = if (host.contains(":")) host.substringAfter(":").toIntOrNull() ?: port else port
-        val peer = DiscoveredPeer(
-            alias = name.ifBlank { "Michi Node" },
-            ip = parsedHost.trim(),
-            port = parsedPort,
+        val endpoint = parseManualEndpoint(host, port)
+        if (endpoint == null) {
+            _error.value = "Dirección o puerto inválido. Revisa la conexión manual."
+            _connectionState.value = SyncConnectionState.ERROR
+            return
+        }
+        _error.value = null
+        // Discovery metadata is useful for choosing the UI flow, but does not
+        // confer trust. Authentication is still enforced by preparePairing.
+        val discovered = linkDiscovery.peers.value.values.firstOrNull {
+            sameDiscoveredEndpoint(endpoint.host, endpoint.port, it.ip, it.port)
+        }
+        val peer = discovered?.copy(alias = name.ifBlank { discovered.alias }) ?: DiscoveredPeer(
+            alias = name.ifBlank { "Michi Node" }, ip = endpoint.host, port = endpoint.port,
         )
         preparePairing(peer, onStrategyResolved)
     }
 
+
     fun selectPeer(peer: DiscoveredPeer) {
         if (_connectionState.value != SyncConnectionState.DISCOVERING) return
+
 
         stopDiscovery()
         currentClient = LinkClient(
@@ -309,14 +362,17 @@ class SyncViewModel(
             clientDeviceId = clientId,
         )
 
+
         viewModelScope.launch {
             val client = currentClient ?: return@launch
             val resolvedDeviceId = resolveServerDeviceId(client, peer)
+
 
             // Resolve pairing strategy from server info
             val serverInfo = client.getServerInfo().getOrNull()
             val strategy = serverInfo?.effectiveAuthStrategy ?: PairingStrategy.LEGACY
             _pairingStrategy.value = strategy
+
 
             val existingDevice = registry.getDevice(resolvedDeviceId)
             if (existingDevice != null && existingDevice.deviceToken.isNotEmpty()) {
@@ -332,6 +388,7 @@ class SyncViewModel(
         }
     }
 
+
     private suspend fun resolveServerDeviceId(client: LinkClient, peer: DiscoveredPeer): String {
         if (peer.deviceId.isNotEmpty()) return peer.deviceId
         return runCatching {
@@ -339,11 +396,13 @@ class SyncViewModel(
         }.getOrNull() ?: ""
     }
 
+
     private fun connectToPeerLegacy(peer: DiscoveredPeer) {
         _connectionState.value = SyncConnectionState.CONNECTING
         val baseUrl = "http://${peer.ip}:${peer.port}"
         val client = LinkClient(baseUrl = baseUrl, clientDeviceId = clientId)
         currentClient = client
+
 
         viewModelScope.launch {
             client.register(
@@ -361,8 +420,13 @@ class SyncViewModel(
         }
     }
 
+
     fun preparePairing(peer: DiscoveredPeer, onStrategyResolved: (PairingStrategy, String) -> Unit) {
+        _error.value = null
         stopDiscovery()
+        _connectionState.value = SyncConnectionState.CONNECTING
+        pairingTargetIsMichiStream = isProvisionedMichiStream(peer.deviceType) ||
+            peer.deviceType.equals("stream", ignoreCase = true)
         val client = LinkClient(
             baseUrl = "http://${peer.ip}:${peer.port}",
             clientDeviceId = identity.michiId,
@@ -370,9 +434,12 @@ class SyncViewModel(
         currentClient = client
         _connectedPeer.value = peer
 
+
         viewModelScope.launch {
             val serverInfo = client.getServerInfo().getOrNull()
             val resolvedDeviceId = resolveServerDeviceId(client, peer)
+            pairingTargetIsMichiStream = pairingTargetIsMichiStream ||
+                isProvisionedMichiStream(serverInfo?.service.orEmpty())
             val strategy = when {
                 serverInfo?.auth?.required == false -> PairingStrategy.ED25519_CHALLENGE
                 serverInfo != null && serverInfo.auth?.strategy?.isNotEmpty() == true -> serverInfo.effectiveAuthStrategy
@@ -384,8 +451,6 @@ class SyncViewModel(
                 peer.authRequired -> PairingStrategy.SERVER_CODE
                 else -> PairingStrategy.ED25519_CHALLENGE
             }
-            _pairingStrategy.value = strategy
-
             val existingDevice = registry.getDevice(resolvedDeviceId)
             if (existingDevice != null && existingDevice.deviceToken.isNotEmpty()) {
                 client.deviceToken = existingDevice.deviceToken
@@ -395,20 +460,42 @@ class SyncViewModel(
                 }
             }
 
+
+            // Firmware-provisioned Michi Stream has no button. Reject an
+            // incompatible server-advertised legacy strategy rather than
+            // substituting auth methods or misleading the user.
+            if (refusesPhysicalButtonForMichiStream(
+                    peer.deviceType, serverInfo?.service.orEmpty(), strategy.name,
+                )) {
+                _error.value = STREAM_PROVISIONING_GUIDANCE
+                _connectionState.value = SyncConnectionState.ERROR
+                client.close()
+                if (currentClient === client) currentClient = null
+                return@launch
+            }
+            _pairingStrategy.value = strategy
+
             _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
             val serverName = serverInfo?.effectiveName ?: peer.alias.ifEmpty { "Michi Node" }
             onStrategyResolved(strategy, serverName)
         }
     }
 
+
     fun startPairing(peer: DiscoveredPeer? = _connectedPeer.value, username: String = "", password: String = "", pin: String = "") {
         confirmPairing(pin = pin, username = username, password = password, peer = peer)
     }
+
 
     fun confirmPairing(pin: String = "", username: String = "", password: String = "", peer: DiscoveredPeer? = _connectedPeer.value) {
         if (peer != null) _connectedPeer.value = peer
         val client = currentClient ?: return
         val strategy = _pairingStrategy.value
+        if (pairingTargetIsMichiStream && strategy == PairingStrategy.RECEIVER_BUTTON) {
+            _error.value = STREAM_PROVISIONING_GUIDANCE
+            _connectionState.value = SyncConnectionState.ERROR
+            return
+        }
         _connectionState.value = SyncConnectionState.PAIRING
 
         when (strategy) {
@@ -422,7 +509,7 @@ class SyncViewModel(
             }
             PairingStrategy.RECEIVER_BUTTON -> {
                 if (pin.isBlank()) {
-                    _error.value = "Se requiere el PIN de confirmación para Michi Stream"
+                    _error.value = "Este receptor requiere un PIN de confirmación"
                     _connectionState.value = SyncConnectionState.PAIRING_REQUIRED
                     return
                 }
@@ -438,6 +525,7 @@ class SyncViewModel(
         }
     }
 
+
     private fun startLegacyPairing(client: LinkClient, username: String, password: String, peer: DiscoveredPeer?) {
         viewModelScope.launch {
             client.pairStartLegacy(
@@ -448,6 +536,7 @@ class SyncViewModel(
                 pendingPairingId = startResp.pairingId
                 _pairStartResponse.value = startResp
                 _connectionState.value = SyncConnectionState.PAIRING
+
 
                 client.pairConfirmLegacy(
                     pairingId = startResp.pairingId,
@@ -506,6 +595,7 @@ class SyncViewModel(
         }
     }
 
+
     private fun startCanonicalChallengePairing(
         client: LinkClient,
         strategy: PairingStrategy,
@@ -544,6 +634,7 @@ class SyncViewModel(
                     val serverInfo = client.getServerInfo().getOrNull()
                     val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { startResp.serverMichiId }
                     val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
+
 
                     val device = org.michimusic.link.PairedDevice(
                         deviceId = remoteSrvId,
@@ -584,6 +675,7 @@ class SyncViewModel(
             }
         }
     }
+
 
     private fun startCodePairing(client: LinkClient, pin: String) {
         viewModelScope.launch {
@@ -665,6 +757,7 @@ class SyncViewModel(
         }
     }
 
+
     private fun handlePairingFailure(result: Result<*>) {
         val e = result.exceptionOrNull()
         if (e is LinkException.InvalidCredentials) {
@@ -676,9 +769,11 @@ class SyncViewModel(
         }
     }
 
+
     fun connectToDevice(deviceId: String) {
         connectionManager.connect(deviceId)
     }
+
 
     fun disconnectDevice(deviceId: String) {
         connectionManager.disconnectDevice(deviceId)
@@ -687,6 +782,7 @@ class SyncViewModel(
             _connectionState.value = SyncConnectionState.DISCONNECTED
         }
     }
+
 
     fun forgetDevice(deviceId: String) {
         registry.removeDevice(deviceId)
@@ -698,6 +794,7 @@ class SyncViewModel(
         }
     }
 
+
     fun disconnect() {
         viewModelScope.launch { linkDiscovery.stop() }
         currentClient?.close()
@@ -706,9 +803,11 @@ class SyncViewModel(
         _syncProgress.value = SyncProgress.Idle
     }
 
+
     fun syncPlannedLibrary(plan: org.michimusic.core.models.SyncPlan) {
         if (!plan.isExecutable || plan.totalSelectedTracks == 0) return
         val targetDeviceId = plan.endpointId
+
 
         val approvedRepo = approvedPlanRepository ?: org.michimusic.mobile.di.approvedSyncPlanRepository
         viewModelScope.launch {
@@ -722,16 +821,19 @@ class SyncViewModel(
                 )
             }
 
+
             if (saveResult.isFailure || (approvedRepo != null && saveResult.getOrNull() == null)) {
                 _error.value = "Error al persistir el plan de sincronización. No se ha iniciado la transferencia."
                 return@launch
             }
+
 
             val tracksToDownload = plan.items.filter {
                 it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
                 it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
                 it.action == org.michimusic.core.models.SyncItemAction.REPLACE_BETTER_QUALITY
             }.map { it.trackId }
+
 
             syncLibrary(
                 targetDeviceId = targetDeviceId,
@@ -743,6 +845,7 @@ class SyncViewModel(
             )
         }
     }
+
 
     fun syncLibrary(
         targetDeviceId: String? = null,
@@ -756,6 +859,7 @@ class SyncViewModel(
         val pairConfirm = currentState.pairingConfirm
         val connectedPeer = currentState.connectedPeer
 
+
         // Resolve remote server deviceId strictly: targetDeviceId -> pairConfirm -> connectedPeer -> registry
         val remoteDeviceId = targetDeviceId
             ?: pairConfirm?.deviceId
@@ -763,15 +867,18 @@ class SyncViewModel(
             ?: registry.getAllDevices().firstOrNull()?.effectiveServerId
             ?: return
 
+
         val pairedDevice = registry.getDevice(remoteDeviceId)
         if (pairedDevice != null && pairedDevice.isRevoked) {
             _error.value = "Dispositivo remoto revocado"
             return
         }
 
+
         val baseUrl = currentClient?.baseUrl
             ?: pairedDevice?.lastUrl?.ifEmpty { null }
             ?: (if (connectedPeer != null) "http://${connectedPeer.ip}:${connectedPeer.port}" else return)
+
 
         // Cryptographic separation: local phone identity vs remote target vs paired client device ID
         val localMichiId = identity.michiId
@@ -779,7 +886,9 @@ class SyncViewModel(
             ?: currentClient?.pairedClientDeviceId?.ifEmpty { null }
             ?: localMichiId
 
+
         _syncProgress.value = SyncProgress.Downloading(0, 0, remoteDeviceId)
+
 
         val inputData = SyncWorker.buildInputData(
             baseUrl = baseUrl,
@@ -793,6 +902,7 @@ class SyncViewModel(
             expectedBytes = expectedBytes,
         )
 
+
         val safeDev = remoteDeviceId.replace(Regex("[^A-Za-z0-9_]"), "_")
         val safePlan = if (planId.isNotEmpty()) planId.replace(Regex("[^A-Za-z0-9_]"), "_") else ""
         val workRequestBuilder = OneTimeWorkRequestBuilder<SyncWorker>()
@@ -800,21 +910,26 @@ class SyncViewModel(
             .addTag("michi_sync")
             .addTag("michi_sync_$safeDev")
 
+
         if (safePlan.isNotEmpty()) {
             workRequestBuilder.addTag("michi_sync_plan_$safePlan")
         }
+
 
         val workRequest = workRequestBuilder
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
 
+
         val workName = if (safePlan.isNotEmpty()) "michi_sync_plan_$safePlan" else "michi_sync_$safeDev"
         WorkManager.getInstance(context)
             .enqueueUniqueWork(workName, ExistingWorkPolicy.REPLACE, workRequest)
 
+
         if (planId.isNotEmpty()) {
             _planSyncProgress.value = _planSyncProgress.value + (planId to SyncProgress.Downloading(0, 0, remoteDeviceId))
         }
+
 
         viewModelScope.launch {
             WorkManager.getInstance(context)
@@ -841,6 +956,7 @@ class SyncViewModel(
                         SyncProgress.Downloading(current, total, remoteDeviceId)
                     }
 
+
                     _deviceSyncProgress.value = _deviceSyncProgress.value + (remoteDeviceId to currentProg)
                     if (planId.isNotEmpty()) {
                         _planSyncProgress.value = _planSyncProgress.value + (planId to currentProg)
@@ -850,40 +966,40 @@ class SyncViewModel(
         }
     }
 
+
     fun retryPlan(planId: String) {
         val approvedRepo = approvedPlanRepository ?: org.michimusic.mobile.di.approvedSyncPlanRepository
         if (approvedRepo == null) return
 
+
         viewModelScope.launch {
             val approvedPlan = approvedRepo.getPlan(planId) ?: return@launch
 
-            // Authorization / Cause Check: If failure was due to irreversible causes
-            // (e.g. STALE manifest, unauthorized, budget or permanent constraint),
-            // do not allow automatic blind retry. Require new review.
-            val errMsg = approvedPlan.errorMessage ?: ""
-            if (errMsg.contains("PLAN_STALE", ignoreCase = true) ||
-                errMsg.contains("Unauthorized", ignoreCase = true) ||
-                errMsg.contains("Revocado", ignoreCase = true)
-            ) {
-                _error.value = "El plan $planId requiere revisión y nueva aprobación antes de ejecutarse ($errMsg)"
-                return@launch
-            }
 
-            if (approvedPlan.executionState == org.michimusic.core.models.TransferLifecycleState.FAILED.name) {
-                // Transition plan explicitly from FAILED back to QUEUED to allow re-acquisition
-                approvedRepo.updateExecutionState(planId, org.michimusic.core.models.TransferLifecycleState.QUEUED)
+            // Reintentos manuales NO pueden revivir planes terminales FAILED ni sobrescribir
+            // el CAS. Solo RETRY_PENDING (fallo clasificado recuperable por SyncWorker)
+            // o QUEUED pueden encolarse nuevamente sin una revisión de autorización.
+            val retryable = setOf(
+                org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING.name,
+                org.michimusic.core.models.TransferLifecycleState.QUEUED.name,
+            )
+            if (approvedPlan.executionState !in retryable) {
+                _error.value = "El plan $planId no admite reintento directo; revisa y aprueba un plan nuevo."
+                return@launch
             }
             val decisions = try {
                 kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
                     .decodeFromString<List<org.michimusic.core.models.SyncItemDecision>>(approvedPlan.itemsJson)
             } catch (_: Exception) {
-                emptyList()
+                _error.value = "No se puede reintentar $planId: las decisiones aprobadas son inválidas."
+                return@launch
             }
             val tracksToDownload = decisions.filter {
                 it.action == org.michimusic.core.models.SyncItemAction.DOWNLOAD ||
                 it.action == org.michimusic.core.models.SyncItemAction.RESUME_PARTIAL ||
                 it.action == org.michimusic.core.models.SyncItemAction.REPLACE_BETTER_QUALITY
             }.map { it.trackId }
+
 
             syncLibrary(
                 targetDeviceId = approvedPlan.endpointId,
@@ -896,6 +1012,7 @@ class SyncViewModel(
         }
     }
 
+
     fun loadWizardData(targetDeviceId: String) {
         _wizardUiState.value = WizardUiState(isLoading = true, deviceId = targetDeviceId)
         viewModelScope.launch {
@@ -906,14 +1023,17 @@ class SyncViewModel(
                     try { android.os.StatFs(filesDir.absolutePath) } catch (_: Exception) { null }
                 } else null
 
+
                 val storageStatus = when {
                     !isWritable -> org.michimusic.core.models.StoragePreflightStatus.NOT_WRITABLE
                     statFs == null -> org.michimusic.core.models.StoragePreflightStatus.UNKNOWN
                     else -> org.michimusic.core.models.StoragePreflightStatus.AVAILABLE
                 }
 
+
                 val availableBytes = statFs?.availableBytes ?: 0L
                 val totalBytes = statFs?.totalBytes ?: 0L
+
 
                 val syncedMusicDir = java.io.File(context.filesDir, "synced_music")
                 val dirBytes = if (syncedMusicDir.exists()) {
@@ -922,11 +1042,13 @@ class SyncViewModel(
                 val dbBytes = trackRepository.getDownloadedBytes()
                 val currentLocalMusicBytes = maxOf(dirBytes, dbBytes)
 
+
                 val localFingerprints = trackRepository.getDownloadedTrackFingerprints()
                 val effectiveCheckpointRepo = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
                 val checkpoints = effectiveCheckpointRepo?.getCheckpointsForDevice(targetDeviceId) ?: emptyList()
                 val partials = checkpoints.filter { it.receivedBytes > 0 && it.transferState != org.michimusic.core.models.TransferStatus.COMPLETED }
                     .associate { it.trackId to it.receivedBytes }
+
 
                 val pairedDevice = registry.getDevice(targetDeviceId)
                 val client = connectionManager.getClient(targetDeviceId)
@@ -939,6 +1061,7 @@ class SyncViewModel(
                             pairedClientDeviceId = pairedDevice.pairedClientDeviceId,
                         )
                     } else null
+
 
                 if (client == null) {
                     _wizardUiState.value = WizardUiState(
@@ -953,10 +1076,12 @@ class SyncViewModel(
                     return@launch
                 }
 
+
                 val serverInfoRes = client.getServerInfo()
                 val serverInfo = serverInfoRes.getOrNull()
                 val serverFeatures = serverInfo?.effectiveFeatures?.toSet() ?: pairedDevice?.features?.toSet() ?: emptySet()
                 val serverRepresentations = serverInfo?.audio?.codecs ?: emptyList()
+
 
                 val manifestRes = client.fetchSyncManifest(targetDeviceId)
                 if (manifestRes.isFailure) {
@@ -974,6 +1099,7 @@ class SyncViewModel(
                     )
                     return@launch
                 }
+
 
                 val manifestDto = manifestRes.getOrThrow()
                 val candidateTracks = manifestDto.effectiveTracks.map { dto ->
@@ -993,6 +1119,7 @@ class SyncViewModel(
                     )
                 }
                 val playlists = manifestDto.playlists.map { it.toDomainPlaylist() }
+
 
                 _wizardUiState.value = WizardUiState(
                     isLoading = false,
@@ -1021,17 +1148,21 @@ class SyncViewModel(
         }
     }
 
+
     fun pauseAirCatTransfer(transferId: String) {
         airCatClient?.pauseTransfer(transferId)
     }
+
 
     fun resumeAirCatTransfer(transferId: String) {
         airCatClient?.resumeTransfer(transferId)
     }
 
+
     fun cancelAirCatTransfer(transferId: String) {
         airCatClient?.cancelTransfer(transferId)
     }
+
 
     fun recoverIncompleteAirCatTransfers(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val client = currentClient
@@ -1072,6 +1203,7 @@ class SyncViewModel(
         }
     }
 
+
     fun startAirCatTransfer(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val client = currentClient
         val airCat = airCatClient
@@ -1080,11 +1212,13 @@ class SyncViewModel(
             return
         }
 
+
         val device = registry.getDevice(targetDeviceId)
         if (device == null) {
             onResult(false, "Dispositivo no encontrado")
             return
         }
+
 
         viewModelScope.launch {
             try {
@@ -1092,6 +1226,7 @@ class SyncViewModel(
                     onResult(false, "El dispositivo $targetDeviceId no posee credenciales o URL válidas")
                     return@launch
                 }
+
 
                 // Strictly resolve client matching targetDeviceId to avoid cross-device token collision
                 val effectiveClient = connectionManager.getClient(targetDeviceId)
@@ -1107,11 +1242,13 @@ class SyncViewModel(
                         )
                     }
 
+
                 // Verify remote session trust, active connection, and peer identity consistency
                 if (device.isRevoked) {
                     onResult(false, "El dispositivo $targetDeviceId ha sido revocado")
                     return@launch
                 }
+
 
                 val serverInfoRes = effectiveClient.getServerInfo()
                 if (serverInfoRes.isFailure) {
@@ -1123,10 +1260,12 @@ class SyncViewModel(
                 val remoteMichiId = serverInfo.michiId ?: ""
                 val remotePublicKey = serverInfo.publicKey ?: ""
 
+
                 // 1. Identity match validation: reject if expected attribute is present but missing or mismatched from peer
                 val expectedServerId = device.effectiveServerId
                 val expectedMichiId = device.effectiveMichiId
                 val expectedPublicKey = device.effectivePublicKey
+
 
                 if (expectedServerId.isNotEmpty()) {
                     if (remoteServerId.isEmpty() || expectedServerId != remoteServerId) {
@@ -1135,12 +1274,14 @@ class SyncViewModel(
                     }
                 }
 
+
                 if (expectedMichiId.isNotEmpty()) {
                     if (remoteMichiId.isEmpty() || expectedMichiId != remoteMichiId) {
                         onResult(false, "Inconsistencia de MichiId remoto: esperado $expectedMichiId pero respondió ${remoteMichiId.ifEmpty { "<vacio>" }}")
                         return@launch
                     }
                 }
+
 
                 // 2. Cryptographic public key verification against pinned trusted registry
                 if (expectedPublicKey.isNotEmpty()) {
@@ -1150,6 +1291,7 @@ class SyncViewModel(
                     }
                 }
 
+
                 // 1. Fetch manifest
                 val manifestRes = effectiveClient.fetchSyncManifest(targetDeviceId)
                 if (manifestRes.isFailure) {
@@ -1157,12 +1299,14 @@ class SyncViewModel(
                     return@launch
                 }
 
+
                 val manifestDto = manifestRes.getOrThrow()
                 val tracks = manifestDto.effectiveTracks
                 if (tracks.isEmpty()) {
                     onResult(true, "No hay pistas disponibles para transferir")
                     return@launch
                 }
+
 
                 val transferId = "aircat_${System.currentTimeMillis()}"
                 val destLibId = "lib_synced_${targetDeviceId}"
@@ -1179,6 +1323,7 @@ class SyncViewModel(
                     )
                 }
 
+
                 val aircatManifest = org.michimusic.mobile.devices.aircat.AirCatManifest(
                     manifestVersion = 1,
                     transferId = transferId,
@@ -1188,6 +1333,7 @@ class SyncViewModel(
                     items = manifestItems,
                 )
 
+
                 val intent = org.michimusic.mobile.devices.aircat.TransferIntent(
                     transferId = transferId,
                     sourceMichiId = targetDeviceId,
@@ -1196,8 +1342,10 @@ class SyncViewModel(
                     destinationLibraryId = destLibId,
                 )
 
+
                 val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
                 val freeBytes = statFs?.availableBytes ?: (10L * 1024 * 1024 * 1024)
+
 
                 val result = airCat.executeTransfer(
                     intent = intent,
@@ -1205,6 +1353,7 @@ class SyncViewModel(
                     linkClient = effectiveClient,
                     availableStorageBytes = freeBytes,
                 )
+
 
                 if (result.isSuccess) {
                     onResult(true, "Transferencia AirCat completada (${result.getOrThrow().size} pistas)")
@@ -1217,6 +1366,7 @@ class SyncViewModel(
         }
     }
 
+
     fun pairWithQr(qrData: String, pin: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val parser = org.michimusic.link.identity.QrPairingParser(identity)
         val result = parser.parseAndValidate(qrData)
@@ -1225,7 +1375,9 @@ class SyncViewModel(
             return
         }
 
+
         val canonicalQr = result.getOrThrow()
+
 
         viewModelScope.launch {
             try {
@@ -1246,6 +1398,7 @@ class SyncViewModel(
                     val serverInfo = client.getServerInfoWithFallback().getOrNull()
                     val remoteSrvId = serverInfo?.effectiveServerId ?: confirmResp.serverId.ifEmpty { canonicalQr.serverMichiId }
                     val assignedClientId = confirmResp.deviceId.ifEmpty { clientId }
+
 
                     val device = org.michimusic.link.PairedDevice(
                         deviceId = remoteSrvId,
@@ -1291,7 +1444,9 @@ class SyncViewModel(
         }
     }
 
+
     fun clearError() { _error.value = null }
+
 
     fun schedulePeriodicSyncIfEnabled(targetDeviceId: String? = null) {
         val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
@@ -1302,11 +1457,14 @@ class SyncViewModel(
             ?: registry.getAllDevices().firstOrNull { !it.isRevoked }?.effectiveServerId
             ?: return
 
+
         val pairedDevice = registry.getDevice(target)
         if (pairedDevice == null || pairedDevice.isRevoked) return
 
+
         val baseUrl = currentClient?.baseUrl ?: pairedDevice.lastUrl.ifEmpty { return }
         val pairedClientDeviceId = pairedDevice.effectiveClientDeviceId.ifEmpty { identity.michiId }
+
 
         val inputData = SyncWorker.buildInputData(
             baseUrl = baseUrl,
@@ -1315,14 +1473,17 @@ class SyncViewModel(
             clientDeviceId = pairedClientDeviceId,
         )
 
+
         val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(12, TimeUnit.HOURS)
             .setInputData(inputData)
             .build()
+
 
         val periodicWorkName = "michi_sync_periodic_${target.replace(Regex("[^A-Za-z0-9_]"), "_")}"
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.KEEP, workRequest)
     }
+
 
     fun cancelSync(deviceId: String? = null, planId: String? = null) {
         if (!planId.isNullOrEmpty()) {
@@ -1360,11 +1521,13 @@ class SyncViewModel(
         }
     }
 
+
     override fun onCleared() {
         super.onCleared()
         currentClient?.close()
     }
 }
+
 
 sealed class SyncProgress {
     data object Idle : SyncProgress()

@@ -14,12 +14,14 @@ val playerModule = module {
         AudioController(androidContext(), CoroutineScope(Dispatchers.Main + SupervisorJob()))
     }
     single { org.michimusic.player.MichiAudioEffects(androidContext()) }
+    // Playback and UI resolve one processor; only the service owns its Media3 graph.
+    single { org.michimusic.player.ReplayGainAudioProcessor() }
     single { org.michimusic.player.UsbDacManager(androidContext()) }
     single {
         org.michimusic.player.AudioModeManager(
             context = androidContext(),
             audioEffects = get(),
-            replayGainProcessor = null,
+            replayGainProcessor = get(),
             usbDacManager = get(),
         )
     }
@@ -27,7 +29,7 @@ val playerModule = module {
         org.michimusic.player.SignalTruthTracker(
             audioModeManager = get(),
             audioEffects = get(),
-            replayGainProcessor = null,
+            replayGainProcessor = get(),
             usbDacManager = get(),
         )
     }

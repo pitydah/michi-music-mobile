@@ -42,10 +42,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.audioRouteEvidence
+import org.michimusic.mobile.ui.components.sampleRateLabel
+import org.michimusic.player.AudioRouteStatus
 import org.michimusic.mobile.ui.components.PremiumScreen
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.MichiTypography
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 
 private sealed class AudioRoute {
     data object InternalSpeaker : AudioRoute()
@@ -95,57 +101,59 @@ fun AudioRouteScreen() {
         }
     }
 
-    val route = remember(systemDevices, routeStatus) {
-        resolveHonestRoute(systemDevices, routeStatus)
+    val evidence = remember(routeStatus) { audioRouteEvidence(routeStatus) }
+    // A device being present is not proof of an effective route. Only tracked
+    // AudioTrack evidence is shown as the effective route in the top card.
+    val activeDeviceType = when (val active = routeStatus) {
+        is AudioRouteStatus.Confirmed -> active.device.androidType
+        is AudioRouteStatus.RoutedElsewhere -> active.actual.androidType
+        else -> null
     }
+    val route = routeFromConfirmedType(activeDeviceType)
 
     PremiumScreen {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(MichiSpacing.screenHorizontal)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Text(text = "SIGNAL TRUTH", style = MichiTypography.screenEyebrow)
             Text(
                 text = "Ruta de audio",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MichiTypography.screenTitle,
                 color = TextPrimary,
             )
             Spacer(Modifier.height(16.dp))
 
             GlassCard(modifier = Modifier.fillMaxWidth()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         modifier = Modifier
                             .size(52.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(AccentCoral.copy(alpha = 0.16f)),
+                            .background(AeroGraphiteRaised),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(routeIcon(route), contentDescription = null, tint = AccentCoral, modifier = Modifier.size(28.dp))
+                        Icon(routeIcon(route), contentDescription = null, tint = org.michimusic.mobile.ui.theme.PrimaryPinkContainer, modifier = Modifier.size(28.dp))
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Salida actual", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+                        Text(
+                            evidence.headline,
+                            style = MaterialTheme.typography.titleMedium, color = TextPrimary,
+                        )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = routeName(route),
+                            text = evidence.deviceLabel,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = AccentCoral,
+                            color = org.michimusic.mobile.ui.theme.OnSurfaceVariant,
                         )
-                        val statusLabel = when (routeStatus) {
-                            is org.michimusic.player.AudioRouteStatus.Confirmed -> "Ruta confirmada en pipeline"
-                            is org.michimusic.player.AudioRouteStatus.Requested -> "Salida solicitada (esperando uso en AudioTrack)"
-                            is org.michimusic.player.AudioRouteStatus.Detected -> "Dispositivo detectado (sin confirmación de reproducción)"
-                            is org.michimusic.player.AudioRouteStatus.Failed -> "Error en enrutamiento"
-                            is org.michimusic.player.AudioRouteStatus.Unknown -> "Estado no verificable por API"
-                            org.michimusic.player.AudioRouteStatus.NoDevice -> "Sin dispositivo externo"
-                        }
                         Text(
-                            text = statusLabel,
+                            text = evidence.explanation,
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                         )
@@ -155,7 +163,7 @@ fun AudioRouteScreen() {
 
             Spacer(Modifier.height(16.dp))
 
-            Text("Dispositivos de audio observados", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
+            Text("Dispositivos disponibles (no necesariamente activos)", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
             Spacer(Modifier.height(8.dp))
 
             systemDevices.forEach { device ->
@@ -173,13 +181,14 @@ fun AudioRouteScreen() {
                     else -> "Tipo ${device.type}"
                 }
                 val sampleRatesStr = if (device.sampleRates.isNotEmpty()) {
-                    "Frecuencias declaradas: " + device.sampleRates.joinToString(", ") { "${it / 1000.0} kHz" }
+                    "Frecuencias anunciadas: " + device.sampleRates.asSequence().distinct().sorted()
+                        .mapNotNull { sampleRateLabel(it) }.take(12).joinToString(", ").ifBlank { "No disponibles" }
                 } else {
                     "Frecuencias: Según mixer de Android"
                 }
 
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(4.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
                         Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                         Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
                         Text(sampleRatesStr, style = MaterialTheme.typography.labelSmall, color = TextSecondary.copy(alpha = 0.7f))
@@ -199,13 +208,8 @@ fun AudioRouteScreen() {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = when (route) {
-                    is AudioRoute.UsbDac -> "Dispositivo USB detectado. La ruta efectiva y la tasa de muestreo final dependen de AudioTrack y del mezclador de Android; la aplicación no declara bit-perfect salvo confirmación explícita."
-                    is AudioRoute.UsbHeadset -> "Auriculares USB conectados vía interfaz digital estándar."
-                    is AudioRoute.Bluetooth -> "Conexión Bluetooth activa (${route.codec}). Sujeto a compresión con pérdidas según el códec negociado."
-                    is AudioRoute.InternalSpeaker -> "Reproduciendo por altavoces o salida cableada del dispositivo."
-                    is AudioRoute.Unknown -> "No se pudo determinar el enrutamiento físico activo."
-                },
+                text = "Las tasas anunciadas por un dispositivo no son medidas de la señal física. " +
+                    "La aplicación no certifica salida bit-perfect ni la frecuencia que recibe un DAC.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
             )
@@ -229,33 +233,16 @@ private fun routeIcon(route: AudioRoute) = when (route) {
     is AudioRoute.Unknown -> Icons.Rounded.Headphones
 }
 
-private fun resolveHonestRoute(
-    devices: List<AudioDeviceInfo>,
-    routeStatus: org.michimusic.player.AudioRouteStatus,
-): AudioRoute {
-    if (routeStatus is org.michimusic.player.AudioRouteStatus.Confirmed) {
-        val dev = routeStatus.device
-        return when (dev.androidType) {
-            AudioDeviceInfo.TYPE_USB_HEADSET -> AudioRoute.UsbHeadset
-            AudioDeviceInfo.TYPE_USB_DEVICE,
-            AudioDeviceInfo.TYPE_USB_ACCESSORY,
-            AudioDeviceInfo.TYPE_DOCK -> AudioRoute.UsbDac
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> AudioRoute.Bluetooth(codec = dev.name)
-            else -> AudioRoute.InternalSpeaker
-        }
-    }
-
-    return when {
-        devices.any { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_ACCESSORY || it.type == AudioDeviceInfo.TYPE_DOCK } ->
-            AudioRoute.UsbDac
-        devices.any { it.type == AudioDeviceInfo.TYPE_USB_HEADSET } ->
-            AudioRoute.UsbHeadset
-        devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP } -> {
-            val bt = devices.first { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
-            AudioRoute.Bluetooth(codec = bt.productName?.toString() ?: "A2DP")
-        }
-        devices.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES } ->
-            AudioRoute.InternalSpeaker
-        else -> AudioRoute.InternalSpeaker
-    }
+/** Never infer the active audio route from available system devices. */
+private fun routeFromConfirmedType(type: Int?): AudioRoute = when (type) {
+    AudioDeviceInfo.TYPE_USB_HEADSET -> AudioRoute.UsbHeadset
+    AudioDeviceInfo.TYPE_USB_DEVICE,
+    AudioDeviceInfo.TYPE_USB_ACCESSORY,
+    AudioDeviceInfo.TYPE_DOCK -> AudioRoute.UsbDac
+    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> AudioRoute.Bluetooth("A2DP")
+    AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+    AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
+    AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+    AudioDeviceInfo.TYPE_WIRED_HEADSET -> AudioRoute.InternalSpeaker
+    else -> AudioRoute.Unknown
 }

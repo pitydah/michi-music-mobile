@@ -79,6 +79,10 @@ import org.michimusic.mobile.ui.theme.SecondaryPurpleDeep
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 @Composable
@@ -102,7 +106,7 @@ fun RemoteScreen(
     val currentAlbum = playerState.album.ifEmpty { "Michi Desktop" }
     val isPlaying = playerState.effectiveState == "playing"
     val positionSeconds = (playerState.effectivePosition / 1000f).coerceAtLeast(0f)
-    val durationSeconds = (playerState.effectiveDuration / 1000f).coerceAtLeast(1f)
+    val durationSeconds = (playerState.effectiveDuration / 1000f).coerceAtLeast(0f)
 
     Box(
         modifier = modifier
@@ -119,7 +123,7 @@ fun RemoteScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(64.dp)
-                    .padding(horizontal = 20.dp),
+                    .padding(horizontal = MichiSpacing.screenHorizontal),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -128,7 +132,7 @@ fun RemoteScreen(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(GlassFillLow),
+                        .background(AeroGraphiteRaised),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Sync,
@@ -139,11 +143,9 @@ fun RemoteScreen(
                 }
 
                 Text(
-                    text = "Control Remoto",
-                    color = PrimaryPink,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.5).sp,
+                    text = "Michi Control",
+                    color = PureWhite,
+                    style = MichiTypography.sectionTitle,
                     modifier = Modifier.testTag("remote_title"),
                 )
 
@@ -218,8 +220,8 @@ fun RemoteScreen(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
-                                .background(GlassFillHigh)
-                                .border(1.dp, TertiaryCyan.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                                .background(AeroGraphiteRaised)
+                                .border(0.75.dp, AeroHairline, RoundedCornerShape(20.dp))
                                 .clickable { onNavigateToSync() }
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .testTag("connection_status_indicator"),
@@ -236,10 +238,12 @@ fun RemoteScreen(
                                         .background(TertiaryCyan),
                                 )
                                 Text(
-                                    text = "Conectado a: $sourceTitle",
+                                    text = "Controlando: $sourceTitle",
                                     color = TertiaryCyan,
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -257,11 +261,16 @@ fun RemoteScreen(
                         ) {
                             AlbumArtView(
                                 coverStyle = coverStyleFor(currentTitle),
-                                imageModel = null,
+                                imageModel = null, // Remote endpoint does not expose trusted artwork in this model.
                                 modifier = Modifier.fillMaxSize(),
                                 cornerRadius = 28.dp,
                             )
                         }
+                        Text(
+                            "Carátula no disponible desde el servidor",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                        )
                     }
 
                     // Track Info
@@ -273,9 +282,9 @@ fun RemoteScreen(
                             Text(
                                 text = currentTitle,
                                 color = PureWhite,
-                                fontSize = 20.sp,
+                                fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
@@ -295,7 +304,7 @@ fun RemoteScreen(
                                 currentValue = positionSeconds,
                                 maxValue = durationSeconds,
                                 onSeek = { posSec ->
-                                    viewModel.seek((posSec * 1000).toLong())
+                                    if (durationSeconds > 0f) viewModel.seek((posSec * 1000).toLong())
                                 },
                                 trackHeight = 6.dp,
                                 showThumb = true,
@@ -307,8 +316,8 @@ fun RemoteScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text(formatTimeSeconds(positionSeconds), color = TextMuted, fontSize = 11.sp)
-                                Text(formatRemainingTimeSeconds(positionSeconds, durationSeconds), color = TextMuted, fontSize = 11.sp)
+                                Text(formatTimeSeconds(positionSeconds), color = TextMuted, fontSize = 12.sp)
+                                Text(if (durationSeconds > 0f) formatRemainingTimeSeconds(positionSeconds, durationSeconds) else "--:--", color = TextMuted, fontSize = 12.sp)
                             }
                         }
                     }
@@ -341,7 +350,8 @@ fun RemoteScreen(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp),
+                                .padding(horizontal = 8.dp)
+                                .height(48.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                             shape = RoundedCornerShape(14.dp),
                         ) {
@@ -352,7 +362,7 @@ fun RemoteScreen(
                             ) {
                                 Icon(Icons.Filled.PhoneAndroid, contentDescription = null, tint = PureWhite, modifier = Modifier.size(20.dp))
                                 Text(
-                                    text = "Continuar en este teléfono (Handoff)",
+                                    text = "Continuar en este teléfono",
                                     color = PureWhite,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,

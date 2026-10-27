@@ -48,6 +48,7 @@ object PlayerDependencies {
 
     @JvmStatic
     fun resetTestingOverrides() {
+        stopPcmStreaming() // test lifecycle must not leak a worker thread or muted output
         mockPcmFormatFlow = null
         mockPcmFormatForTesting = null
         signalTruthTracker = null
@@ -55,35 +56,64 @@ object PlayerDependencies {
         rtpPcmAudioTap = null
     }
 
+    // A network callback may block indefinitely. NEVER invoke it on the Media3
+    // audio-renderer thread: hand off through a bounded, nonblocking queue.
+    private val networkLock = Any()
+    private var networkWorker: BoundedPcmSender? = null
+
     @JvmStatic
     fun startPcmStreaming(listener: (ByteArray) -> Unit) {
-        val tap = rtpPcmAudioTap ?: return
-        tap.pcmChunkListener = listener
-        tap.isEnabled = true
-        tap.muteLocalOutput = true
+        synchronized(networkLock) {
+            networkWorker?.close()
+            networkWorker = null
+            val tap = rtpPcmAudioTap ?: return
+            var worker: BoundedPcmSender? = null
+            // The callback identity is unique to this sender generation.
+            val enqueue: (ByteArray) -> Unit = { bytes -> worker?.offer(bytes) }
+            val next = BoundedPcmSender(
+                send = listener,
+                onFailure = { tap.reportSenderFailureIfCurrent(enqueue) },
+            )
+            worker = next
+            tap.onFormatDiscontinuity = { next.discardPending() }
+            tap.startSender(enqueue)
+            networkWorker = next
+            next.start()
+        }
     }
 
     @JvmStatic
     fun stopPcmStreaming() {
-        val tap = rtpPcmAudioTap ?: return
-        tap.isEnabled = false
-        tap.isPaused = false
-        tap.isRenegotiating = false
-        tap.muteLocalOutput = false
-        tap.pcmChunkListener = null
+        synchronized(networkLock) {
+            rtpPcmAudioTap?.let { tap ->
+                tap.stopSender()
+                tap.onFormatDiscontinuity = null
+            }
+            networkWorker?.close()
+            networkWorker = null
+        }
     }
 
     @JvmStatic
     fun pausePcmStreaming() {
-        rtpPcmAudioTap?.isPaused = true
+        synchronized(networkLock) {
+            rtpPcmAudioTap?.isPaused = true
+            networkWorker?.discardPending()
+        }
     }
 
     @JvmStatic
     fun resumePcmStreaming() {
         val tap = rtpPcmAudioTap ?: return
+        if (tap.hasDeliveryFault || tap.activeFormat == null) return
+        // Caller must have completed format negotiation before invoking resume.
         tap.isPaused = false
         tap.isRenegotiating = false
     }
+
+    @JvmStatic
+    val pcmStreamingDeliveryFailed: Boolean
+        get() = rtpPcmAudioTap?.hasDeliveryFault == true
 
     @JvmStatic
     fun setMuteLocalOutput(muted: Boolean) {

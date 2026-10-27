@@ -76,6 +76,66 @@ class AudioModeAndSignalTruthTest {
     }
 
     @Test
+    fun stoppedSignalCannotClaimActiveReplayGain() {
+        val gain = ReplayGainAudioProcessor()
+        val tracker = SignalTruthTracker(replayGainProcessor = gain)
+        tracker.onPlaybackStopped()
+        assertFalse(tracker.observation.value.dspStatus.isReplayGainActive)
+        assertEquals(0f, tracker.observation.value.dspStatus.replayGainAppliedDb)
+    }
+
+    @Test
+    fun playbackActivityMustBeExplicitlyReported() {
+        val tracker = SignalTruthTracker()
+        tracker.setPlaybackActive(true)
+        tracker.setPlaybackActive(false)
+        assertNull(tracker.observation.value.sourceFormat)
+        assertFalse(tracker.observation.value.dspStatus.isEqActive)
+    }
+
+    @Test
+    fun turningEqOnCannotOverrideTransparentMode() {
+        val effects = MichiAudioEffects(mockContext)
+        val gain = ReplayGainAudioProcessor()
+        val manager = AudioModeManager(mockContext, effects, gain)
+        manager.setMode(AudioProcessingMode.TRANSPARENT)
+        effects.setEnabled(true)
+        assertTrue(effects.isBypassedByMode)
+        assertFalse(effects.effectsState.value.isEnabled)
+        assertTrue(gain.isBypassed)
+        manager.setMode(AudioProcessingMode.DSP)
+        assertTrue(effects.effectsState.value.isEnabled)
+        assertFalse(gain.isBypassed)
+    }
+
+    @Test
+    fun clearedTrackRemovesAllMedia3Measurements() {
+        val tracker = SignalTruthTracker()
+        tracker.onDecoderInputFormat(Format.Builder()
+            .setSampleMimeType(MimeTypes.AUDIO_FLAC)
+            .setChannelCount(1)
+            .setSampleRate(44100).build())
+        tracker.onPcmFormatDecoded(PcmFormat(44100, 1, 16))
+        tracker.onAudioTrackInitialized(44100, 1, androidx.media3.common.C.ENCODING_PCM_16BIT)
+        tracker.onTrackChanged(null)
+        assertNull(tracker.observation.value.sourceFormat)
+        assertNull(tracker.observation.value.decodedFormat)
+        assertNull(tracker.observation.value.outputConfig)
+    }
+
+    @Test
+    fun degradedAudioSinkCannotPresentOldPcmMetrics() {
+        val tracker = SignalTruthTracker()
+        tracker.onPcmFormatDecoded(PcmFormat(48000, 2, 24))
+        tracker.markInstrumentationDegraded()
+        assertNull(tracker.observation.value.decodedFormat)
+        tracker.onPcmFormatDecoded(PcmFormat(96000, 2, 16))
+        assertNull(tracker.observation.value.decodedFormat)
+        tracker.onTrackChanged(null)
+        assertNull(tracker.observation.value.decodedFormat)
+    }
+
+    @Test
     fun transparentModeBypassesEffectsTest() {
         val audioEffects = MichiAudioEffects(mockContext)
         val replayGain = ReplayGainAudioProcessor()
@@ -169,4 +229,40 @@ class AudioModeAndSignalTruthTest {
         assertEquals(AudioProcessingMode.TRANSPARENT, modeManager.currentMode.value)
         assertFalse(tracker.observation.value.dspStatus.isReplayGainActive)
     }
+
+    @Test
+    fun stoppedPlaybackClearsOldDecoderAndAudioTrackEvidence() {
+        val tracker = SignalTruthTracker()
+        tracker.onDecoderInputFormat(Format.Builder()
+            .setSampleMimeType(MimeTypes.AUDIO_FLAC)
+            .setSampleRate(96000)
+            .setChannelCount(2)
+            .build())
+        tracker.onPcmFormatDecoded(PcmFormat(sampleRate = 96000, channels = 2, bitDepth = 24))
+        tracker.onAudioTrackInitialized(96000, 2, androidx.media3.common.C.ENCODING_PCM_24BIT)
+        tracker.onPlaybackStopped()
+        assertNull(tracker.observation.value.sourceFormat)
+        assertNull(tracker.observation.value.decodedFormat)
+        assertNull(tracker.observation.value.outputConfig)
+    }
+
+    @Test
+    fun degradedSinkRejectsEvenLaterOutputCallbacks() {
+        val tracker = SignalTruthTracker()
+        tracker.markInstrumentationDegraded()
+        tracker.onPcmFormatDecoded(PcmFormat(sampleRate = 192000, channels = 2, bitDepth = 32))
+        tracker.onAudioTrackInitialized(192000, 2, androidx.media3.common.C.ENCODING_PCM_32BIT)
+        assertNull(tracker.observation.value.decodedFormat)
+        assertNull(tracker.observation.value.outputConfig)
+    }
+
+    @Test
+    fun releasedAudioTrackInvalidatesItsLastConfiguration() {
+        val tracker = SignalTruthTracker()
+        tracker.onAudioTrackInitialized(44100, 2, androidx.media3.common.C.ENCODING_PCM_16BIT)
+        assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
+        tracker.onAudioTrackReleased()
+        assertNull(tracker.observation.value.outputConfig)
+    }
+
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.launch
@@ -48,6 +49,11 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.AeroGraphite
+import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.player.AudioController
 
 @Composable
@@ -67,8 +73,8 @@ fun SyncedTracksScreen(
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "Sincronizadas",
-                style = MaterialTheme.typography.headlineMedium,
+                text = "Música sincronizada",
+                style = MichiTypography.screenTitle,
                 color = TextPrimary,
             )
             Text(
@@ -145,7 +151,7 @@ private fun EmptySyncedState() {
     PremiumEmptyState(
         icon = Icons.Rounded.MusicNote,
         title = "No hay canciones sincronizadas",
-        subtitle = "Conecta y sincroniza desde la pantalla Sync",
+        subtitle = "Conecta un dispositivo desde Dispositivos para sincronizar tu música.",
     )
 }
 
@@ -159,11 +165,11 @@ private fun SyncedTrackRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.White.copy(alpha = 0.055f))
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.2f), RoundedCornerShape(8.dp))
-            .clickable(enabled = isDownloaded) { onPlay() }
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .clip(RoundedCornerShape(14.dp))
+            .background(AeroGraphite)
+            .border(0.75.dp, AeroHairline, RoundedCornerShape(14.dp))
+            .clickable(enabled = isDownloaded, role = Role.Button) { onPlay() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
             Box(
@@ -177,7 +183,7 @@ private fun SyncedTrackRow(
                     Icon(
                         Icons.Rounded.DownloadDone,
                         contentDescription = "Descargado",
-                        tint = AccentPink,
+                        tint = PrimaryPinkContainer,
                         modifier = Modifier.size(20.dp),
                     )
                 } else {
@@ -207,11 +213,11 @@ private fun SyncedTrackRow(
                 )
             }
             if (isDownloaded) {
-                IconButton(onClick = onPlay) {
+                Box(modifier = Modifier.size(MichiSpacing.minTouchTarget), contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Rounded.PlayArrow,
-                        contentDescription = "Reproducir",
-                        tint = AccentPink,
+                        contentDescription = null,
+                        tint = PrimaryPinkContainer,
                         modifier = Modifier.size(20.dp),
                     )
                 }
