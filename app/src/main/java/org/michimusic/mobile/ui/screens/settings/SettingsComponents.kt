@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
@@ -41,7 +44,7 @@ fun SettingsSection(title: String, modifier: Modifier = Modifier) {
     Text(
         text = title,
         style = MaterialTheme.typography.titleMedium,
-        color = AccentCoral,
+        color = MaterialTheme.colorScheme.primary,
         modifier = modifier,
     )
 }
@@ -53,20 +56,19 @@ fun SettingsToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.width(4.dp))
-                Text(description, style = MaterialTheme.typography.bodySmall, color = TextMuted, maxLines = 2)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
+                if (description.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(description, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(MichiSpacing.md))
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
@@ -79,7 +81,7 @@ fun SettingsRadioGroup(
     selectedValue: String,
     onSelect: (String) -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
         Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
         Spacer(Modifier.height(8.dp))
         Column(Modifier.selectableGroup()) {
@@ -87,6 +89,7 @@ fun SettingsRadioGroup(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = MichiSpacing.minTouchTarget)
                         .selectable(
                             selected = value == selectedValue,
                             onClick = { onSelect(value) },
@@ -112,9 +115,9 @@ fun SettingsSlider(
     valueLabel: String,
     valueRange: ClosedFloatingPointRange<Float> = 0f..12f,
     steps: Int = 0,
-    accentColor: androidx.compose.ui.graphics.Color = AccentCoral,
+    accentColor: androidx.compose.ui.graphics.Color = PrimaryPinkContainer,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
@@ -152,11 +155,11 @@ fun SettingsTextField(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = AccentCoral,
+                    focusedBorderColor = PrimaryPinkContainer,
                     unfocusedBorderColor = SurfaceElevated,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary,
-                    cursorColor = AccentCoral,
+                    cursorColor = PrimaryPinkContainer,
                 ),
                 shape = RoundedCornerShape(10.dp),
             )
@@ -173,7 +176,7 @@ fun SettingsButton(
     Button(
         onClick = onClick,
         modifier = modifier.fillMaxWidth().height(48.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = AccentCoral, contentColor = SurfaceDark),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
         shape = RoundedCornerShape(12.dp),
     ) {
         Text(text)
@@ -188,7 +191,7 @@ fun SettingsDangerButton(
     Button(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().height(48.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = AccentPink, contentColor = SurfaceDark),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError),
         shape = RoundedCornerShape(12.dp),
     ) {
         Text(text)

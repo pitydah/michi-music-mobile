@@ -32,6 +32,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
@@ -100,26 +102,28 @@ fun MichiPlaybackControls(
 
         // Primary Play / Pause
         val scale by animateFloatAsState(
-            targetValue = if (state.isPlaying && !reducedMotion) 1.05f else 1.0f,
+            targetValue = if (state.isPlaying && !reducedMotion) 1.02f else 1.0f,
             animationSpec = if (reducedMotion) {
                 androidx.compose.animation.core.snap()
             } else {
-                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
             },
             label = "play_button_scale",
         )
 
         Box(
             modifier = Modifier
-                .size(playButtonSize)
+                .size(playButtonSize.coerceAtLeast(MichiSpacing.minTouchTarget))
                 .scale(scale)
                 .clip(CircleShape)
                 .clickable(
                     onClick = onPlayPause,
+                    enabled = !state.isLoading,
                     role = Role.Button,
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(bounded = true, color = PureWhite),
                 )
+                .semantics { contentDescription = if (state.isLoading) "Cargando" else if (state.isPlaying) "Pausar" else "Reproducir" }
                 .testTag(playPauseTestTag),
             contentAlignment = Alignment.Center,
         ) {
@@ -132,7 +136,7 @@ fun MichiPlaybackControls(
             } else {
                 Icon(
                     imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (state.isPlaying) "Pausa" else "Reproducir",
+                    contentDescription = null,
                     tint = PureWhite,
                     modifier = Modifier.size(38.dp),
                 )

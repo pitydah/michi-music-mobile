@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -46,12 +48,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,6 +81,7 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -124,10 +130,10 @@ fun AlbumsScreen(
     val activeScope by libraryScopeStore.activeScope.collectAsState()
     val availableLibraries by musicLibraryRepo.observeLibraries().collectAsState(initial = emptyList())
 
-    var selectedTab by remember { mutableStateOf(LibraryTab.SONGS) }
-    var selectedFilter by remember { mutableStateOf(LibraryFilter.ALL) }
-    var viewMode by remember { mutableStateOf(LibraryViewMode.LIST) }
-    var currentCoverflowIndex by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
+    var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
+    var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.LIST) }
+    var currentCoverflowIndex by rememberSaveable { mutableIntStateOf(0) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -151,6 +157,7 @@ fun AlbumsScreen(
                 trackCount = album.tracks.size,
                 hasArt = true,
                 coverUri = album.album.coverId,
+                sourceAudioUri = album.tracks.firstOrNull()?.filepath.orEmpty(),
             )
         }
     }
@@ -168,19 +175,7 @@ fun AlbumsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(SurfaceObsidian)
-            .drawBehind {
-                drawCircle(
-                    color = PrimaryPinkContainer.copy(alpha = 0.08f),
-                    radius = size.width * 0.7f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.1f),
-                )
-                drawCircle(
-                    color = TertiaryCyan.copy(alpha = 0.05f),
-                    radius = size.width * 0.6f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.85f),
-                )
-            },
+            .background(SurfaceObsidian),
     ) {
         Column(
             modifier = Modifier
@@ -191,12 +186,12 @@ fun AlbumsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(horizontal = 20.dp),
+                    .heightIn(min = 72.dp)
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "BIBLIOTECA",
                         fontSize = 11.sp,
@@ -205,10 +200,10 @@ fun AlbumsScreen(
                         letterSpacing = 2.sp,
                     )
                     Text(
-                        text = "Colección Local",
-                        color = PureWhite,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = "Tu biblioteca",
+                        style = MichiTypography.screenTitle.copy(fontSize = 22.sp, lineHeight = 27.sp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.testTag("library_title"),
                     )
                 }
@@ -221,33 +216,22 @@ fun AlbumsScreen(
                         // CoverFlow / List Switcher
                         Box(
                             modifier = Modifier
+                                .size(48.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(GlassFillHigh)
-                                .border(1.dp, if (viewMode == LibraryViewMode.COVERFLOW) TertiaryCyan else GlassBorderLow, RoundedCornerShape(12.dp))
+                                .background(if (viewMode == LibraryViewMode.COVERFLOW) PrimaryPinkContainer.copy(alpha = 0.10f) else GlassFillLow)
+                                .border(0.65.dp, if (viewMode == LibraryViewMode.COVERFLOW) PrimaryPinkContainer.copy(alpha = 0.40f) else GlassBorderLow, RoundedCornerShape(12.dp))
                                 .clickable {
                                     viewMode = if (viewMode == LibraryViewMode.LIST) LibraryViewMode.COVERFLOW else LibraryViewMode.LIST
                                 }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
                                 .testTag("library_view_mode_toggle"),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                Icon(
-                                    imageVector = if (viewMode == LibraryViewMode.COVERFLOW) Icons.Filled.ViewList else Icons.Default.ViewCarousel,
-                                    contentDescription = "Cambiar Vista",
-                                    tint = if (viewMode == LibraryViewMode.COVERFLOW) TertiaryCyan else PureWhite,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Text(
-                                    text = if (viewMode == LibraryViewMode.COVERFLOW) "Lista" else "CoverFlow",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (viewMode == LibraryViewMode.COVERFLOW) TertiaryCyan else PureWhite,
-                                )
-                            }
+                            Icon(
+                                imageVector = if (viewMode == LibraryViewMode.COVERFLOW) Icons.Filled.ViewList else Icons.Default.ViewCarousel,
+                                contentDescription = if (viewMode == LibraryViewMode.COVERFLOW) "Cambiar a lista" else "Cambiar a CoverFlow",
+                                tint = if (viewMode == LibraryViewMode.COVERFLOW) PrimaryPinkContainer else PureWhite,
+                                modifier = Modifier.size(21.dp),
+                            )
                         }
                     }
 
@@ -300,9 +284,12 @@ fun AlbumsScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isAllSelected) SecondaryPurple.copy(alpha = 0.25f) else GlassFillLow)
-                            .border(1.dp, if (isAllSelected) SecondaryPurple else GlassBorderLow, RoundedCornerShape(8.dp))
-                            .clickable { libraryScopeStore.setScope(org.michimusic.core.models.LibraryScope.All) }
+                            .background(if (isAllSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
+                            .border(0.65.dp, if (isAllSelected) PrimaryPinkContainer.copy(alpha = 0.4f) else GlassBorderLow, RoundedCornerShape(8.dp))
+                            .selectable(selected = isAllSelected, role = Role.Tab) {
+                                libraryScopeStore.setScope(org.michimusic.core.models.LibraryScope.All)
+                            }
+                            .heightIn(min = 48.dp)
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                             .testTag("library_scope_all"),
                         contentAlignment = Alignment.Center,
@@ -322,9 +309,12 @@ fun AlbumsScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) SecondaryPurple.copy(alpha = 0.25f) else GlassFillLow)
-                            .border(1.dp, if (isSelected) SecondaryPurple else GlassBorderLow, RoundedCornerShape(8.dp))
-                            .clickable { libraryScopeStore.setScope(org.michimusic.core.models.LibraryScope.One(lib.id)) }
+                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
+                            .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.4f) else GlassBorderLow, RoundedCornerShape(8.dp))
+                            .selectable(selected = isSelected, role = Role.Tab) {
+                                libraryScopeStore.setScope(org.michimusic.core.models.LibraryScope.One(lib.id))
+                            }
+                            .heightIn(min = 48.dp)
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                             .testTag("library_scope_${lib.id}"),
                         contentAlignment = Alignment.Center,
@@ -351,11 +341,12 @@ fun AlbumsScreen(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(38.dp)
+                            .height(48.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.25f) else GlassFillLow)
-                            .border(1.dp, if (isSelected) PrimaryPink else GlassBorderLow, RoundedCornerShape(10.dp))
+                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
+                            .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.40f) else GlassBorderLow, RoundedCornerShape(10.dp))
                             .clickable { selectedTab = tab }
+                            .semantics { selected = isSelected }
                             .testTag("library_tab_${tab.name.lowercase()}"),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -380,17 +371,19 @@ fun AlbumsScreen(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) TertiaryCyan.copy(alpha = 0.2f) else GlassFillLow)
-                                .border(1.dp, if (isSelected) TertiaryCyan else GlassBorderLow, RoundedCornerShape(8.dp))
+                                .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.10f) else GlassFillLow)
+                                .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.38f) else GlassBorderLow, RoundedCornerShape(8.dp))
                                 .clickable { selectedFilter = filter }
+                                .semantics { selected = isSelected }
+                                .heightIn(min = 48.dp)
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                                 .testTag("library_filter_${filter.name.lowercase()}"),
                         ) {
                             Text(
                                 text = filter.displayName,
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) TertiaryCyan else TextSecondary,
+                                color = if (isSelected) PureWhite else TextSecondary,
                             )
                         }
                     }
@@ -463,7 +456,7 @@ fun AlbumsScreen(
                     LibraryTab.SONGS -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp),
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             items(filteredTracks, key = { it.id }) { track ->
@@ -488,6 +481,7 @@ fun AlbumsScreen(
                                         AlbumArtView(
                                             coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
                                             imageModel = track.coverId,
+                                            fallbackMediaUri = track.filepath,
                                             modifier = Modifier
                                                 .size(44.dp)
                                                 .clip(RoundedCornerShape(8.dp)),
@@ -543,7 +537,7 @@ fun AlbumsScreen(
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(bottom = 100.dp),
+                                    .padding(bottom = 24.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Box(
@@ -555,6 +549,7 @@ fun AlbumsScreen(
                                     MichiCoverFlowHost(
                                         albums = coverFlowAlbums,
                                         onCurrentChanged = { currentCoverflowIndex = it },
+                                        initialPage = currentCoverflowIndex,
                                         onAlbumClick = { idx ->
                                             val selectedAlbum = albums.getOrNull(idx)
                                             if (selectedAlbum != null && selectedAlbum.tracks.isNotEmpty()) {
@@ -642,7 +637,7 @@ fun AlbumsScreen(
                         } else {
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp),
+                                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 items(albums, key = { it.album.id }) { localAlbum ->
@@ -666,6 +661,7 @@ fun AlbumsScreen(
                                             AlbumArtView(
                                                 coverStyle = coverStyleFor(localAlbum.album.coverId ?: localAlbum.album.title),
                                                 imageModel = localAlbum.album.coverId,
+                                                fallbackMediaUri = localAlbum.tracks.firstOrNull()?.filepath,
                                                 modifier = Modifier
                                                     .size(52.dp)
                                                     .clip(RoundedCornerShape(10.dp)),
@@ -732,7 +728,7 @@ fun AlbumsScreen(
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 120.dp),
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             items(artistsList, key = { it.first }) { (artistName, artistAlbums) ->

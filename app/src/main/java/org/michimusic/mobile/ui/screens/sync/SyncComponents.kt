@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.syncProgressCaption
+import org.michimusic.mobile.ui.components.syncProgressFraction
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceDark
@@ -267,7 +269,7 @@ fun ConnectedState(
         Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             OutlinedButton(onClick = onDisconnect) { Text("Desconectar") }
-            IconButton(onClick = onForget) { Icon(Icons.Default.Delete, contentDescription = "Olvidar servidor", tint = AccentPink) }
+            IconButton(onClick = onForget, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Delete, contentDescription = "Olvidar servidor", tint = AccentPink) }
         }
     }
 }
@@ -275,14 +277,23 @@ fun ConnectedState(
 @Composable
 private fun SyncProgressContent(completed: Int, total: Int) {
     Column(Modifier.fillMaxWidth()) {
-        LinearProgressIndicator(
-            progress = { if (total > 0) completed.toFloat() / total else 0f },
-            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-            color = AccentCoral,
-            trackColor = SurfaceElevated,
-        )
+        val fraction = syncProgressFraction(completed, total)
+        if (fraction == null) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                color = AccentCoral,
+                trackColor = SurfaceElevated,
+            )
+        } else {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                color = AccentCoral,
+                trackColor = SurfaceElevated,
+            )
+        }
         Spacer(Modifier.height(8.dp))
-        Text("$completed / $total", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        Text(syncProgressCaption(completed, total), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
     }
 }
 

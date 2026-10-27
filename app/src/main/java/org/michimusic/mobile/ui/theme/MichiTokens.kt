@@ -26,6 +26,9 @@ object MichiSpacing {
     val section: Dp = 32.dp
     val screenHorizontal: Dp = 16.dp
     val minTouchTarget: Dp = 48.dp
+    val albumTileWidth: Dp = 204.dp
+    val dockHorizontal: Dp = 16.dp
+    val miniPlayerSpace: Dp = 82.dp
 }
 
 /**
@@ -35,8 +38,8 @@ object MichiShapes {
     val xs = RoundedCornerShape(8.dp)
     val sm = RoundedCornerShape(12.dp)
     val md = RoundedCornerShape(16.dp)
-    val lg = RoundedCornerShape(24.dp)
-    val xl = RoundedCornerShape(32.dp)
+    val lg = RoundedCornerShape(22.dp)
+    val xl = RoundedCornerShape(28.dp)
     val pill = CircleShape
 }
 
@@ -70,8 +73,8 @@ object MichiTypography {
     val screenTitle = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.ExtraBold,
-        fontSize = 26.sp,
-        lineHeight = 32.sp,
+        fontSize = 25.sp,
+        lineHeight = 31.sp,
         letterSpacing = (-0.02).sp,
         color = PureWhite,
     )
@@ -79,8 +82,8 @@ object MichiTypography {
     val sectionTitle = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Bold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp,
+        fontSize = 19.sp,
+        lineHeight = 25.sp,
         letterSpacing = (-0.01).sp,
         color = PureWhite,
     )
@@ -115,9 +118,9 @@ object MichiTypography {
     val microLabel = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
-        fontSize = 10.sp,
-        lineHeight = 12.sp,
-        letterSpacing = 0.05.sp,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 0.15.sp,
         color = TextMuted,
     )
 

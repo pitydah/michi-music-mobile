@@ -49,7 +49,13 @@ data class DeviceUiItem(
             val primary = actions.firstOrNull { it.isPrimary }
             val secondaries = actions.filterNot { it.isPrimary }
 
-            val connStatus = when (device.connectionState) {
+            val connStatus = when {
+                !isDiscovered && device.connectionState !in setOf(
+                    org.michimusic.core.models.SyncConnectionState.CONNECTED,
+                    org.michimusic.core.models.SyncConnectionState.CONNECTING,
+                    org.michimusic.core.models.SyncConnectionState.PAIRING,
+                ) -> DeviceConnectionStatus.OFFLINE
+                else -> when (device.connectionState) {
                 org.michimusic.core.models.SyncConnectionState.CONNECTED -> DeviceConnectionStatus.CONNECTED
                 org.michimusic.core.models.SyncConnectionState.CONNECTING,
                 org.michimusic.core.models.SyncConnectionState.DISCOVERING,
@@ -57,6 +63,7 @@ data class DeviceUiItem(
                 org.michimusic.core.models.SyncConnectionState.OFFLINE -> DeviceConnectionStatus.OFFLINE
                 org.michimusic.core.models.SyncConnectionState.ERROR -> DeviceConnectionStatus.ERROR
                 else -> DeviceConnectionStatus.DISCONNECTED
+                }
             }
 
             val trust = when {
@@ -70,6 +77,7 @@ data class DeviceUiItem(
             val resolvedCaps = org.michimusic.link.capability.CapabilityResolver.resolve(device.roles, device.features)
             if (resolvedCaps.isLibraryHost) caps.add("Biblioteca")
             if (resolvedCaps.isSyncHost) caps.add("Sincronización")
+            if (org.michimusic.mobile.sync.DeviceActionResolver.supportsAirCat(device)) caps.add("AirCat")
             if (resolvedCaps.isPlaybackHost) caps.add("Control Remoto")
             if (resolvedCaps.isAudioReceiver) caps.add("Receptor Stream")
 

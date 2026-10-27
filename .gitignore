@@ -8,6 +8,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+local.properties.txt
+gradle.properties.txt
+*.properties.txt
 /app/build
 /core/build
 /data/build
@@ -18,3 +21,14 @@ local.properties
 .kotlin
 /app/release.jks
 /app/keystore.properties
+.atl/
+
+# Historical sprint delivery packages, patches and handoff artifacts (M22..M42)
+/M[0-9]*_*/
+/M[0-9]*/
+*.zip
+*.patch
+*.diff
+SOURCE_*.kt
+*_APPLY_LOCAL.py
+REVIEW_ONLY_*.kt

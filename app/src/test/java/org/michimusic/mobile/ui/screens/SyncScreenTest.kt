@@ -36,7 +36,7 @@ class SyncScreenTest {
             SyncScreen(viewModel = mockViewModel)
         }
 
-        composeTestRule.onNodeWithText("Buscando servidor Michi Desktop...").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Buscando dispositivos Michi...").assertIsDisplayed()
     }
 
     @Test
@@ -74,13 +74,13 @@ class SyncScreenTest {
 
         composeTestRule.onNodeWithText("Conexión Manual por IP").performScrollTo().performClick()
         
-        composeTestRule.onNodeWithText("Dirección IP y Puerto").performTextInput("192.168.1.100")
+        composeTestRule.onNodeWithText("IP o nombre local · puerto opcional").performTextInput("192.168.1.100")
         composeTestRule.onNodeWithText("Nombre del Dispositivo").performTextInput("Mi Server")
         composeTestRule.onNodeWithText("Conectar", useUnmergedTree = true).performClick()
 
-        // Verificamos que se llamó connectManual
+        // Verificamos que se llamó preparePairing con el peer manual
         io.mockk.verify { 
-            mockViewModel.connectManual(name = "Mi Server", host = "192.168.1.100", any(), any())
+            mockViewModel.preparePairing(match { it.ip == "192.168.1.100" && it.alias == "Mi Server" }, any())
         }
     }
 }

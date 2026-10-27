@@ -30,14 +30,17 @@ class MichiPlaybackService : MediaLibraryService() {
     private val saveScopeJob = Job()
     private val saveScope = CoroutineScope(Dispatchers.IO + saveScopeJob)
     private var saveJob: Job? = null
+    private val transitionEpoch = PlaybackTransitionEpoch()
     private val serviceScopeJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Main.immediate + serviceScopeJob)
 
     override fun onCreate() {
         super.onCreate()
         try {
-            replayGainProcessor = ReplayGainAudioProcessor()
-            PlayerDependencies.replayGainProcessor = replayGainProcessor
+            // Resolve the very same Koin singleton observed by the Compose UI, or initialize fallback for tests
+            replayGainProcessor = PlayerDependencies.replayGainProcessor ?: ReplayGainAudioProcessor().also {
+                PlayerDependencies.replayGainProcessor = it
+            }
             stateStore = PlaybackStateStore(applicationContext)
 
             val mode = ReplayGainConfig.getMode()
@@ -50,21 +53,36 @@ class MichiPlaybackService : MediaLibraryService() {
             val rtpTap = RtpPcmAudioTap()
             PlayerDependencies.rtpPcmAudioTap = rtpTap
 
-            val modeManager = AudioModeManager(
+            val modeManager = PlayerDependencies.audioModeManager ?: AudioModeManager(
                 context = this,
                 audioEffects = audioEffects,
                 replayGainProcessor = replayGainProcessor,
                 usbDacManager = usbDacManager,
-            )
-            PlayerDependencies.audioModeManager = modeManager
+            ).also { PlayerDependencies.audioModeManager = it }
 
-            val truthTracker = SignalTruthTracker(
+            val truthTracker = PlayerDependencies.signalTruthTracker ?: SignalTruthTracker(
                 audioModeManager = modeManager,
                 audioEffects = audioEffects,
                 replayGainProcessor = replayGainProcessor,
                 usbDacManager = usbDacManager,
-            )
-            PlayerDependencies.signalTruthTracker = truthTracker
+            ).also { PlayerDependencies.signalTruthTracker = it }
+
+            truthTracker.clearPlayback(resetInstrumentation = true)
+            modeManager.applyMode(modeManager.currentMode.value)
+
+            // These collectors belong to the service lifetime, not a UI screen.
+            serviceScope.launch {
+                usbDacManager?.routeStatus?.collect {
+                    modeManager.applyMode(modeManager.currentMode.value)
+                    truthTracker.recompute()
+                }
+            }
+            serviceScope.launch {
+                modeManager.currentMode.collect { truthTracker.recompute() }
+            }
+            serviceScope.launch {
+                audioEffects?.effectsState?.collect { truthTracker.recompute() }
+            }
 
             serviceScope.launch {
                 rtpTap.currentFormat.collect { pcm ->
@@ -106,12 +124,25 @@ class MichiPlaybackService : MediaLibraryService() {
 
             exoPlayer.addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    val generation = transitionEpoch.advance()
                     val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
+                    // Only the transition invalidates measurements; metadata lookup must not.
+                    truthTracker.onTrackChanged(null)
+                    truthTracker.setPlaybackActive(exoPlayer.isPlaying)
+                    replayGainProcessor.onSongChanged(null)
+                    truthTracker.recompute()
                     if (songId != null) {
                         saveScope.launch {
                             val track = controller.getRepository().loadTracks()
                                 .firstOrNull { it.id == songId }
-                            replayGainProcessor.onSongChanged(track)
+                            withContext(Dispatchers.Main) {
+                                // An older asynchronous lookup must never label the next song.
+                                if (transitionEpoch.isCurrent(generation) &&
+                                    exoPlayer.currentMediaItem?.mediaId == mediaItem?.mediaId) {
+                                    replayGainProcessor.onSongChanged(track)
+                                    truthTracker.recompute()
+                                }
+                            }
                         }
                     }
                     deferSave()
@@ -119,6 +150,12 @@ class MichiPlaybackService : MediaLibraryService() {
 
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) deferSave()
+                    if (state == Player.STATE_ENDED || state == Player.STATE_IDLE) {
+                        // Reject metadata loaded after the queue has stopped/ended.
+                        transitionEpoch.advance()
+                        replayGainProcessor.onSongChanged(null)
+                        truthTracker.onPlaybackStopped()
+                    }
                 }
 
                 private var consecutiveErrorCount = 0
@@ -127,6 +164,7 @@ class MichiPlaybackService : MediaLibraryService() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     playbackSuccessJob?.cancel()
+                    truthTracker.setPlaybackActive(isPlaying)
                     if (isPlaying) {
                         // Avoid resetting consecutiveErrorCount on transient isPlaying transitions.
                         // Only reset if playback sustains on the main thread for at least 2.5 seconds without error.
@@ -168,7 +206,13 @@ class MichiPlaybackService : MediaLibraryService() {
                 }
             })
         } catch (e: Exception) {
-            android.util.Log.e("MichiPlaybackService", "Error al iniciar servicio", e)
+            android.util.Log.e("MichiPlaybackService", "No se pudo iniciar servicio de audio", e)
+            mediaLibrarySession?.release()
+            mediaLibrarySession = null
+            playerController?.release()
+            playerController = null
+            player = null
+            stopSelf() // fail closed instead of keeping a broken service visible
         }
     }
 
@@ -183,6 +227,7 @@ class MichiPlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
+        transitionEpoch.advance() // invalidate in-flight metadata lookups
         saveNow()
         saveJob?.cancel()
         saveScopeJob.cancel()
@@ -192,6 +237,10 @@ class MichiPlaybackService : MediaLibraryService() {
         playerController?.release()
         playerController = null
         player = null
+        PlayerDependencies.stopPcmStreaming()
+        PlayerDependencies.rtpPcmAudioTap = null
+        PlayerDependencies.signalTruthTracker?.clearPlayback(resetInstrumentation = true)
+        PlayerDependencies.replayGainProcessor?.onSongChanged(null)
         super.onDestroy()
     }
 

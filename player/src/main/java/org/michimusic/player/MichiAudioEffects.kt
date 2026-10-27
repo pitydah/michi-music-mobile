@@ -52,6 +52,7 @@ class MichiAudioEffects(
     @Volatile
     var isBypassedByMode: Boolean = false
         set(value) {
+            if (field == value) return
             field = value
             applyBypassState()
         }
@@ -65,21 +66,23 @@ class MichiAudioEffects(
 
     private fun applyBypassState() {
         val effectiveEnabled = !isBypassedByMode && prefs.getBoolean(KEY_EQ_ENABLED, true)
-        try {
-            equalizer?.enabled = effectiveEnabled
-            bassBoost?.enabled = effectiveEnabled
-            virtualizer?.enabled = effectiveEnabled
-            loudnessEnhancer?.enabled = effectiveEnabled
-        } catch (e: Exception) {
-            Log.w(TAG, "Error applying bypass state to audio effects", e)
+        listOf<() -> Unit>(
+            { equalizer?.enabled = effectiveEnabled },
+            { bassBoost?.enabled = effectiveEnabled },
+            { virtualizer?.enabled = effectiveEnabled },
+            { loudnessEnhancer?.enabled = effectiveEnabled },
+        ).forEach { action ->
+            try { action() } catch (e: Exception) {
+                Log.w(TAG, "Error applying bypass to an Android audio effect", e)
+            }
         }
         _effectsState.value = _effectsState.value.copy(isEnabled = effectiveEnabled)
     }
 
     fun bindAudioSession(sessionId: Int) {
         if (sessionId == 0 || sessionId == currentSessionId) return
-        currentSessionId = sessionId
         releaseEffects()
+        currentSessionId = sessionId
 
         val isMasterEnabled = !isBypassedByMode && prefs.getBoolean(KEY_EQ_ENABLED, true)
 
@@ -111,7 +114,12 @@ class MichiAudioEffects(
             Log.i(TAG, "AudioEffects vinculados con éxito a sesión $sessionId")
         } catch (e: Exception) {
             Log.w(TAG, "Hardware effects initialization fallback", e)
+            // A partially constructed effects chain must not stay attached to
+            // a session, nor prevent a future attempt to bind the same ID.
+            releaseEffects()
+            currentSessionId = 0
             initFallbackBands()
+            applyBypassState()
         }
     }
 
@@ -188,17 +196,24 @@ class MichiAudioEffects(
     }
 
     fun setEnabled(enabled: Boolean) {
+        // This stores the user preference; a transparent mode always wins at runtime.
         prefs.edit().putBoolean(KEY_EQ_ENABLED, enabled).apply()
-        try {
-            equalizer?.enabled = enabled
-            bassBoost?.enabled = enabled
-            virtualizer?.enabled = enabled
-            loudnessEnhancer?.enabled = enabled
-        } catch (e: Exception) {
-            Log.w(TAG, "Error cambiando estado de efectos", e)
-        }
-        _effectsState.value = _effectsState.value.copy(isEnabled = enabled)
+        applyBypassState()
     }
+
+    /** An EQ toggle alone is not evidence of effective Android session processing. */
+    val hasActiveAudioSession: Boolean get() = runCatching {
+        currentSessionId > 0 && equalizer?.hasControl() == true && equalizer?.enabled == true
+    }.getOrDefault(false)
+
+    /** Actual DSP effect state, not just the stored preference/slider value. */
+    val isBassBoostEffective: Boolean get() = runCatching {
+        currentSessionId > 0 && bassBoost?.hasControl() == true && bassBoost?.enabled == true
+    }.getOrDefault(false)
+
+    val isVirtualizerEffective: Boolean get() = runCatching {
+        currentSessionId > 0 && virtualizer?.hasControl() == true && virtualizer?.enabled == true
+    }.getOrDefault(false)
 
     fun setBandGain(bandIndex: Int, milliDb: Int) {
         val currentBands = _effectsState.value.bands.toMutableList()
@@ -320,21 +335,22 @@ class MichiAudioEffects(
 
     fun release() {
         releaseEffects()
+        currentSessionId = 0
+        applyBypassState()
     }
 
     private fun releaseEffects() {
-        try {
-            equalizer?.release()
-            bassBoost?.release()
-            virtualizer?.release()
-            loudnessEnhancer?.release()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error liberando AudioEffects", e)
-        } finally {
-            equalizer = null
-            bassBoost = null
-            virtualizer = null
-            loudnessEnhancer = null
+        listOf<() -> Unit>(
+            { equalizer?.release() }, { bassBoost?.release() },
+            { virtualizer?.release() }, { loudnessEnhancer?.release() },
+        ).forEach { action ->
+            try { action() } catch (e: Exception) {
+                Log.w(TAG, "Error releasing an Android audio effect", e)
+            }
         }
+        equalizer = null
+        bassBoost = null
+        virtualizer = null
+        loudnessEnhancer = null
     }
 }

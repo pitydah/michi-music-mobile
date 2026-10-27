@@ -5,8 +5,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,6 +44,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -53,6 +59,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -60,6 +67,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import org.michimusic.mobile.R
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.AccentPurple
@@ -83,45 +98,17 @@ fun PremiumScreen(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val bgVg = remember {
-        Brush.verticalGradient(listOf(SurfaceDark, SmokeTop, SmokeMid, SmokeBottom))
-    }
-    val glowCoral = remember {
-        Brush.radialGradient(listOf(AccentCoral.copy(alpha = 0.13f), Color.Transparent))
-    }
-    val glowPurple = remember {
-        Brush.radialGradient(listOf(AccentPurple.copy(alpha = 0.085f), Color.Transparent))
-    }
-    val glassOverlay = remember {
-        Brush.verticalGradient(listOf(GlassMist.copy(alpha = 0.10f), Color.Transparent, GlassInk.copy(alpha = 0.36f)))
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .drawWithContent {
-                drawRect(bgVg, size = size)
-                drawRect(glowCoral, size = size)
-                drawRect(glowPurple, size = size)
-                drawRect(glassOverlay, size = size)
-                drawContent()
-            },
-    ) {
-        PremiumWaveBackdrop(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp)
-                .align(Alignment.TopCenter),
-        )
-        PremiumGlassTexture(modifier = Modifier.fillMaxSize())
-        content()
-    }
+    // Ambient waves/textures remain opt-in helpers. A global screen never draws
+    // neon halos on every device or ignores the user's contrast preference.
+    val canvas = aeroMaterialStyle(AeroSurfaceRole.Canvas, LocalVisualPreferences.current.highContrast)
+    Box(modifier = modifier.fillMaxSize().background(canvas.fill)) { content() }
 }
 
 @Composable
 fun PremiumGlassTexture(
     modifier: Modifier = Modifier,
 ) {
+    if (LocalVisualPreferences.current.highContrast) return
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
@@ -150,6 +137,7 @@ fun PremiumGlassTexture(
 fun PremiumWaveBackdrop(
     modifier: Modifier = Modifier,
 ) {
+    if (LocalVisualPreferences.current.highContrast) return
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
@@ -214,12 +202,14 @@ fun ScreenHeader(
                 text = title,
                 style = MaterialTheme.typography.headlineMedium,
                 color = TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
-                maxLines = 1,
+                maxLines = if (LocalConfiguration.current.fontScale > 1.2f) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -232,25 +222,19 @@ fun PremiumStatPill(
     text: String,
     modifier: Modifier = Modifier,
 ) {
+    val material = aeroMaterialStyle(AeroSurfaceRole.Raised, LocalVisualPreferences.current.highContrast)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        GlassHighlight.copy(alpha = 0.12f),
-                        Color.White.copy(alpha = 0.055f),
-                    )
-                )
-            )
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.8f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 11.dp, vertical = 6.dp),
+            .background(material.fill)
+            .border(material.borderWidth, material.outline, RoundedCornerShape(999.dp))
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelMedium,
-            color = AccentCoral,
+            color = if (LocalVisualPreferences.current.highContrast) TextPrimary else PrimaryPinkContainer,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -265,38 +249,44 @@ fun PremiumSectionHeader(
     action: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = TextPrimary,
-            modifier = Modifier.alignByBaseline(),
-        )
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .alignByBaseline(),
-        )
-        if (action != null && onAction != null) {
-            Text(
-                text = action,
-                style = MaterialTheme.typography.labelMedium,
-                color = AccentCoral,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable(onClick = onAction)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .alignByBaseline(),
-            )
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val compact = maxWidth < 360.dp || LocalConfiguration.current.fontScale > 1.2f
+        val actionVisible = !action.isNullOrBlank() && onAction != null
+        if (compact) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium,
+                    color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (subtitle.isNotBlank()) {
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (actionVisible) {
+                    Text(action.orEmpty(), style = MaterialTheme.typography.labelMedium,
+                        color = if (LocalVisualPreferences.current.highContrast) TextPrimary else PrimaryPinkContainer,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .clip(MichiShapes.pill)
+                            .clickable(role = Role.Button, onClick = onAction!!)
+                            .padding(horizontal = 12.dp, vertical = 12.dp))
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                        color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (actionVisible) {
+                    Text(action.orEmpty(), style = MaterialTheme.typography.labelMedium,
+                        color = if (LocalVisualPreferences.current.highContrast) TextPrimary else PrimaryPinkContainer,
+                        modifier = Modifier.heightIn(min = MichiSpacing.minTouchTarget)
+                            .clip(MichiShapes.pill)
+                            .clickable(role = Role.Button, onClick = onAction!!)
+                            .padding(horizontal = 12.dp, vertical = 12.dp))
+                }
+            }
         }
     }
 }
@@ -314,33 +304,19 @@ fun PremiumFilterChips(
     ) {
         itemsIndexed(items, key = { index, _ -> index }) { index, item ->
             val selected = index == selectedIndex
+            val material = aeroMaterialStyle(AeroSurfaceRole.Raised, LocalVisualPreferences.current.highContrast)
             Box(
                 modifier = Modifier
+                    .heightIn(min = MichiSpacing.minTouchTarget)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(
-                        if (selected) {
-                            Brush.horizontalGradient(
-                                listOf(
-                                    AccentCoral.copy(alpha = 0.26f),
-                                    AccentPink.copy(alpha = 0.16f),
-                                )
-                            )
-                        } else {
-                            Brush.verticalGradient(
-                                listOf(
-                                    GlassHighlight.copy(alpha = 0.08f),
-                                    Color.White.copy(alpha = 0.028f),
-                                )
-                            )
-                        }
-                    )
+                    .background(if (selected) PrimaryPinkContainer.copy(alpha = 0.16f) else material.fill)
                     .border(
-                        0.5.dp,
-                        if (selected) AccentCoral.copy(alpha = 0.50f) else SurfaceBorder.copy(alpha = 1.45f),
+                        material.borderWidth,
+                        if (selected) PrimaryPinkContainer else material.outline,
                         RoundedCornerShape(999.dp),
                     )
-                    .clickable { onSelected(index) }
-                    .padding(horizontal = 13.dp, vertical = 8.dp),
+                    .selectable(selected = selected, role = Role.Button, onClick = { onSelected(index) })
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -422,7 +398,7 @@ private fun CollageTileContent(
                     )
                 )
             )
-            .border(0.5.dp, SurfaceBorder.copy(alpha = 1.55f), RoundedCornerShape(8.dp)),
+            .border(0.5.dp, SurfaceBorder, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center,
     ) {
         if (coverId.isNotEmpty()) {
@@ -481,7 +457,7 @@ fun PremiumIconButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .size(42.dp)
+            .size(MichiSpacing.minTouchTarget)
             .clip(RoundedCornerShape(999.dp)),
         colors = IconButtonDefaults.iconButtonColors(
             containerColor = GlassHighlight.copy(alpha = 0.085f),
@@ -504,7 +480,10 @@ fun PremiumLoadingState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator(color = AccentCoral)
+        CircularProgressIndicator(
+            modifier = Modifier.semantics { stateDescription = text },
+            color = PrimaryPinkContainer,
+        )
         Spacer(Modifier.height(12.dp))
         Text(text, color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
     }
@@ -519,7 +498,7 @@ fun PremiumEmptyState(
 ) {
     GlassCard(modifier = modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(
@@ -534,15 +513,15 @@ fun PremiumEmptyState(
                             )
                         )
                     )
-                    .border(0.5.dp, SurfaceBorder.copy(alpha = 1.35f), RoundedCornerShape(16.dp)),
+                    .border(0.5.dp, SurfaceBorder, RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(34.dp))
             }
             Spacer(Modifier.height(14.dp))
-            Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
+            Text(title, style = MaterialTheme.typography.titleMedium, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(4.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextDim)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary, textAlign = TextAlign.Center)
         }
     }
 }
@@ -558,11 +537,11 @@ fun PremiumButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        modifier = modifier.heightIn(min = MichiSpacing.minTouchTarget),
+        shape = MichiShapes.sm,
         colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFFF7F0E8),
-            contentColor = SurfaceDark,
+            containerColor = PrimaryPinkContainer,
+            contentColor = PureWhite,
             disabledContainerColor = SurfaceElevated.copy(alpha = 0.42f),
             disabledContentColor = TextDim,
         ),
@@ -585,40 +564,49 @@ fun PremiumTrackItem(
     trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    // Keep transport/overflow actions outside the track-opening clickable surface.
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .heightIn(min = 60.dp)
+            .clip(MichiShapes.sm)
             .border(
-                0.5.dp,
-                if (isActive) AccentCoral.copy(alpha = 0.48f) else SurfaceBorder.copy(alpha = 1.35f),
-                RoundedCornerShape(8.dp),
+                0.65.dp,
+                if (isActive) PrimaryPinkContainer.copy(alpha = 0.48f) else SurfaceBorder,
+                MichiShapes.sm,
             )
-            .background(
-                if (isActive) AccentCoral.copy(alpha = 0.15f)
-                else GlassHighlight.copy(alpha = 0.055f)
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
+            .background(if (isActive) PrimaryPinkContainer.copy(alpha = 0.13f) else AeroGraphiteRaised)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TrackArtwork(coverId = coverId)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isActive) AccentCoral else TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (isActive) TextSecondary else TextMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = MichiSpacing.minTouchTarget)
+                .clip(MichiShapes.sm)
+                .clickable(role = Role.Button, onClick = onClick)
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            TrackArtwork(coverId = coverId)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isActive) PrimaryPinkContainer else TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         trailing?.invoke()
     }
@@ -633,7 +621,7 @@ fun TrackArtwork(
     val artworkModifier = modifier
         .size(size)
         .clip(RoundedCornerShape(8.dp))
-        .border(0.5.dp, SurfaceBorder.copy(alpha = 1.45f), RoundedCornerShape(8.dp))
+        .border(0.5.dp, SurfaceBorder, RoundedCornerShape(8.dp))
 
     if (coverId.isNotEmpty()) {
         AsyncImage(

@@ -24,6 +24,15 @@ data class DeviceAction(
 )
 
 object DeviceActionResolver {
+    /** AirCat transfers are a Michi Devices capability, not a generic sync-host
+     * feature. Never show this action unless the peer advertises it explicitly. */
+    fun supportsAirCat(device: UnifiedDevice): Boolean = device.features.any { feature ->
+        val key = feature.trim().lowercase().replace('-', '_')
+        key == "aircat" || key == "aircat_transfer" ||
+            key == "devices_aircat" || key == "michi_devices_aircat" ||
+            key == "devices.aircat"
+    }
+
     /**
      * Resolves actions ensuring EXACTLY ONE primary action (isPrimary == true).
      *
@@ -85,7 +94,9 @@ object DeviceActionResolver {
         }
         if (caps.isSyncHost) {
             actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar", isPrimary = (primaryType == DeviceActionType.SYNC_LIBRARY)))
-            actions.add(DeviceAction(DeviceActionType.AIRCAT_TRANSFER, "AirCat", isPrimary = false))
+            if (supportsAirCat(device)) {
+                actions.add(DeviceAction(DeviceActionType.AIRCAT_TRANSFER, "AirCat", isPrimary = false))
+            }
         }
         if (caps.isPlaybackHost) {
             actions.add(DeviceAction(DeviceActionType.CONTROL_PLAYBACK, "Controlar", isPrimary = (primaryType == DeviceActionType.CONTROL_PLAYBACK)))

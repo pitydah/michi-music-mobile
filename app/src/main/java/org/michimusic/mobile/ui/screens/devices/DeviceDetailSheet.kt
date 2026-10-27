@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.sync.DeviceAction
+import org.michimusic.mobile.ui.components.isProvisionedMichiStream
 import org.michimusic.mobile.ui.components.premium.MichiBottomSheet
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import org.michimusic.mobile.ui.components.premium.MichiSurface
@@ -87,6 +92,7 @@ fun DeviceDetailSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
                 .padding(bottom = 32.dp),
         ) {
             // Header Row: Icon, Title, Status & Close
@@ -96,6 +102,7 @@ fun DeviceDetailSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -114,17 +121,21 @@ fun DeviceDetailSheet(
                         )
                     }
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = deviceItem.name,
                             style = MichiTypography.cardTitle,
                             color = PureWhite,
                             fontSize = 18.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = "${formatDeviceTypeLabel(deviceItem.deviceType)} · ${deviceItem.ip}",
                             style = MichiTypography.metadata,
                             color = TextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -142,9 +153,9 @@ fun DeviceDetailSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // Trust & Connection Status Badges
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 TrustBadge(status = deviceItem.trustStatus)
                 ConnectionBadge(status = deviceItem.connectionStatus)
@@ -155,30 +166,18 @@ fun DeviceDetailSheet(
             // Verified Capabilities
             if (deviceItem.capabilities.isNotEmpty()) {
                 Text(
-                    text = "Capacidades Verificadas",
+                    text = "Funciones anunciadas",
                     style = MichiTypography.microLabel,
                     color = TextMuted,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    deviceItem.capabilities.forEach { cap ->
-                        Box(
-                            modifier = Modifier
-                                .clip(MichiShapes.pill)
-                                .background(GlassFillLow)
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = cap,
-                                style = MichiTypography.microLabel,
-                                color = PureWhite,
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = deviceItem.capabilities.sorted().joinToString(" · "),
+                    style = MichiTypography.metadata,
+                    color = PureWhite,
+                    // Tech attributes may be lengthy; the bottom sheet scrolls.
+                    softWrap = true,
+                )
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
@@ -222,7 +221,7 @@ fun DeviceDetailSheet(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(44.dp)
+                                .heightIn(min = 48.dp)
                                 .testTag("device_detail_secondary_${action.type.name}"),
                             shape = MichiShapes.sm,
                         ) {
@@ -262,7 +261,7 @@ fun DeviceDetailSheet(
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = "Detalles Técnicos y Criptográficos",
+                                text = "Detalles técnicos y de identidad",
                                 style = MichiTypography.metadata,
                                 color = PureWhite,
                                 fontWeight = FontWeight.SemiBold,
@@ -306,7 +305,7 @@ fun DeviceDetailSheet(
                     onClick = { showUnpairConfirmation = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
+                        .heightIn(min = 48.dp)
                         .testTag("device_detail_forget_button"),
                     shape = RoundedCornerShape(10.dp),
                 ) {
@@ -382,7 +381,7 @@ private fun TechnicalDetailItem(label: String, value: String) {
 @Composable
 private fun TrustBadge(status: DeviceTrustStatus) {
     val (color, text) = when (status) {
-        DeviceTrustStatus.TRUSTED -> TertiaryCyan to "Confiable"
+        DeviceTrustStatus.TRUSTED -> TertiaryCyan to "Vinculado"
         DeviceTrustStatus.PENDING -> PrimaryPinkContainer to "Pendiente"
         DeviceTrustStatus.REVOKED -> ErrorColor to "Revocado"
         DeviceTrustStatus.IDENTITY_MISMATCH -> ErrorColor to "Clave inválida"
@@ -430,6 +429,7 @@ private fun ConnectionBadge(status: DeviceConnectionStatus) {
 }
 
 private fun getDeviceIcon(deviceType: String): ImageVector {
+    if (isProvisionedMichiStream(deviceType)) return Icons.Filled.Speaker
     return when (deviceType.lowercase()) {
         "server" -> Icons.Filled.Dns
         "desktop", "player", "pc" -> Icons.Filled.LaptopMac
@@ -440,6 +440,7 @@ private fun getDeviceIcon(deviceType: String): ImageVector {
 }
 
 private fun formatDeviceTypeLabel(deviceType: String): String {
+    if (isProvisionedMichiStream(deviceType)) return "Michi Stream"
     return when (deviceType.lowercase()) {
         "server" -> "Micro Server"
         "desktop", "player" -> "Michi Player"

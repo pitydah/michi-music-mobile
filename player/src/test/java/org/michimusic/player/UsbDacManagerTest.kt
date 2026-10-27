@@ -43,11 +43,13 @@ class UsbDacManagerTest {
         override val routeStatus: kotlinx.coroutines.flow.StateFlow<AudioRouteStatus> = _routeStatus
 
         var lastRequested: OutputDescriptor? = null
+        var requestCount: Int = 0
         var lastDetected: OutputDescriptor? = null
         var lastFailedReason: RouteFailure? = null
         var isReleased = false
 
         override fun onDeviceRequested(descriptor: OutputDescriptor?) {
+            requestCount++
             lastRequested = descriptor
             if (descriptor == null) {
                 _routeStatus.value = AudioRouteStatus.NoDevice
@@ -97,21 +99,22 @@ class UsbDacManagerTest {
     }
 
     @Test
-    fun selectDevice_updatesSelectedDeviceId() {
+    fun selectDevice_rejectsMissingId() {
         val manager = UsbDacManager(mockContext)
         manager.selectDevice(42)
-
-        assertEquals(42, manager.selectedDeviceId.value)
+        assertNull(manager.selectedDeviceId.value)
+        assertTrue(manager.routeStatus.value is AudioRouteStatus.Failed)
     }
 
     @Test
     fun clearDeviceSelection_resetsToNull() {
-        val manager = UsbDacManager(mockContext)
+        val fakeSource = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, fakeSource, FakeAudioRouteObserver())
+        fakeSource.updateDevices(listOf(OutputDescriptor(10, "Test DAC", AudioDeviceInfo.TYPE_USB_DEVICE)))
         manager.selectDevice(10)
         assertEquals(10, manager.selectedDeviceId.value)
-
         manager.clearDeviceSelection()
-        assertEquals(null, manager.selectedDeviceId.value)
+        assertNull(manager.selectedDeviceId.value)
     }
 
     @Test
@@ -204,7 +207,28 @@ class UsbDacManagerTest {
         )
         assertTrue(manager.dacState.value.isConnected)
         assertEquals(202, manager.dacState.value.deviceId)
+        // A different Android ID does not prove this is the original output.
+        assertEquals(RouteFailure.DISCONNECTED, observer.lastFailedReason)
+        manager.clearDeviceSelection() // user confirms recovery
         assertEquals(202, observer.lastRequested?.androidDeviceId)
+    }
+
+    @Test
+    fun repeatedUsbScanMustNotIssueDuplicateRoutingRequest() {
+        val observer = FakeAudioRouteObserver()
+        val source = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, source, observer)
+        val dac = OutputDescriptor(101, "DAC estable", AudioDeviceInfo.TYPE_USB_DEVICE)
+        source.updateDevices(listOf(dac))
+        val requestsAfterAttach = observer.requestCount
+        source.updateDevices(listOf(dac))
+        source.updateDevices(listOf(dac))
+        assertEquals(requestsAfterAttach, observer.requestCount)
+        // Changing the actual selected output must issue a new request.
+        source.updateDevices(listOf(dac, OutputDescriptor(202, "DAC B", AudioDeviceInfo.TYPE_USB_DEVICE)))
+        manager.selectDevice(202)
+        assertEquals(202, observer.lastRequested?.androidDeviceId)
+        assertTrue(observer.requestCount > requestsAfterAttach)
     }
 
     @Test
@@ -317,6 +341,60 @@ class UsbDacManagerTest {
         assertFalse(manager.dacState.value.isConnected)
         assertTrue(paused)
         assertTrue(observer.lastFailedReason == RouteFailure.DISCONNECTED)
+    }
+
+    @Test
+    fun requestedDeviceRoutedElsewhereCannotBeConfirmed() {
+        val wanted = OutputDescriptor(7, "USB DAC", AudioDeviceInfo.TYPE_USB_DEVICE)
+        val actual = OutputDescriptor(9, "Speaker", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+        val status = classifyObservedAudioRoute(wanted, actual, 1234L)
+        assertTrue(status is AudioRouteStatus.RoutedElsewhere)
+        assertFalse(status is AudioRouteStatus.Confirmed)
+        assertEquals(actual, (status as AudioRouteStatus.RoutedElsewhere).actual)
+        val confirmed = classifyObservedAudioRoute(wanted, wanted, 1235L)
+        assertTrue(confirmed is AudioRouteStatus.Confirmed)
+    }
+
+    @Test
+    fun selectedSecondaryUsbRemovedWhilePrimaryRemains_requiresRecovery() {
+        val observer = FakeAudioRouteObserver()
+        val source = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, source, observer)
+        val primary = OutputDescriptor(101, "DAC A", AudioDeviceInfo.TYPE_USB_DEVICE)
+        val secondary = OutputDescriptor(202, "DAC B", AudioDeviceInfo.TYPE_USB_HEADSET)
+        source.updateDevices(listOf(primary, secondary))
+        manager.selectDevice(202)
+        var pauses = 0
+        manager.onUsbDisconnectedListener = { pauses++ }
+
+        source.updateDevices(listOf(primary))
+
+        assertEquals(1, pauses)
+        assertNull(manager.selectedDeviceId.value)
+        assertNull(manager.preferredDeviceFlow.value)
+        assertEquals(RouteFailure.DISCONNECTED, observer.lastFailedReason)
+        assertTrue(manager.routeStatus.value is AudioRouteStatus.Failed)
+        assertTrue(manager.outputDevices.value.none { it.isSelected })
+
+        manager.selectDevice(101) // explicit recovery
+        assertEquals(101, manager.selectedDeviceId.value)
+        assertEquals(101, observer.lastRequested?.androidDeviceId)
+    }
+
+    @Test
+    fun disconnectedDacWithSpeakerSelected_doesNotAutoPause() {
+        val observer = FakeAudioRouteObserver()
+        val source = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, source, observer)
+        val speaker = OutputDescriptor(9, "Speaker", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+        val dac = OutputDescriptor(101, "DAC", AudioDeviceInfo.TYPE_USB_DEVICE)
+        source.updateDevices(listOf(speaker, dac))
+        manager.selectDevice(9)
+        var pauses = 0
+        manager.onUsbDisconnectedListener = { pauses++ }
+        source.updateDevices(listOf(speaker))
+        assertEquals(0, pauses)
+        assertEquals(9, manager.selectedDeviceId.value)
     }
 
     @Test

@@ -55,11 +55,12 @@ class DevicesScreenTest {
         }
 
         // Trust badge must be displayed
-        composeTestRule.onNodeWithText("● Verificado").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Vinculado").assertIsDisplayed()
         // Connection status must be displayed
         composeTestRule.onNodeWithText("Conectado").assertIsDisplayed()
-        // Subtitle must contain capabilities and formatted type, not raw IP
-        composeTestRule.onNodeWithText("Micro Server · Biblioteca · Sincronización").assertIsDisplayed()
+        // Capabilities and device type displayed
+        composeTestRule.onNodeWithText("Micro Server").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Biblioteca · Sincronización").assertIsDisplayed()
         // Primary action displayed
         composeTestRule.onNodeWithText("Explorar").assertIsDisplayed()
 
@@ -78,7 +79,7 @@ class DevicesScreenTest {
             port = 7331,
             deviceType = "phone",
             discoveryStatus = DeviceDiscoveryStatus.DISCOVERED,
-            trustStatus = DeviceTrustStatus.UNKNOWN, // maps to "● Anunciado"
+            trustStatus = DeviceTrustStatus.UNKNOWN,
             connectionStatus = DeviceConnectionStatus.OFFLINE,
             capabilities = emptySet(),
             primaryAction = DeviceAction(
@@ -99,12 +100,12 @@ class DevicesScreenTest {
             }
         }
 
-        // Announced badge must be displayed
-        composeTestRule.onNodeWithText("● Anunciado").assertIsDisplayed()
+        // Untrusted / unverified badge must be displayed
+        composeTestRule.onNodeWithText("Identidad no verificada").assertIsDisplayed()
         // Connection status must be displayed
-        composeTestRule.onNodeWithText("Fuera de línea").assertIsDisplayed()
-        // Subtitle must indicate local network fallback without raw IP
-        composeTestRule.onNodeWithText("Teléfono · Red local").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Sin conexión").assertIsDisplayed()
+        // Formatted device type displayed
+        composeTestRule.onNodeWithText("Teléfono").assertIsDisplayed()
         // Primary action displayed
         composeTestRule.onNodeWithText("Conectar").assertIsDisplayed()
     }

@@ -8,7 +8,12 @@ sealed interface AudioRouteStatus {
     data object NoDevice : AudioRouteStatus
     data class Detected(val device: OutputDescriptor) : AudioRouteStatus
     data class Requested(val device: OutputDescriptor) : AudioRouteStatus
+    /** A matching request, or an observed default route when no device was requested. */
     data class Confirmed(val device: OutputDescriptor, val observedAtMs: Long) : AudioRouteStatus
+    /** Android is using a different output from the requested device. */
+    data class RoutedElsewhere(val requested: OutputDescriptor, val actual: OutputDescriptor, val observedAtMs: Long) : AudioRouteStatus
+    /** Historical observation; no currently attached AudioTrack proves the route. */
+    data class LastObserved(val device: OutputDescriptor, val observedAtMs: Long) : AudioRouteStatus
     data class Failed(val deviceId: Int?, val reason: RouteFailure) : AudioRouteStatus
     data class Unknown(val reason: String) : AudioRouteStatus
 }

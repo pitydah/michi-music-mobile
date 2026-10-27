@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -148,7 +151,7 @@ fun QueueDialog(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(320.dp),
+                            .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp * 0.56f).coerceAtLeast(180.dp)),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(queue) { track ->
@@ -171,6 +174,7 @@ fun QueueDialog(
                                     AlbumArtView(
                                         coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
                                         imageModel = track.coverId,
+                                        fallbackMediaUri = track.filepath,
                                         modifier = Modifier.size(40.dp),
                                         cornerRadius = 8.dp,
                                     )
@@ -181,15 +185,20 @@ fun QueueDialog(
                                             color = if (isCurrent) TertiaryCyan else PureWhite,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                         Text(
                                             text = track.artist,
                                             color = OnSurfaceVariant,
                                             fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                     if (isCurrent) {
-                                        EqualizerWaveBars(isPlaying = true, color = TertiaryCyan)
+                                        // Queue selection does not prove active playback; keep the indicator static.
+                                        EqualizerWaveBars(isPlaying = false, color = TertiaryCyan)
                                     } else {
                                         Text(
                                             text = formatTimeMillis(track.duration),
@@ -225,6 +234,7 @@ fun EqualizerDialog(
     })
 
     var selectedTab by remember { mutableStateOf(0) }
+    val dialogMaxHeight = (LocalConfiguration.current.screenHeightDp.dp - 40.dp).coerceAtLeast(280.dp)
 
     val presets = listOf(
         "Michi Signature",
@@ -253,6 +263,8 @@ fun EqualizerDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(max = dialogMaxHeight)
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
             ) {
                 // Header Bar
@@ -585,8 +597,8 @@ fun EqualizerDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         effectsState.bands.forEach { band ->
-                            val freqLabel = if (band.centerFreqHz >= 1000) "${band.centerFreqHz / 1000} kHz" else "${band.centerFreqHz} Hz"
-                            val gainDb = band.currentGainMilliDb / 100f
+                            val freqLabel = eqCenterFrequencyLabel(band.centerFreqHz)
+                            val gainDb = band.currentGainMilliDb / 1000f
 
                             Row(
                                 modifier = Modifier
@@ -630,7 +642,7 @@ fun EqualizerDialog(
                                     contentAlignment = Alignment.CenterEnd,
                                 ) {
                                     Text(
-                                        text = "${if (gainDb > 0) "+" else ""}${String.format("%.1f", gainDb)} dB",
+                                        text = eqGainMilliDbLabel(band.currentGainMilliDb),
                                         color = if (gainDb > 0.05f) TertiaryCyan else if (gainDb < -0.05f) PrimaryPink else TextMuted,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1010,8 +1022,8 @@ fun ManualConnectionDialog(
                         ipAddress = it
                         connectionError = null
                     },
-                    label = { Text("Dirección IP y Puerto") },
-                    placeholder = { Text("192.168.1.X:7331", color = OnSurfaceVariant) },
+                    label = { Text("IP o nombre local · puerto opcional") },
+                    placeholder = { Text("192.168.1.20:8400", color = OnSurfaceVariant) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = PureWhite,
@@ -1035,13 +1047,12 @@ fun ManualConnectionDialog(
 
                 Button(
                     onClick = {
-                        val trimmedIp = ipAddress.trim()
-                        val trimmedName = serverName.trim().ifEmpty { "Michi Node" }
-                        if (trimmedIp.isNotEmpty()) {
-                            onConnect(trimmedName, trimmedIp)
+                        val endpoint = parseManualEndpoint(ipAddress)
+                        if (endpoint != null) {
+                            onConnect(serverName.trim().ifEmpty { "Michi Node" }, endpoint.authority)
                             onDismiss()
                         } else {
-                            connectionError = "Por favor ingresa la IP y puerto del dispositivo"
+                            connectionError = MANUAL_ENDPOINT_ERROR
                         }
                     },
                     modifier = Modifier
@@ -1210,7 +1221,7 @@ fun AudioRouteDialog(
                         }
                     }
 
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = "Cerrar",
@@ -1223,7 +1234,9 @@ fun AudioRouteDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().heightIn(
+                        max = (LocalConfiguration.current.screenHeightDp.dp - 180.dp).coerceAtLeast(240.dp),
+                    ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     // Section 1: Endpoints Michi
@@ -1341,6 +1354,8 @@ fun AudioRouteDialog(
                                     is org.michimusic.player.AudioRouteStatus.Confirmed -> "CONFIRMADO"
                                     is org.michimusic.player.AudioRouteStatus.Requested -> "SOLICITADO"
                                     is org.michimusic.player.AudioRouteStatus.Detected -> "DETECTADO"
+                                    is org.michimusic.player.AudioRouteStatus.RoutedElsewhere -> "EN OTRA SALIDA"
+                                    is org.michimusic.player.AudioRouteStatus.LastObserved -> "ÚLTIMA OBSERVADA"
                                     is org.michimusic.player.AudioRouteStatus.Failed -> "ERROR DE RUTA"
                                     is org.michimusic.player.AudioRouteStatus.Unknown -> "NO VERIFICABLE"
                                     org.michimusic.player.AudioRouteStatus.NoDevice -> "DESCONECTADO"

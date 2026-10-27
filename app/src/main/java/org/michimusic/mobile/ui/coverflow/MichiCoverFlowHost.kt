@@ -1,57 +1,124 @@
 package org.michimusic.mobile.ui.coverflow
 
-import android.view.ViewGroup
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.AndroidView
-import com.yarolegovich.discretescrollview.DiscreteScrollView
-import org.michimusic.mobile.library.coverflow.AlbumCoverAdapter
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
-import org.michimusic.mobile.library.coverflow.MichiCoverTransformer
+import org.michimusic.mobile.ui.components.aeroCoverFlowShouldAnimate
+import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
+/**
+ * Native Compose CoverFlow. No RecyclerView/AndroidView bridge; no third-party runtime.
+ * Center selection is separate from playback: tapping a side cover selects it,
+ * tapping the centered cover invokes the caller's playback action.
+ */
 @Composable
 fun MichiCoverFlowHost(
     albums: List<CoverFlowAlbum>,
     onCurrentChanged: (Int) -> Unit = {},
     onAlbumClick: (Int) -> Unit = {},
+    initialPage: Int = 0,
     modifier: Modifier = Modifier,
 ) {
-    val currentChangedState = rememberUpdatedState(onCurrentChanged)
-    val albumClickState = rememberUpdatedState(onAlbumClick)
-
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            DiscreteScrollView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-                adapter = AlbumCoverAdapter(albums) { adapterPosition ->
-                    if (adapterPosition != currentItem) {
-                        scrollToPosition(adapterPosition)
-                        currentChangedState.value(adapterPosition)
-                    } else {
-                        albumClickState.value(adapterPosition)
-                    }
-                }
-                setItemTransformer(MichiCoverTransformer())
-                setOffscreenItems(3)
-                setSlideOnFling(true)
-                isNestedScrollingEnabled = true
-                addOnItemChangedListener { _, adapterPosition ->
-                    currentChangedState.value(adapterPosition)
-                }
-            }
-        },
-        update = { view ->
-            (view.adapter as? AlbumCoverAdapter)?.submitList(albums)
-            if (albums.isNotEmpty() && view.currentItem !in albums.indices) {
-                val safeIndex = albums.lastIndex
-                view.scrollToPosition(safeIndex)
-                currentChangedState.value(safeIndex)
-            }
-        },
+    if (albums.isEmpty()) return
+    val state = rememberPagerState(
+        initialPage = safeCoverFlowIndex(initialPage, albums.size),
+        pageCount = { albums.size },
     )
+    val scope = rememberCoroutineScope()
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion
+    val density = LocalDensity.current.density
+
+    LaunchedEffect(albums.size) {
+        if (state.currentPage > albums.lastIndex) state.scrollToPage(albums.lastIndex)
+    }
+
+    LaunchedEffect(state.currentPage, albums.size) {
+        state.currentPage.takeIf { it in albums.indices }?.let(onCurrentChanged)
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        // Constrain the card to the actual viewport: very small windows must not clip covers.
+        val pageWidth = minOf(maxWidth, if (maxWidth < 350.dp) 184.dp else 212.dp)
+        val sidePadding = ((maxWidth - pageWidth) / 2).coerceAtLeast(0.dp)
+        HorizontalPager(
+            state = state,
+            modifier = Modifier.fillMaxSize().testTag("michi_coverflow_compose"),
+            pageSize = PageSize.Fixed(pageWidth),
+            contentPadding = PaddingValues(horizontal = sidePadding),
+            pageSpacing = 8.dp,
+            key = { albums[it].id },
+        ) { page ->
+            val album = albums[page]
+            val signedOffset = (state.currentPage - page) + state.currentPageOffsetFraction
+            val visual = coverFlowGeometry(signedOffset, reducedMotion)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 10.dp)
+                    .graphicsLayer {
+                        rotationY = visual.rotationY
+                        cameraDistance = 24f * density
+                        scaleX = visual.scale
+                        scaleY = visual.scale
+                        alpha = visual.opacity
+                        shadowElevation = if (visual.raised) 8f else 0f
+                    }
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable {
+                        if (page == state.currentPage) {
+                            onAlbumClick(page)
+                        } else {
+                            scope.launch {
+                                if (aeroCoverFlowShouldAnimate(reducedMotion)) {
+                                    state.animateScrollToPage(page)
+                                } else {
+                                    state.scrollToPage(page)
+                                }
+                            }
+                        }
+                    }
+                    .semantics(mergeDescendants = true) {
+                        selected = page == state.currentPage
+                        contentDescription = "${album.title}, ${album.artist}. " +
+                            (if (page == state.currentPage) "Toca para reproducir" else "Toca para seleccionar")
+                    }
+                    .testTag("coverflow_album_${album.id}"),
+                contentAlignment = Alignment.Center,
+            ) {
+                AlbumArtView(
+                    coverStyle = coverStyleFor(album.coverUri.ifBlank { album.id }),
+                    imageModel = album.coverUri,
+                    fallbackMediaUri = album.sourceAudioUri,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    cornerRadius = 16.dp,
+                )
+            }
+        }
+    }
 }

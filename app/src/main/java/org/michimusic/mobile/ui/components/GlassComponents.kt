@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.components
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -40,9 +41,23 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.Role
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.theme.AeroGraphite
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
+import org.michimusic.mobile.ui.theme.AeroSheen
+import org.michimusic.mobile.ui.theme.AeroTrack
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -57,31 +72,17 @@ import org.michimusic.mobile.ui.theme.TertiaryCyanContainer
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
 
-fun formatTimeSeconds(seconds: Float): String {
-    val totalSecs = seconds.toInt().coerceAtLeast(0)
-    val mins = totalSecs / 60
-    val secs = totalSecs % 60
-    return "$mins:${if (secs < 10) "0$secs" else "$secs"}"
-}
+fun formatTimeSeconds(seconds: Float): String = mediaElapsedLabel(seconds)
 
-fun formatTimeMillis(millis: Long): String {
-    val totalSecs = (millis / 1000).toInt().coerceAtLeast(0)
-    val mins = totalSecs / 60
-    val secs = totalSecs % 60
-    return "$mins:${if (secs < 10) "0$secs" else "$secs"}"
-}
+fun formatTimeMillis(millis: Long): String = mediaDurationLabel(millis)
 
-fun formatRemainingTimeSeconds(current: Float, total: Float): String {
-    val remaining = (total - current).toInt().coerceAtLeast(0)
-    val mins = remaining / 60
-    val secs = remaining % 60
-    return "-$mins:${if (secs < 10) "0$secs" else "$secs"}"
-}
+fun formatRemainingTimeSeconds(current: Float, total: Float): String =
+    mediaRemainingLabel(current, total)
 
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(14.dp),
+    shape: Shape = MichiShapes.md,
     backgroundColor: Color = GlassFillLow,
     borderColor: Color = GlassBorderLow,
     glowColor: Color? = null,
@@ -90,54 +91,37 @@ fun GlassCard(
     accent: Color? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val effectiveGlow = glowColor ?: accent
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val role = if (backgroundColor == GlassFillHigh) AeroSurfaceRole.Floating else AeroSurfaceRole.Raised
+    val material = aeroMaterialStyle(role, highContrast)
+    val resolvedFill = when {
+        highContrast -> material.fill
+        backgroundColor == GlassFillLow || backgroundColor == GlassFillHigh -> material.fill
+        else -> backgroundColor // Preserve an explicitly requested semantic surface.
+    }
+    val resolvedBorder = when {
+        highContrast -> material.outline
+        glowColor != null -> glowColor.copy(alpha = 0.25f)
+        accent != null -> accent.copy(alpha = 0.25f)
+        borderColor == GlassBorderLow || borderColor == GlassBorderHigh -> material.outline
+        else -> borderColor
+    }
     val baseModifier = modifier
-        .then(
-            if (effectiveGlow != null) {
-                Modifier.drawBehind {
-                    drawCircle(
-                        color = effectiveGlow.copy(alpha = 0.22f),
-                        radius = size.maxDimension * 0.65f,
-                        center = center,
-                    )
-                }
-            } else {
-                Modifier
-            },
-        )
+        .then(if (material.elevation > 0.dp) Modifier.shadow(material.elevation, shape) else Modifier)
         .clip(shape)
-        .background(backgroundColor)
-        .border(
-            width = 1.dp,
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    borderColor.copy(alpha = 0.35f),
-                    borderColor.copy(alpha = 0.10f),
-                ),
-            ),
-            shape = shape,
-        )
+        .background(resolvedFill)
+        .then(if (material.borderWidth > 0.dp) Modifier.border(material.borderWidth, resolvedBorder, shape) else Modifier)
         .then(
-            if (contentPadding != null) {
-                Modifier.padding(contentPadding)
-            } else {
-                Modifier
-            }
+            if (onClick != null) Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(color = PrimaryPinkContainer),
+                role = Role.Button,
+                onClick = onClick,
+            ) else Modifier
         )
+        .then(if (contentPadding != null) Modifier.padding(contentPadding) else Modifier)
 
-    val finalModifier = if (onClick != null) {
-        baseModifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = ripple(color = PrimaryPink),
-            onClick = onClick,
-        )
-    } else {
-        baseModifier
-    }
-
-    Box(modifier = finalModifier) {
-        content()
-    }
+    Box(modifier = baseModifier) { content() }
 }
 
 @Composable
@@ -161,6 +145,13 @@ fun PulsingDot(
     color: Color = TertiaryCyan,
     size: Dp = 8.dp,
 ) {
+    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    if (LocalVisualPreferences.current.reducedMotion) {
+        Box(modifier = modifier.size(size * 2), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(size).background(color, CircleShape))
+        }
+        return
+    }
     val transition = rememberInfiniteTransition(label = "pulse_dot")
     val scale by transition.animateFloat(
         initialValue = 0.85f,
@@ -186,8 +177,8 @@ fun PulsingDot(
             .size(size * 2)
             .drawBehind {
                 drawCircle(
-                    color = color.copy(alpha = glowAlpha),
-                    radius = (size.toPx() * scale),
+                    color = color.copy(alpha = if (reducedMotion) 0.25f else glowAlpha),
+                    radius = (size.toPx() * if (reducedMotion) 0.85f else scale),
                 )
             },
         contentAlignment = Alignment.Center,
@@ -206,6 +197,13 @@ fun PulsingRadarRing(
     color: Color = TertiaryCyan,
     size: Dp = 48.dp,
 ) {
+    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    if (LocalVisualPreferences.current.reducedMotion) {
+        Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(size * 0.75f).background(color.copy(alpha = 0.15f), CircleShape))
+        }
+        return
+    }
     val transition = rememberInfiniteTransition(label = "radar_ring")
     val animatedRadius by transition.animateFloat(
         initialValue = 0.4f,
@@ -231,8 +229,8 @@ fun PulsingRadarRing(
             .size(size)
             .drawBehind {
                 drawCircle(
-                    color = color.copy(alpha = animatedAlpha),
-                    radius = (size.toPx() / 2f) * animatedRadius,
+                    color = color.copy(alpha = if (reducedMotion) 0f else animatedAlpha),
+                    radius = (size.toPx() / 2f) * if (reducedMotion) 0.75f else animatedRadius,
                 )
             },
         contentAlignment = Alignment.Center,
@@ -252,6 +250,18 @@ fun EqualizerWaveBars(
     barCount: Int = 4,
     color: Color = TertiaryCyan,
 ) {
+    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    if (!isPlaying || LocalVisualPreferences.current.reducedMotion) {
+        Row(modifier = modifier.height(18.dp), verticalAlignment = Alignment.Bottom) {
+            repeat(barCount.coerceIn(0, 16)) { i ->
+                val fraction = if (!isPlaying) 0.25f else listOf(0.55f, 0.8f, 0.4f, 0.65f)[i % 4]
+                Box(Modifier.width(2.5.dp).fillMaxHeight(fraction)
+                    .clip(RoundedCornerShape(1.dp)).background(color))
+                if (i < barCount - 1) Spacer(Modifier.width(2.dp))
+            }
+        }
+        return
+    }
     val transition = rememberInfiniteTransition(label = "eq_bars")
     val h1 by transition.animateFloat(
         initialValue = 0.3f, targetValue = 0.95f,
@@ -277,7 +287,7 @@ fun EqualizerWaveBars(
         verticalAlignment = Alignment.Bottom,
     ) {
         for (i in 0 until barCount) {
-            val scale = if (isPlaying) heights[i % heights.size] else 0.25f
+            val scale = if (isPlaying && !reducedMotion) heights[i % heights.size] else 0.25f
             Box(
                 modifier = Modifier
                     .width(2.5.dp)
@@ -302,14 +312,19 @@ fun GradientProgressBar(
     showThumb: Boolean = true,
     testTag: String = "progress_bar",
 ) {
-    val progress = if (maxValue > 0f) (currentValue / maxValue).coerceIn(0f, 1f) else 0f
+    val fraction = seekProgressFraction(currentValue, maxValue)
+    val progress = fraction ?: 0f
+    val canSeek = fraction != null
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion
     var isDragging by remember { mutableStateOf(false) }
     val animatedThumbSize by animateDpAsState(
         targetValue = if (isDragging) 18.dp else 14.dp,
+        animationSpec = if (reducedMotion) snap() else tween(150),
         label = "thumb_size",
     )
     val animatedTrackHeight by animateDpAsState(
         targetValue = if (isDragging) trackHeight + 2.dp else trackHeight,
+        animationSpec = if (reducedMotion) snap() else tween(150),
         label = "track_height",
     )
 
@@ -318,33 +333,37 @@ fun GradientProgressBar(
             .fillMaxWidth()
             .height(32.dp)
             .testTag(testTag)
-            .pointerInput(maxValue) {
+            .semantics {
+                progressBarRangeInfo = if (canSeek) ProgressBarRangeInfo(progress, 0f..1f)
+                else ProgressBarRangeInfo.Indeterminate
+                if (canSeek) {
+                    setProgress { selected ->
+                        val target = seekPositionForFraction(selected, maxValue)
+                        if (target != null) { onSeek(target); true } else false
+                    }
+                }
+            }
+            .then(if (canSeek) Modifier.pointerInput(maxValue) {
                 detectTapGestures(
                     onPress = {
                         isDragging = true
-                        try {
-                            awaitRelease()
-                        } finally {
-                            isDragging = false
-                        }
+                        try { awaitRelease() } finally { isDragging = false }
                     },
                     onTap = { offset ->
-                        val newProgress = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        onSeek(newProgress * maxValue)
+                        seekPositionForFraction(offset.x / size.width.toFloat(), maxValue)?.let(onSeek)
                     },
                 )
-            }
-            .pointerInput(maxValue) {
+            } else Modifier)
+            .then(if (canSeek) Modifier.pointerInput(maxValue) {
                 detectHorizontalDragGestures(
                     onDragStart = { isDragging = true },
                     onDragEnd = { isDragging = false },
                     onDragCancel = { isDragging = false },
                 ) { change, _ ->
                     change.consume()
-                    val newProgress = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    onSeek(newProgress * maxValue)
+                    seekPositionForFraction(change.position.x / size.width.toFloat(), maxValue)?.let(onSeek)
                 }
-            },
+            } else Modifier),
         contentAlignment = Alignment.CenterStart,
     ) {
         val totalWidth = maxWidth
@@ -355,7 +374,7 @@ fun GradientProgressBar(
                 .fillMaxWidth()
                 .height(animatedTrackHeight)
                 .clip(CircleShape)
-                .background(Color(0x33FFFFFF)),
+                .background(AeroTrack),
         )
 
         // Elapsed Progress Gradient
@@ -368,9 +387,8 @@ fun GradientProgressBar(
                     drawRect(
                         brush = Brush.horizontalGradient(
                             colors = listOf(
+                                PrimaryPinkContainer.copy(alpha = 0.78f),
                                 PrimaryPinkContainer,
-                                SecondaryPurple,
-                                TertiaryCyanContainer,
                             ),
                         ),
                     )
@@ -378,19 +396,19 @@ fun GradientProgressBar(
         )
 
         // Scrubber Thumb
-        if (showThumb && progress > 0f) {
+        if (showThumb && canSeek) {
             val halfThumb = animatedThumbSize / 2
             val thumbOffset = (totalWidth * progress) - halfThumb
             Box(
                 modifier = Modifier
-                    .offset(x = thumbOffset.coerceAtLeast(0.dp))
+                    .offset(x = thumbOffset.coerceIn(0.dp, (totalWidth - animatedThumbSize).coerceAtLeast(0.dp)))
                     .size(animatedThumbSize)
-                    .shadow(elevation = if (isDragging) 8.dp else 4.dp, shape = CircleShape)
+                    .shadow(elevation = if (isDragging) 6.dp else 2.dp, shape = CircleShape)
                     .clip(CircleShape)
                     .background(PureWhite)
                     .border(
                         if (isDragging) 2.5.dp else 2.dp,
-                        if (isDragging) TertiaryCyan else Color(0xFF090B11),
+                        if (isDragging) PrimaryPinkContainer else AeroGraphite,
                         CircleShape,
                     ),
             )

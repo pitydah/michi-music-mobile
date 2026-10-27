@@ -14,6 +14,7 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -69,7 +70,8 @@ class PlayerController(
             builder.build()
         }
     } catch (e: Exception) {
-        Log.w(TAG, "Failed to create custom AudioSink with processors; falling back to default", e)
+        Log.w(TAG, "Custom AudioSink unavailable; PCM instrumentation will be degraded", e)
+        signalTruthTracker?.markInstrumentationDegraded()
         DefaultAudioSink.Builder(context)
             .setAudioTrackProvider(audioTrackProvider)
             .build()
@@ -90,9 +92,14 @@ class PlayerController(
                 encoding = audioTrackConfig.encoding,
             )
         }
+
+        override fun onAudioTrackReleased(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
+            signalTruthTracker?.onAudioTrackReleased()
+            routeObserver?.detachAudioTrack()
+        }
     }
 
-    private val renderersFactory = RenderersFactory { handler, _, _, _, _ ->
+    private val renderersFactory = RenderersFactory { handler, videoListener, audioListener, textOutput, metadataOutput ->
         try {
             arrayOf(
                 MediaCodecAudioRenderer(
@@ -104,8 +111,13 @@ class PlayerController(
                 ),
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create MediaCodecAudioRenderer, falling back to empty renderers", e)
-            emptyArray()
+            Log.e(TAG, "Custom audio renderer unavailable; using the standard Media3 factory", e)
+            signalTruthTracker?.markInstrumentationDegraded()
+            DefaultRenderersFactory(context).createRenderers(
+                handler, videoListener, audioListener, textOutput, metadataOutput,
+            ).filter { it.trackType == C.TRACK_TYPE_AUDIO }.toTypedArray().also {
+                check(it.isNotEmpty()) { "Media3 fallback did not supply an audio renderer" }
+            }
         }
     }
 
@@ -141,6 +153,8 @@ class PlayerController(
                     isPlaying = isPlaying,
                     playbackStatus = status,
                 )
+                routeObserver?.onPlaybackStateChanged(isPlaying)
+                signalTruthTracker?.setPlaybackActive(isPlaying)
                 if (isPlaying) startPositionUpdates() else stopPositionUpdates()
             }
 
@@ -204,12 +218,14 @@ class PlayerController(
                         queueIndex = index,
                         position = 0L,
                     )
-                    signalTruthTracker?.onTrackChanged(track)
                 }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
+                    // A new AudioTrack may have been installed during a seamless item
+                    // transition without another onIsPlayingChanged(true) event.
+                    routeObserver?.onPlaybackStateChanged(player.isPlaying)
                     _state.value = _state.value.copy(
                         duration = player.duration.coerceAtLeast(0L),
                         playbackStatus = if (_state.value.isPlaying) PlaybackStatus.Playing else PlaybackStatus.Paused,
@@ -220,8 +236,10 @@ class PlayerController(
                 } else if (playbackState == Player.STATE_BUFFERING) {
                     _state.value = _state.value.copy(playbackStatus = PlaybackStatus.Buffering)
                 } else if (playbackState == Player.STATE_ENDED) {
+                    signalTruthTracker?.onPlaybackStopped()
                     _state.value = _state.value.copy(playbackStatus = PlaybackStatus.Ended, isPlaying = false)
                 } else if (playbackState == Player.STATE_IDLE) {
+                    signalTruthTracker?.onPlaybackStopped()
                     val err = player.playerError?.let { PlaybackErrorMapper.mapPlaybackError(it) }
                     _state.value = _state.value.copy(
                         playbackStatus = err ?: PlaybackStatus.Idle,
@@ -261,9 +279,24 @@ class PlayerController(
 
         if (usbDacManager != null) {
             usbDacManager.onUsbDisconnectedListener = {
-                if (player.isPlaying) {
-                    Log.i(TAG, "USB desconectado durante reproducción; pausando para evitar audio por altavoz")
+                // Buffering with playWhenReady=true must also be paused before Android
+                // switches the pending audio to the built-in speaker.
+                if (player.playWhenReady) {
+                    Log.i(TAG, "USB desconectado; pausando reproducción activa/pendiente")
                     pause()
+                }
+            }
+            controllerScope.launch {
+                usbDacManager.routeStatus.collect { route ->
+                    if (player.playWhenReady && usbRouteMismatchRequiresPause(
+                            route,
+                            setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
+                                AudioDeviceInfo.TYPE_USB_HEADSET,
+                                AudioDeviceInfo.TYPE_USB_ACCESSORY),
+                        )) {
+                        Log.w(TAG, "Ruta DAC solicitada distinta a salida observada; pausando sin fallback silencioso")
+                        player.pause()
+                    }
                 }
             }
             controllerScope.launch {
@@ -272,6 +305,10 @@ class PlayerController(
                         player.setPreferredAudioDevice(preferredDevice)
                     } catch (e: Exception) {
                         Log.w(TAG, "Error aplicando dispositivo de audio en ExoPlayer", e)
+                        val requestedId = usbDacManager.selectedDeviceId.value
+                            ?: usbDacManager.dacState.value.deviceId.takeIf { it != 0 }
+                        routeObserver?.onRoutingFailed(requestedId, RouteFailure.ROUTING_REJECTED)
+                        if (player.playWhenReady && requestedId != null) player.pause()
                     }
                 }
             }
@@ -433,6 +470,7 @@ class PlayerController(
     }
 
     fun clearQueue() {
+        signalTruthTracker?.onPlaybackStopped()
         player.stop()
         player.clearMediaItems()
         _state.value = PlayerState()
@@ -447,11 +485,13 @@ class PlayerController(
     }
 
     fun release() {
+        signalTruthTracker?.onPlaybackStopped()
         stopPositionUpdates()
         usbDacManager?.onUsbDisconnectedListener = null
         routeObserver?.detachAudioTrack()
         controllerJob.cancel()
         player.release()
+        audioEffects?.release()
     }
 
     private companion object {

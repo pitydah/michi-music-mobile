@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.MichiSpacing
@@ -39,9 +41,10 @@ fun MichiIconAction(
     minTargetSize: Dp = MichiSpacing.minTouchTarget,
     testTag: String? = null,
 ) {
+    val accessibilityLabel = contentDescription?.takeIf { it.isNotBlank() } ?: "Acción"
     Box(
         modifier = modifier
-            .size(minTargetSize)
+            .size(minTargetSize.coerceAtLeast(MichiSpacing.minTouchTarget))
             .clip(CircleShape)
             .clickable(
                 enabled = enabled,
@@ -50,12 +53,13 @@ fun MichiIconAction(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(bounded = true, color = tint.copy(alpha = 0.35f)),
             )
+            .semantics { this.contentDescription = accessibilityLabel }
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = contentDescription,
+            contentDescription = null,
             tint = if (enabled) tint else tint.copy(alpha = 0.38f),
             modifier = Modifier.size(iconSize),
         )

@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -76,6 +78,9 @@ import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiTypography
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.player.AudioController
 
 @Composable
@@ -88,6 +93,7 @@ fun QueueScreen() {
     val isReady by controller.isReady.collectAsState()
     val queue = state.queue
     val currentIndex = state.queueIndex
+    var showClearConfirmation by remember { mutableStateOf(false) }
 
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
@@ -96,25 +102,13 @@ fun QueueScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
-            .drawBehind {
-                drawCircle(
-                    color = PrimaryPinkContainer.copy(alpha = 0.08f),
-                    radius = size.width * 0.7f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.1f, size.height * 0.1f),
-                )
-                drawCircle(
-                    color = TertiaryCyan.copy(alpha = 0.06f),
-                    radius = size.width * 0.6f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 0.9f, size.height * 0.85f),
-                )
-            },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
 
             // Header
             Row(
@@ -122,21 +116,16 @@ fun QueueScreen() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "REPRODUCCIÓN",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = PrimaryPink,
-                        letterSpacing = 2.sp,
+                        style = MichiTypography.screenEyebrow,
                     )
                     Text(
-                        text = "Cola de Audio",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = PureWhite,
-                            letterSpacing = (-0.5).sp,
-                        ),
+                        text = "Cola de reproducción",
+                        style = MichiTypography.sectionTitle,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
@@ -144,14 +133,16 @@ fun QueueScreen() {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(PrimaryPinkContainer.copy(alpha = 0.15f))
-                            .border(1.dp, PrimaryPinkContainer.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                            .background(AeroGraphiteRaised)
+                            .border(0.75.dp, org.michimusic.mobile.ui.theme.AeroHairline, RoundedCornerShape(12.dp))
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(color = PrimaryPink),
-                                onClick = { controller.clearQueue() },
+                                onClick = { showClearConfirmation = true },
                             )
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .height(48.dp)
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -209,7 +200,7 @@ fun QueueScreen() {
                         }
 
                         Text(
-                            text = "Pista ${(currentIndex + 1).coerceAtMost(queue.size)} de ${queue.size}",
+                            text = if (currentIndex in queue.indices) "Pista ${currentIndex + 1} de ${queue.size}" else "Ninguna seleccionada",
                             fontSize = 12.sp,
                             color = TextSecondary,
                         )
@@ -257,18 +248,19 @@ fun QueueScreen() {
                         val isCurrent = idx == currentIndex
                         GlassCard(
                             modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = if (isCurrent) TertiaryCyan.copy(alpha = 0.10f) else GlassFillLow,
-                            borderColor = if (isCurrent) TertiaryCyan.copy(alpha = 0.45f) else GlassBorderLow,
-                            accent = if (isCurrent) TertiaryCyan else null,
+                            backgroundColor = if (isCurrent) AeroGraphiteRaised else GlassFillLow,
+                            borderColor = GlassBorderLow,
+                            accent = if (isCurrent) PrimaryPinkContainer else null,
                             onClick = { controller.playQueue(queue, idx) },
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
+                            // Separate track metadata from queue actions. Four 44dp icons
+                            // alongside title/artwork did not fit 320dp screens.
+                            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
                                 // Index or Equalizer
                                 Box(
                                     modifier = Modifier.size(28.dp),
@@ -293,7 +285,9 @@ fun QueueScreen() {
 
                                 // Thumbnail
                                 AlbumArtView(
-                                    coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(track.title),
+                                    coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(track.coverId.ifBlank { track.title }),
+                                    imageModel = track.coverId,
+                                    fallbackMediaUri = track.filepath,
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(RoundedCornerShape(8.dp)),
@@ -304,7 +298,7 @@ fun QueueScreen() {
                                         text = track.title,
                                         fontSize = 14.sp,
                                         fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.SemiBold,
-                                        color = if (isCurrent) TertiaryCyan else PureWhite,
+                                        color = PureWhite,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -319,22 +313,25 @@ fun QueueScreen() {
 
                                 Text(
                                     text = formatTimeMillis(track.duration),
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     color = TextMuted,
                                 )
 
+                                } // Track content row
+                                Spacer(Modifier.height(8.dp))
                                 Row(
+                                    modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                                    horizontalArrangement = Arrangement.End,
                                 ) {
                                     if (idx > 0) {
                                         androidx.compose.material3.IconButton(
                                             onClick = { controller.moveQueueItem(idx, idx - 1) },
-                                            modifier = Modifier.size(44.dp),
+                                            modifier = Modifier.size(48.dp),
                                         ) {
                                             Icon(
                                                 imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowUp,
-                                                contentDescription = "Mover arriba",
+                                                contentDescription = "Subir ${track.title} en la cola",
                                                 tint = TextSecondary,
                                                 modifier = Modifier.size(20.dp),
                                             )
@@ -343,11 +340,11 @@ fun QueueScreen() {
                                     if (idx < queue.lastIndex) {
                                         androidx.compose.material3.IconButton(
                                             onClick = { controller.moveQueueItem(idx, idx + 1) },
-                                            modifier = Modifier.size(44.dp),
+                                            modifier = Modifier.size(48.dp),
                                         ) {
                                             Icon(
                                                 imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
-                                                contentDescription = "Mover abajo",
+                                                contentDescription = "Bajar ${track.title} en la cola",
                                                 tint = TextSecondary,
                                                 modifier = Modifier.size(20.dp),
                                             )
@@ -355,22 +352,22 @@ fun QueueScreen() {
                                     }
                                     androidx.compose.material3.IconButton(
                                         onClick = { controller.removeFromQueue(idx) },
-                                        modifier = Modifier.size(44.dp),
+                                        modifier = Modifier.size(48.dp),
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Clear,
-                                            contentDescription = "Quitar de cola",
-                                            tint = PrimaryPink.copy(alpha = 0.8f),
+                                            contentDescription = "Quitar ${track.title} de la cola",
+                                            tint = org.michimusic.mobile.ui.theme.ErrorColor,
                                             modifier = Modifier.size(18.dp),
                                         )
                                     }
                                     androidx.compose.material3.IconButton(
                                         onClick = { selectedTrackForMenu = track },
-                                        modifier = Modifier.size(44.dp),
+                                        modifier = Modifier.size(48.dp),
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "Opciones",
+                                            contentDescription = "Opciones de ${track.title}",
                                             tint = TextSecondary,
                                             modifier = Modifier.size(20.dp),
                                         )
@@ -385,6 +382,26 @@ fun QueueScreen() {
                     }
                 }
             }
+        }
+
+        if (showClearConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showClearConfirmation = false },
+                title = { Text("Vaciar la cola") },
+                text = { Text("Se quitarán ${queue.size} pistas de la cola actual. No se eliminarán archivos de tu biblioteca.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showClearConfirmation = false
+                        controller.clearQueue()
+                    }) { Text("Vaciar cola") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearConfirmation = false }) { Text("Cancelar") }
+                },
+                containerColor = SurfaceDark,
+                titleContentColor = PureWhite,
+                textContentColor = TextSecondary,
+            )
         }
 
         selectedTrackForMenu?.let { track ->

@@ -1,5 +1,11 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.mobile.ui.components.sameDiscoveredEndpoint
+import org.michimusic.mobile.ui.components.parseManualEndpoint
+import org.michimusic.mobile.ui.components.syncProgressPresentation
+import org.michimusic.mobile.ui.components.allowLegacyReceiverButton
+import org.michimusic.mobile.ui.components.UNVERIFIED_RECEIVER_GUIDANCE
+
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -62,9 +68,14 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.PulsingRadarRing
+import org.michimusic.mobile.ui.components.isProvisionedMichiStream
+import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import org.michimusic.mobile.ui.components.QrScannerDialog
 import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
 import org.michimusic.mobile.ui.theme.ErrorColor
@@ -90,7 +101,9 @@ fun SyncScreen(
     val isSearching = uiState.state == SyncConnectionState.DISCOVERING
 
     var showQrDialog by remember { mutableStateOf(false) }
+    var showStreamProvisioningNotice by remember { mutableStateOf(false) }
     var showManualDialog by remember { mutableStateOf(false) }
+    var showUnverifiedReceiverNotice by remember { mutableStateOf(false) }
     var pendingPeerForPin by remember { mutableStateOf<Pair<DiscoveredPeer, String>?>(null) }
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<DiscoveredPeer, String>?>(null) }
     var pendingPeerForPassword by remember { mutableStateOf<Pair<DiscoveredPeer, String>?>(null) }
@@ -102,16 +115,20 @@ fun SyncScreen(
         }
     }
 
-    val refreshTransition = rememberInfiniteTransition(label = "refresh_spin")
-    val spinAngle by refreshTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "spin",
-    )
+    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    val spinAngle = if (isSearching && !reducedMotion) {
+        val refreshTransition = rememberInfiniteTransition(label = "refresh_spin")
+        val animatedAngle by refreshTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "spin",
+        )
+        animatedAngle
+    } else 0f
 
     Box(
         modifier = modifier
@@ -134,7 +151,7 @@ fun SyncScreen(
             ) {
                 IconButton(
                     onClick = onNavigateToSynced,
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.FolderSpecial,
@@ -145,16 +162,15 @@ fun SyncScreen(
                 }
 
                 Text(
-                    text = "Sincronización",
-                    color = PrimaryPink,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
+                    text = "Michi Link",
+                    color = PureWhite,
+                    style = MichiTypography.sectionTitle,
                     modifier = Modifier.testTag("sync_title"),
                 )
 
                 IconButton(
                     onClick = { viewModel.startDiscovery() },
-                    modifier = Modifier.size(40.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Refresh,
@@ -194,7 +210,7 @@ fun SyncScreen(
                                 modifier = Modifier.size(48.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                PulsingRadarRing(color = TertiaryCyan, size = 48.dp)
+                                if (isSearching) PulsingRadarRing(color = TertiaryCyan, size = 48.dp)
                                 Icon(
                                     imageVector = Icons.Filled.WifiTethering,
                                     contentDescription = null,
@@ -205,14 +221,22 @@ fun SyncScreen(
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (isSearching) "Buscando servidor Michi Desktop..." else "Red local preparada",
+                                    text = if (isSearching) "Buscando dispositivos Michi..." else when (uiState.state) {
+                                        SyncConnectionState.CONNECTED -> "Conexión establecida"
+                                        SyncConnectionState.CONNECTING -> "Conectando al dispositivo"
+                                        SyncConnectionState.PAIRING, SyncConnectionState.PAIRING_REQUIRED -> "Vinculación pendiente"
+                                        SyncConnectionState.PAIRED -> "Identidad vinculada"
+                                        SyncConnectionState.REVOKED, SyncConnectionState.UNAUTHORIZED -> "Acceso no autorizado"
+                                        SyncConnectionState.ERROR, SyncConnectionState.AUTH_ERROR -> "Revisa la conexión"
+                                        SyncConnectionState.OFFLINE -> "Dispositivo sin conexión"
+                                        else -> "Listo para buscar dispositivos"
+                                    },
                                     color = PureWhite,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    style = MichiTypography.cardTitle,
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Asegúrate de que ambos dispositivos estén conectados a la misma red Wi-Fi.",
+                                    text = "Descubre equipos en la red local. La presencia no confirma una vinculación segura.",
                                     color = OnSurfaceVariant.copy(alpha = 0.8f),
                                     fontSize = 13.sp,
                                 )
@@ -245,7 +269,7 @@ fun SyncScreen(
                                     modifier = Modifier.size(18.dp),
                                 )
                                 Text(
-                                    text = "EMPAREJAR VÍA QR",
+                                    text = "VINCULAR POR QR",
                                     color = TertiaryCyan,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
@@ -280,7 +304,6 @@ fun SyncScreen(
                                 .testTag("scan_qr_button"),
                             backgroundColor = GlassFillHigh,
                             borderColor = PrimaryPinkContainer.copy(alpha = 0.5f),
-                            glowColor = PrimaryPink,
                             onClick = { showQrDialog = true },
                         ) {
                             Row(
@@ -318,7 +341,11 @@ fun SyncScreen(
                                             pendingPeerForPin = peer to serverName
                                         }
                                         org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
-                                            pendingPeerForReceiver = peer to serverName
+                                            if (isProvisionedMichiStream(peer.deviceType)) {
+                                                showStreamProvisioningNotice = true
+                                            } else {
+                                                pendingPeerForReceiver = peer to serverName
+                                            }
                                         }
                                         org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> {
                                             pendingPeerForPassword = peer to serverName
@@ -404,25 +431,57 @@ fun SyncScreen(
             )
         }
 
+        if (showUnverifiedReceiverNotice) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showUnverifiedReceiverNotice = false },
+                title = { androidx.compose.material3.Text("Receptor no identificado") },
+                text = { androidx.compose.material3.Text(UNVERIFIED_RECEIVER_GUIDANCE) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showUnverifiedReceiverNotice = false
+                        viewModel.startDiscovery()
+                    }) { androidx.compose.material3.Text("Buscar dispositivos") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showUnverifiedReceiverNotice = false }) {
+                        androidx.compose.material3.Text("Cerrar")
+                    }
+                },
+            )
+        }
+
         if (showManualDialog) {
             ManualConnectionDialog(
                 onConnect = { name, ipStr ->
                     showManualDialog = false
-                    val parts = ipStr.split(":")
-                    val host = parts[0]
-                    val port = if (parts.size > 1) parts[1].toIntOrNull() ?: 8400 else 8400
-                    val peer = DiscoveredPeer(
+                    val endpoint = parseManualEndpoint(ipStr)
+                    if (endpoint == null) {
+                        showUnverifiedReceiverNotice = true
+                    } else {
+                    val discovered = uiState.peers.firstOrNull {
+                        sameDiscoveredEndpoint(endpoint.host, endpoint.port, it.ip, it.port)
+                    }
+                    val peer = discovered ?: DiscoveredPeer(
                         alias = name.ifBlank { "Michi Node" },
-                        ip = host.trim(),
-                        port = port,
+                        ip = endpoint.host,
+                        port = endpoint.port,
                     )
-                    viewModel.connectManual(name, ipStr) { strategy, serverName ->
+                    // The discovered peer keeps its type/device ID; the ViewModel still
+                    // resolves and authenticates the pairing strategy against Michi Link.
+                    viewModel.preparePairing(peer) { strategy, serverName ->
                         when (strategy) {
                             org.michimusic.link.dto.PairingStrategy.SERVER_CODE -> pendingPeerForPin = peer to serverName
-                            org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> pendingPeerForReceiver = peer to serverName
+                            org.michimusic.link.dto.PairingStrategy.RECEIVER_BUTTON -> {
+                                when {
+                                    isProvisionedMichiStream(peer.deviceType) -> showStreamProvisioningNotice = true
+                                    !allowLegacyReceiverButton(peer.deviceType, discovered != null) -> showUnverifiedReceiverNotice = true
+                                    else -> pendingPeerForReceiver = peer to serverName
+                                }
+                            }
                             org.michimusic.link.dto.PairingStrategy.PLAYER_PASSWORD, org.michimusic.link.dto.PairingStrategy.LEGACY -> pendingPeerForPassword = peer to serverName
                             org.michimusic.link.dto.PairingStrategy.ED25519_CHALLENGE -> viewModel.confirmPairing(pin = "", peer = peer)
                         }
+                    }
                     }
                 },
                 onDismiss = { showManualDialog = false },
@@ -452,6 +511,17 @@ fun SyncScreen(
                     pendingPeerForPin = null
                 },
                 onDismiss = { pendingPeerForPin = null },
+            )
+        }
+
+        if (showStreamProvisioningNotice) {
+            AlertDialog(
+                onDismissRequest = { showStreamProvisioningNotice = false },
+                title = { Text("Michi Stream · Aprovisionamiento") },
+                text = { Text(STREAM_PROVISIONING_GUIDANCE) },
+                confirmButton = {
+                    TextButton(onClick = { showStreamProvisioningNotice = false }) { Text("Entendido") }
+                },
             )
         }
 
@@ -567,11 +637,8 @@ private fun SyncProgressCard(
     isCancelling: Boolean = false,
     onCancel: () -> Unit = {},
 ) {
-    val fraction = if (total > 0) {
-        (completed.toFloat() / total.toFloat()).coerceIn(0.05f, 1f)
-    } else {
-        0.05f
-    }
+    val progress = syncProgressPresentation(completed, total)
+    val fraction = progress.fraction
 
     GlassCard(
         modifier = Modifier
@@ -609,31 +676,26 @@ private fun SyncProgressCard(
                 }
 
                 Text(
-                    text = "${(fraction * 100).toInt()}%",
+                    text = if (fraction == null) "Total pendiente" else "${(fraction * 100).toInt()}%",
                     color = if (isCancelling) ErrorColor else TertiaryCyan,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
 
-            // Progress Bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x22FFFFFF)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction = fraction)
-                        .height(8.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.horizontalGradient(
-                                if (isCancelling) listOf(ErrorColor, PrimaryPink) else listOf(PrimaryPink, TertiaryCyan),
-                            ),
-                        ),
+            // Unknown totals use an indeterminate indicator, never fictional progress.
+            if (fraction == null) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = if (isCancelling) ErrorColor else TertiaryCyan,
+                    trackColor = Color(0x22FFFFFF),
+                )
+            } else {
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = if (isCancelling) ErrorColor else TertiaryCyan,
+                    trackColor = Color(0x22FFFFFF),
                 )
             }
 
@@ -643,18 +705,17 @@ private fun SyncProgressCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "$completed / $total canciones transferidas",
+                    text = progress.detail,
                     color = OnSurfaceVariant,
                     fontSize = 11.sp,
                 )
                 if (!isCancelling) {
-                    Text(
-                        text = "Detener",
-                        color = PrimaryPink,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { onCancel() },
-                    )
+                    androidx.compose.material3.TextButton(
+                        onClick = onCancel,
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text(text = "Detener", color = PrimaryPink, style = MichiTypography.metadata)
+                    }
                 }
             }
         }

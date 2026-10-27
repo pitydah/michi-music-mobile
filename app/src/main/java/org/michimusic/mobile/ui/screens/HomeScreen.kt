@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,6 +112,17 @@ fun HomeScreen(
 
     val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
     val isPlaying = sessionState.isPlaying
+    // The hero already represents the active song. Avoid repeating it below.
+    val visibleRecent = remember(recentTracks, currentTrack?.id) {
+        recentTracks.filterNot { it.id == currentTrack?.id }.distinctBy { it.id }.take(8)
+    }
+    // No recommendation engine is wired to this screen yet. Present honest library picks,
+    // never replay the active or recently-played tracks as fake suggestions.
+    val libraryPicks = remember(allTracks, recentTracks, currentTrack?.id) {
+        val excluded = recentTracks.mapTo(mutableSetOf()) { it.id }
+        currentTrack?.id?.let(excluded::add)
+        allTracks.filterNot { it.id in excluded }.distinctBy { it.id }.take(6)
+    }
 
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.error.collectAsState()
@@ -142,11 +155,12 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Red.copy(alpha = 0.1f))
+                        .background(org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.12f))
                         .testTag("error_message")
                         .padding(8.dp)
                 ) {
-                    Text(text = errMsg, color = Color.Red)
+                    Text(text = errMsg, color = org.michimusic.mobile.ui.theme.ErrorColor,
+                        style = MichiTypography.metadata)
                 }
             }
 
@@ -170,7 +184,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("home_scroll_list"),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 // 1. Continue Listening (Hero section based on real active session)
@@ -190,46 +204,50 @@ fun HomeScreen(
                                 }
                             },
                         )
-                    } else {
+                    } else if (allTracks.isNotEmpty()) {
                         ActionButtonsSection(
-                            onQuickPlay = {
-                                if (allTracks.isNotEmpty()) {
-                                    audioController.playQueue(allTracks, 0)
-                                }
-                            },
-                            onShuffle = {
-                                if (allTracks.isNotEmpty()) {
-                                    audioController.playQueue(allTracks.shuffled(), 0)
-                                }
-                            },
+                            onQuickPlay = { audioController.playQueue(allTracks, 0) },
+                            onShuffle = { audioController.playQueue(allTracks.shuffled(), 0) },
                         )
+                    } else {
+                        EmptyLibraryHomeCard()
                     }
                 }
 
                 // 2. Recently Played Carousel (Honest labels: "Recientemente Escuchadas" strictly for history, or "De tu biblioteca" as general suggestions)
-                if (recentTracks.isNotEmpty()) {
+                if (visibleRecent.isNotEmpty()) {
                     item {
                         RecentlyPlayedSection(
                             title = "Recientemente Escuchadas",
-                            tracks = recentTracks,
+                            tracks = visibleRecent,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track ->
-                                val index = allTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                                audioController.playQueue(allTracks, index)
+                                val index = allTracks.indexOfFirst { it.id == track.id }
+                                // A stale suggestion must never play the first unrelated track.
+                                if (index >= 0) {
+                                    audioController.playQueue(allTracks, index)
+                                } else {
+                                    scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
+                                }
                             },
                         )
                     }
-                } else if (allTracks.isNotEmpty()) {
+                } else if (recentTracks.isEmpty() && allTracks.any { it.id != currentTrack?.id }) {
                     item {
                         RecentlyPlayedSection(
                             title = "De tu biblioteca",
-                            tracks = allTracks.take(8),
+                            tracks = allTracks.filterNot { it.id == currentTrack?.id }.take(8),
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track ->
-                                val index = allTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                                audioController.playQueue(allTracks, index)
+                                val index = allTracks.indexOfFirst { it.id == track.id }
+                                // A stale suggestion must never play the first unrelated track.
+                                if (index >= 0) {
+                                    audioController.playQueue(allTracks, index)
+                                } else {
+                                    scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
+                                }
                             },
                         )
                     }
@@ -257,15 +275,20 @@ fun HomeScreen(
                 }
 
                 // 4. Quick Picks Showcase
-                if (allTracks.isNotEmpty()) {
+                if (recentTracks.isNotEmpty() && libraryPicks.isNotEmpty()) {
                     item {
                         QuickPicksSection(
-                            tracks = allTracks.take(6),
+                            tracks = libraryPicks,
                             currentTrack = currentTrack,
                             isPlaying = isPlaying,
                             onTrackClick = { track ->
-                                val index = allTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                                audioController.playQueue(allTracks, index)
+                                val index = allTracks.indexOfFirst { it.id == track.id }
+                                // A stale suggestion must never play the first unrelated track.
+                                if (index >= 0) {
+                                    audioController.playQueue(allTracks, index)
+                                } else {
+                                    scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
+                                }
                             },
                         )
                     }
@@ -370,6 +393,9 @@ private fun ContinueListeningCard(
                     style = MichiTypography.microLabel,
                     color = if (endpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
             }
 
@@ -382,9 +408,10 @@ private fun ContinueListeningCard(
             ) {
                 AlbumArtView(
                     coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                    imageModel = track.filepath.ifEmpty { track.coverId },
+                    imageModel = track.coverId.takeIf { it.isNotBlank() },
+                    fallbackMediaUri = track.filepath,
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(68.dp)
                         .clip(MichiShapes.sm),
                 )
 
@@ -392,7 +419,7 @@ private fun ContinueListeningCard(
                     Text(
                         text = track.title,
                         style = MichiTypography.cardTitle,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
@@ -403,19 +430,10 @@ private fun ContinueListeningCard(
                     )
                 }
 
-                if (isRemote) {
-                    OutlinedButton(
-                        onClick = onContinueHere,
-                        modifier = Modifier.height(38.dp),
-                        shape = MichiShapes.sm,
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) {
-                        Text("Continuar aquí", color = PureWhite, fontSize = 12.sp)
-                    }
-                } else {
+                if (!isRemote) {
                     Button(
                         onClick = onPlayPause,
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(MichiSpacing.minTouchTarget),
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                         contentPadding = PaddingValues(0.dp),
@@ -429,6 +447,51 @@ private fun ContinueListeningCard(
                     }
                 }
             }
+            if (isRemote) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onContinueHere,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = MichiShapes.sm,
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                ) {
+                    Text("Continuar en este teléfono", color = PureWhite, style = MichiTypography.cardTitle)
+                }
+            }
+        }
+    }
+}
+
+/** An empty collection is not a playable queue. Never show dead transport controls. */
+@Composable
+private fun EmptyLibraryHomeCard() {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("home_empty_library"),
+        backgroundColor = GlassFillHigh,
+        borderColor = GlassBorderLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.LibraryMusic,
+                contentDescription = null,
+                tint = PrimaryPinkContainer,
+                modifier = Modifier.size(28.dp),
+            )
+            Text(
+                text = "Tu biblioteca está vacía",
+                style = MichiTypography.cardTitle,
+                color = PureWhite,
+            )
+            Text(
+                text = "Cuando agregues música al teléfono, aparecerá aquí para reproducirla.",
+                style = MichiTypography.metadata,
+                color = OnSurfaceVariant,
+            )
         }
     }
 }
@@ -452,6 +515,7 @@ private fun ActionButtonsSection(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(color = PureWhite),
+                    role = Role.Button,
                     onClick = onQuickPlay,
                 )
                 .testTag("quick_play_button"),
@@ -572,14 +636,15 @@ private fun RecentTrackCard(
                 .aspectRatio(1f)
                 .clip(MichiShapes.md)
                 .border(
-                    width = if (isCurrent) 1.5.dp else 1.dp,
-                    color = if (isCurrent) PrimaryPinkContainer else GlassBorderLow,
+                    width = if (isCurrent) 1.dp else 0.65.dp,
+                    color = if (isCurrent) PrimaryPinkContainer.copy(alpha = 0.75f) else GlassBorderLow,
                     shape = MichiShapes.md,
                 ),
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                imageModel = track.filepath.ifEmpty { track.coverId },
+                imageModel = track.coverId.takeIf { it.isNotBlank() },
+                    fallbackMediaUri = track.filepath,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -587,7 +652,7 @@ private fun RecentTrackCard(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
+                        .background(Color.Black.copy(alpha = 0.25f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     EqualizerWaveBars(
@@ -659,34 +724,34 @@ private fun YourPlaylistsSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
+        LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp),
         ) {
-            PlaylistTile(
+            item { PlaylistTile(
                 title = "Favoritos",
                 subtitle = "$favoritesCount pistas",
                 icon = Icons.Filled.Star,
                 accentColor = PrimaryPinkContainer,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.width(MichiSpacing.albumTileWidth),
                 onClick = { onPlaylistClick("favorites") },
-            )
-            PlaylistTile(
+            ) }
+            item { PlaylistTile(
                 title = "Más Escuchadas",
                 subtitle = "$topTracksCount temas",
                 icon = Icons.Filled.PlayArrow,
                 accentColor = SecondaryPurple,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.width(MichiSpacing.albumTileWidth),
                 onClick = { onPlaylistClick("top") },
-            )
-            PlaylistTile(
+            ) }
+            item { PlaylistTile(
                 title = "Recientes",
                 subtitle = "$recentTracksCount pistas",
                 icon = Icons.Filled.LibraryMusic,
                 accentColor = TertiaryCyan,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.width(MichiSpacing.albumTileWidth),
                 onClick = { onPlaylistClick("recent") },
-            )
+            ) }
         }
 
         if (playlists.isNotEmpty()) {
@@ -704,7 +769,7 @@ private fun YourPlaylistsSection(
                         icon = Icons.Filled.LibraryMusic,
                         accentColor = SecondaryPurple,
                         modifier = Modifier
-                            .width(160.dp)
+                            .width(MichiSpacing.albumTileWidth)
                             .testTag("playlist_tile_${playlist.id}"),
                         onClick = { onNavigateToPlaylist(playlist.id) },
                     )
@@ -724,19 +789,14 @@ private fun PlaylistTile(
     onClick: () -> Unit,
 ) {
     GlassCard(
-        modifier = modifier
-            .height(86.dp)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(color = accentColor),
-                onClick = onClick,
-            ),
+        modifier = modifier.heightIn(min = 82.dp),
         backgroundColor = GlassFillLow,
         borderColor = GlassBorderLow,
+        onClick = onClick,
     ) {
         Row(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -760,7 +820,7 @@ private fun PlaylistTile(
                 Text(
                     text = title,
                     style = MichiTypography.cardTitle,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
@@ -781,7 +841,7 @@ private fun QuickPicksSection(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = "Pistas Sugeridas",
+            text = "Explora tu biblioteca",
             style = MichiTypography.sectionTitle,
         )
 
@@ -827,7 +887,8 @@ private fun QuickPickTrackRow(
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
-                imageModel = track.filepath.ifEmpty { track.coverId },
+                imageModel = track.coverId.takeIf { it.isNotBlank() },
+                    fallbackMediaUri = track.filepath,
                 modifier = Modifier
                     .size(44.dp)
                     .clip(MichiShapes.xs),
