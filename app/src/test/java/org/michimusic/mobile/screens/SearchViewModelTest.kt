@@ -116,4 +116,37 @@ class SearchViewModelTest {
         assertEquals(1, structured.tracks.size)
         assertEquals("Hi-Res Track", structured.tracks[0].track.title)
     }
+
+    @Test
+    fun `search uses DOWNLOADED filter checking actual file availability`() = runTest(testDispatcher) {
+        val downloadedContentTrack = Track(
+            id = "t1", title = "Downloaded MediaStore", artist = "My Artist", album = "My Album",
+            duration = 100, size = 1000, format = "flac", bitrate = 128, sampleRate = 96000, channels = 2,
+            coverId = "", trackNumber = 1, year = 2020, filepath = "content://media/external/audio/media/1234", source = org.michimusic.core.models.TrackSource.LOCAL
+        )
+        val missingLocalTrack = Track(
+            id = "t2", title = "Missing Track", artist = "My Artist", album = "My Album",
+            duration = 100, size = 1000, format = "mp3", bitrate = 128, sampleRate = 44100, channels = 2,
+            coverId = "", trackNumber = 2, year = 2020, filepath = "/nonexistent/path/song.mp3", source = org.michimusic.core.models.TrackSource.LOCAL
+        )
+
+        val album = Album(id = "a1", title = "My Album", artist = "My Artist", coverId = "", year = 2020)
+        coEvery { localRepo.loadAlbums() } returns listOf(
+            LocalMediaRepository.LocalAlbum(album = album, tracks = listOf(downloadedContentTrack, missingLocalTrack))
+        )
+        coEvery { syncedRepo.getAllSynced() } returns flowOf(emptyList())
+
+        viewModel.loadLocalTracks()
+        testScheduler.advanceUntilIdle()
+
+        viewModel.setQuery("downloaded")
+        testScheduler.advanceUntilIdle()
+
+        viewModel.setFilter(SearchFilter.DOWNLOADED)
+        testScheduler.advanceUntilIdle()
+
+        val structured = viewModel.structuredResults.value
+        assertEquals(1, structured.tracks.size)
+        assertEquals("Downloaded MediaStore", structured.tracks[0].track.title)
+    }
 }
