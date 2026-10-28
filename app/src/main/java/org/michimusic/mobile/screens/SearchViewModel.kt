@@ -215,7 +215,7 @@ class SearchViewModel(
                 it.title.lowercase().contains(lower) && it.isLossless
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
-                it.title.lowercase().contains(lower) && (it.filepath.isNotEmpty() || it.source == TrackSource.LOCAL)
+                it.title.lowercase().contains(lower) && isTrackDownloaded(it)
             }
         }.map { track ->
             val locations = mutableListOf<String>()
@@ -252,7 +252,7 @@ class SearchViewModel(
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
                 (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
-                    (it.filepath.isNotEmpty() || it.source == TrackSource.LOCAL)
+                    isTrackDownloaded(it)
             }
         }.map { track ->
             SearchResult(track, if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local")
@@ -274,4 +274,8 @@ class SearchViewModel(
     }
 
     fun clearError() { _error.value = null }
+
+    private fun isTrackDownloaded(track: Track): Boolean {
+        return org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(track)
+    }
 }

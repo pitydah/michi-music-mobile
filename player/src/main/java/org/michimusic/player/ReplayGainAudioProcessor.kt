@@ -27,6 +27,8 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
     private var currentSong: Track? = null
     private var isInAlbumContext = false
 
+    val currentMode: ReplayGainMode get() = mode
+    val currentPreAmp: ReplayGainPreAmp get() = preAmp
     val currentVolume: Float get() = if (isBypassed) 1f else volume
     val isGainActive: Boolean get() = !isBypassed && mode != ReplayGainMode.OFF && volume != 1f
 

@@ -123,6 +123,7 @@ enum class SettingsSection {
 
 @Composable
 fun SettingsScreen(
+    initialSection: SettingsSection = SettingsSection.ROOT,
     onNavigateToDiagnostics: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -132,7 +133,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 
-    var currentSection by rememberSaveable { mutableStateOf(SettingsSection.ROOT) }
+    var currentSection by rememberSaveable { mutableStateOf(initialSection) }
 
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
@@ -328,7 +329,15 @@ fun SettingsScreen(
                                                     .clickable {
                                                         selectedMode = mode
                                                         prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                                        org.michimusic.player.PlayerDependencies.configureReplayGain(
+                                                            mode,
+                                                            org.michimusic.player.ReplayGainPreAmp(
+                                                                with = preAmpWith.floatValue,
+                                                                without = preAmpWithout.floatValue,
+                                                             ),
+                                                        )
                                                     }
+                                                    .testTag("rg_mode_${mode.name}")
                                                     .semantics { selected = isSelected },
                                                 contentAlignment = Alignment.Center,
                                             ) {

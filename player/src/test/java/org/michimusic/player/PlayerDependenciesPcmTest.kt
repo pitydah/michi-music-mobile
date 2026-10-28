@@ -75,4 +75,20 @@ class PlayerDependenciesPcmTest {
             release.countDown(); PlayerDependencies.stopPcmStreaming(); PlayerDependencies.rtpPcmAudioTap = null
         }
     }
+
+    @Test fun `completeRenegotiation requires matching format to resume from renegotiation`() {
+        val tap = configuredTap()
+        val expectedFormat = org.michimusic.core.models.PcmFormat(sampleRate = 48000, channels = 2, bitDepth = 16, codec = "pcm_s16le")
+        val mismatchedFormat = org.michimusic.core.models.PcmFormat(sampleRate = 44100, channels = 2, bitDepth = 16, codec = "pcm_s16le")
+
+        tap.isRenegotiating = true
+
+        // Mismatched format must NOT unlock renegotiation
+        tap.completeRenegotiation(mismatchedFormat)
+        assertTrue("Renegotiating must stay true if format does not match", tap.isRenegotiating)
+
+        // Matching format unlocks renegotiation
+        tap.completeRenegotiation(expectedFormat)
+        assertFalse("Renegotiating must clear when matching format is provided", tap.isRenegotiating)
+    }
 }

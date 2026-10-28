@@ -112,9 +112,10 @@ open class LinkDiscovery(
     ) {
         val key = if (msg.deviceId.isNotBlank()) msg.deviceId else "$hostAddress:${msg.port}"
         if (msg.type == "goodbye") {
+            val peerAlias = _peers.value[key]?.alias ?: msg.alias.takeIf { it.isNotBlank() }
             _peers.value = _peers.value - key
             peerLastSeen.remove(key)
-            _events.tryEmit(DiscoveryEvent.PeerLost(msg.alias.ifBlank { key }))
+            _events.tryEmit(DiscoveryEvent.PeerLost(peerKey = key, alias = peerAlias))
         } else {
             val peer = DiscoveredPeer(
                 alias = msg.alias,
@@ -154,9 +155,12 @@ open class LinkDiscovery(
     fun cleanStalePeers(now: Long = System.currentTimeMillis()) {
         val stale = peerLastSeen.filterValues { now - it > PEER_TIMEOUT_MS }.keys.toSet()
         if (stale.isNotEmpty()) {
+            val staleEntries = stale.map { key -> key to _peers.value[key]?.alias }
             _peers.value = _peers.value - stale
             stale.forEach { peerLastSeen.remove(it) }
-            stale.forEach { _events.tryEmit(DiscoveryEvent.PeerLost(it)) }
+            staleEntries.forEach { (key, alias) ->
+                _events.tryEmit(DiscoveryEvent.PeerLost(peerKey = key, alias = alias))
+            }
         }
     }
 
@@ -178,5 +182,5 @@ open class LinkDiscovery(
 
 sealed class DiscoveryEvent {
     data class PeerFound(val peer: DiscoveredPeer) : DiscoveryEvent()
-    data class PeerLost(val alias: String) : DiscoveryEvent()
+    data class PeerLost(val peerKey: String, val alias: String? = null) : DiscoveryEvent()
 }

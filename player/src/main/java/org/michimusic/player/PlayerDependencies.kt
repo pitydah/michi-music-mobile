@@ -24,6 +24,14 @@ object PlayerDependencies {
     var replayGainProcessor: ReplayGainAudioProcessor? = null
 
     @JvmStatic
+    val replayGainMode: ReplayGainMode
+        get() = replayGainProcessor?.currentMode ?: ReplayGainMode.OFF
+
+    @JvmStatic
+    val replayGainPreAmp: ReplayGainPreAmp
+        get() = replayGainProcessor?.currentPreAmp ?: ReplayGainPreAmp()
+
+    @JvmStatic
     fun configureReplayGain(mode: ReplayGainMode, preAmp: ReplayGainPreAmp) {
         replayGainProcessor?.configure(mode, preAmp)
     }
@@ -103,12 +111,13 @@ object PlayerDependencies {
     }
 
     @JvmStatic
-    fun resumePcmStreaming() {
+    fun resumePcmStreaming(format: org.michimusic.core.models.PcmFormat? = null) {
         val tap = rtpPcmAudioTap ?: return
         if (tap.hasDeliveryFault) return
-        // Caller must have completed format negotiation before invoking resume.
         tap.isPaused = false
-        tap.completeRenegotiation()
+        if (format != null) {
+            tap.completeRenegotiation(format)
+        }
     }
 
     @JvmStatic

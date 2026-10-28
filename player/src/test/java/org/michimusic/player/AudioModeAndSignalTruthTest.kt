@@ -318,4 +318,73 @@ class AudioModeAndSignalTruthTest {
         assertEquals(44100, tracker.observation.value.decodedFormat?.sampleRate)
         assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
     }
+
+    @Test
+    fun routeObserverIgnoresStaleAudioTrackReleaseFromPreviousGeneration() {
+        val observer = DefaultAudioRouteObserver()
+        val requested = OutputDescriptor(
+            androidDeviceId = 101,
+            name = "DAC USB Fiio",
+            androidType = android.media.AudioDeviceInfo.TYPE_USB_DEVICE,
+            announcedSampleRates = listOf(96000),
+            announcedChannelCounts = listOf(2),
+            announcedEncodings = listOf(android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED),
+        )
+        observer.onDeviceRequested(requested)
+        assertEquals(AudioRouteStatus.Requested(requested), observer.routeStatus.value)
+
+        // Track 1 initialized with generation 1
+        observer.attachAudioTrack(mockkAudioTrack(), generation = 1L)
+
+        // Track 2 initialized with generation 2
+        val track2 = mockkAudioTrack()
+        observer.attachAudioTrack(track2, generation = 2L)
+
+        // Late release callback arrives for Track 1 (generation 1)
+        observer.detachAudioTrack(audioTrack = null, generation = 1L)
+
+        // Track 2 must still remain observed / active (not downgraded or reset to LastObserved)
+        assertEquals(AudioRouteStatus.Requested(requested), observer.routeStatus.value)
+
+        // Releasing Track 2 (generation 2) safely completes detachment
+        observer.detachAudioTrack(audioTrack = null, generation = 2L)
+    }
+
+    @Test
+    fun adversarialOutOfOrderReleasesBetweenDifferentConfigsPreservesActiveSinkTruth() {
+        val tracker = SignalTruthTracker()
+        tracker.setPlaybackActive(true)
+
+        // Config A (44.1kHz, 16bit, gen 1)
+        tracker.onAudioTrackInitialized(44100, 2, androidx.media3.common.C.ENCODING_PCM_16BIT, generation = 1L)
+        // Config B (96kHz, 24bit, gen 2)
+        tracker.onAudioTrackInitialized(96000, 2, androidx.media3.common.C.ENCODING_PCM_24BIT, generation = 2L)
+        // Config C (192kHz, 32bit, gen 3)
+        tracker.onAudioTrackInitialized(192000, 2, androidx.media3.common.C.ENCODING_PCM_32BIT, generation = 3L)
+
+        assertEquals(192000, tracker.observation.value.outputConfig?.sampleRate)
+        assertEquals(32, tracker.observation.value.outputConfig?.bitDepth)
+
+        // Adversarial interleaving: Config B (gen 2) finishes async release first
+        tracker.onAudioTrackReleased(generation = 2L)
+        assertEquals(192000, tracker.observation.value.outputConfig?.sampleRate)
+        assertEquals(32, tracker.observation.value.outputConfig?.bitDepth)
+
+        // Then Config A (gen 1) finishes async release
+        tracker.onAudioTrackReleased(generation = 1L)
+        assertEquals(192000, tracker.observation.value.outputConfig?.sampleRate)
+        assertEquals(32, tracker.observation.value.outputConfig?.bitDepth)
+
+        // Finally active Config C (gen 3) releases
+        tracker.onAudioTrackReleased(generation = 3L)
+        assertNull(tracker.observation.value.outputConfig)
+    }
+
+    private fun mockkAudioTrack(): android.media.AudioTrack {
+        return Proxy.newProxyInstance(
+            android.media.AudioTrack::class.java.classLoader,
+            arrayOf(),
+        ) { _, _, _ -> null } as? android.media.AudioTrack ?: io.mockk.mockk(relaxed = true)
+    }
 }
+
