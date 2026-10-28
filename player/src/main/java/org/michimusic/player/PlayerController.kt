@@ -55,24 +55,46 @@ class PlayerController(
 
     private val routeObserver = usbDacManager?.getAudioRouteObserver()
 
+    internal data class AudioTrackRecord(
+        val track: android.media.AudioTrack,
+        val generation: Long,
+        val configKey: String,
+        val sampleRate: Int,
+        val channelCount: Int,
+        val encoding: Int,
+        var isInitialized: Boolean = false,
+        var isReleased: Boolean = false,
+    )
+
     private var activeTrackGeneration: Long = 0L
     private val pendingGenerationsLock = Any()
-    // Map each audio track configuration identity key to its active generation records (FIFO per distinct config)
-    private val configToGenerations = mutableMapOf<String, java.util.ArrayDeque<Long>>()
+    private val trackRecords = mutableListOf<AudioTrackRecord>()
 
     private fun configKey(config: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig): String {
         return "${config.encoding}_${config.sampleRate}_${config.channelConfig}_${config.tunneling}_${config.offload}_${config.bufferSize}"
     }
 
+    internal fun registerCreatedAudioTrack(track: android.media.AudioTrack, config: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig): Long {
+        val record = synchronized(pendingGenerationsLock) {
+            val next = ++activeTrackGeneration
+            val rec = AudioTrackRecord(
+                track = track,
+                generation = next,
+                configKey = configKey(config),
+                sampleRate = config.sampleRate,
+                channelCount = java.lang.Integer.bitCount(config.channelConfig),
+                encoding = config.encoding,
+            )
+            trackRecords.add(rec)
+            rec
+        }
+        routeObserver?.attachAudioTrack(track, record.generation)
+        return record.generation
+    }
+
     private val audioTrackProvider = DefaultAudioSink.AudioTrackProvider { config, attr, sessionId ->
         val track = DefaultAudioSink.AudioTrackProvider.DEFAULT.getAudioTrack(config, attr, sessionId)
-        val gen = synchronized(pendingGenerationsLock) {
-            val next = ++activeTrackGeneration
-            val key = configKey(config)
-            configToGenerations.getOrPut(key) { java.util.ArrayDeque() }.addLast(next)
-            next
-        }
-        routeObserver?.attachAudioTrack(track, gen)
+        registerCreatedAudioTrack(track, config)
         track
     }
 
@@ -92,7 +114,7 @@ class PlayerController(
             .build()
     }
 
-    private val audioRendererEventListener = object : androidx.media3.exoplayer.audio.AudioRendererEventListener {
+    internal val audioRendererEventListener = object : androidx.media3.exoplayer.audio.AudioRendererEventListener {
         override fun onAudioInputFormatChanged(
             format: androidx.media3.common.Format,
             decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
@@ -101,10 +123,14 @@ class PlayerController(
         }
 
         override fun onAudioTrackInitialized(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
-            val gen = synchronized(pendingGenerationsLock) {
-                val key = configKey(audioTrackConfig)
-                configToGenerations[key]?.peekLast() ?: activeTrackGeneration
+            val key = configKey(audioTrackConfig)
+            val record = synchronized(pendingGenerationsLock) {
+                val rec = trackRecords.firstOrNull { it.configKey == key && !it.isInitialized && !it.isReleased }
+                    ?: trackRecords.lastOrNull { !it.isInitialized && !it.isReleased }
+                rec?.isInitialized = true
+                rec
             }
+            val gen = record?.generation ?: activeTrackGeneration
             signalTruthTracker?.onAudioTrackInitialized(
                 sampleRate = audioTrackConfig.sampleRate,
                 channelCount = java.lang.Integer.bitCount(audioTrackConfig.channelConfig),
@@ -114,21 +140,27 @@ class PlayerController(
         }
 
         override fun onAudioTrackReleased(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
-            val gen = synchronized(pendingGenerationsLock) {
-                val key = configKey(audioTrackConfig)
-                val deque = configToGenerations[key]
-                val matchedGen = if (deque != null && deque.isNotEmpty()) {
-                    deque.removeFirst()
-                } else {
-                    activeTrackGeneration
+            val key = configKey(audioTrackConfig)
+            val record = synchronized(pendingGenerationsLock) {
+                // Find uninitialized instance first (actual release in platform AudioTrack changes state to STATE_UNINITIALIZED)
+                val byState = trackRecords.firstOrNull { rec ->
+                    rec.configKey == key && !rec.isReleased &&
+                        runCatching { rec.track.state == android.media.AudioTrack.STATE_UNINITIALIZED }.getOrDefault(false)
                 }
-                if (deque != null && deque.isEmpty()) {
-                    configToGenerations.remove(key)
+                val matched = byState
+                    ?: trackRecords.firstOrNull { rec -> rec.configKey == key && !rec.isReleased }
+                    ?: trackRecords.firstOrNull { !it.isReleased }
+
+                matched?.isReleased = true
+                if (trackRecords.size > 20) {
+                    trackRecords.removeAll { it.isReleased }
                 }
-                matchedGen
+                matched
             }
+            val gen = record?.generation ?: activeTrackGeneration
+            val track = record?.track
             signalTruthTracker?.onAudioTrackReleased(gen)
-            routeObserver?.detachAudioTrack(audioTrack = null, generation = gen)
+            routeObserver?.detachAudioTrack(audioTrack = track, generation = gen)
         }
     }
 

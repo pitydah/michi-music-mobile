@@ -45,7 +45,10 @@ class PlayerDependenciesPcmTest {
             assertTrue(tap.hasDeliveryFault)
             assertTrue(tap.isPaused)
             assertTrue(tap.muteLocalOutput)
-            PlayerDependencies.resumePcmStreaming()
+            val resumed = PlayerDependencies.resumePcmStreaming(
+                format = org.michimusic.core.models.PcmFormat(sampleRate = 48000, channels = 2, bitDepth = 16, codec = "pcm_s16le")
+            )
+            assertFalse(resumed)
             assertTrue("No implicit resume after a failed transport", tap.isPaused)
         } finally {
             release.countDown(); PlayerDependencies.stopPcmStreaming(); PlayerDependencies.rtpPcmAudioTap = null
@@ -84,11 +87,49 @@ class PlayerDependenciesPcmTest {
         tap.isRenegotiating = true
 
         // Mismatched format must NOT unlock renegotiation
-        tap.completeRenegotiation(mismatchedFormat)
+        val rejected = tap.completeRenegotiation(mismatchedFormat)
+        assertFalse(rejected)
         assertTrue("Renegotiating must stay true if format does not match", tap.isRenegotiating)
 
         // Matching format unlocks renegotiation
-        tap.completeRenegotiation(expectedFormat)
+        val accepted = tap.completeRenegotiation(expectedFormat)
+        assertTrue(accepted)
         assertFalse("Renegotiating must clear when matching format is provided", tap.isRenegotiating)
+    }
+
+    @Test fun `resumePcmStreaming rejects stale session token from earlier epoch`() {
+        val tap = configuredTap()
+        PlayerDependencies.rtpPcmAudioTap = tap
+        try {
+            PlayerDependencies.startPcmStreaming(
+                listener = {},
+                sessionToken = "epoch-100",
+            )
+            tap.isPaused = true
+            tap.isRenegotiating = true
+
+            val expectedFormat = org.michimusic.core.models.PcmFormat(sampleRate = 48000, channels = 2, bitDepth = 16, codec = "pcm_s16le")
+
+            // Stale session token must be rejected
+            val staleResumed = PlayerDependencies.resumePcmStreaming(
+                format = expectedFormat,
+                sessionToken = "epoch-099",
+            )
+            assertFalse(staleResumed)
+            assertTrue("Tap must remain paused on stale session token", tap.isPaused)
+            assertTrue("Tap must remain renegotiating on stale session token", tap.isRenegotiating)
+
+            // Current matching session token succeeds
+            val validResumed = PlayerDependencies.resumePcmStreaming(
+                format = expectedFormat,
+                sessionToken = "epoch-100",
+            )
+            assertTrue(validResumed)
+            assertFalse("Tap unpauses on valid matching session token and format", tap.isPaused)
+            assertFalse("Renegotiation clears on valid session token and format", tap.isRenegotiating)
+        } finally {
+            PlayerDependencies.stopPcmStreaming()
+            PlayerDependencies.rtpPcmAudioTap = null
+        }
     }
 }

@@ -28,6 +28,9 @@ class AlbumsViewModel(
     private val _favoriteTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val favoriteTrackIds: StateFlow<Set<String>> = _favoriteTrackIds.asStateFlow()
 
+    private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
+
     private val _favoriteTracks = MutableStateFlow<List<Track>>(emptyList())
     val favoriteTracks: StateFlow<List<Track>> = _favoriteTracks.asStateFlow()
 
@@ -97,6 +100,11 @@ class AlbumsViewModel(
                 _favoriteTrackIds.value = favIds
                 _favoriteTracks.value = tracks.filter { it.id in favIds }
 
+                val downloaded = tracks.filter { track ->
+                    org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(track)
+                }.map { it.id }.toSet()
+                _downloadedTrackIds.value = downloaded
+
                 _albums.value = result
                 _allTracks.value = tracks
                 _topTracks.value = smartLists.first
@@ -110,6 +118,7 @@ class AlbumsViewModel(
                 _playlists.value = emptyList()
                 _favoriteTracks.value = emptyList()
                 _favoriteTrackIds.value = emptySet()
+                _downloadedTrackIds.value = emptySet()
                 _error.value = e.message ?: "Error al cargar la biblioteca"
             } finally {
                 _isLoading.value = false

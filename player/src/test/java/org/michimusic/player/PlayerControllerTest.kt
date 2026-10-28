@@ -186,4 +186,74 @@ class PlayerControllerTest {
         assertEquals(3, controller.state.value.queue.size)
         assertEquals(listOf("other_id", "repeat_id", "repeat_id"), controller.state.value.queue.map { it.id })
     }
+
+    @Test
+    fun `adversarial out of order callbacks between identical configs in PlayerController maintains accurate generation and track attachment`() {
+        val mockUsb = io.mockk.mockk<UsbDacManager>(relaxed = true)
+        val routeObserver = DefaultAudioRouteObserver()
+        io.mockk.every { mockUsb.getAudioRouteObserver() } returns routeObserver
+
+        val tracker = SignalTruthTracker()
+        tracker.setPlaybackActive(true)
+
+        val playerCtrl = PlayerController(
+            context = context,
+            usbDacManager = mockUsb,
+            signalTruthTracker = tracker,
+        )
+
+        try {
+            val track1 = io.mockk.mockk<android.media.AudioTrack>(relaxed = true)
+            val track2 = io.mockk.mockk<android.media.AudioTrack>(relaxed = true)
+
+            io.mockk.every { track1.state } returns android.media.AudioTrack.STATE_INITIALIZED
+            io.mockk.every { track2.state } returns android.media.AudioTrack.STATE_INITIALIZED
+
+            val configA = androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig(
+                /* encoding = */ androidx.media3.common.C.ENCODING_PCM_16BIT,
+                /* sampleRate = */ 48000,
+                /* channelConfig = */ android.media.AudioFormat.CHANNEL_OUT_STEREO,
+                /* tunneling = */ false,
+                /* offload = */ false,
+                /* bufferSize = */ 4096,
+            )
+
+            // Track 1 is created with generation 1
+            val gen1 = playerCtrl.registerCreatedAudioTrack(track1, configA)
+            assertEquals(1L, gen1)
+            assertEquals(track1, routeObserver.activeObservedAudioTrack)
+
+            // Track 2 is created with generation 2 (same exact configA!)
+            val gen2 = playerCtrl.registerCreatedAudioTrack(track2, configA)
+            assertEquals(2L, gen2)
+            assertEquals(track2, routeObserver.activeObservedAudioTrack)
+
+            // Initialization callbacks arrive (track 1 first, then track 2)
+            playerCtrl.audioRendererEventListener.onAudioTrackInitialized(configA)
+            playerCtrl.audioRendererEventListener.onAudioTrackInitialized(configA)
+
+            // SignalTruthTracker reflects active track generation 2
+            assertEquals(48000, tracker.observation.value.outputConfig?.sampleRate)
+
+            // Now track 1 finishes releasing in background executor (its state becomes STATE_UNINITIALIZED)
+            io.mockk.every { track1.state } returns android.media.AudioTrack.STATE_UNINITIALIZED
+            io.mockk.every { track2.state } returns android.media.AudioTrack.STATE_INITIALIZED
+
+            // Callback for track 1 release arrives:
+            playerCtrl.audioRendererEventListener.onAudioTrackReleased(configA)
+
+            // RouteObserver MUST NOT detach track 2 because track 1 was the released one!
+            assertEquals(track2, routeObserver.activeObservedAudioTrack)
+            assertEquals(48000, tracker.observation.value.outputConfig?.sampleRate)
+
+            // When track 2 eventually releases:
+            io.mockk.every { track2.state } returns android.media.AudioTrack.STATE_UNINITIALIZED
+            playerCtrl.audioRendererEventListener.onAudioTrackReleased(configA)
+
+            // Now track 2 is detached
+            assertEquals(null, routeObserver.activeObservedAudioTrack)
+        } finally {
+            playerCtrl.release()
+        }
+    }
 }

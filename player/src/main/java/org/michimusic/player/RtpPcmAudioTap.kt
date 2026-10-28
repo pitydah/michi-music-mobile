@@ -27,17 +27,25 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
     @Volatile var isRenegotiating: Boolean = false
     @Volatile var muteLocalOutput: Boolean = false
 
+    @Volatile var activeSessionToken: String? = null
+        private set
+
     @Volatile var hasDeliveryFault: Boolean = false
         private set
 
     private val senderLock = Any()
     private var senderGeneration = 0L
 
+    fun startSender(listener: (ByteArray) -> Unit) {
+        startSender(listener, null)
+    }
+
     /** Start a distinct remote sender. Late exceptions from the preceding
      * callback must never suspend the replacement stream. */
-    fun startSender(listener: (ByteArray) -> Unit) {
+    fun startSender(listener: (ByteArray) -> Unit, sessionToken: String?) {
         synchronized(senderLock) {
             senderGeneration++
+            activeSessionToken = sessionToken
             pcmChunkListener = listener
             hasDeliveryFault = false
             isPaused = false
@@ -67,6 +75,7 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
     fun stopSender() {
         synchronized(senderLock) {
             senderGeneration++
+            activeSessionToken = null
             isEnabled = false
             isPaused = false
             isRenegotiating = false
@@ -87,14 +96,24 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
     /**
      * Explicitly completes a format renegotiation window once the sender has
      * established or confirmed downstream receiver compatibility matching the active format.
-     * Mismatched format or null parameter is strictly rejected to prevent invalid PCM stream transmission.
+     * Mismatched format, absent active format, or stale session token is strictly rejected.
+     * Returns true if renegotiation succeeded and unblocked, false otherwise.
      */
-    fun completeRenegotiation(format: PcmFormat) {
+    fun completeRenegotiation(format: PcmFormat, sessionToken: String? = null): Boolean {
         synchronized(senderLock) {
-            val current = _currentFormat.value
-            if (current != null && current == format) {
-                isRenegotiating = false
+            val current = _currentFormat.value ?: return false
+            if (current != format) {
+                return false
             }
+            val activeToken = activeSessionToken
+            if (activeToken != null && sessionToken != null && activeToken != sessionToken) {
+                return false
+            }
+            if (activeToken != null && sessionToken == null) {
+                return false
+            }
+            isRenegotiating = false
+            return true
         }
     }
 

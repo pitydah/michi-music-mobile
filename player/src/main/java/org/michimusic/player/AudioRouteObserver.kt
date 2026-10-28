@@ -37,6 +37,7 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
     private val evidenceGate = PlaybackRouteEvidenceGate()
     private var currentRequestedDescriptor: OutputDescriptor? = null
     private var observedAudioTrack: AudioTrack? = null
+    internal val activeObservedAudioTrack: AudioTrack? get() = observedAudioTrack
     private var routingListener: AudioRouting.OnRoutingChangedListener? = null
     private var currentTrackGeneration: Long = 0L
 

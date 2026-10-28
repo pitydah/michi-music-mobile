@@ -483,15 +483,18 @@ class PlaybackSessionManager(
                         return@onSuccess
                     }
 
-                    // 2. Only once RTP is active, start PCM tap
-                    org.michimusic.player.PlayerDependencies.startPcmStreaming { pcmChunk ->
-                        rtpAudioSender.sendPcmChunk(pcmChunk)
-                    }
-
                     activeReceiverSessionId = sessionResp.sessionId
                     activeReceiverSessionToken = sessionResp.sessionToken
                     activeReceiverEffective = sessionResp.effective
                     currentReceiverSequence = 1L
+
+                    // 2. Only once RTP is active, start PCM tap
+                    org.michimusic.player.PlayerDependencies.startPcmStreaming(
+                        listener = { pcmChunk ->
+                            rtpAudioSender.sendPcmChunk(pcmChunk)
+                        },
+                        sessionToken = sessionResp.sessionToken,
+                    )
 
                     // If queue is populated and not playing, start local playback pipeline so PCM flows
                     if (audioController?.state?.value?.isPlaying == false && _sessionState.value.queue.isNotEmpty()) {
@@ -545,12 +548,13 @@ class PlaybackSessionManager(
                                 // Processor reset or track transition re-negotiating identical PCM format.
                                 // The active receiver session remains valid; unlock tap and resume transmission.
                                 org.michimusic.player.PlayerDependencies.resumePcmStreaming(
-                                    org.michimusic.core.models.PcmFormat(
+                                    format = org.michimusic.core.models.PcmFormat(
                                         sampleRate = currentEffective.sampleRate,
                                         channels = currentEffective.channels,
                                         bitDepth = currentEffective.bitDepth,
                                         codec = currentEffective.codec,
-                                    )
+                                    ),
+                                    sessionToken = activeReceiverSessionToken,
                                 )
                             }
                         }
@@ -677,8 +681,13 @@ class PlaybackSessionManager(
                                 bitDepth = eff.bitDepth,
                                 codec = eff.codec,
                             )
+                        } ?: org.michimusic.player.PlayerDependencies.getActivePcmFormat()
+                        if (pcmFormat != null) {
+                            org.michimusic.player.PlayerDependencies.resumePcmStreaming(
+                                format = pcmFormat,
+                                sessionToken = activeReceiverSessionToken,
+                            )
                         }
-                        org.michimusic.player.PlayerDependencies.resumePcmStreaming(pcmFormat)
                         audioController?.play()
                         _sessionState.value = _sessionState.value.copy(isPlaying = true, statusMessage = null)
                     } else {
@@ -1262,12 +1271,13 @@ class PlaybackSessionManager(
 
             if (rtpAudioSender.isActive) {
                 org.michimusic.player.PlayerDependencies.resumePcmStreaming(
-                    org.michimusic.core.models.PcmFormat(
+                    format = org.michimusic.core.models.PcmFormat(
                         sampleRate = sessionResp.effective.sampleRate,
                         channels = sessionResp.effective.channels,
                         bitDepth = sessionResp.effective.bitDepth,
                         codec = sessionResp.effective.codec,
-                    )
+                    ),
+                    sessionToken = sessionResp.sessionToken,
                 )
 
                 // 4. Resume playback clock now that RTP transmission is running

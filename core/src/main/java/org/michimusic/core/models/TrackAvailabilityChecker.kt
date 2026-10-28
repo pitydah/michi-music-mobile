@@ -1,5 +1,7 @@
 package org.michimusic.core.models
 
+import android.content.Context
+import android.net.Uri
 import java.io.File
 
 /**
@@ -9,14 +11,26 @@ import java.io.File
 object TrackAvailabilityChecker {
 
     /**
-     * Comprueba si la pista tiene un archivo físico accesible en disco o un identificador MediaStore válido.
-     * Retorna false si filepath está en blanco o apunta a una ruta local inexistente.
+     * Comprueba si la pista tiene un archivo físico accesible en disco o un identificador MediaStore válido y resoluble.
+     * Retorna false si filepath está en blanco o apunta a una ruta local/URI inexistente o vacía.
      */
-    fun isTrackAvailable(filepath: String?): Boolean {
+    fun isTrackAvailable(filepath: String?, context: Context? = null): Boolean {
         if (filepath.isNullOrBlank()) return false
         if (filepath.startsWith("content://")) {
-            // MediaStore URI: uri válida proporcionada por el proveedor de contenido
-            return true
+            if (context != null) {
+                val uri = runCatching { Uri.parse(filepath) }.getOrNull() ?: return false
+                return try {
+                    context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                        pfd.statSize > 0L
+                    } ?: false
+                } catch (_: Exception) {
+                    false
+                }
+            } else {
+                // Sin context disponible, valida que el URI tenga esquema content y path no vacío
+                val pathPart = filepath.removePrefix("content://")
+                return pathPart.isNotBlank() && pathPart.contains('/')
+            }
         }
         val cleanPath = if (filepath.startsWith("file://")) filepath.removePrefix("file://") else filepath
         return try {
@@ -30,7 +44,7 @@ object TrackAvailabilityChecker {
     /**
      * Sobrecarga conveniente para [Track].
      */
-    fun isTrackDownloaded(track: Track): Boolean {
-        return isTrackAvailable(track.filepath)
+    fun isTrackDownloaded(track: Track, context: Context? = null): Boolean {
+        return isTrackAvailable(track.filepath, context)
     }
 }

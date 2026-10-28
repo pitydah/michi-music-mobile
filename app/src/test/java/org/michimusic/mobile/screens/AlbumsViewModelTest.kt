@@ -116,4 +116,47 @@ class AlbumsViewModelTest {
         coVerify(exactly = 0) { playlistRepo.createPlaylist(any()) }
         assertEquals(CreatePlaylistResult.BlankName, result)
     }
+
+    @Test
+    fun `loadMedia populates downloadedTrackIds asynchronously on IO dispatcher`() = runTest(testDispatcher) {
+        val temp = java.io.File.createTempFile("downloaded_test_track", ".flac")
+        temp.writeBytes(byteArrayOf(1, 2, 3, 4))
+        try {
+            val downloadedTrack = Track(
+                id = "dl_1",
+                title = "Downloaded Track",
+                artist = "Artist",
+                album = "Album",
+                duration = 100,
+                filepath = temp.absolutePath,
+                source = org.michimusic.core.models.TrackSource.LOCAL,
+            )
+            val nonDownloadedTrack = Track(
+                id = "stream_1",
+                title = "Streaming Track",
+                artist = "Artist",
+                album = "Album",
+                duration = 100,
+                filepath = "/non/existent/path/song.mp3",
+                source = org.michimusic.core.models.TrackSource.LOCAL,
+            )
+
+            val album = org.michimusic.core.models.Album(id = "a1", title = "Album", artist = "Artist", coverId = "", year = 2020)
+            val localAlbum = LocalMediaRepository.LocalAlbum(album = album, tracks = listOf(downloadedTrack, nonDownloadedTrack))
+
+            coEvery { localRepo.loadAlbums() } returns listOf(localAlbum)
+            coEvery { appDao.getTopTracks(12) } returns emptyList()
+            coEvery { appDao.getRecentHistory(20) } returns emptyList()
+            coEvery { playlistRepo.getAllPlaylists() } returns emptyList()
+
+            viewModel.loadMedia()
+            testScheduler.advanceUntilIdle()
+
+            val downloaded = viewModel.downloadedTrackIds.value
+            assertTrue("Downloaded track id must be present in downloadedTrackIds", downloaded.contains("dl_1"))
+            assertFalse("Non-existent track id must not be present in downloadedTrackIds", downloaded.contains("stream_1"))
+        } finally {
+            temp.delete()
+        }
+    }
 }

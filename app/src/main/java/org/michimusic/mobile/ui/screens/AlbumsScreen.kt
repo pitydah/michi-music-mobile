@@ -142,6 +142,7 @@ fun AlbumsScreen(
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
     val coroutineScope = rememberCoroutineScope()
     val playlists by viewModel.playlists.collectAsState()
+    val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadMedia()
@@ -162,12 +163,12 @@ fun AlbumsScreen(
         }
     }
 
-    val filteredTracks = remember(allTracks, selectedFilter) {
+    val filteredTracks = remember(allTracks, selectedFilter, downloadedTrackIds) {
         allTracks.filter { track ->
             when (selectedFilter) {
                 LibraryFilter.ALL -> true
                 LibraryFilter.LOSSLESS -> track.isLossless
-                LibraryFilter.DOWNLOADED -> org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(track)
+                LibraryFilter.DOWNLOADED -> track.id in downloadedTrackIds
             }
         }
     }

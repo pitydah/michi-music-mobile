@@ -71,6 +71,11 @@ object PlayerDependencies {
 
     @JvmStatic
     fun startPcmStreaming(listener: (ByteArray) -> Unit) {
+        startPcmStreaming(listener, null)
+    }
+
+    @JvmStatic
+    fun startPcmStreaming(listener: (ByteArray) -> Unit, sessionToken: String?) {
         synchronized(networkLock) {
             networkWorker?.close()
             networkWorker = null
@@ -84,7 +89,7 @@ object PlayerDependencies {
             )
             worker = next
             tap.onFormatDiscontinuity = { next.discardPending() }
-            tap.startSender(enqueue)
+            tap.startSender(enqueue, sessionToken = sessionToken)
             networkWorker = next
             next.start()
         }
@@ -111,13 +116,20 @@ object PlayerDependencies {
     }
 
     @JvmStatic
-    fun resumePcmStreaming(format: org.michimusic.core.models.PcmFormat? = null) {
-        val tap = rtpPcmAudioTap ?: return
-        if (tap.hasDeliveryFault) return
-        tap.isPaused = false
-        if (format != null) {
-            tap.completeRenegotiation(format)
+    fun resumePcmStreaming(format: org.michimusic.core.models.PcmFormat, sessionToken: String? = null): Boolean {
+        val tap = rtpPcmAudioTap ?: return false
+        if (tap.hasDeliveryFault) return false
+        if (tap.isRenegotiating) {
+            val success = tap.completeRenegotiation(format, sessionToken)
+            if (!success) return false
+        } else {
+            if (tap.activeFormat != null && tap.activeFormat != format) return false
+            val activeToken = tap.activeSessionToken
+            if (activeToken != null && sessionToken != null && activeToken != sessionToken) return false
+            if (activeToken != null && sessionToken == null) return false
         }
+        tap.isPaused = false
+        return true
     }
 
     @JvmStatic
