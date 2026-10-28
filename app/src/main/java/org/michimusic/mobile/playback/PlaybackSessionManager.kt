@@ -38,9 +38,9 @@ class PlaybackSessionManager(
     private var receiverHeartbeatJob: Job? = null
     private var currentReceiverSequence = 1L
     private val rtpAudioSender = org.michimusic.link.rtp.RtpAudioSender()
-    private var activeReceiverSessionId: String? = null
-    private var activeReceiverSessionToken: String? = null
-    private var activeReceiverEffective: org.michimusic.link.dto.ReceiverSessionEffectiveDto? = null
+    internal var activeReceiverSessionId: String? = null
+    internal var activeReceiverSessionToken: String? = null
+    internal var activeReceiverEffective: org.michimusic.link.dto.ReceiverSessionEffectiveDto? = null
     private var isRemoteSelected = false
     private var formatObserverJob: Job? = null
 
@@ -56,15 +56,14 @@ class PlaybackSessionManager(
             }
             val msg = when (reason) {
                 StreamErrorReason.RTP_BUFFER_OVERFLOW ->
-                    "Sobrecarga en la transmisión de audio hacia Michi Stream; la reproducción continúa en este teléfono"
+                    "Sobrecarga en la transmisión de audio hacia Michi Stream; reproducción pausada por seguridad"
                 StreamErrorReason.NETWORK_LOST ->
-                    "Se perdió la conexión con Michi Stream; la reproducción continúa en este teléfono"
+                    "Se perdió la conexión con Michi Stream; reproducción pausada por seguridad"
                 else ->
-                    "Error en la transmisión hacia Michi Stream; la reproducción continúa en este teléfono"
+                    "Error en la transmisión hacia Michi Stream; reproducción pausada por seguridad"
             }
             scope.launch(Dispatchers.Main) {
-                val wasPlaying = audioController?.state?.value?.isPlaying == true
-                selectLocalEndpoint(reason = reason, message = msg, resumePlayback = wasPlaying)
+                selectLocalEndpoint(reason = reason, message = msg, resumePlayback = false)
             }
         }
 
@@ -1270,7 +1269,13 @@ class PlaybackSessionManager(
             )
 
             if (rtpAudioSender.isActive) {
-                org.michimusic.player.PlayerDependencies.resumePcmStreaming(
+                // Rebind PCM tap to new session token and sender
+                org.michimusic.player.PlayerDependencies.startPcmStreaming(
+                    listener = { pcmChunk -> rtpAudioSender.sendPcmChunk(pcmChunk) },
+                    sessionToken = sessionResp.sessionToken,
+                )
+
+                val resumed = org.michimusic.player.PlayerDependencies.resumePcmStreaming(
                     format = org.michimusic.core.models.PcmFormat(
                         sampleRate = sessionResp.effective.sampleRate,
                         channels = sessionResp.effective.channels,
@@ -1280,9 +1285,16 @@ class PlaybackSessionManager(
                     sessionToken = sessionResp.sessionToken,
                 )
 
-                // 4. Resume playback clock now that RTP transmission is running
-                if (wasPlaying) {
+                // 4. Resume playback clock now that RTP transmission is running and resumed successfully
+                if (resumed && wasPlaying) {
                     audioController?.play()
+                } else if (!resumed) {
+                    selectLocalEndpoint(
+                        reason = StreamErrorReason.RTP_START_FAILED,
+                        message = "Fallo al reactivar flujo de audio con Michi Stream; reproducción pausada por seguridad",
+                        resumePlayback = false
+                    )
+                    return@onSuccess
                 }
 
                 val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
@@ -1298,8 +1310,8 @@ class PlaybackSessionManager(
                             withContext(Dispatchers.Main) {
                                 selectLocalEndpoint(
                                     reason = StreamErrorReason.SESSION_EXPIRED,
-                                    message = "Se perdió la sesión con Michi Stream; la reproducción continúa en este teléfono",
-                                    resumePlayback = wasPlaying
+                                    message = "Se perdió la sesión con Michi Stream; reproducción pausada por seguridad",
+                                    resumePlayback = false
                                 )
                             }
                             break
@@ -1309,15 +1321,15 @@ class PlaybackSessionManager(
             } else {
                 selectLocalEndpoint(
                     reason = StreamErrorReason.RTP_START_FAILED,
-                    message = "No se pudo iniciar la transmisión de audio; la reproducción continúa en este teléfono",
-                    resumePlayback = wasPlaying
+                    message = "No se pudo iniciar la transmisión de audio; reproducción pausada por seguridad",
+                    resumePlayback = false
                 )
             }
         }.onFailure {
             selectLocalEndpoint(
                 reason = StreamErrorReason.RECEIVER_NEGOTIATION_FAILED,
-                message = "No se pudo renegociar la sesión con Michi Stream; la reproducción continúa en este teléfono",
-                resumePlayback = wasPlaying
+                message = "No se pudo renegociar la sesión con Michi Stream; reproducción pausada por seguridad",
+                resumePlayback = false
             )
         }
     }
