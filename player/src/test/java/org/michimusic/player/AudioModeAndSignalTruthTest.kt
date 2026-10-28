@@ -318,4 +318,43 @@ class AudioModeAndSignalTruthTest {
         assertEquals(44100, tracker.observation.value.decodedFormat?.sampleRate)
         assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
     }
+
+    @Test
+    fun routeObserverIgnoresStaleAudioTrackReleaseFromPreviousGeneration() {
+        val observer = DefaultAudioRouteObserver()
+        val requested = OutputDescriptor(
+            androidDeviceId = 101,
+            name = "DAC USB Fiio",
+            androidType = android.media.AudioDeviceInfo.TYPE_USB_DEVICE,
+            announcedSampleRates = listOf(96000),
+            announcedChannelCounts = listOf(2),
+            announcedEncodings = listOf(android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED),
+        )
+        observer.onDeviceRequested(requested)
+        assertEquals(AudioRouteStatus.Requested(requested), observer.routeStatus.value)
+
+        // Track 1 initialized with generation 1
+        observer.attachAudioTrack(mockkAudioTrack(), generation = 1L)
+
+        // Track 2 initialized with generation 2
+        val track2 = mockkAudioTrack()
+        observer.attachAudioTrack(track2, generation = 2L)
+
+        // Late release callback arrives for Track 1 (generation 1)
+        observer.detachAudioTrack(audioTrack = null, generation = 1L)
+
+        // Track 2 must still remain observed / active (not downgraded or reset to LastObserved)
+        assertEquals(AudioRouteStatus.Requested(requested), observer.routeStatus.value)
+
+        // Releasing Track 2 (generation 2) safely completes detachment
+        observer.detachAudioTrack(audioTrack = null, generation = 2L)
+    }
+
+    private fun mockkAudioTrack(): android.media.AudioTrack {
+        return Proxy.newProxyInstance(
+            android.media.AudioTrack::class.java.classLoader,
+            arrayOf(),
+        ) { _, _, _ -> null } as? android.media.AudioTrack ?: io.mockk.mockk(relaxed = true)
+    }
 }
+

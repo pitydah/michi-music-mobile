@@ -56,10 +56,16 @@ class PlayerController(
     private val routeObserver = usbDacManager?.getAudioRouteObserver()
 
     private var activeTrackGeneration: Long = 0L
+    private val pendingGenerationsLock = Any()
+    private val activeGenerations = java.util.ArrayDeque<Long>()
 
     private val audioTrackProvider = DefaultAudioSink.AudioTrackProvider { config, attr, sessionId ->
         val track = DefaultAudioSink.AudioTrackProvider.DEFAULT.getAudioTrack(config, attr, sessionId)
-        val gen = ++activeTrackGeneration
+        val gen = synchronized(pendingGenerationsLock) {
+            val next = ++activeTrackGeneration
+            activeGenerations.addLast(next)
+            next
+        }
         routeObserver?.attachAudioTrack(track, gen)
         track
     }
@@ -89,16 +95,21 @@ class PlayerController(
         }
 
         override fun onAudioTrackInitialized(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
+            val gen = synchronized(pendingGenerationsLock) {
+                activeGenerations.peekLast() ?: activeTrackGeneration
+            }
             signalTruthTracker?.onAudioTrackInitialized(
                 sampleRate = audioTrackConfig.sampleRate,
                 channelCount = java.lang.Integer.bitCount(audioTrackConfig.channelConfig),
                 encoding = audioTrackConfig.encoding,
-                generation = activeTrackGeneration,
+                generation = gen,
             )
         }
 
         override fun onAudioTrackReleased(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
-            val gen = activeTrackGeneration
+            val gen = synchronized(pendingGenerationsLock) {
+                if (activeGenerations.isNotEmpty()) activeGenerations.removeFirst() else activeTrackGeneration
+            }
             signalTruthTracker?.onAudioTrackReleased(gen)
             routeObserver?.detachAudioTrack(audioTrack = null, generation = gen)
         }

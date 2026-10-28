@@ -328,6 +328,13 @@ fun SettingsScreen(
                                                     .clickable {
                                                         selectedMode = mode
                                                         prefs.edit { putString(KEY_RG_MODE, mode.name) }
+                                                        org.michimusic.player.PlayerDependencies.configureReplayGain(
+                                                            mode,
+                                                            org.michimusic.player.ReplayGainPreAmp(
+                                                                with = preAmpWith.floatValue,
+                                                                without = preAmpWithout.floatValue,
+                                                             ),
+                                                        )
                                                     }
                                                     .semantics { selected = isSelected },
                                                 contentAlignment = Alignment.Center,

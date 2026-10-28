@@ -35,4 +35,15 @@ class SettingsHierarchyTest {
             assertTrue(key.isNotEmpty())
         }
     }
+
+    @Test
+    fun testReplayGainModeConfigurationAppliesToPlayerDependencies() {
+        val modes = org.michimusic.player.ReplayGainMode.values()
+        modes.forEach { mode ->
+            org.michimusic.player.PlayerDependencies.configureReplayGain(
+                mode,
+                org.michimusic.player.ReplayGainPreAmp(with = -1.5f, without = 0f)
+            )
+        }
+    }
 }
