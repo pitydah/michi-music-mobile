@@ -118,7 +118,7 @@ class LinkDiscoveryTest {
     }
 
     @Test
-    fun `goodbye message immediately removes peer`() = runTest {
+    fun `goodbye message immediately removes peer and emits PeerLost event`() = runTest {
         val discovery = LinkDiscovery()
         val msg = AnnounceMessage(
             alias = "Node",
@@ -141,7 +141,49 @@ class LinkDiscoveryTest {
         discovery.processAnnounce(msg, "192.168.1.20")
         assertEquals(1, discovery.peers.value.size)
 
+        val lostEvents = mutableListOf<DiscoveryEvent.PeerLost>()
+        val job = launch(kotlinx.coroutines.Dispatchers.Unconfined) {
+            discovery.events.collect { event ->
+                if (event is DiscoveryEvent.PeerLost) lostEvents.add(event)
+            }
+        }
+
         discovery.processAnnounce(goodbye, "192.168.1.20")
+
         assertTrue(discovery.peers.value.isEmpty())
+        assertEquals(1, lostEvents.size)
+        assertEquals("dev_node", lostEvents[0].peerKey)
+        assertEquals("Node", lostEvents[0].alias)
+        job.cancel()
+    }
+
+    @Test
+    fun `cleanStalePeers emits PeerLost event with key and alias`() = runTest {
+        val discovery = LinkDiscovery()
+        val msg = AnnounceMessage(
+            alias = "Living Room",
+            port = 8400,
+            device = "player",
+            deviceId = "dev_lr",
+            version = "1.0",
+            authRequired = false,
+        )
+        val t0 = 100_000L
+        discovery.processAnnounce(msg, "192.168.1.20", now = t0)
+
+        val lostEvents = mutableListOf<DiscoveryEvent.PeerLost>()
+        val job = launch(kotlinx.coroutines.Dispatchers.Unconfined) {
+            discovery.events.collect { event ->
+                if (event is DiscoveryEvent.PeerLost) lostEvents.add(event)
+            }
+        }
+
+        discovery.cleanStalePeers(now = t0 + 20_000L)
+
+        assertTrue(discovery.peers.value.isEmpty())
+        assertEquals(1, lostEvents.size)
+        assertEquals("dev_lr", lostEvents[0].peerKey)
+        assertEquals("Living Room", lostEvents[0].alias)
+        job.cancel()
     }
 }

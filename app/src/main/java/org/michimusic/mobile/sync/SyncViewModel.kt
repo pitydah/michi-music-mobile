@@ -311,10 +311,9 @@ class SyncViewModel(
 
     fun startDiscovery() {
         _error.value = null
-        _connectedPeer.value = null
-        currentClient?.close()
-        currentClient = null
-        _connectionState.value = SyncConnectionState.DISCOVERING
+        if (_connectionState.value == SyncConnectionState.DISCONNECTED || _connectionState.value == SyncConnectionState.ERROR) {
+            _connectionState.value = SyncConnectionState.DISCOVERING
+        }
         viewModelScope.launch { linkDiscovery.start() }
     }
 

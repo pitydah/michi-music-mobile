@@ -91,6 +91,21 @@ class SyncViewModelTest {
     }
 
     @Test
+    fun `startDiscovery preserves active connected peer session without disconnecting`() = runTest(testDispatcher) {
+        backgroundScope.launch { viewModel.uiState.collect { } }
+
+        // Start discovery initially and verify
+        viewModel.startDiscovery()
+        runCurrent()
+        assertEquals(SyncConnectionState.DISCOVERING, viewModel.uiState.value.state)
+
+        // Simulate subsequent discovery triggers without clearing state
+        viewModel.startDiscovery()
+        runCurrent()
+        io.mockk.coVerify(atLeast = 2) { linkDiscovery.start() }
+    }
+
+    @Test
     fun `connectToDevice uses connection manager`() = runTest(testDispatcher) {
         backgroundScope.launch { viewModel.uiState.collect { } }
         viewModel.connectToDevice("dev_1")
