@@ -167,7 +167,7 @@ fun AlbumsScreen(
             when (selectedFilter) {
                 LibraryFilter.ALL -> true
                 LibraryFilter.LOSSLESS -> track.isLossless
-                LibraryFilter.DOWNLOADED -> track.filepath.isNotEmpty()
+                LibraryFilter.DOWNLOADED -> org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(track)
             }
         }
     }

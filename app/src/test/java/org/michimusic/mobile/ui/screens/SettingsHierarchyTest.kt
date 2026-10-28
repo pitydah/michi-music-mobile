@@ -1,10 +1,64 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.module
+import org.michimusic.data.cache.AppDao
+import org.michimusic.mobile.ui.theme.VisualPreferences
+import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
+import org.michimusic.player.PlayerDependencies
+import org.michimusic.player.ReplayGainMode
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = android.app.Application::class)
 class SettingsHierarchyTest {
+
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
+    private val mockAppDao: AppDao = mockk(relaxed = true)
+    private val mockVisualRepo: VisualPreferencesRepository = mockk(relaxed = true)
+    private val rgProcessor = org.michimusic.player.ReplayGainAudioProcessor()
+
+    @Before
+    fun setup() {
+        stopKoin()
+        PlayerDependencies.replayGainProcessor = rgProcessor
+        io.mockk.coEvery { mockAppDao.getSetting("listening_history_enabled") } returns "true"
+        every { mockVisualRepo.preferences } returns MutableStateFlow(VisualPreferences(reducedMotion = true))
+
+        startKoin {
+            modules(
+                module {
+                    single<AppDao> { mockAppDao }
+                    single<VisualPreferencesRepository> { mockVisualRepo }
+                }
+            )
+        }
+    }
+
+    @After
+    fun tearDown() {
+        PlayerDependencies.replayGainProcessor = null
+        stopKoin()
+    }
 
     @Test
     fun testSettingsSectionEnumCompleteness() {
@@ -45,5 +99,29 @@ class SettingsHierarchyTest {
                 org.michimusic.player.ReplayGainPreAmp(with = -1.5f, without = 0f)
             )
         }
+    }
+
+    @Test
+    fun testClickingReplayGainModeInComposeUpdatesPlayerDependencies() {
+        composeTestRule.setContent {
+            SettingsScreen(initialSection = SettingsSection.AUDIO_QUALITY)
+        }
+        composeTestRule.waitForIdle()
+
+        // Scroll to and click "Pista" (TRACK mode) via testTag
+        composeTestRule.onNodeWithTag("rg_mode_TRACK")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(ReplayGainMode.TRACK, PlayerDependencies.replayGainMode)
+
+        // Scroll to and click "Desactivado" (OFF mode) via testTag
+        composeTestRule.onNodeWithTag("rg_mode_OFF")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals(ReplayGainMode.OFF, PlayerDependencies.replayGainMode)
     }
 }

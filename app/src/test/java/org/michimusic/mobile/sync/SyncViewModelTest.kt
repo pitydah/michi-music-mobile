@@ -94,15 +94,25 @@ class SyncViewModelTest {
     fun `startDiscovery preserves active connected peer session without disconnecting`() = runTest(testDispatcher) {
         backgroundScope.launch { viewModel.uiState.collect { } }
 
-        // Start discovery initially and verify
-        viewModel.startDiscovery()
+        val connectedPeer = org.michimusic.core.models.DiscoveredPeer(
+            alias = "Active Node",
+            ip = "192.168.1.50",
+            port = 8400,
+            deviceId = "dev_active",
+        )
+        // Simulate preparing pairing or connected session
+        viewModel.preparePairing(connectedPeer) { _, _ -> }
         runCurrent()
-        assertEquals(SyncConnectionState.DISCOVERING, viewModel.uiState.value.state)
 
-        // Simulate subsequent discovery triggers without clearing state
+        assertEquals(connectedPeer, viewModel.uiState.value.connectedPeer)
+
+        // Starting discovery while connected must trigger linkDiscovery.start()
+        // without nullifying or dropping the active connected peer session
         viewModel.startDiscovery()
         runCurrent()
-        io.mockk.coVerify(atLeast = 2) { linkDiscovery.start() }
+
+        assertEquals(connectedPeer, viewModel.uiState.value.connectedPeer)
+        io.mockk.coVerify(atLeast = 1) { linkDiscovery.start() }
     }
 
     @Test

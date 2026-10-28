@@ -354,7 +354,7 @@ class RtpPcmAudioTapTest {
         assertTrue(tap.isRenegotiating)
 
         // If unhandled, chunks would be dropped. But caller invokes completeRenegotiation():
-        tap.completeRenegotiation(tap.activeFormat)
+        tap.completeRenegotiation(checkNotNull(tap.activeFormat))
         assertFalse(tap.isRenegotiating)
 
         val buf2 = ByteBuffer.allocateDirect(sample.size).order(ByteOrder.nativeOrder())
@@ -382,7 +382,7 @@ class RtpPcmAudioTapTest {
         assertTrue("Renegotiation must remain locked if format mismatch", tap.isRenegotiating)
 
         // Acknowledge matching format
-        tap.completeRenegotiation(tap.activeFormat)
+        tap.completeRenegotiation(checkNotNull(tap.activeFormat))
         assertFalse(tap.isRenegotiating)
     }
 

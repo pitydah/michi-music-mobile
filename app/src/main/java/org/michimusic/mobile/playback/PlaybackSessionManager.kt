@@ -544,7 +544,14 @@ class PlaybackSessionManager(
                             } else {
                                 // Processor reset or track transition re-negotiating identical PCM format.
                                 // The active receiver session remains valid; unlock tap and resume transmission.
-                                org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+                                org.michimusic.player.PlayerDependencies.resumePcmStreaming(
+                                    org.michimusic.core.models.PcmFormat(
+                                        sampleRate = currentEffective.sampleRate,
+                                        channels = currentEffective.channels,
+                                        bitDepth = currentEffective.bitDepth,
+                                        codec = currentEffective.codec,
+                                    )
+                                )
                             }
                         }
                     }
@@ -663,7 +670,15 @@ class PlaybackSessionManager(
                         sessionToken = tok
                     )
                     if (result != null && result.isSuccess) {
-                        org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+                        val pcmFormat = activeReceiverEffective?.let { eff ->
+                            org.michimusic.core.models.PcmFormat(
+                                sampleRate = eff.sampleRate,
+                                channels = eff.channels,
+                                bitDepth = eff.bitDepth,
+                                codec = eff.codec,
+                            )
+                        }
+                        org.michimusic.player.PlayerDependencies.resumePcmStreaming(pcmFormat)
                         audioController?.play()
                         _sessionState.value = _sessionState.value.copy(isPlaying = true, statusMessage = null)
                     } else {
@@ -1246,7 +1261,14 @@ class PlaybackSessionManager(
             )
 
             if (rtpAudioSender.isActive) {
-                org.michimusic.player.PlayerDependencies.resumePcmStreaming()
+                org.michimusic.player.PlayerDependencies.resumePcmStreaming(
+                    org.michimusic.core.models.PcmFormat(
+                        sampleRate = sessionResp.effective.sampleRate,
+                        channels = sessionResp.effective.channels,
+                        bitDepth = sessionResp.effective.bitDepth,
+                        codec = sessionResp.effective.codec,
+                    )
+                )
 
                 // 4. Resume playback clock now that RTP transmission is running
                 if (wasPlaying) {

@@ -276,13 +276,6 @@ class SearchViewModel(
     fun clearError() { _error.value = null }
 
     private fun isTrackDownloaded(track: Track): Boolean {
-        if (track.filepath.isBlank()) return false
-        if (track.filepath.startsWith("content://")) return true
-        val path = if (track.filepath.startsWith("file://")) track.filepath.removePrefix("file://") else track.filepath
-        return try {
-            java.io.File(path).exists()
-        } catch (_: Exception) {
-            false
-        }
+        return org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(track)
     }
 }

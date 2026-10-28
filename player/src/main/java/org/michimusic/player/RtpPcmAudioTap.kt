@@ -86,11 +86,13 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
 
     /**
      * Explicitly completes a format renegotiation window once the sender has
-     * established or confirmed downstream receiver compatibility.
+     * established or confirmed downstream receiver compatibility matching the active format.
+     * Mismatched format or null parameter is strictly rejected to prevent invalid PCM stream transmission.
      */
-    fun completeRenegotiation(format: PcmFormat? = null) {
+    fun completeRenegotiation(format: PcmFormat) {
         synchronized(senderLock) {
-            if (format == null || format == _currentFormat.value) {
+            val current = _currentFormat.value
+            if (current != null && current == format) {
                 isRenegotiating = false
             }
         }
