@@ -326,4 +326,78 @@ class RtpPcmAudioTapTest {
         tap.reset()
         assertEquals(2, cleared)
     }
+
+    @Test
+    fun `reset and reconfigure with identical format recovers via completeRenegotiation`() {
+        val tap = RtpPcmAudioTap()
+        val format = AudioProcessor.AudioFormat(44100, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format)
+
+        var chunksReceived = 0
+        tap.startSender { chunksReceived++ }
+        assertEquals(44100, tap.activeFormat?.sampleRate)
+
+        // Queue a chunk
+        val sample = byteArrayOf(1, 2, 3, 4)
+        val buf1 = ByteBuffer.allocateDirect(sample.size).order(ByteOrder.nativeOrder())
+        buf1.put(sample)
+        buf1.flip()
+        tap.queueInput(buf1)
+        assertEquals(1, chunksReceived)
+
+        // Media3 processor resets (seek, buffer underrun or track transition)
+        tap.reset()
+        assertTrue(tap.isRenegotiating)
+
+        // Reconfigure with IDENTICAL format
+        tap.configure(format)
+        assertTrue(tap.isRenegotiating)
+
+        // If unhandled, chunks would be dropped. But caller invokes completeRenegotiation():
+        tap.completeRenegotiation(tap.activeFormat)
+        assertFalse(tap.isRenegotiating)
+
+        val buf2 = ByteBuffer.allocateDirect(sample.size).order(ByteOrder.nativeOrder())
+        buf2.put(sample)
+        buf2.flip()
+        tap.queueInput(buf2)
+        assertEquals("Chunks must resume delivery after identical format recovery", 2, chunksReceived)
+    }
+
+    @Test
+    fun `reset and reconfigure with different format keeps isRenegotiating locked until explicitly acknowledged`() {
+        val tap = RtpPcmAudioTap()
+        val format44 = AudioProcessor.AudioFormat(44100, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format44)
+
+        var chunksReceived = 0
+        tap.startSender { chunksReceived++ }
+
+        tap.reset()
+        val format48 = AudioProcessor.AudioFormat(48000, 2, C.ENCODING_PCM_16BIT)
+        tap.configure(format48)
+
+        // Stale format acknowledgement is ignored
+        tap.completeRenegotiation(org.michimusic.core.models.PcmFormat(44100, 2, 16, "pcm_s16le"))
+        assertTrue("Renegotiation must remain locked if format mismatch", tap.isRenegotiating)
+
+        // Acknowledge matching format
+        tap.completeRenegotiation(tap.activeFormat)
+        assertFalse(tap.isRenegotiating)
+    }
+
+    @Test
+    fun `disconnection stops sender and clears renegotiation locks`() {
+        val tap = RtpPcmAudioTap()
+        tap.configure(AudioProcessor.AudioFormat(44100, 2, C.ENCODING_PCM_16BIT))
+        tap.startSender { }
+        tap.reset()
+        assertTrue(tap.isRenegotiating)
+
+        // Disconnect
+        tap.stopSender()
+        assertFalse(tap.isEnabled)
+        assertFalse(tap.isRenegotiating)
+        assertNull(tap.pcmChunkListener)
+    }
 }

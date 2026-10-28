@@ -1,4 +1,4 @@
-﻿package org.michimusic.mobile.sync
+package org.michimusic.mobile.sync
 
 
 import android.content.Context
@@ -172,9 +172,10 @@ class SyncViewModel(
                 )
             }
         }.forEach { p ->
+            val devId = if (p.deviceId.isNotBlank()) p.deviceId else "${p.ip}:${p.port}"
             unified.add(
                 org.michimusic.core.models.UnifiedDevice(
-                    id = p.deviceId.ifEmpty { p.ip },
+                    id = devId,
                     name = p.alias,
                     ip = p.ip,
                     port = p.port,
@@ -187,15 +188,13 @@ class SyncViewModel(
             )
         }
 
-
         val statFs = try { android.os.StatFs(context.filesDir.absolutePath) } catch (_: Exception) { null }
         val freeBytes = statFs?.availableBytes ?: 0L
-
 
         SyncUiState(
             state = connState,
             peers = peers,
-            unifiedDevices = unified,
+            unifiedDevices = unified.distinctBy { it.id },
             connectedPeer = peer,
             pairingStart = pairStart,
             pairingStrategy = strategy,
@@ -311,7 +310,10 @@ class SyncViewModel(
 
 
     fun startDiscovery() {
-        if (_connectionState.value != SyncConnectionState.DISCONNECTED) return
+        _error.value = null
+        _connectedPeer.value = null
+        currentClient?.close()
+        currentClient = null
         _connectionState.value = SyncConnectionState.DISCOVERING
         viewModelScope.launch { linkDiscovery.start() }
     }

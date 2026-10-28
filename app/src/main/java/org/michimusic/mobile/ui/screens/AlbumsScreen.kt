@@ -798,10 +798,17 @@ fun AlbumsScreen(
         }
 
         if (showCreatePlaylist) {
+            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsState()
+            val createPlaylistError by viewModel.createPlaylistError.collectAsState()
             CreatePlaylistDialog(
+                isCreating = isCreatingPlaylist,
+                errorMessage = createPlaylistError,
                 onCreate = { name ->
-                    viewModel.createPlaylist(name) {}
-                    showCreatePlaylist = false
+                    viewModel.createPlaylist(name) { result ->
+                        if (result is org.michimusic.mobile.screens.CreatePlaylistResult.Success) {
+                            showCreatePlaylist = false
+                        }
+                    }
                 },
                 onDismiss = { showCreatePlaylist = false },
             )

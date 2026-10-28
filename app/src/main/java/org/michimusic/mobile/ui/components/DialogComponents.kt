@@ -598,7 +598,7 @@ fun EqualizerDialog(
                     ) {
                         effectsState.bands.forEach { band ->
                             val freqLabel = eqCenterFrequencyLabel(band.centerFreqHz)
-                            val gainDb = band.currentGainMilliDb / 1000f
+                            val gainDb = band.currentGainMilliDb / 100f
 
                             Row(
                                 modifier = Modifier
@@ -1070,12 +1070,16 @@ fun ManualConnectionDialog(
 
 @Composable
 fun CreatePlaylistDialog(
+    isCreating: Boolean = false,
+    errorMessage: String? = null,
     onCreate: (name: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var playlistName by remember { mutableStateOf("") }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = {
+        if (!isCreating) onDismiss()
+    }) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = SurfaceContainer,
@@ -1101,7 +1105,10 @@ fun CreatePlaylistDialog(
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    IconButton(onClick = onDismiss) {
+                    IconButton(
+                        onClick = onDismiss,
+                        enabled = !isCreating,
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = "Cerrar",
@@ -1116,6 +1123,8 @@ fun CreatePlaylistDialog(
                     value = playlistName,
                     onValueChange = { playlistName = it },
                     placeholder = { Text("Ej. Cyberpunk Chill", color = OnSurfaceVariant) },
+                    enabled = !isCreating,
+                    isError = errorMessage != null,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = PureWhite,
                         unfocusedTextColor = PureWhite,
@@ -1125,22 +1134,44 @@ fun CreatePlaylistDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = errorMessage,
+                        color = androidx.compose.ui.graphics.Color(0xFFFF5252),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
                     onClick = {
-                        if (playlistName.isNotBlank()) {
-                            onCreate(playlistName)
-                            onDismiss()
+                        val trimmed = playlistName.trim()
+                        if (trimmed.isNotBlank() && !isCreating) {
+                            onCreate(trimmed)
                         }
                     },
+                    enabled = !isCreating && playlistName.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PrimaryPinkContainer,
+                        disabledContainerColor = PrimaryPinkContainer.copy(alpha = 0.5f),
+                    ),
                     shape = RoundedCornerShape(12.dp),
                 ) {
-                    Text("Crear Playlist", color = PureWhite, fontWeight = FontWeight.Bold)
+                    if (isCreating) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = PureWhite,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text("Crear Playlist", color = PureWhite, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }

@@ -139,6 +139,7 @@ fun AlbumArtView(
         key2 = coverFailed,
         key3 = coverModel,
     ) {
+        value = null
         if ((coverModel == null || coverFailed) && !fallbackMediaUri.isNullOrBlank()) {
             value = withContext(Dispatchers.IO) {
                 EmbeddedCoverCache.load(context, fallbackMediaUri)

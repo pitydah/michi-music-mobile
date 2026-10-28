@@ -697,42 +697,71 @@ class PlaylistsViewModelTest {
     fun createPlaylist_validName_callsRepositoryAndInvokesCallback() = runTest(testDispatcher) {
         val recordingRepo = RecordingPlaylistRepo()
         val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
-        var completed = false
+        var result: CreatePlaylistResult? = null
 
-        vm.createPlaylist(" My Jazz Playlist ") { completed = true }
+        vm.createPlaylist(" My Jazz Playlist ") { result = it }
         advanceUntilIdle()
 
         assertEquals("My Jazz Playlist", recordingRepo.createPlaylistCalledWith)
         assertEquals(1, recordingRepo.createPlaylistCallCount)
-        assertTrue(completed)
+        assertTrue(result is CreatePlaylistResult.Success)
+        assertEquals("My Jazz Playlist", (result as CreatePlaylistResult.Success).playlist.name)
+        assertFalse(vm.isCreatingPlaylist.value)
     }
 
     @Test
     fun createPlaylist_blankName_doesNotCallRepository() = runTest(testDispatcher) {
         val recordingRepo = RecordingPlaylistRepo()
         val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
-        var completed = false
+        var result: CreatePlaylistResult? = null
 
-        vm.createPlaylist("   ") { completed = true }
+        vm.createPlaylist("   ") { result = it }
         advanceUntilIdle()
 
         assertEquals(null, recordingRepo.createPlaylistCalledWith)
         assertEquals(0, recordingRepo.createPlaylistCallCount)
-        assertTrue(completed)
+        assertEquals(CreatePlaylistResult.BlankName, result)
+        assertFalse(vm.isCreatingPlaylist.value)
     }
 
     @Test
     fun createPlaylist_failure_handlesGracefullyAndInvokesCallback() = runTest(testDispatcher) {
         val recordingRepo = RecordingPlaylistRepo(shouldFail = true)
         val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
-        var completed = false
+        var result: CreatePlaylistResult? = null
 
-        vm.createPlaylist("Failing Playlist") { completed = true }
+        vm.createPlaylist("Failing Playlist") { result = it }
         advanceUntilIdle()
 
         assertEquals(1, recordingRepo.createPlaylistCallCount)
         assertFalse(vm.isLoading.value)
-        assertTrue(completed)
+        assertFalse(vm.isCreatingPlaylist.value)
+        assertTrue(result is CreatePlaylistResult.Error)
+        assertEquals("boom", (result as CreatePlaylistResult.Error).message)
+        assertEquals("boom", vm.createPlaylistError.value)
+    }
+
+    @Test
+    fun createPlaylist_duplicateCallWhileInProgress_returnsAlreadyInProgress() = runTest(testDispatcher) {
+        val slowRepo = object : FakePlaylistRepo() {
+            override suspend fun createPlaylist(name: String, trackIds: List<String>): Playlist {
+                kotlinx.coroutines.delay(1000)
+                return Playlist(id = "slow", name = name, trackCount = 0)
+            }
+        }
+        val vm = PlaylistsViewModel(slowRepo, LocalMediaRepository(), testDispatcher)
+        var result1: CreatePlaylistResult? = null
+        var result2: CreatePlaylistResult? = null
+
+        vm.createPlaylist("First") { result1 = it }
+        // While first is in-flight:
+        assertTrue(vm.isCreatingPlaylist.value)
+        vm.createPlaylist("Second") { result2 = it }
+
+        assertEquals(CreatePlaylistResult.AlreadyInProgress, result2)
+        advanceUntilIdle()
+        assertTrue(result1 is CreatePlaylistResult.Success)
+        assertFalse(vm.isCreatingPlaylist.value)
     }
 }
 

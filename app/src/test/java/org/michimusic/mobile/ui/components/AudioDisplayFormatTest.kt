@@ -36,10 +36,15 @@ class AudioDisplayFormatTest {
         assertEquals("0 equipos detectados · 3 vinculados · 2 conectados", linkOverviewSummary(-1, 3, 2))
     }
 
-    @Test fun equalizerUsesMillidecibelsNotCentidecibels() {
-        assertEquals("+3,5 dB", eqGainMilliDbLabel(3500))
-        assertEquals("-2,0 dB", eqGainMilliDbLabel(-2000))
+    @Test fun equalizerUsesMillibelsWhere100mBIs1dB() {
+        assertEquals("+4,0 dB", eqGainMilliDbLabel(400))
+        assertEquals("+3,5 dB", eqGainMilliDbLabel(350))
+        assertEquals("-2,0 dB", eqGainMilliDbLabel(-200))
         assertEquals("0,0 dB", eqGainMilliDbLabel(0))
+        assertEquals("+15,0 dB", eqGainMilliDbLabel(1500))
+        assertEquals("-15,0 dB", eqGainMilliDbLabel(-1500))
+        assertEquals("-12,0 dB", eqGainMilliDbLabel(-1200))
+        assertEquals("+12,0 dB", eqGainMilliDbLabel(1200))
     }
 
     @Test fun bandCentersPreserveFractionalFrequencies() {

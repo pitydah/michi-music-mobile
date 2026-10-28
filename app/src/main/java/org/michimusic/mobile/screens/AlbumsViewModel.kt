@@ -117,17 +117,42 @@ class AlbumsViewModel(
         }
     }
 
-    fun createPlaylist(name: String, onComplete: () -> Unit) {
-        if (name.isBlank()) return
+    private val _isCreatingPlaylist = MutableStateFlow(false)
+    val isCreatingPlaylist: StateFlow<Boolean> = _isCreatingPlaylist.asStateFlow()
+
+    private val _createPlaylistError = MutableStateFlow<String?>(null)
+    val createPlaylistError: StateFlow<String?> = _createPlaylistError.asStateFlow()
+
+    fun createPlaylist(name: String, onResult: (CreatePlaylistResult) -> Unit = {}) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) {
+            onResult(CreatePlaylistResult.BlankName)
+            return
+        }
+        if (_isCreatingPlaylist.value) {
+            onResult(CreatePlaylistResult.AlreadyInProgress)
+            return
+        }
+        _isCreatingPlaylist.value = true
+        _createPlaylistError.value = null
         viewModelScope.launch(ioDispatcher) {
             try {
-                playlistRepo.createPlaylist(name)
+                val created = playlistRepo.createPlaylist(trimmed)
                 val updated = playlistRepo.getAllPlaylists()
                 _playlists.value = updated
+                val item = PlaylistItem(id = created.id, name = created.name, trackCount = created.trackCount)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    _isCreatingPlaylist.value = false
+                    onResult(CreatePlaylistResult.Success(item))
+                }
             } catch (e: Exception) {
-                _error.value = "Error al crear la playlist: ${e.message}"
-            } finally {
-                onComplete()
+                val msg = "Error al crear la playlist: ${e.message}"
+                _error.value = msg
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    _createPlaylistError.value = msg
+                    _isCreatingPlaylist.value = false
+                    onResult(CreatePlaylistResult.Error(msg))
+                }
             }
         }
     }

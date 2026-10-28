@@ -97,31 +97,39 @@ open class LinkDiscovery(
                 sock.receive(packet)
                 val data = String(packet.data, 0, packet.length, Charsets.UTF_8)
                 val msg = json.decodeFromString<AnnounceMessage>(data)
-
-                if (msg.type == "goodbye") {
-                    _peers.value = _peers.value - msg.alias
-                    peerLastSeen.remove(msg.alias)
-                    _events.tryEmit(DiscoveryEvent.PeerLost(msg.alias))
-                } else {
-                    val now = System.currentTimeMillis()
-                    val peer = DiscoveredPeer(
-                        alias = msg.alias,
-                        ip = packet.address.hostAddress ?: "unknown",
-                        port = msg.port,
-                        deviceType = msg.device,
-                        deviceId = msg.deviceId,
-                        version = msg.version,
-                        authRequired = msg.authRequired,
-                    )
-                    val wasNew = msg.alias !in _peers.value
-                    _peers.value = _peers.value + (msg.alias to peer)
-                    peerLastSeen[msg.alias] = now
-                    if (wasNew) {
-                        _events.tryEmit(DiscoveryEvent.PeerFound(peer))
-                    }
-                }
+                val host = packet.address?.hostAddress ?: "unknown"
+                processAnnounce(msg, host)
             } catch (_: java.net.SocketTimeoutException) {
                 cleanStalePeers()
+            }
+        }
+    }
+
+    fun processAnnounce(
+        msg: AnnounceMessage,
+        hostAddress: String,
+        now: Long = System.currentTimeMillis()
+    ) {
+        val key = if (msg.deviceId.isNotBlank()) msg.deviceId else "$hostAddress:${msg.port}"
+        if (msg.type == "goodbye") {
+            _peers.value = _peers.value - key
+            peerLastSeen.remove(key)
+            _events.tryEmit(DiscoveryEvent.PeerLost(msg.alias.ifBlank { key }))
+        } else {
+            val peer = DiscoveredPeer(
+                alias = msg.alias,
+                ip = hostAddress,
+                port = msg.port,
+                deviceType = msg.device,
+                deviceId = msg.deviceId,
+                version = msg.version,
+                authRequired = msg.authRequired,
+            )
+            val wasNew = key !in _peers.value
+            _peers.value = _peers.value + (key to peer)
+            peerLastSeen[key] = now
+            if (wasNew) {
+                _events.tryEmit(DiscoveryEvent.PeerFound(peer))
             }
         }
     }
@@ -143,8 +151,7 @@ open class LinkDiscovery(
         socket = null
     }
 
-    private fun cleanStalePeers() {
-        val now = System.currentTimeMillis()
+    fun cleanStalePeers(now: Long = System.currentTimeMillis()) {
         val stale = peerLastSeen.filterValues { now - it > PEER_TIMEOUT_MS }.keys.toSet()
         if (stale.isNotEmpty()) {
             _peers.value = _peers.value - stale

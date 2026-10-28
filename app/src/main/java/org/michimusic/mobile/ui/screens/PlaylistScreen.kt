@@ -78,6 +78,8 @@ fun PlaylistScreen(
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsState()
+    val createPlaylistError by viewModel.createPlaylistError.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.loadPlaylists() }
@@ -248,9 +250,14 @@ fun PlaylistScreen(
 
         if (showCreateDialog) {
             CreatePlaylistDialog(
+                isCreating = isCreatingPlaylist,
+                errorMessage = createPlaylistError,
                 onCreate = { name ->
-                    viewModel.createPlaylist(name)
-                    showCreateDialog = false
+                    viewModel.createPlaylist(name) { result ->
+                        if (result is org.michimusic.mobile.screens.CreatePlaylistResult.Success) {
+                            showCreateDialog = false
+                        }
+                    }
                 },
                 onDismiss = { showCreateDialog = false },
             )
