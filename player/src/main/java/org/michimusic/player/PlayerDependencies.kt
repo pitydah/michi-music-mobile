@@ -105,10 +105,10 @@ object PlayerDependencies {
     @JvmStatic
     fun resumePcmStreaming() {
         val tap = rtpPcmAudioTap ?: return
-        if (tap.hasDeliveryFault || tap.activeFormat == null) return
+        if (tap.hasDeliveryFault) return
         // Caller must have completed format negotiation before invoking resume.
         tap.isPaused = false
-        tap.isRenegotiating = false
+        tap.completeRenegotiation()
     }
 
     @JvmStatic

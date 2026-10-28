@@ -24,8 +24,8 @@ interface AudioRouteObserver {
     fun onRoutingFailed(deviceId: Int?, failure: RouteFailure)
     // Implementations without an AudioTrack (e.g. fake test sources) may ignore playback transitions.
     fun onPlaybackStateChanged(isPlaying: Boolean) {}
-    fun attachAudioTrack(audioTrack: AudioTrack)
-    fun detachAudioTrack()
+    fun attachAudioTrack(audioTrack: AudioTrack, generation: Long = 0L)
+    fun detachAudioTrack(audioTrack: AudioTrack? = null, generation: Long? = null)
     fun release()
 }
 
@@ -38,6 +38,7 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
     private var currentRequestedDescriptor: OutputDescriptor? = null
     private var observedAudioTrack: AudioTrack? = null
     private var routingListener: AudioRouting.OnRoutingChangedListener? = null
+    private var currentTrackGeneration: Long = 0L
 
     override fun onDeviceDetected(descriptor: OutputDescriptor?) {
         if (descriptor == null) {
@@ -83,8 +84,10 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
         }
     }
 
-    override fun attachAudioTrack(audioTrack: AudioTrack) {
-        detachAudioTrack()
+    override fun attachAudioTrack(audioTrack: AudioTrack, generation: Long) {
+        val nextGen = if (generation > 0L) generation else currentTrackGeneration + 1L
+        currentTrackGeneration = nextGen
+        detachInternal()
         observedAudioTrack = audioTrack
 
         val listener = AudioRouting.OnRoutingChangedListener { routing ->
@@ -109,7 +112,24 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
         }
     }
 
-    override fun detachAudioTrack() {
+    override fun detachAudioTrack(audioTrack: AudioTrack?, generation: Long?) {
+        // Late release callbacks from older AudioTrack instances must not detach a replacement AudioTrack
+        if (audioTrack != null && observedAudioTrack !== audioTrack) {
+            return
+        }
+        if (generation != null && generation > 0L && generation < currentTrackGeneration) {
+            return
+        }
+        detachInternal()
+        val prior = _routeStatus.value
+        when (prior) {
+            is AudioRouteStatus.Confirmed -> _routeStatus.value = AudioRouteStatus.LastObserved(prior.device, prior.observedAtMs)
+            is AudioRouteStatus.RoutedElsewhere -> _routeStatus.value = AudioRouteStatus.LastObserved(prior.actual, prior.observedAtMs)
+            else -> Unit
+        }
+    }
+
+    private fun detachInternal() {
         val track = observedAudioTrack
         val listener = routingListener
         if (track != null && listener != null) {
@@ -121,12 +141,6 @@ class DefaultAudioRouteObserver : AudioRouteObserver {
         }
         observedAudioTrack = null
         routingListener = null
-        val prior = _routeStatus.value
-        when (prior) {
-            is AudioRouteStatus.Confirmed -> _routeStatus.value = AudioRouteStatus.LastObserved(prior.device, prior.observedAtMs)
-            is AudioRouteStatus.RoutedElsewhere -> _routeStatus.value = AudioRouteStatus.LastObserved(prior.actual, prior.observedAtMs)
-            else -> Unit
-        }
     }
 
     private fun handleRoutedDevice(routedDevice: AudioDeviceInfo?) {

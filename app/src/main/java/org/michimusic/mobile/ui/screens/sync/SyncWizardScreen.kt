@@ -160,6 +160,7 @@ fun SyncWizardScreen(
 
     Scaffold(
         containerColor = SurfaceObsidian,
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp),
         topBar = {
             Row(
                 modifier = Modifier

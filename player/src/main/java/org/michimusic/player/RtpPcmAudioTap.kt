@@ -84,6 +84,18 @@ class RtpPcmAudioTap : BaseAudioProcessor() {
         hasDeliveryFault = false
     }
 
+    /**
+     * Explicitly completes a format renegotiation window once the sender has
+     * established or confirmed downstream receiver compatibility.
+     */
+    fun completeRenegotiation(format: PcmFormat? = null) {
+        synchronized(senderLock) {
+            if (format == null || format == _currentFormat.value) {
+                isRenegotiating = false
+            }
+        }
+    }
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         val (depth, codec) = when (inputAudioFormat.encoding) {
             C.ENCODING_PCM_16BIT -> 16 to "pcm_s16le"

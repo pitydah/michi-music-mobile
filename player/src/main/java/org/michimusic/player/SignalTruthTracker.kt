@@ -64,14 +64,15 @@ class SignalTruthTracker(
         recompute()
     }
 
+    private var currentAudioTrackGeneration: Long = 0L
+
     fun onTrackChanged(track: Track?) {
         if (track == null) {
             clearPlayback()
             return
         }
-        currentDecodedFormat = null
-        currentOutputConfig = null
-        // Track metadata or filename is not a decoder measurement.
+        // Continuous playback: invalidate only source format awaiting MediaCodec event for new track.
+        // Preserves currentOutputConfig and valid decodedFormat across gapless/same-sink transitions.
         currentSourceFormat = null
         recompute()
     }
@@ -106,8 +107,11 @@ class SignalTruthTracker(
     }
 
     @OptIn(UnstableApi::class)
-    fun onAudioTrackInitialized(sampleRate: Int, channelCount: Int, encoding: Int) {
+    fun onAudioTrackInitialized(sampleRate: Int, channelCount: Int, encoding: Int, generation: Long = 0L) {
         if (!instrumentationAvailable) return
+        if (generation > 0L) {
+            currentAudioTrackGeneration = generation
+        }
         val bits = when (encoding) {
             androidx.media3.common.C.ENCODING_PCM_16BIT -> 16
             androidx.media3.common.C.ENCODING_PCM_24BIT -> 24
@@ -124,7 +128,12 @@ class SignalTruthTracker(
         recompute()
     }
 
-    fun onAudioTrackReleased() {
+    fun onAudioTrackReleased(generation: Long = 0L) {
+        if (generation > 0L && generation < currentAudioTrackGeneration) {
+            // Callback from an older AudioTrack that finished releasing late;
+            // keep the current active AudioTrack's measurement intact.
+            return
+        }
         currentOutputConfig = null
         recompute()
     }

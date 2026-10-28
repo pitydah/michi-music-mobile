@@ -304,14 +304,20 @@ fun HomeScreen(
         )
 
         if (showCreatePlaylist) {
+            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsState()
+            val createPlaylistError by viewModel.createPlaylistError.collectAsState()
             CreatePlaylistDialog(
+                isCreating = isCreatingPlaylist,
+                errorMessage = createPlaylistError,
                 onCreate = { name ->
-                    viewModel.createPlaylist(name) {
-                        scope.launch {
-                            snackbarHostState.showSnackbar("Playlist \"$name\" creada")
+                    viewModel.createPlaylist(name) { result ->
+                        if (result is org.michimusic.mobile.screens.CreatePlaylistResult.Success) {
+                            showCreatePlaylist = false
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Playlist \"$name\" creada")
+                            }
                         }
                     }
-                    showCreatePlaylist = false
                 },
                 onDismiss = { showCreatePlaylist = false },
             )

@@ -70,8 +70,8 @@ class UsbDacManagerTest {
             _routeStatus.value = AudioRouteStatus.Failed(deviceId, failure)
         }
 
-        override fun attachAudioTrack(audioTrack: android.media.AudioTrack) {}
-        override fun detachAudioTrack() {}
+        override fun attachAudioTrack(audioTrack: android.media.AudioTrack, generation: Long) {}
+        override fun detachAudioTrack(audioTrack: android.media.AudioTrack?, generation: Long?) {}
         override fun release() {
             isReleased = true
             _routeStatus.value = AudioRouteStatus.NoDevice

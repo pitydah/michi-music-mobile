@@ -265,4 +265,57 @@ class AudioModeAndSignalTruthTest {
         assertNull(tracker.observation.value.outputConfig)
     }
 
+    @Test
+    fun lateAudioTrackReleaseFromStaleGenerationDoesNotInvalidateActiveOutput() {
+        val tracker = SignalTruthTracker()
+        tracker.setPlaybackActive(true)
+
+        // AudioTrack A (generation 1)
+        tracker.onAudioTrackInitialized(44100, 2, androidx.media3.common.C.ENCODING_PCM_16BIT, generation = 1L)
+        assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
+
+        // AudioTrack B (generation 2) activated
+        tracker.onAudioTrackInitialized(96000, 2, androidx.media3.common.C.ENCODING_PCM_24BIT, generation = 2L)
+        assertEquals(96000, tracker.observation.value.outputConfig?.sampleRate)
+        assertEquals(24, tracker.observation.value.outputConfig?.bitDepth)
+
+        // Late release callback from Track A arrives
+        tracker.onAudioTrackReleased(generation = 1L)
+
+        // Track B measurements must be completely preserved!
+        assertEquals(96000, tracker.observation.value.outputConfig?.sampleRate)
+        assertEquals(24, tracker.observation.value.outputConfig?.bitDepth)
+
+        // Releasing Track B (generation 2) clears output
+        tracker.onAudioTrackReleased(generation = 2L)
+        assertNull(tracker.observation.value.outputConfig)
+    }
+
+    @Test
+    fun gaplessTrackChangeMaintainsActiveOutputAndDecodedMeasurements() {
+        val tracker = SignalTruthTracker()
+        tracker.setPlaybackActive(true)
+
+        // Track 1 decoded & initialized
+        tracker.onPcmFormatDecoded(PcmFormat(sampleRate = 44100, channels = 2, bitDepth = 16))
+        tracker.onAudioTrackInitialized(44100, 2, androidx.media3.common.C.ENCODING_PCM_16BIT, generation = 1L)
+
+        assertEquals(44100, tracker.observation.value.decodedFormat?.sampleRate)
+        assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
+
+        // Gapless change to Track 2 (same pipeline)
+        val dummyTrack = org.michimusic.core.models.Track(
+            id = "t2",
+            title = "Track 2",
+            artist = "Artist",
+            album = "Album",
+            duration = 180L,
+            filepath = "/music/t2.flac"
+        )
+        tracker.onTrackChanged(dummyTrack)
+
+        // Measurements from continuous pipeline are NOT wiped out
+        assertEquals(44100, tracker.observation.value.decodedFormat?.sampleRate)
+        assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
+    }
 }

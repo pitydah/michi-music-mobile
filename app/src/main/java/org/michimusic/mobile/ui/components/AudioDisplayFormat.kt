@@ -37,9 +37,12 @@ fun linkOverviewSummary(discovered: Int, paired: Int, connected: Int): String {
     return "$known equipos detectados · $linked vinculados · $live conectados"
 }
 
-/** Correct units for Android Equalizer band gains (milli-decibels). */
+/**
+ * Correct units for Android Equalizer band gains.
+ * Android Equalizer expresses band levels in millibels (mB), where 100 mB = 1 dB.
+ */
 fun eqGainMilliDbLabel(gainMilliDb: Int): String {
-    val db = gainMilliDb / 1000.0
+    val db = gainMilliDb / 100.0
     val normalized = if (kotlin.math.abs(db) < 0.05) 0.0 else db
     val num = String.format(Locale.forLanguageTag("es-CL"), "%.1f", normalized)
     return (if (normalized > 0) "+" else "") + num + " dB"

@@ -55,9 +55,12 @@ class PlayerController(
 
     private val routeObserver = usbDacManager?.getAudioRouteObserver()
 
+    private var activeTrackGeneration: Long = 0L
+
     private val audioTrackProvider = DefaultAudioSink.AudioTrackProvider { config, attr, sessionId ->
         val track = DefaultAudioSink.AudioTrackProvider.DEFAULT.getAudioTrack(config, attr, sessionId)
-        routeObserver?.attachAudioTrack(track)
+        val gen = ++activeTrackGeneration
+        routeObserver?.attachAudioTrack(track, gen)
         track
     }
 
@@ -90,12 +93,14 @@ class PlayerController(
                 sampleRate = audioTrackConfig.sampleRate,
                 channelCount = java.lang.Integer.bitCount(audioTrackConfig.channelConfig),
                 encoding = audioTrackConfig.encoding,
+                generation = activeTrackGeneration,
             )
         }
 
         override fun onAudioTrackReleased(audioTrackConfig: androidx.media3.exoplayer.audio.AudioSink.AudioTrackConfig) {
-            signalTruthTracker?.onAudioTrackReleased()
-            routeObserver?.detachAudioTrack()
+            val gen = activeTrackGeneration
+            signalTruthTracker?.onAudioTrackReleased(gen)
+            routeObserver?.detachAudioTrack(audioTrack = null, generation = gen)
         }
     }
 

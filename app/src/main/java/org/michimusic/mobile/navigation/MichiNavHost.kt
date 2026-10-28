@@ -76,12 +76,13 @@ fun MichiNavHost() {
                     },
                 )
             }
-        },
+        }
     ) { innerPadding ->
+        val isFullBleed = currentRoute == "nowplaying"
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(if (immersive) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding),
+                .padding(if (isFullBleed) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding),
         ) {
             NavHost(
                 navController = navController,

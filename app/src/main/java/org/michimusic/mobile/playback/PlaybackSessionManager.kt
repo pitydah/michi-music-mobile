@@ -541,6 +541,10 @@ class PlaybackSessionManager(
                                 newFormat.codec.equals(currentEffective.codec, ignoreCase = true)
                             if (!matches) {
                                 handleDynamicReceiverFormatChange(target, client, targetHost, newFormat)
+                            } else {
+                                // Processor reset or track transition re-negotiating identical PCM format.
+                                // The active receiver session remains valid; unlock tap and resume transmission.
+                                org.michimusic.player.PlayerDependencies.resumePcmStreaming()
                             }
                         }
                     }

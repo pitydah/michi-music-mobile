@@ -109,11 +109,11 @@ class AlbumsViewModelTest {
 
     @Test
     fun `createPlaylist with blank name does not call repository`() = runTest(testDispatcher) {
-        var completed = false
-        viewModel.createPlaylist("   ") { completed = true }
+        var result: CreatePlaylistResult? = null
+        viewModel.createPlaylist("   ") { result = it }
         testScheduler.advanceUntilIdle()
 
         coVerify(exactly = 0) { playlistRepo.createPlaylist(any()) }
-        assertFalse(completed)
+        assertEquals(CreatePlaylistResult.BlankName, result)
     }
 }
