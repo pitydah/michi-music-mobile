@@ -55,8 +55,10 @@ import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
+import androidx.compose.ui.graphics.Brush
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.player.AudioController
 
@@ -207,13 +209,22 @@ fun MiniPlayer(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(PrimaryPinkContainer),
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(
+                                                PureWhite,
+                                                PureWhite.copy(alpha = 0.94f),
+                                                AeroGraphiteRaised,
+                                            )
+                                        )
+                                    )
+                                    .border(0.75.dp, AeroHairline, CircleShape),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                     contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                                    tint = PureWhite,
+                                    tint = SurfaceObsidian,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }

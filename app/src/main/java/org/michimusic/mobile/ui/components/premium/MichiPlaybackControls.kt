@@ -3,6 +3,8 @@ package org.michimusic.mobile.ui.components.premium
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -36,10 +39,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 
 /**
@@ -116,6 +122,16 @@ fun MichiPlaybackControls(
                 .size(playButtonSize.coerceAtLeast(MichiSpacing.minTouchTarget))
                 .scale(scale)
                 .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(
+                            PureWhite,
+                            PureWhite.copy(alpha = 0.94f),
+                            AeroGraphiteRaised,
+                        )
+                    )
+                )
+                .border(0.75.dp, AeroHairline, CircleShape)
                 .clickable(
                     onClick = onPlayPause,
                     enabled = !state.isLoading,
@@ -130,14 +146,14 @@ fun MichiPlaybackControls(
             if (state.isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(32.dp),
-                    color = PureWhite,
+                    color = SurfaceObsidian,
                     strokeWidth = 3.dp,
                 )
             } else {
                 Icon(
                     imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    tint = PureWhite,
+                    tint = SurfaceObsidian,
                     modifier = Modifier.size(38.dp),
                 )
             }
