@@ -122,22 +122,12 @@ fun MichiPlaybackControls(
                 .size(playButtonSize.coerceAtLeast(MichiSpacing.minTouchTarget))
                 .scale(scale)
                 .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            PureWhite,
-                            PureWhite.copy(alpha = 0.94f),
-                            AeroGraphiteRaised,
-                        )
-                    )
-                )
-                .border(0.75.dp, AeroHairline, CircleShape)
                 .clickable(
                     onClick = onPlayPause,
                     enabled = !state.isLoading,
                     role = Role.Button,
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(bounded = true, color = PureWhite),
+                    indication = ripple(bounded = true, color = PureWhite.copy(alpha = 0.35f)),
                 )
                 .semantics { contentDescription = if (state.isLoading) "Cargando" else if (state.isPlaying) "Pausar" else "Reproducir" }
                 .testTag(playPauseTestTag),
@@ -145,16 +135,16 @@ fun MichiPlaybackControls(
         ) {
             if (state.isLoading) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    color = SurfaceObsidian,
+                    modifier = Modifier.size(36.dp),
+                    color = PureWhite,
                     strokeWidth = 3.dp,
                 )
             } else {
                 Icon(
                     imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = null,
-                    tint = SurfaceObsidian,
-                    modifier = Modifier.size(38.dp),
+                    tint = PureWhite,
+                    modifier = Modifier.size(42.dp),
                 )
             }
         }

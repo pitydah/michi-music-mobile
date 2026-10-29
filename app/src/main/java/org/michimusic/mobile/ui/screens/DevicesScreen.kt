@@ -609,54 +609,45 @@ private fun DevicesTopBar(
             Text("MICHI LINK", style = MichiTypography.screenEyebrow)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 IconButton(
                     onClick = onRefreshClick,
                     modifier = Modifier
                         .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised)
-                        .border(0.75.dp, if (isSearching) TertiaryCyan else AeroHairline, CircleShape)
                         .testTag("devices_refresh_button"),
                 ) {
                     Icon(
                         Icons.Filled.Refresh,
                         contentDescription = "Buscar dispositivos",
                         tint = if (isSearching) TertiaryCyan else PureWhite,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
                 IconButton(
                     onClick = onQrClick,
                     modifier = Modifier
                         .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised)
-                        .border(0.75.dp, AeroHairline, CircleShape)
                         .testTag("devices_qr_button"),
                 ) {
                     Icon(
                         Icons.Filled.QrCodeScanner,
                         contentDescription = "Escanear QR",
                         tint = PureWhite,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
                 IconButton(
                     onClick = onSettingsClick,
                     modifier = Modifier
                         .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised)
-                        .border(0.75.dp, AeroHairline, CircleShape)
                         .testTag("devices_settings_button"),
                 ) {
                     Icon(
                         Icons.Filled.Settings,
                         contentDescription = "Ajustes",
                         tint = PureWhite,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
@@ -1106,13 +1097,14 @@ internal fun DeviceNodeCard(
                     onClick = onInfoClick,
                     modifier = Modifier
                         .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised)
-                        .border(0.75.dp, AeroHairline, CircleShape)
                         .testTag("device_info_${item.ip}"),
                 ) {
-                    Icon(Icons.Filled.Info, contentDescription = "Detalles de ${item.name}",
-                        tint = TextSecondary, modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Filled.Info,
+                        contentDescription = "Detalles de ${item.name}",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
             }
             // Avoid compressing connection and trust badges into the title row.

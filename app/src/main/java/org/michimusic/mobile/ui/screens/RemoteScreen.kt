@@ -129,15 +129,12 @@ fun RemoteScreen(
             ) {
                 IconButton(
                     onClick = onNavigateToSync,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised),
+                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Sync,
                         contentDescription = "Sincronización y Dispositivos",
-                        tint = PrimaryPink,
+                        tint = PureWhite,
                         modifier = Modifier.size(24.dp),
                     )
                 }

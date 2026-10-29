@@ -125,9 +125,6 @@ fun BottomNavBar(
                             .weight(1f)
                             .height(dockHeight - 16.dp)
                             .clip(MichiShapes.md)
-                            .background(
-                                if (isSelected) PrimaryPinkContainer.copy(alpha = 0.12f) else Color.Transparent,
-                            )
                             .semantics(mergeDescendants = true) {
                                 selected = isSelected
                                 stateDescription = if (isSelected) "Sección actual" else "Otra sección"

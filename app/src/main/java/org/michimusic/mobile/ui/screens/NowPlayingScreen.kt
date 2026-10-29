@@ -180,9 +180,6 @@ fun NowPlayingScreen(
                     onClick = onBack,
                     modifier = Modifier
                         .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(raised.fill)
-                        .border(raised.borderWidth, raised.outline, CircleShape)
                         .testTag("now_playing_close_button"),
                 ) {
                     Icon(
@@ -223,16 +220,13 @@ fun NowPlayingScreen(
                         },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
-                            .clip(CircleShape)
-                            .background(if (sleepActive) TertiaryCyan.copy(alpha = 0.2f) else raised.fill)
-                            .border(raised.borderWidth, if (sleepActive) TertiaryCyan else raised.outline, CircleShape)
                             .testTag("sleep_timer_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Timer,
                             contentDescription = if (sleepActive) "Temporizador activo. Cambiar duración" else "Activar temporizador",
                             tint = if (sleepActive) TertiaryCyan else PureWhite,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
 
@@ -241,16 +235,13 @@ fun NowPlayingScreen(
                         enabled = currentTrack != null,
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
-                            .clip(CircleShape)
-                            .background(raised.fill)
-                            .border(raised.borderWidth, raised.outline, CircleShape)
                             .testTag("now_playing_more_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.MoreVert,
                             contentDescription = if (currentTrack != null) "Más opciones de la canción" else "Sin canción seleccionada",
                             tint = if (currentTrack != null) PureWhite else OnSurfaceVariant,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -470,16 +461,13 @@ fun NowPlayingScreen(
                         onClick = { showEqualizerDialog = true },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
-                            .clip(CircleShape)
-                            .background(raised.fill)
-                            .border(raised.borderWidth, raised.outline, CircleShape)
                             .testTag("equalizer_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Equalizer,
                             contentDescription = "Ecualizador",
-                            tint = OnSurfaceVariant,
-                            modifier = Modifier.size(20.dp),
+                            tint = PureWhite,
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }

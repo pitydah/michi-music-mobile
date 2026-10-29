@@ -352,16 +352,13 @@ private fun HomeTopBar(
             onClick = onSettingsClick,
             modifier = Modifier
                 .size(MichiSpacing.minTouchTarget)
-                .clip(CircleShape)
-                .background(org.michimusic.mobile.ui.theme.AeroGraphiteRaised)
-                .border(0.75.dp, org.michimusic.mobile.ui.theme.AeroHairline, CircleShape)
                 .testTag("home_settings_button"),
         ) {
             Icon(
                 imageVector = Icons.Filled.Settings,
                 contentDescription = "Ajustes",
                 tint = PureWhite,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(24.dp),
             )
         }
     }

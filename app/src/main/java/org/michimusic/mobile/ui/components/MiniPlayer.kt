@@ -198,36 +198,17 @@ fun MiniPlayer(
 
                         // Play / Pause Button
                         IconButton(
-                            onClick = {
-                                sessionManager.playPause()
-                            },
+                            onClick = { sessionManager.playPause() },
                             modifier = Modifier
                                 .size(MichiSpacing.minTouchTarget)
                                 .testTag("mini_player_play_pause"),
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        Brush.radialGradient(
-                                            listOf(
-                                                PureWhite,
-                                                PureWhite.copy(alpha = 0.94f),
-                                                AeroGraphiteRaised,
-                                            )
-                                        )
-                                    )
-                                    .border(0.75.dp, AeroHairline, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                                    tint = SurfaceObsidian,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                                tint = PureWhite,
+                                modifier = Modifier.size(26.dp),
+                            )
                         }
 
                         // Next Track Button

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -114,24 +115,15 @@ fun PlaylistScreen(
                 }
 
                 // Add Playlist Button
-                Box(
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised)
-                        .border(0.75.dp, org.michimusic.mobile.ui.theme.AeroHairline, CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = PrimaryPink),
-                            onClick = { showCreateDialog = true },
-                        ),
-                    contentAlignment = Alignment.Center,
+                IconButton(
+                    onClick = { showCreateDialog = true },
+                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Nueva Playlist",
                         tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }
