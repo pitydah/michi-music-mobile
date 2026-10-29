@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.components.premium
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,11 +43,14 @@ fun MichiBottomSheet(
     val visualPrefs = LocalVisualPreferences.current
     val highContrast = visualPrefs.highContrast
 
+    val topShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    val outlineColor = if (highContrast) PureWhite.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.14f)
+
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        modifier = modifier,
+        modifier = modifier.border(0.75.dp, outlineColor, topShape),
         sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = topShape,
         containerColor = if (highContrast) Color.Black else SurfaceDark,
         contentColor = PureWhite,
         tonalElevation = 8.dp,
