@@ -353,7 +353,8 @@ private fun HomeTopBar(
             modifier = Modifier
                 .size(MichiSpacing.minTouchTarget)
                 .clip(CircleShape)
-                .background(GlassFillLow)
+                .background(org.michimusic.mobile.ui.theme.AeroGraphiteRaised)
+                .border(0.75.dp, org.michimusic.mobile.ui.theme.AeroHairline, CircleShape)
                 .testTag("home_settings_button"),
         ) {
             Icon(

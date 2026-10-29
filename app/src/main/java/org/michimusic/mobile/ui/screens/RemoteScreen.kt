@@ -255,8 +255,8 @@ fun RemoteScreen(
                             modifier = Modifier
                                 .size(240.dp)
                                 .clip(RoundedCornerShape(28.dp))
-                                .background(GlassFillLow)
-                                .border(1.dp, GlassBorderHigh, RoundedCornerShape(28.dp)),
+                                .background(AeroGraphiteRaised)
+                                .border(0.75.dp, AeroHairline, RoundedCornerShape(28.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
                             AlbumArtView(

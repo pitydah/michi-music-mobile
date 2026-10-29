@@ -119,7 +119,7 @@ fun PlaylistScreen(
                         .size(MichiSpacing.minTouchTarget)
                         .clip(CircleShape)
                         .background(AeroGraphiteRaised)
-                        .border(1.dp, GlassBorderHigh, CircleShape)
+                        .border(0.75.dp, org.michimusic.mobile.ui.theme.AeroHairline, CircleShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = ripple(color = PrimaryPink),
