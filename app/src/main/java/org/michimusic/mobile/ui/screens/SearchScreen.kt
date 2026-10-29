@@ -81,6 +81,8 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -225,12 +227,12 @@ fun SearchScreen(
                     val isSelected = filter == selectedFilter
                     Box(
                         modifier = Modifier
-                            .clip(MichiShapes.sm)
-                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
-                            .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.38f) else GlassBorderLow, MichiShapes.sm)
+                            .clip(MichiShapes.pill)
+                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.15f) else AeroGraphiteRaised)
+                            .border(0.75.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.50f) else AeroHairline, MichiShapes.pill)
                             .selectable(selected = isSelected, role = Role.Tab, onClick = { viewModel.setFilter(filter) })
                             .heightIn(min = 48.dp)
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
                             .testTag("search_filter_${filter.name.lowercase()}"),
                         contentAlignment = Alignment.Center,
                     ) {

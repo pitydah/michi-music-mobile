@@ -182,6 +182,7 @@ fun NowPlayingScreen(
                         .size(MichiSpacing.minTouchTarget)
                         .clip(CircleShape)
                         .background(raised.fill)
+                        .border(raised.borderWidth, raised.outline, CircleShape)
                         .testTag("now_playing_close_button"),
                 ) {
                     Icon(
@@ -224,7 +225,7 @@ fun NowPlayingScreen(
                             .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(if (sleepActive) TertiaryCyan.copy(alpha = 0.2f) else raised.fill)
-                            .border(1.dp, if (sleepActive) TertiaryCyan else raised.outline, CircleShape)
+                            .border(raised.borderWidth, if (sleepActive) TertiaryCyan else raised.outline, CircleShape)
                             .testTag("sleep_timer_button"),
                     ) {
                         Icon(
@@ -242,6 +243,7 @@ fun NowPlayingScreen(
                             .size(MichiSpacing.minTouchTarget)
                             .clip(CircleShape)
                             .background(raised.fill)
+                            .border(raised.borderWidth, raised.outline, CircleShape)
                             .testTag("now_playing_more_button"),
                     ) {
                         Icon(
@@ -434,6 +436,7 @@ fun NowPlayingScreen(
                         shape = RoundedCornerShape(12.dp),
                         color = raised.fill,
                         border = androidx.compose.foundation.BorderStroke(raised.borderWidth, raised.outline),
+                        shadowElevation = raised.elevation,
                         modifier = Modifier
                             .heightIn(min = MichiSpacing.minTouchTarget)
                             .weight(1f)

@@ -95,8 +95,9 @@ fun QueueDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -253,8 +254,9 @@ fun EqualizerDialog(
     ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .padding(vertical = 12.dp)
@@ -824,8 +826,9 @@ fun QrScannerDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -962,8 +965,9 @@ fun ManualConnectionDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1082,8 +1086,9 @@ fun CreatePlaylistDialog(
     }) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1200,8 +1205,9 @@ fun AudioRouteDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp)
@@ -1545,8 +1551,9 @@ fun PinPairingDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1678,8 +1685,9 @@ fun ReceiverButtonPairingDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1803,8 +1811,9 @@ fun PlayerPasswordPairingDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1958,8 +1967,9 @@ fun AddTracksDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2107,8 +2117,9 @@ fun RemoveTrackFromPlaylistDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2178,8 +2189,9 @@ fun DeletePlaylistDialog(
     Dialog(onDismissRequest = { if (!isDeleting) onDismiss() }) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2265,8 +2277,9 @@ fun RenamePlaylistDialog(
     Dialog(onDismissRequest = { if (!isSaving) onDismiss() }) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
+            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)

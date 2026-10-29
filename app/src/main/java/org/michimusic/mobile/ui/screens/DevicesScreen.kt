@@ -98,6 +98,8 @@ import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.QrScannerDialog
 import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
@@ -605,25 +607,57 @@ private fun DevicesTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("MICHI LINK", style = MichiTypography.screenEyebrow)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 IconButton(
                     onClick = onRefreshClick,
-                    modifier = Modifier.size(MichiSpacing.minTouchTarget).testTag("devices_refresh_button"),
+                    modifier = Modifier
+                        .size(MichiSpacing.minTouchTarget)
+                        .clip(CircleShape)
+                        .background(AeroGraphiteRaised)
+                        .border(0.75.dp, if (isSearching) TertiaryCyan else AeroHairline, CircleShape)
+                        .testTag("devices_refresh_button"),
                 ) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Buscar dispositivos",
-                        tint = if (isSearching) TertiaryCyan else PureWhite)
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "Buscar dispositivos",
+                        tint = if (isSearching) TertiaryCyan else PureWhite,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
                 IconButton(
                     onClick = onQrClick,
-                    modifier = Modifier.size(MichiSpacing.minTouchTarget).testTag("devices_qr_button"),
+                    modifier = Modifier
+                        .size(MichiSpacing.minTouchTarget)
+                        .clip(CircleShape)
+                        .background(AeroGraphiteRaised)
+                        .border(0.75.dp, AeroHairline, CircleShape)
+                        .testTag("devices_qr_button"),
                 ) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "Escanear QR", tint = PureWhite)
+                    Icon(
+                        Icons.Filled.QrCodeScanner,
+                        contentDescription = "Escanear QR",
+                        tint = PureWhite,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
                 IconButton(
                     onClick = onSettingsClick,
-                    modifier = Modifier.size(MichiSpacing.minTouchTarget).testTag("devices_settings_button"),
+                    modifier = Modifier
+                        .size(MichiSpacing.minTouchTarget)
+                        .clip(CircleShape)
+                        .background(AeroGraphiteRaised)
+                        .border(0.75.dp, AeroHairline, CircleShape)
+                        .testTag("devices_settings_button"),
                 ) {
-                    Icon(Icons.Filled.Settings, contentDescription = "Ajustes", tint = PureWhite)
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "Ajustes",
+                        tint = PureWhite,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
@@ -1070,7 +1104,12 @@ internal fun DeviceNodeCard(
                 }
                 IconButton(
                     onClick = onInfoClick,
-                    modifier = Modifier.size(48.dp).testTag("device_info_${item.ip}"),
+                    modifier = Modifier
+                        .size(MichiSpacing.minTouchTarget)
+                        .clip(CircleShape)
+                        .background(AeroGraphiteRaised)
+                        .border(0.75.dp, AeroHairline, CircleShape)
+                        .testTag("device_info_${item.ip}"),
                 ) {
                     Icon(Icons.Filled.Info, contentDescription = "Detalles de ${item.name}",
                         tint = TextSecondary, modifier = Modifier.size(20.dp))
