@@ -77,7 +77,7 @@ fun PlaylistScreen(
     onNavigateToPlaylist: (String) -> Unit = {},
     viewModel: PlaylistsViewModel = koinViewModel(),
     audioController: org.michimusic.player.AudioController = org.koin.compose.koinInject(),
-    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = org.koin.compose.koinInject(),
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -214,7 +214,11 @@ fun PlaylistScreen(
                                     icon = Icons.Default.PlayArrow,
                                     contentDescription = "Reproducir ${playlist.name}",
                                     onClick = {
-                                        viewModel.playPlaylist(playlist.id, audioController = audioController, sessionManager = sessionManager)
+                                        if (sessionManager != null) {
+                                            viewModel.playPlaylist(playlist.id, audioController = audioController, sessionManager = sessionManager)
+                                        } else {
+                                            viewModel.playPlaylist(playlist.id, audioController = audioController)
+                                        }
                                     },
                                     tint = PureWhite,
                                     iconSize = 24.dp,

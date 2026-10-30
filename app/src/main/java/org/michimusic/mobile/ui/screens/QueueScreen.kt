@@ -250,7 +250,7 @@ fun QueueScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(queue) { idx, track ->
+                    itemsIndexed(queue, key = { idx, track -> "${track.id}_$idx" }) { idx, track ->
                         val isCurrent = idx == currentIndex
                         GlassCard(
                             modifier = Modifier.fillMaxWidth(),
