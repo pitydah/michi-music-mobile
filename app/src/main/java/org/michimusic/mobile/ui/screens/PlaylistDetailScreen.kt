@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -140,19 +141,15 @@ fun PlaylistDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Volver",
                     onClick = onBack,
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("playlist_detail_back_button"),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Volver",
-                        tint = PureWhite,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
+                    tint = PureWhite,
+                    iconSize = 24.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "playlist_detail_back_button",
+                )
 
                 Spacer(Modifier.width(10.dp))
 
@@ -190,19 +187,15 @@ fun PlaylistDetailScreen(
 
                 if (uiState !is PlaylistDetailUiState.NotFound) {
                     Box {
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.Filled.MoreVert,
+                            contentDescription = "Más opciones",
                             onClick = { showOptionsMenu = true },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("playlist_detail_options_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = "Más opciones",
-                                tint = PureWhite,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
+                            tint = PureWhite,
+                            iconSize = 22.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "playlist_detail_options_button",
+                        )
 
                         DropdownMenu(
                             expanded = showOptionsMenu,
@@ -236,22 +229,18 @@ fun PlaylistDetailScreen(
 
                     Spacer(Modifier.width(10.dp))
 
-                    IconButton(
+                    MichiIconAction(
+                        icon = Icons.Filled.Add,
+                        contentDescription = "Añadir canciones",
                         onClick = {
                             viewModel.loadAvailableTracks()
                             showAddTracksDialog = true
                         },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("playlist_detail_add_tracks_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Añadir canciones",
-                            tint = PureWhite,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
+                        tint = PureWhite,
+                        iconSize = 24.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "playlist_detail_add_tracks_button",
+                    )
                 }
             }
 
@@ -463,19 +452,15 @@ private fun PlaylistTrackRow(
             // Secondary reorder action, tucked behind a small overflow menu so it doesn't
             // compete visually with tap-to-play or the existing remove action.
             Box {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = "Más opciones para ${track.title}",
                     onClick = { showTrackMenu = true },
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("playlist_detail_track_options_${track.id}"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.MoreVert,
-                        contentDescription = "Más opciones para ${track.title}",
-                        tint = TextMuted,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                    tint = TextMuted,
+                    iconSize = 18.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "playlist_detail_track_options_${track.id}",
+                )
 
                 DropdownMenu(
                     expanded = showTrackMenu,
@@ -509,20 +494,16 @@ private fun PlaylistTrackRow(
                 }
             }
 
-            IconButton(
+            MichiIconAction(
+                icon = Icons.Filled.Delete,
+                contentDescription = "Quitar de la playlist",
                 onClick = onRemoveClick,
                 enabled = removeEnabled,
-                modifier = Modifier
-                    .size(MichiSpacing.minTouchTarget)
-                    .testTag("playlist_detail_remove_track_${track.id}"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Delete,
-                    contentDescription = "Quitar de la playlist",
-                    tint = TextMuted,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+                tint = TextMuted,
+                iconSize = 20.dp,
+                minTargetSize = MichiSpacing.minTouchTarget,
+                testTag = "playlist_detail_remove_track_${track.id}",
+            )
         }
     }
 }

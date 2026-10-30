@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -348,19 +349,15 @@ private fun HomeTopBar(
             )
         }
 
-        IconButton(
+        MichiIconAction(
+            icon = Icons.Filled.Settings,
+            contentDescription = "Ajustes",
             onClick = onSettingsClick,
-            modifier = Modifier
-                .size(MichiSpacing.minTouchTarget)
-                .testTag("home_settings_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Ajustes",
-                tint = PureWhite,
-                modifier = Modifier.size(24.dp),
-            )
-        }
+            tint = PureWhite,
+            iconSize = 24.dp,
+            minTargetSize = MichiSpacing.minTouchTarget,
+            testTag = "home_settings_button",
+        )
     }
 }
 
@@ -435,17 +432,14 @@ private fun ContinueListeningCard(
                 }
 
                 if (!isRemote) {
-                    IconButton(
+                    MichiIconAction(
+                        icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                         onClick = onPlayPause,
-                        modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                            tint = PureWhite,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
+                        tint = PureWhite,
+                        iconSize = 28.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
             }
             if (isRemote) {
@@ -707,17 +701,14 @@ private fun YourPlaylistsSection(
                 text = "Tu Colección",
                 style = MichiTypography.sectionTitle,
             )
-            IconButton(
+            MichiIconAction(
+                icon = Icons.Filled.Add,
+                contentDescription = "Crear Playlist",
                 onClick = onCreatePlaylist,
-                modifier = Modifier.size(MichiSpacing.minTouchTarget),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = "Crear Playlist",
-                    tint = PureWhite,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
+                tint = PureWhite,
+                iconSize = 22.dp,
+                minTargetSize = MichiSpacing.minTouchTarget,
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))

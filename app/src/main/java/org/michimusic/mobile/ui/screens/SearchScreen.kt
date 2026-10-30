@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -211,19 +212,15 @@ fun SearchScreen(
                     )
 
                     if (query.isNotEmpty()) {
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.Default.Clear,
+                            contentDescription = "Limpiar Búsqueda",
                             onClick = { viewModel.clearSearch() },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("search_clear_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Limpiar Búsqueda",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                            tint = TextSecondary,
+                            iconSize = 18.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "search_clear_button",
+                        )
                     }
                 }
             }
@@ -648,14 +645,14 @@ private fun ArtistDetailDialog(
                             fontSize = 12.sp,
                         )
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Cerrar",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Cerrar",
+                        onClick = onDismiss,
+                        tint = TextSecondary,
+                        iconSize = 18.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
 
                 Spacer(Modifier.height(14.dp))
@@ -794,14 +791,14 @@ private fun AlbumDetailDialog(
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Cerrar",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Cerrar",
+                        onClick = onDismiss,
+                        tint = TextSecondary,
+                        iconSize = 18.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
 
                 Spacer(Modifier.height(14.dp))

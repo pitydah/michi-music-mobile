@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
@@ -115,17 +116,14 @@ fun PlaylistScreen(
                 }
 
                 // Add Playlist Button
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Default.Add,
+                    contentDescription = "Nueva Playlist",
                     onClick = { showCreateDialog = true },
-                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Nueva Playlist",
-                        tint = PureWhite,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
+                    tint = PureWhite,
+                    iconSize = 24.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                )
             }
 
             Spacer(Modifier.height(20.dp))
@@ -211,21 +209,17 @@ fun PlaylistScreen(
                                     )
                                 }
 
-                                IconButton(
+                                MichiIconAction(
+                                    icon = Icons.Default.PlayArrow,
+                                    contentDescription = "Reproducir ${playlist.name}",
                                     onClick = {
                                         viewModel.playPlaylist(playlist.id, audioController)
                                     },
-                                    modifier = Modifier
-                                        .size(MichiSpacing.minTouchTarget)
-                                        .testTag("playlist_play_${playlist.id}"),
-                                ) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = "Reproducir ${playlist.name}",
-                                        tint = PureWhite,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
+                                    tint = PureWhite,
+                                    iconSize = 24.dp,
+                                    minTargetSize = MichiSpacing.minTouchTarget,
+                                    testTag = "playlist_play_${playlist.id}",
+                                )
                             }
                         }
                     }
