@@ -406,34 +406,21 @@ fun UtilityIconRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                contentDescription = "Atrás",
-                tint = TextSecondary,
-                modifier = Modifier.size(24.dp),
-            )
-        }
+        org.michimusic.mobile.ui.components.premium.MichiIconAction(
+            icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+            contentDescription = "Atrás",
+            tint = TextSecondary,
+            iconSize = 24.dp,
+            onClick = onBack,
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (sleepTimerActive) {
-                IconButton(onClick = onTimerClick) {
-                    Icon(
-                        imageVector = Icons.Rounded.Timer,
-                        contentDescription = "Temporizador",
-                        tint = AccentCoral,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            } else {
-                IconButton(onClick = onTimerClick) {
-                    Icon(
-                        imageVector = Icons.Rounded.Timer,
-                        contentDescription = "Temporizador",
-                        tint = TextSecondary.copy(alpha = 0.6f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
+            org.michimusic.mobile.ui.components.premium.MichiIconAction(
+                icon = Icons.Rounded.Timer,
+                contentDescription = if (sleepTimerActive) "Temporizador de apagado activo" else "Temporizador de apagado",
+                tint = if (sleepTimerActive) AccentCoral else TextSecondary.copy(alpha = 0.6f),
+                iconSize = 18.dp,
+                onClick = onTimerClick,
+            )
             if (timerText != null) {
                 Text(
                     text = timerText,
@@ -522,17 +509,14 @@ fun MediaControlsBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious, contentDescription = "Anterior")
-        IconButton(
+        org.michimusic.mobile.ui.components.premium.MichiIconAction(
+            icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
             onClick = onPlayPause,
-            modifier = Modifier.size(68.dp),
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = PureWhite,
-                modifier = Modifier.size(42.dp),
-            )
-        }
+            tint = PureWhite,
+            iconSize = 42.dp,
+            minTargetSize = 68.dp,
+        )
         MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext, contentDescription = "Siguiente")
     }
 }

@@ -585,9 +585,14 @@ private fun SignalTruthDialog(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(MichiSpacing.minTouchTarget)) {
-                        Icon(Icons.Filled.Close, contentDescription = "Cerrar", tint = OnSurfaceVariant)
-                    }
+                    MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Cerrar detalles de señal",
+                        onClick = onDismiss,
+                        tint = OnSurfaceVariant,
+                        iconSize = 20.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
 
                 HorizontalDivider(color = GlassBorderLow)

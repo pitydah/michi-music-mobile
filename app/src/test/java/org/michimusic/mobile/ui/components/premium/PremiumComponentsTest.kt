@@ -77,4 +77,16 @@ class PremiumComponentsTest {
         val repeatAllState = defaultState.copy(repeatMode = 2)
         assertEquals("Repetición: todo", repeatAllState.repeatContentDescription())
     }
+
+    @Test
+    fun testMichiIconActionDescriptionValidation() {
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            validateIconActionDescription("")
+        }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            validateIconActionDescription("   ")
+        }
+        // Valid description passes without exception
+        validateIconActionDescription("Reproducir pista")
+    }
 }

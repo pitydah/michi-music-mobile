@@ -3,10 +3,13 @@ package org.michimusic.mobile.ui.components.premium
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -117,38 +120,57 @@ fun MichiPlaybackControls(
             label = "play_button_scale",
         )
 
+        val playInteractionSource = remember { MutableInteractionSource() }
+        val isPlayPressed by playInteractionSource.collectIsPressedAsState()
+        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+        val pressedScale by animateFloatAsState(
+            targetValue = if (isPlayPressed && !reducedMotion) 0.92f else 1.0f,
+            animationSpec = tween(durationMillis = 120),
+            label = "play_pressed_scale",
+        )
+        val pressedAlpha by animateFloatAsState(
+            targetValue = if (isPlayPressed) 0.65f else 1.0f,
+            animationSpec = tween(durationMillis = 120),
+            label = "play_pressed_alpha",
+        )
+
         Box(
             modifier = Modifier
                 .size(playButtonSize.coerceAtLeast(MichiSpacing.minTouchTarget))
-                .scale(scale)
+                .scale(scale * pressedScale)
                 .clickable(
-                    onClick = onPlayPause,
+                    onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        onPlayPause()
+                    },
                     enabled = !state.isLoading,
                     role = Role.Button,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(
-                        bounded = false,
-                        radius = (playButtonSize / 2).coerceAtLeast(24.dp),
-                        color = PureWhite.copy(alpha = 0.22f),
-                    ),
+                    interactionSource = playInteractionSource,
+                    indication = null, // Tactile scale and opacity replaces circular ripple disks
                 )
                 .semantics { contentDescription = state.playPauseContentDescription() }
                 .testTag(playPauseTestTag),
             contentAlignment = Alignment.Center,
         ) {
-            if (state.isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(36.dp),
-                    color = PureWhite,
-                    strokeWidth = 3.dp,
-                )
-            } else {
-                Icon(
-                    imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = PureWhite,
-                    modifier = Modifier.size(42.dp),
-                )
+            Box(
+                modifier = Modifier.graphicsLayer { alpha = pressedAlpha },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (state.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(36.dp),
+                        color = PureWhite,
+                        strokeWidth = 3.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = PureWhite,
+                        modifier = Modifier.size(42.dp),
+                    )
+                }
             }
         }
 
