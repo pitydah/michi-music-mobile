@@ -27,6 +27,7 @@ import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
@@ -35,7 +36,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ViewCarousel
-import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -243,7 +243,7 @@ fun AlbumsScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = if (viewMode == LibraryViewMode.COVERFLOW) Icons.Filled.ViewList else Icons.Default.ViewCarousel,
+                                imageVector = if (viewMode == LibraryViewMode.COVERFLOW) Icons.AutoMirrored.Filled.ViewList else Icons.Default.ViewCarousel,
                                 contentDescription = if (viewMode == LibraryViewMode.COVERFLOW) "Cambiar a lista" else "Cambiar a CoverFlow",
                                 tint = if (viewMode == LibraryViewMode.COVERFLOW) PrimaryPinkContainer else PureWhite,
                                 modifier = Modifier.size(21.dp),
@@ -251,33 +251,25 @@ fun AlbumsScreen(
                         }
                     }
 
-                    IconButton(
+                    MichiIconAction(
+                        icon = Icons.Filled.LibraryMusic,
+                        contentDescription = "Playlists",
                         onClick = onNavigateToPlaylists,
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("library_playlists_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = "Playlists",
-                            tint = PureWhite,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
+                        tint = PureWhite,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "library_playlists_button",
+                    )
 
-                    IconButton(
+                    MichiIconAction(
+                        icon = Icons.Filled.Add,
+                        contentDescription = "Nueva Playlist",
                         onClick = { showCreatePlaylist = true },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("library_add_playlist_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "Nueva Playlist",
-                            tint = PureWhite,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
+                        tint = PureWhite,
+                        iconSize = 24.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "library_add_playlist_button",
+                    )
                 }
             }
 
@@ -525,17 +517,14 @@ fun AlbumsScreen(
                                             )
                                         }
 
-                                        IconButton(
+                                        MichiIconAction(
+                                            icon = Icons.Default.MoreVert,
+                                            contentDescription = "Opciones para ${track.title}",
                                             onClick = { selectedTrackForMenu = track },
-                                            modifier = Modifier.size(44.dp),
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = "Opciones",
-                                                tint = TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
+                                            tint = TextSecondary,
+                                            iconSize = 20.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
+                                        )
                                     }
                                 }
                             }
