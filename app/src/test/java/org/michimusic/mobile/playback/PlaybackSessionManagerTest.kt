@@ -825,7 +825,9 @@ class PlaybackSessionManagerTest {
 
         assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
         assertEquals(StreamErrorReason.NETWORK_LOST, manager.sessionState.value.lastSessionError)
-        // audioController.play() must NOT be called
+        assertFalse(manager.sessionState.value.isPlaying)
+        // audioController.pause() MUST be called to protect speaker, and play() must NOT be called
+        verify(exactly = 1) { audioController.pause() }
         verify(exactly = 0) { audioController.play() }
     }
 
@@ -991,5 +993,40 @@ class PlaybackSessionManagerTest {
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { linkClient.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = 0, toIndex = 1)) }
         verify(exactly = 0) { audioController.moveQueueItem(any(), any()) }
+
+        // 5. playQueue in Remote Mode with Remote-playable track:
+        val remotePlayableTrack = Track("srv_track_99", "Server Song", "Artist", source = TrackSource.STREAMING)
+        manager.playQueue(listOf(remotePlayableTrack), 0)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { linkClient.sendPlaybackCommand("play_track", "srv_track_99") }
+        verify(exactly = 0) { audioController.playQueue(any(), any()) }
+
+        // 6. playQueue in Remote Mode with local-only track:
+        val localOnlyTrack = Track("local_100", "Local File", "Artist", source = TrackSource.LOCAL, filepath = "/sdcard/Music/test.mp3")
+        manager.playQueue(listOf(localOnlyTrack), 0)
+        testDispatcher.scheduler.advanceUntilIdle()
+        verify(exactly = 0) { audioController.playQueue(any(), any()) }
+        assertTrue(manager.sessionState.value.statusMessage?.contains("Pista local no disponible") == true)
+    }
+
+    @Test
+    fun playQueue_localMode_invokesAudioControllerPlayQueue() {
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+        val connectionManager = mockk<ConnectionManager>(relaxed = true)
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val track = Track("track_local_1", "Local Song", "Artist")
+        manager.playQueue(listOf(track), 0)
+        verify(exactly = 1) { audioController.playQueue(listOf(track), 0) }
     }
 }

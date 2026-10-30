@@ -125,9 +125,20 @@ fun AlbumsScreen(
     val isLoading by viewModel.isLoading.collectAsState()
 
     val audioController: AudioController = koinInject()
+    val sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = runCatching {
+        org.koin.compose.koinInject<org.michimusic.mobile.playback.PlaybackSessionManager>()
+    }.getOrNull()
     val playerState by audioController.state.collectAsState()
     val currentTrack = playerState.currentTrack
     val isPlaying = playerState.isPlaying
+
+    fun playQueueSafe(tracks: List<Track>, index: Int) {
+        if (sessionManager != null) {
+            sessionManager.playQueue(tracks, index)
+        } else {
+            audioController.playQueue(tracks, index)
+        }
+    }
 
     val libraryScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
     val musicLibraryRepo: org.michimusic.data.repository.MusicLibraryRepository = koinInject()
@@ -467,7 +478,7 @@ fun AlbumsScreen(
                                     accent = if (isCurrent) TertiaryCyan else null,
                                     onClick = {
                                         val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                                        audioController.playQueue(filteredTracks, idx)
+                                        playQueueSafe(filteredTracks, idx)
                                     },
                                 ) {
                                     Row(
@@ -550,9 +561,10 @@ fun AlbumsScreen(
                                         onCurrentChanged = { currentCoverflowIndex = it },
                                         initialPage = currentCoverflowIndex,
                                         onAlbumClick = { idx ->
-                                            val selectedAlbum = albums.getOrNull(idx)
+                                            val selectedCoverAlbum = coverFlowAlbums.getOrNull(idx)
+                                            val selectedAlbum = albums.find { it.album.id == selectedCoverAlbum?.id } ?: albums.getOrNull(idx)
                                             if (selectedAlbum != null && selectedAlbum.tracks.isNotEmpty()) {
-                                                audioController.playQueue(selectedAlbum.tracks, 0)
+                                                playQueueSafe(selectedAlbum.tracks, 0)
                                             }
                                         },
                                         modifier = Modifier.fillMaxSize(),
@@ -561,7 +573,8 @@ fun AlbumsScreen(
 
                                 Spacer(Modifier.height(8.dp))
 
-                                val currentAlbum = albums.getOrNull(currentCoverflowIndex)
+                                val currentCoverAlbum = coverFlowAlbums.getOrNull(currentCoverflowIndex)
+                                val currentAlbum = albums.find { it.album.id == currentCoverAlbum?.id } ?: albums.getOrNull(currentCoverflowIndex)
                                 if (currentAlbum != null) {
                                     GlassCard(
                                         modifier = Modifier
@@ -612,7 +625,7 @@ fun AlbumsScreen(
                                                     contentDescription = "Reproducir ${currentAlbum.album.title}",
                                                     onClick = {
                                                         if (currentAlbum.tracks.isNotEmpty()) {
-                                                            audioController.playQueue(currentAlbum.tracks, 0)
+                                                            playQueueSafe(currentAlbum.tracks, 0)
                                                         }
                                                     },
                                                     tint = PureWhite,
@@ -641,7 +654,7 @@ fun AlbumsScreen(
                                                     .fillMaxWidth()
                                                     .clip(MichiShapes.sm)
                                                     .clickable {
-                                                        audioController.playQueue(currentAlbum.tracks, index)
+                                                        playQueueSafe(currentAlbum.tracks, index)
                                                     }
                                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
@@ -691,7 +704,7 @@ fun AlbumsScreen(
                                         borderColor = GlassBorderLow,
                                         onClick = {
                                             if (localAlbum.tracks.isNotEmpty()) {
-                                                audioController.playQueue(localAlbum.tracks, 0)
+                                                playQueueSafe(localAlbum.tracks, 0)
                                             }
                                         },
                                     ) {
@@ -731,32 +744,26 @@ fun AlbumsScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             ) {
-                                                IconButton(
+                                                MichiIconAction(
+                                                    icon = Icons.Default.Add,
+                                                    contentDescription = "Añadir ${localAlbum.album.title} a playlist",
                                                     onClick = { albumToAddToPlaylist = localAlbum },
-                                                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.Add,
-                                                        contentDescription = "Añadir a playlist",
-                                                        tint = TextSecondary,
-                                                        modifier = Modifier.size(20.dp),
-                                                    )
-                                                }
-                                                IconButton(
+                                                    tint = TextSecondary,
+                                                    iconSize = 20.dp,
+                                                    minTargetSize = MichiSpacing.minTouchTarget,
+                                                )
+                                                MichiIconAction(
+                                                    icon = Icons.Default.PlayArrow,
+                                                    contentDescription = "Reproducir ${localAlbum.album.title}",
                                                     onClick = {
                                                         if (localAlbum.tracks.isNotEmpty()) {
-                                                            audioController.playQueue(localAlbum.tracks, 0)
+                                                            playQueueSafe(localAlbum.tracks, 0)
                                                         }
                                                     },
-                                                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.PlayArrow,
-                                                        contentDescription = "Reproducir",
-                                                        tint = PureWhite,
-                                                        modifier = Modifier.size(24.dp),
-                                                    )
-                                                }
+                                                    tint = PureWhite,
+                                                    iconSize = 24.dp,
+                                                    minTargetSize = MichiSpacing.minTouchTarget,
+                                                )
                                             }
                                         }
                                     }
@@ -783,7 +790,7 @@ fun AlbumsScreen(
                                     borderColor = GlassBorderLow,
                                     onClick = {
                                         if (artistTracks.isNotEmpty()) {
-                                            audioController.playQueue(artistTracks, 0)
+                                            playQueueSafe(artistTracks, 0)
                                         }
                                     },
                                 ) {
@@ -998,13 +1005,13 @@ fun AlbumsScreen(
                 onDismiss = { selectedTrackForMenu = null },
                 onPlayNow = {
                     val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    audioController.playQueue(filteredTracks, idx)
+                    playQueueSafe(filteredTracks, idx)
                 },
                 onPlayNext = {
-                    audioController.playNext(track)
+                    sessionManager?.playNext(track) ?: audioController.playNext(track)
                 },
                 onAddToQueue = {
-                    audioController.addToQueue(track)
+                    sessionManager?.addToQueue(track) ?: audioController.addToQueue(track)
                 },
                 onAddToPlaylist = {
                     trackToAddToPlaylist = track

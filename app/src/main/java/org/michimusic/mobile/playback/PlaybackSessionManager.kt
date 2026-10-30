@@ -322,6 +322,12 @@ class PlaybackSessionManager(
         stopRemoteSync()
         formatObserverJob?.cancel()
         formatObserverJob = null
+
+        // P0 Acoustic Protection: Explicitly pause local controller BEFORE releasing
+        // local output mute in RtpPcmAudioTap to prevent accidental speaker blare (K46D-27 / Codex).
+        if (!resumePlayback) {
+            audioController?.pause()
+        }
         org.michimusic.player.PlayerDependencies.stopPcmStreaming()
         val finalMetrics = rtpAudioSender.getMetrics()
         rtpAudioSender.stop()
@@ -343,7 +349,7 @@ class PlaybackSessionManager(
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = PlaybackEndpoint.LocalPhone,
             currentTrack = local?.currentTrack,
-            isPlaying = if (resumePlayback) true else (local?.isPlaying ?: false),
+            isPlaying = if (resumePlayback) true else false,
             position = local?.position ?: 0L,
             duration = local?.duration ?: 0L,
             queue = local?.queue ?: emptyList(),
@@ -954,6 +960,94 @@ class PlaybackSessionManager(
             } else {
                 audioController?.playQueue(listOf(track), 0)
             }
+        }
+    }
+
+    /**
+     * Authoritative queue playback coordinator (Gate 0 / K46D-28).
+     *
+     * In remote mode: dispatches playback to the active remote endpoint when possible,
+     * or emits an honest status warning if local files cannot be sent to remote,
+     * NEVER unexpectedly blaring the phone speaker.
+     * In local/stream mode: forwards directly to the local AudioController.
+     */
+    fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+        if (tracks.isEmpty()) return
+        val validIndex = startIndex.coerceIn(0, tracks.lastIndex)
+        val selectedTrack = tracks[validIndex]
+
+        if (_sessionState.value.isRemoteActive) {
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val client = connectionManager.getClient(targetEndpoint.id)
+            if (client == null) {
+                _sessionState.value = _sessionState.value.copy(
+                    statusMessage = "No hay conexión activa con ${targetEndpoint.name}"
+                )
+                return
+            }
+
+            val isRemotePlayable = selectedTrack.source == TrackSource.STREAMING ||
+                selectedTrack.filepath.startsWith("http://") ||
+                selectedTrack.filepath.startsWith("https://") ||
+                selectedTrack.id.startsWith("srv_") ||
+                selectedTrack.id.startsWith("remote_")
+
+            if (isRemotePlayable) {
+                val cmd = RemoteCommandRecord(
+                    endpointId = targetEndpoint.id,
+                    action = "play_queue",
+                    param = selectedTrack.id,
+                    status = RemoteCommandStatus.PENDING,
+                )
+                _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
+                scope.launch {
+                    val result = client.sendPlaybackCommand("play_track", selectedTrack.id)
+                    val outcome = if (result.isSuccess) {
+                        var synced = false
+                        var syncErr = ""
+                        val stRes = client.getPlaybackState()
+                        val qRes = client.getQueue()
+                        if (stRes.isSuccess && qRes.isSuccess) {
+                            val st = stRes.getOrThrow()
+                            val q = qRes.getOrThrow()
+                            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                                val qTracks = q.tracks.map { it.toDomainTrack() }
+                                val current = qTracks.getOrNull(st.queueIndex)
+                                _sessionState.value = _sessionState.value.copy(
+                                    currentTrack = current,
+                                    isPlaying = st.playing,
+                                    position = st.effectivePosition,
+                                    duration = st.effectiveDuration,
+                                    queue = qTracks,
+                                    queueIndex = st.queueIndex
+                                )
+                            }
+                            synced = true
+                        } else {
+                            syncErr = qRes.exceptionOrNull()?.message
+                                ?: stRes.exceptionOrNull()?.message
+                                ?: "Fallo al sincronizar estado y cola remotos"
+                        }
+                        if (synced) {
+                            cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        } else {
+                            cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($syncErr)")
+                        }
+                    } else {
+                        val (failStatus, failMsg) = resolveFailureStatus(client, result)
+                        cmd.copy(status = failStatus, resultMessage = failMsg)
+                    }
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                    }
+                }
+            } else {
+                _sessionState.value = _sessionState.value.copy(
+                    statusMessage = "Pista local no disponible en ${targetEndpoint.name}. Cambia la salida a 'Este teléfono' para reproducir archivos locales."
+                )
+            }
+        } else {
+            audioController?.playQueue(tracks, validIndex)
         }
     }
 

@@ -85,6 +85,7 @@ fun PlaylistDetailScreen(
     modifier: Modifier = Modifier,
     viewModel: PlaylistsViewModel = koinViewModel(),
     audioController: AudioController = koinInject(),
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
 ) {
     val uiState by viewModel.selectedPlaylistState.collectAsState()
     val availableTracks by viewModel.availableTracks.collectAsState()
@@ -283,7 +284,13 @@ fun PlaylistDetailScreen(
                             onTrackClick = { track ->
                                 val tracks = state.playlist.tracks
                                 val index = tracks.indexOfFirst { it.id == track.id }
-                                if (index >= 0) audioController.playQueue(tracks, index)
+                                if (index >= 0) {
+                                    if (sessionManager != null) {
+                                        sessionManager.playQueue(tracks, index)
+                                    } else {
+                                        audioController.playQueue(tracks, index)
+                                    }
+                                }
                             },
                             onMoveUp = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.UP) },
                             onMoveDown = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.DOWN) },

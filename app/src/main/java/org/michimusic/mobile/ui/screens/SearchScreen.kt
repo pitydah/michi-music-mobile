@@ -109,7 +109,18 @@ fun SearchScreen(
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val keyboardController = LocalSoftwareKeyboardController.current
     val audioController: AudioController = koinInject()
+    val sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = runCatching {
+        org.koin.compose.koinInject<org.michimusic.mobile.playback.PlaybackSessionManager>()
+    }.getOrNull()
     val playerState by audioController.state.collectAsStateWithLifecycle()
+
+    fun playQueueSafe(tracks: List<Track>, index: Int) {
+        if (sessionManager != null) {
+            sessionManager.playQueue(tracks, index)
+        } else {
+            audioController.playQueue(tracks, index)
+        }
+    }
 
     var selectedArtistForDetail by remember { mutableStateOf<SearchArtistResult?>(null) }
     var selectedAlbumForDetail by remember { mutableStateOf<SearchAlbumResult?>(null) }
@@ -347,7 +358,7 @@ fun SearchScreen(
                                 onClick = {
                                     val allTracks = structuredResults.tracks.map { it.track }
                                     val idx = allTracks.indexOfFirst { it.id == item.track.id }.coerceAtLeast(0)
-                                    audioController.playQueue(allTracks, idx)
+                                    playQueueSafe(allTracks, idx)
                                 },
                             )
                         }
@@ -363,19 +374,19 @@ fun SearchScreen(
                 onDismiss = { selectedArtistForDetail = null },
                 onPlayAll = {
                     if (artistResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(artistResult.tracks, 0)
+                        playQueueSafe(artistResult.tracks, 0)
                         selectedArtistForDetail = null
                     }
                 },
                 onShuffle = {
                     if (artistResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(artistResult.tracks.shuffled(), 0)
+                        playQueueSafe(artistResult.tracks.shuffled(), 0)
                         selectedArtistForDetail = null
                     }
                 },
                 onTrackClick = { track ->
                     val idx = artistResult.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    audioController.playQueue(artistResult.tracks, idx)
+                    playQueueSafe(artistResult.tracks, idx)
                 },
             )
         }
@@ -387,19 +398,19 @@ fun SearchScreen(
                 onDismiss = { selectedAlbumForDetail = null },
                 onPlayAll = {
                     if (albumResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(albumResult.tracks, 0)
+                        playQueueSafe(albumResult.tracks, 0)
                         selectedAlbumForDetail = null
                     }
                 },
                 onShuffle = {
                     if (albumResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(albumResult.tracks.shuffled(), 0)
+                        playQueueSafe(albumResult.tracks.shuffled(), 0)
                         selectedAlbumForDetail = null
                     }
                 },
                 onTrackClick = { track ->
                     val idx = albumResult.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    audioController.playQueue(albumResult.tracks, idx)
+                    playQueueSafe(albumResult.tracks, idx)
                 },
             )
         }

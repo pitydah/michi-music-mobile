@@ -169,6 +169,7 @@ fun MichiNavHost() {
                     PlaylistDetailScreen(
                         playlistId = playlistId,
                         onBack = { navController.popBackStack() },
+                        sessionManager = sessionManager,
                     )
                 }
                 composable("queue") { QueueScreen() }

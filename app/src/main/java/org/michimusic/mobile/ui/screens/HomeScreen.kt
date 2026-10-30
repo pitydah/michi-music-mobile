@@ -206,8 +206,8 @@ fun HomeScreen(
                         )
                     } else if (allTracks.isNotEmpty()) {
                         ActionButtonsSection(
-                            onQuickPlay = { audioController.playQueue(allTracks, 0) },
-                            onShuffle = { audioController.playQueue(allTracks.shuffled(), 0) },
+                            onQuickPlay = { sessionManager.playQueue(allTracks, 0) },
+                            onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },
                         )
                     } else {
                         EmptyLibraryHomeCard()
@@ -226,7 +226,7 @@ fun HomeScreen(
                                 val index = allTracks.indexOfFirst { it.id == track.id }
                                 // A stale suggestion must never play the first unrelated track.
                                 if (index >= 0) {
-                                    audioController.playQueue(allTracks, index)
+                                    sessionManager.playQueue(allTracks, index)
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
                                 }
@@ -244,7 +244,7 @@ fun HomeScreen(
                                 val index = allTracks.indexOfFirst { it.id == track.id }
                                 // A stale suggestion must never play the first unrelated track.
                                 if (index >= 0) {
-                                    audioController.playQueue(allTracks, index)
+                                    sessionManager.playQueue(allTracks, index)
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
                                 }
@@ -264,10 +264,10 @@ fun HomeScreen(
                         onCreatePlaylist = { showCreatePlaylist = true },
                         onPlaylistClick = { type ->
                             when (type) {
-                                "favorites" -> if (favoriteTracks.isNotEmpty()) audioController.playQueue(favoriteTracks, 0)
-                                "top" -> if (topTracks.isNotEmpty()) audioController.playQueue(topTracks, 0)
-                                "recent" -> if (recentTracks.isNotEmpty()) audioController.playQueue(recentTracks, 0)
-                                else -> if (allTracks.isNotEmpty()) audioController.playQueue(allTracks, 0)
+                                "favorites" -> if (favoriteTracks.isNotEmpty()) sessionManager.playQueue(favoriteTracks, 0)
+                                "top" -> if (topTracks.isNotEmpty()) sessionManager.playQueue(topTracks, 0)
+                                "recent" -> if (recentTracks.isNotEmpty()) sessionManager.playQueue(recentTracks, 0)
+                                else -> if (allTracks.isNotEmpty()) sessionManager.playQueue(allTracks, 0)
                             }
                         },
                         onNavigateToPlaylist = onNavigateToPlaylist,
@@ -285,7 +285,7 @@ fun HomeScreen(
                                 val index = allTracks.indexOfFirst { it.id == track.id }
                                 // A stale suggestion must never play the first unrelated track.
                                 if (index >= 0) {
-                                    audioController.playQueue(allTracks, index)
+                                    sessionManager.playQueue(allTracks, index)
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
                                 }
