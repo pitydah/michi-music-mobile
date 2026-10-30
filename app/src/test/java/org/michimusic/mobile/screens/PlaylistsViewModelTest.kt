@@ -694,6 +694,54 @@ class PlaylistsViewModelTest {
     }
 
     @Test
+    fun playPlaylist_withSessionManager_whenRemoteRejected_emitsErrorAndNotSuccess() = runTest(testDispatcher) {
+        val tracks = listOf(Track(id = "trk-1", title = "Track 1"), Track(id = "trk-2", title = "Track 2"))
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = tracks)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockSessionManager = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        io.mockk.coEvery { mockSessionManager.requestQueuePlayback(tracks, 0) } returns
+            org.michimusic.mobile.playback.QueuePlaybackOutcome.Rejected(
+                operationId = "op-1",
+                endpointId = "remote-1",
+                requestedTrackCount = 2,
+                requestedIndex = 0,
+                reason = "Pista local no disponible en host remoto"
+            )
+
+        var result: PlayPlaylistResult? = null
+        vm.playPlaylist("p1", sessionManager = mockSessionManager) { result = it }
+        advanceUntilIdle()
+
+        assertFalse("Callback should NOT emit Success on remote rejection (K46D-40)", result is PlayPlaylistResult.Success)
+        assertTrue("Callback must emit Error on remote rejection", result is PlayPlaylistResult.Error)
+        assertEquals("Pista local no disponible en host remoto", (result as PlayPlaylistResult.Error).message)
+    }
+
+    @Test
+    fun playPlaylist_withSessionManager_whenConfirmed_emitsSuccess() = runTest(testDispatcher) {
+        val tracks = listOf(Track(id = "trk-1", title = "Track 1"), Track(id = "trk-2", title = "Track 2"))
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = tracks)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockSessionManager = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        io.mockk.coEvery { mockSessionManager.requestQueuePlayback(tracks, 0) } returns
+            org.michimusic.mobile.playback.QueuePlaybackOutcome.Confirmed(
+                operationId = "op-1",
+                endpointId = "remote-1",
+                requestedTrackCount = 2,
+                requestedIndex = 0,
+                message = "Cola confirmada"
+            )
+
+        var result: PlayPlaylistResult? = null
+        vm.playPlaylist("p1", sessionManager = mockSessionManager) { result = it }
+        advanceUntilIdle()
+
+        assertTrue(result is PlayPlaylistResult.Success)
+        assertEquals(2, (result as PlayPlaylistResult.Success).trackCount)
+    }
+
+
+    @Test
     fun createPlaylist_validName_callsRepositoryAndInvokesCallback() = runTest(testDispatcher) {
         val recordingRepo = RecordingPlaylistRepo()
         val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)

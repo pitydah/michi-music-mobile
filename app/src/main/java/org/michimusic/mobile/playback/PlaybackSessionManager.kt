@@ -1034,23 +1034,70 @@ class PlaybackSessionManager(
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
         if (tracks.isEmpty()) return
         val validIndex = startIndex.coerceIn(0, tracks.lastIndex)
-        val selectedTrack = tracks[validIndex]
+        if (!isRemotePlaybackHost) {
+            audioController?.playQueue(tracks, validIndex)
+            return
+        }
+        scope.launch {
+            requestQueuePlayback(tracks, startIndex)
+        }
+    }
+
+    suspend fun requestQueuePlayback(
+        tracks: List<Track>,
+        startIndex: Int = 0
+    ): QueuePlaybackOutcome {
+        val opId = java.util.UUID.randomUUID().toString()
+        val validIndex = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
         val activeEp = _sessionState.value.activeEndpoint
+
+        if (tracks.isEmpty()) {
+            return QueuePlaybackOutcome.Rejected(
+                operationId = opId,
+                endpointId = activeEp.id,
+                requestedTrackCount = 0,
+                requestedIndex = startIndex,
+                reason = "La lista de reproducción está vacía"
+            )
+        }
+
+        val selectedTrack = tracks[validIndex]
 
         // Authority 1: Michi Stream Receiver
         if (isStreamReceiver) {
             audioController?.playQueue(tracks, validIndex)
-            return
+            return QueuePlaybackOutcome.Confirmed(
+                operationId = opId,
+                endpointId = activeEp.id,
+                requestedTrackCount = tracks.size,
+                requestedIndex = validIndex,
+                message = "Reproduciendo cola en ${activeEp.name} vía Michi Stream"
+            )
         }
 
         // Authority 2: Remote Playback Host
         if (isRemotePlaybackHost) {
             val client = connectionManager.getClient(activeEp.id)
             if (client == null) {
+                val cmd = RemoteCommandRecord(
+                    commandId = opId,
+                    endpointId = activeEp.id,
+                    action = "play_queue",
+                    param = selectedTrack.id,
+                    status = RemoteCommandStatus.DISCONNECTED,
+                    resultMessage = "No hay conexión activa con ${activeEp.name}"
+                )
                 _sessionState.value = _sessionState.value.copy(
+                    lastRemoteCommand = cmd,
                     statusMessage = "No hay conexión activa con ${activeEp.name}"
                 )
-                return
+                return QueuePlaybackOutcome.Disconnected(
+                    operationId = opId,
+                    endpointId = activeEp.id,
+                    requestedTrackCount = tracks.size,
+                    requestedIndex = validIndex,
+                    reason = "No hay conexión activa con ${activeEp.name}"
+                )
             }
 
             val allRemotePlayable = tracks.all { t ->
@@ -1062,14 +1109,22 @@ class PlaybackSessionManager(
             }
 
             if (!allRemotePlayable) {
+                val reasonMsg = "Pista local no disponible en ${activeEp.name}. Cambia la salida a 'Este teléfono' para reproducir archivos locales."
                 _sessionState.value = _sessionState.value.copy(
-                    statusMessage = "Pista local no disponible en ${activeEp.name}. Cambia la salida a 'Este teléfono' para reproducir archivos locales."
+                    statusMessage = reasonMsg
                 )
-                return
+                return QueuePlaybackOutcome.Rejected(
+                    operationId = opId,
+                    endpointId = activeEp.id,
+                    requestedTrackCount = tracks.size,
+                    requestedIndex = validIndex,
+                    reason = reasonMsg
+                )
             }
 
             val trackIds = tracks.map { it.id }
             val cmd = RemoteCommandRecord(
+                commandId = opId,
                 endpointId = activeEp.id,
                 action = "play_queue",
                 param = selectedTrack.id,
@@ -1077,77 +1132,120 @@ class PlaybackSessionManager(
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
 
-            scope.launch {
-                val req = org.michimusic.link.dto.QueueTransferRequest(
-                    trackIds = trackIds,
-                    currentIndex = validIndex,
-                    positionMs = 0L,
-                    source = "mobile_queue"
-                )
-                val transferRes = client.transferQueue(req)
-                if (transferRes.isSuccess) {
-                    client.sendPlaybackCommand("play")
-                    var synced = false
-                    val stRes = client.getPlaybackState()
-                    val qRes = client.getQueue()
-                    if (stRes.isSuccess && qRes.isSuccess) {
-                        val st = stRes.getOrThrow()
-                        val q = qRes.getOrThrow()
-                        if (_sessionState.value.activeEndpoint.id == activeEp.id) {
-                            val qTracks = q.tracks.map { it.toDomainTrack() }
-                            val current = qTracks.getOrNull(st.queueIndex)
-                            _sessionState.value = _sessionState.value.copy(
-                                currentTrack = current,
-                                isPlaying = st.playing,
-                                position = st.effectivePosition,
-                                duration = st.effectiveDuration,
-                                queue = qTracks,
-                                queueIndex = st.queueIndex
-                            )
-                        }
-                        synced = true
-                    }
-                    val outcome = if (synced) {
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
-                    } else {
-                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Cola transferida; sincronización de estado pendiente")
-                    }
+            val req = org.michimusic.link.dto.QueueTransferRequest(
+                trackIds = trackIds,
+                currentIndex = validIndex,
+                positionMs = 0L,
+                source = "mobile_queue"
+            )
+            val transferRes = client.transferQueue(req)
+            if (transferRes.isSuccess) {
+                val playRes = client.sendPlaybackCommand("play")
+                if (playRes.isFailure) {
+                    val (playFailStatus, playFailMsg) = resolveFailureStatus(client, playRes)
+                    val outcome = cmd.copy(
+                        status = playFailStatus,
+                        resultMessage = "Cola transferida pero falló orden play: $playFailMsg"
+                    )
                     if (_sessionState.value.activeEndpoint.id == activeEp.id) {
                         _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                     }
+                    return QueuePlaybackOutcome.Failed(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        error = "Cola transferida pero falló orden play en ${activeEp.name}: $playFailMsg"
+                    )
+                }
+
+                var synced = false
+                val stRes = client.getPlaybackState()
+                val qRes = client.getQueue()
+                if (stRes.isSuccess && qRes.isSuccess) {
+                    val st = stRes.getOrThrow()
+                    val q = qRes.getOrThrow()
+                    if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+                        val qTracks = q.tracks.map { it.toDomainTrack() }
+                        val current = qTracks.getOrNull(st.queueIndex)
+                        _sessionState.value = _sessionState.value.copy(
+                            currentTrack = current,
+                            isPlaying = st.playing,
+                            position = st.effectivePosition,
+                            duration = st.effectiveDuration,
+                            queue = qTracks,
+                            queueIndex = st.queueIndex
+                        )
+                    }
+                    synced = true
+                }
+                val outcome = if (synced) {
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
                 } else {
-                    val playTrackRes = client.sendPlaybackCommand("play_track", selectedTrack.id)
-                    val outcome = if (playTrackRes.isSuccess) {
-                        client.getPlaybackState().onSuccess { st ->
-                            client.getQueue().onSuccess { q ->
-                                if (_sessionState.value.activeEndpoint.id == activeEp.id) {
-                                    val qTracks = q.tracks.map { it.toDomainTrack() }
-                                    _sessionState.value = _sessionState.value.copy(
-                                        currentTrack = qTracks.getOrNull(st.queueIndex),
-                                        isPlaying = st.playing,
-                                        position = st.effectivePosition,
-                                        duration = st.effectiveDuration,
-                                        queue = qTracks,
-                                        queueIndex = st.queueIndex
-                                    )
-                                }
-                            }
-                        }
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
-                    } else {
-                        val (failStatus, failMsg) = resolveFailureStatus(client, playTrackRes)
-                        cmd.copy(status = failStatus, resultMessage = failMsg)
-                    }
-                    if (_sessionState.value.activeEndpoint.id == activeEp.id) {
-                        _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
-                    }
+                    cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Cola transferida; sincronización de estado pendiente")
+                }
+                if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
+                return if (synced) {
+                    QueuePlaybackOutcome.Confirmed(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        message = "Cola completa confirmada en ${activeEp.name}"
+                    )
+                } else {
+                    QueuePlaybackOutcome.Accepted(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        message = "Cola transferida a ${activeEp.name}"
+                    )
+                }
+            } else {
+                // Honest error reporting: do NOT secretly fall back to play_track (K46D-39)
+                val (failStatus, failMsg) = resolveFailureStatus(client, transferRes)
+                val outcome = cmd.copy(status = failStatus, resultMessage = failMsg)
+                if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
+                }
+                return when (failStatus) {
+                    RemoteCommandStatus.DISCONNECTED -> QueuePlaybackOutcome.Disconnected(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        reason = failMsg
+                    )
+                    RemoteCommandStatus.REJECTED -> QueuePlaybackOutcome.Rejected(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        reason = failMsg
+                    )
+                    else -> QueuePlaybackOutcome.Failed(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        error = failMsg
+                    )
                 }
             }
-            return
         }
 
         // Authority 3: Local Phone
         audioController?.playQueue(tracks, validIndex)
+        return QueuePlaybackOutcome.Confirmed(
+            operationId = opId,
+            endpointId = PlaybackEndpoint.LocalPhone.id,
+            requestedTrackCount = tracks.size,
+            requestedIndex = validIndex,
+            message = "Reproduciendo localmente"
+        )
     }
 
     fun playNext(track: Track) {

@@ -88,16 +88,16 @@ import org.michimusic.player.AudioController
 fun QueueScreen(
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     controller: AudioController = koinInject(),
+    favoritesRepo: FavoritesRepository = koinInject(),
 ) {
-    val favoritesRepo: FavoritesRepository = koinInject()
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
     val coroutineScope = rememberCoroutineScope()
     val sessionState by sessionManager.sessionState.collectAsState()
     val localState by controller.state.collectAsState()
     val isReady by controller.isReady.collectAsState()
     val isRemote = sessionState.isRemoteActive
-    val queue = if (isRemote && sessionState.queue.isNotEmpty()) sessionState.queue else sessionState.queue.ifEmpty { localState.queue }
-    val currentIndex = if (sessionState.queue.isNotEmpty()) sessionState.queueIndex else localState.queueIndex
+    val queue = if (isRemote) sessionState.queue else localState.queue
+    val currentIndex = if (isRemote) sessionState.queueIndex else localState.queueIndex
     val isPlaying = if (isRemote) sessionState.isPlaying else localState.isPlaying
     var showClearConfirmation by remember { mutableStateOf(false) }
 
@@ -135,7 +135,7 @@ fun QueueScreen(
                     )
                 }
 
-                if (queue.isNotEmpty() && isReady) {
+                if (queue.isNotEmpty() && (isReady || isRemote)) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -225,23 +225,45 @@ fun QueueScreen(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(24.dp),
                     ) {
+                        val endpointName = sessionState.activeEndpoint.name
+                        val lastCmd = sessionState.lastRemoteCommand
+                        val isPending = isRemote && lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
+                        val isFailed = isRemote && (
+                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.REJECTED ||
+                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.FAILED ||
+                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.DISCONNECTED
+                        )
+
                         Icon(
                             Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = if (isFailed) org.michimusic.mobile.ui.theme.ErrorColor else TextMuted,
                             modifier = Modifier.size(56.dp),
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "La cola está vacía",
+                            text = when {
+                                isPending -> "Sincronizando cola con $endpointName..."
+                                isFailed -> "Error en cola de $endpointName"
+                                isRemote -> "Cola remota vacía en $endpointName"
+                                else -> "La cola está vacía"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = PureWhite,
                         )
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Reproduce una canción, álbum o playlist para comenzar",
+                            text = when {
+                                isPending -> "Esperando respuesta del host remoto..."
+                                isFailed -> lastCmd?.resultMessage ?: "No se pudo actualizar la cola en el host remoto"
+                                isRemote -> "No hay pistas en la cola del dispositivo $endpointName"
+                                else -> "Reproduce una canción, álbum o playlist para comenzar"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted,
+                            color = if (isFailed) org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.8f) else TextMuted,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                     }
                 }

@@ -184,13 +184,30 @@ class PlaylistsViewModel(
                     }
                     return@launch
                 }
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                    if (sessionManager != null) {
-                        sessionManager.playQueue(tracks, 0)
-                    } else {
-                        audioController?.playQueue(tracks, 0)
+                if (sessionManager != null) {
+                    val outcome = sessionManager.requestQueuePlayback(tracks, 0)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                        when (outcome) {
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Confirmed,
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Accepted -> {
+                                onResult(PlayPlaylistResult.Success(tracks.size))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Rejected -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Failed -> {
+                                onResult(PlayPlaylistResult.Error(outcome.error))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Disconnected -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
+                        }
                     }
-                    onResult(PlayPlaylistResult.Success(tracks.size))
+                } else {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                        audioController?.playQueue(tracks, 0)
+                        onResult(PlayPlaylistResult.Success(tracks.size))
+                    }
                 }
             } catch (e: Exception) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {

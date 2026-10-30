@@ -1179,6 +1179,105 @@ class PlaybackSessionManagerTest {
     }
 
     @Test
+    fun playQueue_remotePlaybackHost_whenTransferFails_doesNotFallBackToPlayTrackAndReportsFailure() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        coEvery { linkClient.transferQueue(any()) } returns Result.failure(java.io.IOException("Queue transfer rejected"))
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "desktop_host_1") linkClient else null
+        }
+        connectionManager.updateState("desktop_host_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val hostEndpoint = PlaybackEndpoint(
+            id = "desktop_host_1",
+            name = "Desktop Studio",
+            type = EndpointType.DESKTOP_PLAYER,
+            isLocal = false,
+            capabilities = setOf("PLAYBACK", "REMOTE_CONTROL")
+        )
+        manager.attachRemote(hostEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val remoteTracks = listOf(
+            Track("srv_1", "Song 1", "Artist", source = TrackSource.STREAMING),
+            Track("srv_2", "Song 2", "Artist", source = TrackSource.STREAMING)
+        )
+
+        manager.playQueue(remoteTracks, 0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // K46D-39: Must NOT silently fall back to play_track
+        coVerify(exactly = 0) { linkClient.sendPlaybackCommand("play_track", any()) }
+        val lastCmd = manager.sessionState.value.lastRemoteCommand
+        assertTrue(lastCmd?.status == RemoteCommandStatus.DISCONNECTED || lastCmd?.status == RemoteCommandStatus.REJECTED || lastCmd?.status == RemoteCommandStatus.FAILED)
+        assertFalse("Should not be CONFIRMED", lastCmd?.status == RemoteCommandStatus.CONFIRMED)
+    }
+
+    @Test
+    fun playQueue_remotePlaybackHost_whenPlayCommandFails_reportsFailure() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.failure(java.io.IOException("Play command failed"))
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "desktop_host_1") linkClient else null
+        }
+        connectionManager.updateState("desktop_host_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val hostEndpoint = PlaybackEndpoint(
+            id = "desktop_host_1",
+            name = "Desktop Studio",
+            type = EndpointType.DESKTOP_PLAYER,
+            isLocal = false,
+            capabilities = setOf("PLAYBACK", "REMOTE_CONTROL")
+        )
+        manager.attachRemote(hostEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val remoteTracks = listOf(
+            Track("srv_1", "Song 1", "Artist", source = TrackSource.STREAMING),
+            Track("srv_2", "Song 2", "Artist", source = TrackSource.STREAMING)
+        )
+
+        manager.playQueue(remoteTracks, 0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val lastCmd = manager.sessionState.value.lastRemoteCommand
+        assertFalse("Should not be CONFIRMED when play command failed", lastCmd?.status == RemoteCommandStatus.CONFIRMED)
+        assertTrue(lastCmd?.status == RemoteCommandStatus.DISCONNECTED || lastCmd?.status == RemoteCommandStatus.REJECTED || lastCmd?.status == RemoteCommandStatus.FAILED)
+    }
+
+
+    @Test
     fun rtpError_pausesLocalOutputBeforeReleasingMuteAndSetsRtpFailureIntent() {
         val audioController = mockk<AudioController>(relaxed = true)
         val dummyStateFlow = MutableStateFlow(PlayerState(isPlaying = true))
