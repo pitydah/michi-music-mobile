@@ -50,11 +50,18 @@ fun MichiCoverFlowHost(
     onCurrentChanged: (Int) -> Unit = {},
     onAlbumClick: (Int) -> Unit = {},
     initialPage: Int = 0,
+    selectedAlbumId: String? = null,
+    onAlbumSelected: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     if (albums.isEmpty()) return
+    val initialTargetPage = if (selectedAlbumId != null) {
+        val found = albums.indexOfFirst { it.id == selectedAlbumId }
+        if (found >= 0) found else initialPage
+    } else initialPage
+
     val state = rememberPagerState(
-        initialPage = safeCoverFlowIndex(initialPage, albums.size),
+        initialPage = safeCoverFlowIndex(initialTargetPage, albums.size),
         pageCount = { albums.size },
     )
     val scope = rememberCoroutineScope()
@@ -65,8 +72,24 @@ fun MichiCoverFlowHost(
         if (state.currentPage > albums.lastIndex) state.scrollToPage(albums.lastIndex)
     }
 
+    LaunchedEffect(selectedAlbumId, albums) {
+        if (selectedAlbumId != null) {
+            val targetIdx = albums.indexOfFirst { it.id == selectedAlbumId }
+            if (targetIdx in albums.indices && targetIdx != state.currentPage) {
+                if (aeroCoverFlowShouldAnimate(reducedMotion)) {
+                    state.animateScrollToPage(targetIdx)
+                } else {
+                    state.scrollToPage(targetIdx)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(state.currentPage, albums.size) {
-        state.currentPage.takeIf { it in albums.indices }?.let(onCurrentChanged)
+        state.currentPage.takeIf { it in albums.indices }?.let { page ->
+            onCurrentChanged(page)
+            onAlbumSelected?.invoke(albums[page].id)
+        }
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
