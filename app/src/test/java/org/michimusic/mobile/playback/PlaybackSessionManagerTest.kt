@@ -873,7 +873,7 @@ class PlaybackSessionManagerTest {
         val dummyStateFlow = MutableStateFlow(PlayerState())
         every { audioController.state } returns dummyStateFlow
         
-        val connectionManager = mockk<ConnectionManager>(relaxed = true)
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {}
         val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
         val registry = mockk<PairedDeviceRegistry>(relaxed = true)
 
@@ -1014,7 +1014,7 @@ class PlaybackSessionManagerTest {
         val audioController = mockk<AudioController>(relaxed = true)
         val dummyStateFlow = MutableStateFlow(PlayerState())
         every { audioController.state } returns dummyStateFlow
-        val connectionManager = mockk<ConnectionManager>(relaxed = true)
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {}
         val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
         val registry = mockk<PairedDeviceRegistry>(relaxed = true)
 
@@ -1184,7 +1184,7 @@ class PlaybackSessionManagerTest {
         val dummyStateFlow = MutableStateFlow(PlayerState(isPlaying = true))
         every { audioController.state } returns dummyStateFlow
 
-        val connectionManager = mockk<ConnectionManager>(relaxed = true)
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {}
         val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
         every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
         val registry = mockk<PairedDeviceRegistry>(relaxed = true)
