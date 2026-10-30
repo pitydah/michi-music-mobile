@@ -37,4 +37,11 @@ class PremiumComponentsTest {
         assertTrue(levels.contains(MichiSurfaceLevel.Floating))
         assertEquals(4, levels.size)
     }
+
+    @Test
+    fun testMichiTypographyInterFontHierarchy() {
+        assertEquals(org.michimusic.mobile.ui.theme.InterFontFamily, org.michimusic.mobile.ui.theme.MichiTypography.screenTitle.fontFamily)
+        assertEquals(org.michimusic.mobile.ui.theme.InterFontFamily, org.michimusic.mobile.ui.theme.MichiTypography.sectionTitle.fontFamily)
+        assertEquals(org.michimusic.mobile.ui.theme.InterFontFamily, org.michimusic.mobile.ui.theme.MichiTypography.cardTitle.fontFamily)
+    }
 }

@@ -82,23 +82,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.collectAsState
 import org.michimusic.mobile.ui.theme.*
-
-@Composable
-fun AeroFloatingSurface(
-    modifier: Modifier = Modifier,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(20.dp),
-    content: @Composable () -> Unit,
-) {
-    val material = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
-    Surface(
-        shape = shape,
-        color = material.fill,
-        border = if (material.borderWidth > 0.dp) androidx.compose.foundation.BorderStroke(material.borderWidth, material.outline) else null,
-        shadowElevation = material.elevation,
-        modifier = modifier,
-        content = content,
-    )
-}
+import org.michimusic.mobile.ui.components.premium.AeroFloatingSurface
 
 data class EqBand(val frequencyLabel: String, var gainDb: Float)
 

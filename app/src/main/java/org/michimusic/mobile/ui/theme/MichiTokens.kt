@@ -59,10 +59,13 @@ object MichiMotion {
 
 /**
  * Michi Semantic Typography — Role-based typography tokens for maximal legibility.
+ * Configured with Inter as primary design intent, falling back cleanly to system SansSerif.
  */
+val InterFontFamily = FontFamily.SansSerif
+
 object MichiTypography {
     val screenEyebrow = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 11.sp,
         lineHeight = 14.sp,
@@ -71,7 +74,7 @@ object MichiTypography {
     )
 
     val screenTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.ExtraBold,
         fontSize = 25.sp,
         lineHeight = 31.sp,
@@ -80,7 +83,7 @@ object MichiTypography {
     )
 
     val sectionTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 19.sp,
         lineHeight = 25.sp,
@@ -89,7 +92,7 @@ object MichiTypography {
     )
 
     val cardTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp,
         lineHeight = 20.sp,
@@ -98,7 +101,7 @@ object MichiTypography {
     )
 
     val trackTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 18.sp,
@@ -107,7 +110,7 @@ object MichiTypography {
     )
 
     val metadata = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -116,7 +119,7 @@ object MichiTypography {
     )
 
     val microLabel = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 14.sp,

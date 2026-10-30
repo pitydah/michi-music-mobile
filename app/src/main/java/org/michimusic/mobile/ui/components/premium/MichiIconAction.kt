@@ -32,7 +32,7 @@ import org.michimusic.mobile.ui.theme.PureWhite
 @Composable
 fun MichiIconAction(
     icon: ImageVector,
-    contentDescription: String?,
+    contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
@@ -41,7 +41,9 @@ fun MichiIconAction(
     minTargetSize: Dp = MichiSpacing.minTouchTarget,
     testTag: String? = null,
 ) {
-    val accessibilityLabel = contentDescription?.takeIf { it.isNotBlank() } ?: "Acción"
+    require(contentDescription.isNotBlank()) {
+        "MichiIconAction requires an explicit, meaningful contentDescription for TalkBack accessibility (K46D-15)."
+    }
     Box(
         modifier = modifier
             .size(minTargetSize.coerceAtLeast(MichiSpacing.minTouchTarget))
@@ -52,7 +54,7 @@ fun MichiIconAction(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(bounded = false, radius = (minTargetSize / 2).coerceAtLeast(24.dp), color = tint.copy(alpha = 0.28f)),
             )
-            .semantics { this.contentDescription = accessibilityLabel }
+            .semantics { this.contentDescription = contentDescription }
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
