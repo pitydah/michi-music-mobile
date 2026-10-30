@@ -61,6 +61,7 @@ fun MichiIconAction(
     iconSize: Dp = 24.dp,
     minTargetSize: Dp = MichiSpacing.minTouchTarget,
     testTag: String? = null,
+    enableHaptic: Boolean = false,
 ) {
     validateIconActionDescription(contentDescription)
 
@@ -94,7 +95,9 @@ fun MichiIconAction(
             .clickable(
                 enabled = enabled && !isLoading,
                 onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    if (enableHaptic && visualPrefs.hapticsEnabled) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
                     onClick()
                 },
                 role = Role.Button,
