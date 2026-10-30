@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -606,50 +607,42 @@ private fun DevicesTopBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("MICHI LINK", style = MichiTypography.screenEyebrow)
+            Text(
+                text = "MICHI LINK",
+                style = MichiTypography.screenEyebrow,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.Refresh,
+                    contentDescription = "Buscar dispositivos",
                     onClick = onRefreshClick,
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("devices_refresh_button"),
-                ) {
-                    Icon(
-                        Icons.Filled.Refresh,
-                        contentDescription = "Buscar dispositivos",
-                        tint = if (isSearching) TertiaryCyan else PureWhite,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                IconButton(
+                    tint = if (isSearching) TertiaryCyan else PureWhite,
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "devices_refresh_button",
+                )
+                MichiIconAction(
+                    icon = Icons.Filled.QrCodeScanner,
+                    contentDescription = "Escanear QR",
                     onClick = onQrClick,
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("devices_qr_button"),
-                ) {
-                    Icon(
-                        Icons.Filled.QrCodeScanner,
-                        contentDescription = "Escanear QR",
-                        tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-                IconButton(
+                    tint = PureWhite,
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "devices_qr_button",
+                )
+                MichiIconAction(
+                    icon = Icons.Filled.Settings,
+                    contentDescription = "Ajustes",
                     onClick = onSettingsClick,
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("devices_settings_button"),
-                ) {
-                    Icon(
-                        Icons.Filled.Settings,
-                        contentDescription = "Ajustes",
-                        tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
+                    tint = PureWhite,
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "devices_settings_button",
+                )
             }
         }
         Text("Tus dispositivos", style = MichiTypography.screenTitle,

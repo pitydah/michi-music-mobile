@@ -49,4 +49,32 @@ class PremiumComponentsTest {
         val fontList = (inter as androidx.compose.ui.text.font.FontListFontFamily).fonts
         assertEquals(5, fontList.size)
     }
+
+    @Test
+    fun testPlaybackControlDynamicSemantics() {
+        // Default state
+        val defaultState = PlaybackControlUiState()
+        assertEquals("Activar modo aleatorio", defaultState.shuffleContentDescription())
+        assertEquals("Activar repetición", defaultState.repeatContentDescription())
+        assertEquals("Reproducir", defaultState.playPauseContentDescription())
+
+        // Playing state
+        val playingState = defaultState.copy(isPlaying = true)
+        assertEquals("Pausar", playingState.playPauseContentDescription())
+
+        // Loading state takes precedence
+        val loadingState = playingState.copy(isLoading = true)
+        assertEquals("Cargando audio", loadingState.playPauseContentDescription())
+
+        // Shuffle toggled
+        val shuffleOnState = defaultState.copy(isShuffleEnabled = true)
+        assertEquals("Desactivar modo aleatorio", shuffleOnState.shuffleContentDescription())
+
+        // Repeat mode transitions: 0 (OFF) -> 1 (ONE) -> 2 (ALL) -> 0
+        val repeatOneState = defaultState.copy(repeatMode = 1)
+        assertEquals("Repetición: una pista", repeatOneState.repeatContentDescription())
+
+        val repeatAllState = defaultState.copy(repeatMode = 2)
+        assertEquals("Repetición: todo", repeatAllState.repeatContentDescription())
+    }
 }

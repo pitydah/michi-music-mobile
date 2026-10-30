@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.coverflow
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +31,7 @@ import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
 import org.michimusic.mobile.ui.components.aeroCoverFlowShouldAnimate
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
 /**
@@ -90,6 +92,11 @@ fun MichiCoverFlowHost(
                         shadowElevation = if (visual.raised) 8f else 0f
                     }
                     .clip(RoundedCornerShape(16.dp))
+                    .then(
+                        if (visual.raised) {
+                            Modifier.border(0.65.dp, AeroHairline, RoundedCornerShape(16.dp))
+                        } else Modifier
+                    )
                     .clickable {
                         if (page == state.currentPage) {
                             onAlbumClick(page)

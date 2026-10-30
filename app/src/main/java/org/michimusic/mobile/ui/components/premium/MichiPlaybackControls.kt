@@ -85,7 +85,7 @@ fun MichiPlaybackControls(
         if (onToggleShuffle != null) {
             MichiIconAction(
                 icon = Icons.Filled.Shuffle,
-                contentDescription = "Modo aleatorio",
+                contentDescription = state.shuffleContentDescription(),
                 onClick = onToggleShuffle,
                 tint = if (state.isShuffleEnabled) TertiaryCyan else OnSurfaceVariant,
                 iconSize = 22.dp,
@@ -126,9 +126,13 @@ fun MichiPlaybackControls(
                     enabled = !state.isLoading,
                     role = Role.Button,
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(bounded = false, radius = 36.dp, color = PureWhite.copy(alpha = 0.28f)),
+                    indication = ripple(
+                        bounded = false,
+                        radius = (playButtonSize / 2).coerceAtLeast(24.dp),
+                        color = PureWhite.copy(alpha = 0.22f),
+                    ),
                 )
-                .semantics { contentDescription = if (state.isLoading) "Cargando" else if (state.isPlaying) "Pausar" else "Reproducir" }
+                .semantics { contentDescription = state.playPauseContentDescription() }
                 .testTag(playPauseTestTag),
             contentAlignment = Alignment.Center,
         ) {
@@ -165,7 +169,7 @@ fun MichiPlaybackControls(
             val repeatIcon = if (state.repeatMode == 1) Icons.Filled.RepeatOne else Icons.Filled.Repeat
             MichiIconAction(
                 icon = repeatIcon,
-                contentDescription = "Modo repetición",
+                contentDescription = state.repeatContentDescription(),
                 onClick = onCycleRepeat,
                 tint = if (state.repeatMode != 0) TertiaryCyan else OnSurfaceVariant,
                 iconSize = 22.dp,

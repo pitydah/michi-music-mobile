@@ -453,19 +453,15 @@ fun PremiumIconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    IconButton(
+    org.michimusic.mobile.ui.components.premium.MichiIconAction(
+        icon = icon,
+        contentDescription = contentDescription,
         onClick = onClick,
+        modifier = modifier,
         enabled = enabled,
-        modifier = modifier.size(MichiSpacing.minTouchTarget),
-        colors = IconButtonDefaults.iconButtonColors(
-            containerColor = Color.Transparent,
-            contentColor = PureWhite,
-            disabledContainerColor = Color.Transparent,
-            disabledContentColor = TextDim,
-        ),
-    ) {
-        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(22.dp))
-    }
+        iconSize = 22.dp,
+        minTargetSize = MichiSpacing.minTouchTarget,
+    )
 }
 
 @Composable

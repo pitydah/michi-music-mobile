@@ -553,8 +553,13 @@ fun MichiIconButton(
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
         }
     } else {
-        IconButton(onClick = onClick, modifier = Modifier.size((size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget))) {
-            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
-        }
+        org.michimusic.mobile.ui.components.premium.MichiIconAction(
+            icon = icon,
+            contentDescription = contentDescription ?: "Acción",
+            onClick = onClick,
+            tint = tint,
+            iconSize = size,
+            minTargetSize = (size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget),
+        )
     }
 }
