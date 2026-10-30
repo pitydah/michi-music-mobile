@@ -522,32 +522,15 @@ fun MediaControlsBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious, contentDescription = "Anterior")
-        Box(
-            modifier = Modifier
-                .size(58.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            PureWhite,
-                            PureWhite.copy(alpha = 0.92f),
-                            AeroGraphiteRaised,
-                        )
-                    )
-                )
-                .border(0.75.dp, AeroHairline, CircleShape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onPlayPause
-                ),
-            contentAlignment = Alignment.Center
+        IconButton(
+            onClick = onPlayPause,
+            modifier = Modifier.size(68.dp),
         ) {
             Icon(
                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = SurfaceObsidian,
-                modifier = Modifier.size(34.dp)
+                tint = PureWhite,
+                modifier = Modifier.size(42.dp),
             )
         }
         MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext, contentDescription = "Siguiente")

@@ -435,18 +435,15 @@ private fun ContinueListeningCard(
                 }
 
                 if (!isRemote) {
-                    Button(
+                    IconButton(
                         onClick = onPlayPause,
                         modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                        contentPadding = PaddingValues(0.dp),
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                             tint = PureWhite,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(28.dp),
                         )
                     }
                 }
@@ -712,16 +709,13 @@ private fun YourPlaylistsSection(
             )
             IconButton(
                 onClick = onCreatePlaylist,
-                modifier = Modifier
-                    .size(MichiSpacing.minTouchTarget)
-                    .clip(CircleShape)
-                    .background(GlassFillLow),
+                modifier = Modifier.size(MichiSpacing.minTouchTarget),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = "Crear Playlist",
                     tint = PureWhite,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

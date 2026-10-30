@@ -143,15 +143,13 @@ fun PlaylistDetailScreen(
                     onClick = onBack,
                     modifier = Modifier
                         .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(GlassFillLow)
                         .testTag("playlist_detail_back_button"),
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Volver",
                         tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
 
@@ -195,15 +193,13 @@ fun PlaylistDetailScreen(
                             onClick = { showOptionsMenu = true },
                             modifier = Modifier
                                 .size(MichiSpacing.minTouchTarget)
-                                .clip(CircleShape)
-                                .background(GlassFillLow)
                                 .testTag("playlist_detail_options_button"),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.MoreVert,
                                 contentDescription = "Más opciones",
-                                tint = TextMuted,
-                                modifier = Modifier.size(20.dp),
+                                tint = PureWhite,
+                                modifier = Modifier.size(22.dp),
                             )
                         }
 
@@ -246,15 +242,13 @@ fun PlaylistDetailScreen(
                         },
                         modifier = Modifier
                             .size(MichiSpacing.minTouchTarget)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
                             .testTag("playlist_detail_add_tracks_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
                             contentDescription = "Añadir canciones",
                             tint = PureWhite,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }

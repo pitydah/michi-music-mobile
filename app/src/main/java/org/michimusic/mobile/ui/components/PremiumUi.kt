@@ -456,17 +456,15 @@ fun PremiumIconButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier
-            .size(MichiSpacing.minTouchTarget)
-            .clip(RoundedCornerShape(999.dp)),
+        modifier = modifier.size(MichiSpacing.minTouchTarget),
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = GlassHighlight.copy(alpha = 0.085f),
-            contentColor = TextPrimary,
-            disabledContainerColor = SurfaceElevated.copy(alpha = 0.24f),
+            containerColor = Color.Transparent,
+            contentColor = PureWhite,
+            disabledContainerColor = Color.Transparent,
             disabledContentColor = TextDim,
         ),
     ) {
-        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(21.dp))
+        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(22.dp))
     }
 }
 

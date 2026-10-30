@@ -81,6 +81,7 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PrimaryPink
@@ -239,34 +240,28 @@ fun AlbumsScreen(
                     IconButton(
                         onClick = onNavigateToPlaylists,
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
-                            .border(1.dp, GlassBorderLow, CircleShape)
+                            .size(MichiSpacing.minTouchTarget)
                             .testTag("library_playlists_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.LibraryMusic,
                             contentDescription = "Playlists",
                             tint = PureWhite,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
 
                     IconButton(
                         onClick = { showCreatePlaylist = true },
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(GlassFillLow)
-                            .border(1.dp, GlassBorderLow, CircleShape)
+                            .size(MichiSpacing.minTouchTarget)
                             .testTag("library_add_playlist_button"),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Add,
                             contentDescription = "Nueva Playlist",
                             tint = PureWhite,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -611,23 +606,19 @@ fun AlbumsScreen(
                                                         modifier = Modifier.size(20.dp),
                                                     )
                                                 }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(48.dp)
-                                                        .clip(CircleShape)
-                                                        .background(PrimaryPinkContainer)
-                                                        .clickable {
-                                                            if (currentAlbum.tracks.isNotEmpty()) {
-                                                                audioController.playQueue(currentAlbum.tracks, 0)
-                                                            }
-                                                        },
-                                                    contentAlignment = Alignment.Center,
+                                                IconButton(
+                                                    onClick = {
+                                                        if (currentAlbum.tracks.isNotEmpty()) {
+                                                            audioController.playQueue(currentAlbum.tracks, 0)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(48.dp),
                                                 ) {
                                                     Icon(
                                                         Icons.Default.PlayArrow,
                                                         contentDescription = "Reproducir Álbum",
                                                         tint = PureWhite,
-                                                        modifier = Modifier.size(24.dp),
+                                                        modifier = Modifier.size(28.dp),
                                                     )
                                                 }
                                             }
