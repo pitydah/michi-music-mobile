@@ -557,7 +557,7 @@ fun SettingsScreen(
                             SettingsSectionCard(
                                 icon = Icons.Default.AccessibilityNew,
                                 title = "Accesibilidad & Interfaz",
-                                subtitle = "Optimización visual y de movimiento",
+                                subtitle = "Optimización visual, movimiento y respuesta háptica",
                                 accent = TertiaryCyan,
                             ) {
                                 SettingSwitchRow(
@@ -567,6 +567,7 @@ fun SettingsScreen(
                                     onCheckedChange = {
                                         visualPreferencesRepo.setHighContrast(it)
                                     },
+                                    testTag = "settings_high_contrast",
                                 )
 
                                 Spacer(Modifier.height(12.dp))
@@ -578,6 +579,19 @@ fun SettingsScreen(
                                     onCheckedChange = {
                                         visualPreferencesRepo.setReducedMotion(it)
                                     },
+                                    testTag = "settings_reduced_motion",
+                                )
+
+                                Spacer(Modifier.height(12.dp))
+
+                                SettingSwitchRow(
+                                    title = "Vibración táctil sutil (Aero)",
+                                    subtitle = "Respuesta háptica precisa al pulsar botones y controles de reproducción",
+                                    checked = visualPrefs.hapticsEnabled,
+                                    onCheckedChange = {
+                                        visualPreferencesRepo.setHapticsEnabled(it)
+                                    },
+                                    testTag = "settings_haptics",
                                 )
                             }
                         }
@@ -791,9 +805,13 @@ private fun SettingSwitchRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    testTag: String? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MichiSpacing.minTouchTarget)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -804,6 +822,7 @@ private fun SettingSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            modifier = if (testTag != null) Modifier.testTag("${testTag}_switch") else Modifier,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = PureWhite,
                 checkedTrackColor = TertiaryCyan,
@@ -813,3 +832,4 @@ private fun SettingSwitchRow(
         )
     }
 }
+
