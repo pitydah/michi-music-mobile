@@ -341,12 +341,14 @@ fun SearchScreen(
                             )
                         }
                         items(structuredResults.tracks) { item ->
-                            val isPlayingThis = playerState.currentTrack?.id == item.track.id
+                            val activeTrack = if (sessionState.isRemoteActive) sessionState.currentTrack else playerState.currentTrack
+                            val isAudioPlaying = if (sessionState.isRemoteActive) sessionState.isPlaying else playerState.isPlaying
+                            val isPlayingThis = activeTrack?.id == item.track.id
                             TrackSearchRow(
                                 track = item.track,
                                 source = item.source,
                                 isPlayingThis = isPlayingThis,
-                                isAudioPlaying = playerState.isPlaying,
+                                isAudioPlaying = isAudioPlaying,
                                 onClick = {
                                     val allTracks = structuredResults.tracks.map { it.track }
                                     val idx = allTracks.indexOfFirst { it.id == item.track.id }.coerceAtLeast(0)

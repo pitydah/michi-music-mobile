@@ -390,7 +390,7 @@ private fun PlaylistTracksList(
                 onMoveDown = { onMoveDown(track) },
             )
         }
-        item { Spacer(Modifier.height(100.dp)) }
+        item { Spacer(Modifier.height(24.dp)) }
     }
 }
 

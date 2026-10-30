@@ -627,7 +627,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(100.dp))
+            Spacer(Modifier.height(24.dp))
         }
 
         if (showEqualizerDialog) {

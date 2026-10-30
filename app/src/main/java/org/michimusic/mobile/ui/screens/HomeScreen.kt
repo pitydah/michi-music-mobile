@@ -111,7 +111,7 @@ fun HomeScreen(
 
     val playerState by audioController.state.collectAsState()
 
-    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
+    val currentTrack = if (sessionState.isRemoteActive) sessionState.currentTrack else playerState.currentTrack
     val isPlaying = sessionState.isPlaying
     // The hero already represents the active song. Avoid repeating it below.
     val visibleRecent = remember(recentTracks, currentTrack?.id) {

@@ -1018,10 +1018,10 @@ fun AlbumsScreen(
                     playQueueSafe(filteredTracks, idx)
                 },
                 onPlayNext = {
-                    sessionManager?.playNext(track) ?: audioController.playNext(track)
+                    sessionManager.playNext(track)
                 },
                 onAddToQueue = {
-                    sessionManager?.addToQueue(track) ?: audioController.addToQueue(track)
+                    sessionManager.addToQueue(track)
                 },
                 onAddToPlaylist = {
                     trackToAddToPlaylist = track

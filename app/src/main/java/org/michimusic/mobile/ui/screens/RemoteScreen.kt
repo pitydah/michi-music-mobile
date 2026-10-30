@@ -378,7 +378,7 @@ fun RemoteScreen(
                     }
 
                     item {
-                        Spacer(Modifier.height(100.dp))
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
             }
