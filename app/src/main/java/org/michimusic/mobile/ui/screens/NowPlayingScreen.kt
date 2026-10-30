@@ -403,6 +403,7 @@ fun NowPlayingScreen(
                         isPlaying = isPlaying,
                         canSkipPrevious = currentTrack != null,
                         canSkipNext = currentTrack != null,
+                        canPlayPause = currentTrack != null,
                         isShuffleEnabled = isShuffle,
                         repeatMode = repeatMode,
                         isLoading = playerState.playbackStatus is org.michimusic.player.PlaybackStatus.Buffering,

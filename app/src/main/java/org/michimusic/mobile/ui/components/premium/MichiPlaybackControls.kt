@@ -144,7 +144,7 @@ fun MichiPlaybackControls(
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         onPlayPause()
                     },
-                    enabled = !state.isLoading,
+                    enabled = !state.isLoading && state.canPlayPause,
                     role = Role.Button,
                     interactionSource = playInteractionSource,
                     indication = null, // Tactile scale and opacity replaces circular ripple disks
@@ -167,7 +167,7 @@ fun MichiPlaybackControls(
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = null,
-                        tint = PureWhite,
+                        tint = if (state.canPlayPause) PureWhite else OnSurfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.size(42.dp),
                     )
                 }

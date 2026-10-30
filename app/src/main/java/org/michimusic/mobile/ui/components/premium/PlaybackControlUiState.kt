@@ -7,6 +7,7 @@ data class PlaybackControlUiState(
     val isPlaying: Boolean = false,
     val canSkipPrevious: Boolean = true,
     val canSkipNext: Boolean = true,
+    val canPlayPause: Boolean = true,
     val isShuffleEnabled: Boolean = false,
     val repeatMode: Int = 0, // 0: OFF, 1: ONE, 2: ALL
     val isLoading: Boolean = false,
@@ -21,6 +22,7 @@ data class PlaybackControlUiState(
     }
 
     fun playPauseContentDescription(): String = when {
+        !canPlayPause -> "Sin reproducción disponible"
         isLoading -> "Cargando audio"
         isPlaying -> "Pausar"
         else -> "Reproducir"

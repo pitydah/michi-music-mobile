@@ -58,6 +58,10 @@ class PremiumComponentsTest {
         assertEquals("Activar repetición", defaultState.repeatContentDescription())
         assertEquals("Reproducir", defaultState.playPauseContentDescription())
 
+        // Disabled play/pause state when no track is present
+        val emptyTrackState = defaultState.copy(canPlayPause = false)
+        assertEquals("Sin reproducción disponible", emptyTrackState.playPauseContentDescription())
+
         // Playing state
         val playingState = defaultState.copy(isPlaying = true)
         assertEquals("Pausar", playingState.playPauseContentDescription())
