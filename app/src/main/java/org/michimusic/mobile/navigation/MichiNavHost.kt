@@ -102,9 +102,14 @@ fun MichiNavHost() {
                 composable("library") {
                     AlbumsScreen(
                         onNavigateToPlaylists = { navController.navigate("playlist") },
+                        sessionManager = sessionManager,
                     )
                 }
-                composable("search") { SearchScreen() }
+                composable("search") {
+                    SearchScreen(
+                        sessionManager = sessionManager,
+                    )
+                }
                 composable("devices") {
                     DevicesScreen(
                         onNavigateToSettings = { navController.navigate("settings") },
@@ -159,6 +164,7 @@ fun MichiNavHost() {
                 composable("playlist") {
                     PlaylistScreen(
                         onNavigateToPlaylist = { playlistId -> navController.navigate("playlist/$playlistId") },
+                        sessionManager = sessionManager,
                     )
                 }
                 composable(
@@ -172,7 +178,11 @@ fun MichiNavHost() {
                         sessionManager = sessionManager,
                     )
                 }
-                composable("queue") { QueueScreen() }
+                composable("queue") {
+                    QueueScreen(
+                        sessionManager = sessionManager,
+                    )
+                }
                 composable("synced") { SyncedTracksScreen() }
                 composable("diagnostics") { DiagnosticsScreen() }
                 composable("audio-route") { AudioRouteScreen() }

@@ -164,7 +164,8 @@ class PlaylistsViewModel(
      */
     fun playPlaylist(
         id: String,
-        audioController: org.michimusic.player.AudioController,
+        audioController: org.michimusic.player.AudioController? = null,
+        sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
         onResult: (PlayPlaylistResult) -> Unit = {}
     ) {
         viewModelScope.launch(ioDispatcher) {
@@ -184,7 +185,11 @@ class PlaylistsViewModel(
                     return@launch
                 }
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                    audioController.playQueue(tracks, 0)
+                    if (sessionManager != null) {
+                        sessionManager.playQueue(tracks, 0)
+                    } else {
+                        audioController?.playQueue(tracks, 0)
+                    }
                     onResult(PlayPlaylistResult.Success(tracks.size))
                 }
             } catch (e: Exception) {

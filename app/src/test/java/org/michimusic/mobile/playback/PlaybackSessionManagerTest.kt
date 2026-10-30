@@ -998,7 +998,7 @@ class PlaybackSessionManagerTest {
         val remotePlayableTrack = Track("srv_track_99", "Server Song", "Artist", source = TrackSource.STREAMING)
         manager.playQueue(listOf(remotePlayableTrack), 0)
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify { linkClient.sendPlaybackCommand("play_track", "srv_track_99") }
+        coVerify { linkClient.transferQueue(match { it.trackIds == listOf("srv_track_99") && it.currentIndex == 0 }) }
         verify(exactly = 0) { audioController.playQueue(any(), any()) }
 
         // 6. playQueue in Remote Mode with local-only track:
@@ -1028,5 +1028,187 @@ class PlaybackSessionManagerTest {
         val track = Track("track_local_1", "Local Song", "Artist")
         manager.playQueue(listOf(track), 0)
         verify(exactly = 1) { audioController.playQueue(listOf(track), 0) }
+    }
+
+    @Test
+    fun handoffToLocal_whenPlaying_pausesRemoteAndPreservesPlayingIntent() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
+        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_host_1") linkClient else null
+        }
+        connectionManager.updateState("remote_host_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val remoteEndpoint = PlaybackEndpoint("remote_host_1", "Remote Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false)
+        manager.attachRemote(remoteEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Set remote playing
+        manager.play()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(manager.sessionState.value.isPlaying)
+
+        manager.handoffTo(PlaybackEndpoint.LocalPhone) { success, _ ->
+            assertTrue(success)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify { linkClient.sendPlaybackCommand("pause") }
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+        assertFalse(manager.sessionState.value.isRemoteActive)
+        assertEquals(PlaybackTransitionIntent.USER_HANDOFF_TO_PHONE, manager.sessionState.value.lastTransitionIntent)
+        verify(atLeast = 1) { audioController.play() }
+    }
+
+    @Test
+    fun playQueue_michStreamReceiver_routesThroughAudioControllerForBothLocalAndRemote() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "stream_receiver_1") linkClient else null
+        }
+        connectionManager.updateState("stream_receiver_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val streamEndpoint = PlaybackEndpoint(
+            id = "stream_receiver_1",
+            name = "Michi Stream Box",
+            type = EndpointType.STREAM_RECEIVER,
+            isLocal = false,
+            capabilities = setOf("PLAYBACK", "AUDIO_OUTPUT")
+        )
+        manager.handoffTo(streamEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val localTrack = Track("loc_1", "Local Song", "Artist", source = TrackSource.LOCAL, filepath = "/path/test.flac")
+        val streamTrack = Track("str_2", "Stream Song", "Artist", source = TrackSource.STREAMING)
+        val queue = listOf(localTrack, streamTrack)
+
+        manager.playQueue(queue, 0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify(exactly = 1) { audioController.playQueue(queue, 0) }
+        coVerify(exactly = 0) { linkClient.transferQueue(any()) }
+        coVerify(exactly = 0) { linkClient.sendPlaybackCommand(any(), any()) }
+    }
+
+    @Test
+    fun playQueue_remotePlaybackHost_transfersQueueFullSemantics() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s1"))
+        coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
+        coEvery { linkClient.sendPlaybackCommand(any(), any()) } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(state = "playing", playing = true))
+        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = 0))
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "desktop_host_1") linkClient else null
+        }
+        connectionManager.updateState("desktop_host_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val hostEndpoint = PlaybackEndpoint(
+            id = "desktop_host_1",
+            name = "Desktop Studio",
+            type = EndpointType.DESKTOP_PLAYER,
+            isLocal = false,
+            capabilities = setOf("PLAYBACK", "REMOTE_CONTROL", "LIBRARY_SYNC")
+        )
+        manager.attachRemote(hostEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val remoteTracks = listOf(
+            Track("srv_1", "Song 1", "Artist", source = TrackSource.STREAMING),
+            Track("srv_2", "Song 2", "Artist", source = TrackSource.STREAMING)
+        )
+
+        manager.playQueue(remoteTracks, 1)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            linkClient.transferQueue(match {
+                it.trackIds == listOf("srv_1", "srv_2") &&
+                    it.currentIndex == 1 &&
+                    it.source == "mobile_queue"
+            })
+        }
+        verify(exactly = 0) { audioController.playQueue(any(), any()) }
+    }
+
+    @Test
+    fun rtpError_pausesLocalOutputBeforeReleasingMuteAndSetsRtpFailureIntent() {
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState(isPlaying = true))
+        every { audioController.state } returns dummyStateFlow
+
+        val connectionManager = mockk<ConnectionManager>(relaxed = true)
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        manager.selectLocalEndpoint(
+            reason = StreamErrorReason.NETWORK_LOST,
+            message = "RTP error",
+            resumePlayback = false,
+            intent = PlaybackTransitionIntent.RTP_FAILURE
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+        assertEquals(PlaybackTransitionIntent.RTP_FAILURE, manager.sessionState.value.lastTransitionIntent)
+        assertEquals(StreamErrorReason.NETWORK_LOST, manager.sessionState.value.lastSessionError)
+        verify(exactly = 1) { audioController.pause() }
+        verify(exactly = 0) { audioController.play() }
     }
 }

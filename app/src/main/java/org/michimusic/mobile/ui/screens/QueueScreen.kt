@@ -85,15 +85,20 @@ import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.player.AudioController
 
 @Composable
-fun QueueScreen() {
-    val controller: AudioController = koinInject()
+fun QueueScreen(
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
+    controller: AudioController = koinInject(),
+) {
     val favoritesRepo: FavoritesRepository = koinInject()
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
     val coroutineScope = rememberCoroutineScope()
-    val state by controller.state.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsState()
+    val localState by controller.state.collectAsState()
     val isReady by controller.isReady.collectAsState()
-    val queue = state.queue
-    val currentIndex = state.queueIndex
+    val isRemote = sessionState.isRemoteActive
+    val queue = if (isRemote && sessionState.queue.isNotEmpty()) sessionState.queue else sessionState.queue.ifEmpty { localState.queue }
+    val currentIndex = if (sessionState.queue.isNotEmpty()) sessionState.queueIndex else localState.queueIndex
+    val isPlaying = if (isRemote) sessionState.isPlaying else localState.isPlaying
     var showClearConfirmation by remember { mutableStateOf(false) }
 
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -187,7 +192,7 @@ fun QueueScreen() {
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             EqualizerWaveBars(
-                                isPlaying = state.isPlaying,
+                                isPlaying = isPlaying,
                                 barCount = 4,
                                 color = TertiaryCyan,
                             )
@@ -252,7 +257,7 @@ fun QueueScreen() {
                             backgroundColor = if (isCurrent) AeroGraphiteRaised else GlassFillLow,
                             borderColor = GlassBorderLow,
                             accent = if (isCurrent) PrimaryPinkContainer else null,
-                            onClick = { controller.playQueue(queue, idx) },
+                            onClick = { sessionManager.playQueue(queue, idx) },
                         ) {
                             // Separate track metadata from queue actions. Four 44dp icons
                             // alongside title/artwork did not fit 320dp screens.
@@ -267,7 +272,7 @@ fun QueueScreen() {
                                     modifier = Modifier.size(28.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (isCurrent && state.isPlaying) {
+                                    if (isCurrent && isPlaying) {
                                         EqualizerWaveBars(
                                             isPlaying = true,
                                             barCount = 3,
@@ -329,7 +334,7 @@ fun QueueScreen() {
                                         MichiIconAction(
                                             icon = Icons.Default.KeyboardArrowUp,
                                             contentDescription = "Subir ${track.title} en la cola",
-                                            onClick = { controller.moveQueueItem(idx, idx - 1) },
+                                            onClick = { sessionManager.moveQueueItem(idx, idx - 1) },
                                             tint = TextSecondary,
                                             iconSize = 20.dp,
                                             minTargetSize = MichiSpacing.minTouchTarget,
@@ -339,7 +344,7 @@ fun QueueScreen() {
                                         MichiIconAction(
                                             icon = Icons.Default.KeyboardArrowDown,
                                             contentDescription = "Bajar ${track.title} en la cola",
-                                            onClick = { controller.moveQueueItem(idx, idx + 1) },
+                                            onClick = { sessionManager.moveQueueItem(idx, idx + 1) },
                                             tint = TextSecondary,
                                             iconSize = 20.dp,
                                             minTargetSize = MichiSpacing.minTouchTarget,
@@ -348,7 +353,7 @@ fun QueueScreen() {
                                     MichiIconAction(
                                         icon = Icons.Default.Clear,
                                         contentDescription = "Quitar ${track.title} de la cola",
-                                        onClick = { controller.removeFromQueue(idx) },
+                                        onClick = { sessionManager.removeFromQueue(idx) },
                                         tint = org.michimusic.mobile.ui.theme.ErrorColor,
                                         iconSize = 18.dp,
                                         minTargetSize = MichiSpacing.minTouchTarget,
@@ -381,7 +386,7 @@ fun QueueScreen() {
                 confirmButton = {
                     TextButton(onClick = {
                         showClearConfirmation = false
-                        controller.clearQueue()
+                        sessionManager.clearQueue()
                     }) { Text("Vaciar cola") }
                 },
                 dismissButton = {
@@ -400,13 +405,13 @@ fun QueueScreen() {
                 onDismiss = { selectedTrackForMenu = null },
                 onPlayNow = {
                     val idx = queue.indexOf(track).coerceAtLeast(0)
-                    controller.playQueue(queue, idx)
+                    sessionManager.playQueue(queue, idx)
                 },
                 onPlayNext = {
-                    controller.playNext(track)
+                    sessionManager.playNext(track)
                 },
                 onAddToQueue = {
-                    controller.addToQueue(track)
+                    sessionManager.addToQueue(track)
                 },
                 onAddToPlaylist = {
                     trackToAddToPlaylist = track

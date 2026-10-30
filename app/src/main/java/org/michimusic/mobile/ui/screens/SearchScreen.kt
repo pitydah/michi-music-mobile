@@ -102,6 +102,7 @@ import org.michimusic.player.AudioController
 
 @Composable
 fun SearchScreen(
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -110,17 +111,11 @@ fun SearchScreen(
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val keyboardController = LocalSoftwareKeyboardController.current
     val audioController: AudioController = koinInject()
-    val sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = runCatching {
-        org.koin.compose.koinInject<org.michimusic.mobile.playback.PlaybackSessionManager>()
-    }.getOrNull()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val playerState by audioController.state.collectAsStateWithLifecycle()
 
     fun playQueueSafe(tracks: List<Track>, index: Int) {
-        if (sessionManager != null) {
-            sessionManager.playQueue(tracks, index)
-        } else {
-            audioController.playQueue(tracks, index)
-        }
+        sessionManager.playQueue(tracks, index)
     }
 
     var selectedArtistForDetail by remember { mutableStateOf<SearchArtistResult?>(null) }

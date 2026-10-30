@@ -117,6 +117,7 @@ enum class LibraryViewMode {
 @Composable
 fun AlbumsScreen(
     onNavigateToPlaylists: () -> Unit = {},
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     modifier: Modifier = Modifier,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
@@ -125,19 +126,13 @@ fun AlbumsScreen(
     val isLoading by viewModel.isLoading.collectAsState()
 
     val audioController: AudioController = koinInject()
-    val sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = runCatching {
-        org.koin.compose.koinInject<org.michimusic.mobile.playback.PlaybackSessionManager>()
-    }.getOrNull()
+    val sessionState by sessionManager.sessionState.collectAsState()
     val playerState by audioController.state.collectAsState()
-    val currentTrack = playerState.currentTrack
-    val isPlaying = playerState.isPlaying
+    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
+    val isPlaying = if (sessionState.isRemoteActive) sessionState.isPlaying else playerState.isPlaying
 
     fun playQueueSafe(tracks: List<Track>, index: Int) {
-        if (sessionManager != null) {
-            sessionManager.playQueue(tracks, index)
-        } else {
-            audioController.playQueue(tracks, index)
-        }
+        sessionManager.playQueue(tracks, index)
     }
 
     val libraryScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
