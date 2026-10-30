@@ -45,13 +45,12 @@ fun MichiIconAction(
     Box(
         modifier = modifier
             .size(minTargetSize.coerceAtLeast(MichiSpacing.minTouchTarget))
-            .clip(CircleShape)
             .clickable(
                 enabled = enabled,
                 onClick = onClick,
                 role = Role.Button,
                 interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true, color = tint.copy(alpha = 0.35f)),
+                indication = ripple(bounded = false, radius = (minTargetSize / 2).coerceAtLeast(24.dp), color = tint.copy(alpha = 0.28f)),
             )
             .semantics { this.contentDescription = accessibilityLabel }
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),

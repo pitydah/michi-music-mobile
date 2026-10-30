@@ -121,13 +121,12 @@ fun MichiPlaybackControls(
             modifier = Modifier
                 .size(playButtonSize.coerceAtLeast(MichiSpacing.minTouchTarget))
                 .scale(scale)
-                .clip(CircleShape)
                 .clickable(
                     onClick = onPlayPause,
                     enabled = !state.isLoading,
                     role = Role.Button,
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(bounded = true, color = PureWhite.copy(alpha = 0.35f)),
+                    indication = ripple(bounded = false, radius = 36.dp, color = PureWhite.copy(alpha = 0.28f)),
                 )
                 .semantics { contentDescription = if (state.isLoading) "Cargando" else if (state.isPlaying) "Pausar" else "Reproducir" }
                 .testTag(playPauseTestTag),

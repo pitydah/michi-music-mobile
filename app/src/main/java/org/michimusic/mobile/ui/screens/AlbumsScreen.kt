@@ -597,7 +597,7 @@ fun AlbumsScreen(
                                             ) {
                                                 IconButton(
                                                     onClick = { albumToAddToPlaylist = currentAlbum },
-                                                    modifier = Modifier.size(44.dp),
+                                                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
                                                 ) {
                                                     Icon(
                                                         Icons.Default.Add,
@@ -681,7 +681,7 @@ fun AlbumsScreen(
                                             ) {
                                                 IconButton(
                                                     onClick = { albumToAddToPlaylist = localAlbum },
-                                                    modifier = Modifier.size(44.dp),
+                                                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
                                                 ) {
                                                     Icon(
                                                         Icons.Default.Add,
@@ -696,12 +696,12 @@ fun AlbumsScreen(
                                                             audioController.playQueue(localAlbum.tracks, 0)
                                                         }
                                                     },
-                                                    modifier = Modifier.size(44.dp),
+                                                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
                                                 ) {
                                                     Icon(
                                                         Icons.Default.PlayArrow,
                                                         contentDescription = "Reproducir",
-                                                        tint = PrimaryPink,
+                                                        tint = PureWhite,
                                                         modifier = Modifier.size(24.dp),
                                                     )
                                                 }

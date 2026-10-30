@@ -83,6 +83,23 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.collectAsState
 import org.michimusic.mobile.ui.theme.*
 
+@Composable
+fun AeroFloatingSurface(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(20.dp),
+    content: @Composable () -> Unit,
+) {
+    val material = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
+    Surface(
+        shape = shape,
+        color = material.fill,
+        border = if (material.borderWidth > 0.dp) androidx.compose.foundation.BorderStroke(material.borderWidth, material.outline) else null,
+        shadowElevation = material.elevation,
+        modifier = modifier,
+        content = content,
+    )
+}
+
 data class EqBand(val frequencyLabel: String, var gainDb: Float)
 
 @Composable
@@ -93,11 +110,8 @@ fun QueueDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -252,11 +266,8 @@ fun EqualizerDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .padding(vertical = 12.dp)
@@ -824,11 +835,8 @@ fun QrScannerDialog(
     var scanError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -963,11 +971,8 @@ fun ManualConnectionDialog(
     var connectionError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1084,11 +1089,8 @@ fun CreatePlaylistDialog(
     Dialog(onDismissRequest = {
         if (!isCreating) onDismiss()
     }) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1203,11 +1205,8 @@ fun AudioRouteDialog(
     val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice) })
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp)
@@ -1549,11 +1548,8 @@ fun PinPairingDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1683,11 +1679,8 @@ fun ReceiverButtonPairingDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1809,11 +1802,8 @@ fun PlayerPasswordPairingDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1965,11 +1955,8 @@ fun AddTracksDialog(
     val selectedIds = remember { mutableStateListOf<String>() }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2115,11 +2102,8 @@ fun RemoveTrackFromPlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2187,11 +2171,8 @@ fun DeletePlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = { if (!isDeleting) onDismiss() }) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2275,11 +2256,8 @@ fun RenamePlaylistDialog(
     }
 
     Dialog(onDismissRequest = { if (!isSaving) onDismiss() }) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, AeroHairline),
-            shadowElevation = 5.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)

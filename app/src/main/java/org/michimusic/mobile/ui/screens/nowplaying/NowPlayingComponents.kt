@@ -516,7 +516,7 @@ fun MediaControlsBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(72.dp)
             .padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
