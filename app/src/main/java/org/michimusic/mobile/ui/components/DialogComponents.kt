@@ -1694,7 +1694,7 @@ fun ReceiverButtonPairingDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Emparejamiento Físico",
+                    text = "Autorización de Receptor",
                     color = PureWhite,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -1703,7 +1703,7 @@ fun ReceiverButtonPairingDialog(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Presiona el botón físico en $deviceName e ingresa el código PIN mostrado en el dispositivo para autorizar la conexión:",
+                    text = "Ingresa el código PIN o clave de autorización mostrado en $deviceName para autorizar la conexión:",
                     color = TextSecondary,
                     fontSize = 13.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
