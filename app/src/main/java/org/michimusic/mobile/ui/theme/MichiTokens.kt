@@ -6,11 +6,13 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.michimusic.mobile.R
 
 /**
  * Michi Spacing System — Consistently structured spatial tokens.
@@ -59,9 +61,15 @@ object MichiMotion {
 
 /**
  * Michi Semantic Typography — Role-based typography tokens for maximal legibility.
- * Configured with Inter as primary design intent, falling back cleanly to system SansSerif.
+ * Configured with authentic Inter font resources across all primary weights.
  */
-val InterFontFamily = FontFamily.SansSerif
+val InterFontFamily = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+    Font(R.font.inter_extrabold, FontWeight.ExtraBold),
+)
 
 object MichiTypography {
     val screenEyebrow = TextStyle(

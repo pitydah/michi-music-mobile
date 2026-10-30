@@ -40,8 +40,13 @@ class PremiumComponentsTest {
 
     @Test
     fun testMichiTypographyInterFontHierarchy() {
-        assertEquals(org.michimusic.mobile.ui.theme.InterFontFamily, org.michimusic.mobile.ui.theme.MichiTypography.screenTitle.fontFamily)
-        assertEquals(org.michimusic.mobile.ui.theme.InterFontFamily, org.michimusic.mobile.ui.theme.MichiTypography.sectionTitle.fontFamily)
-        assertEquals(org.michimusic.mobile.ui.theme.InterFontFamily, org.michimusic.mobile.ui.theme.MichiTypography.cardTitle.fontFamily)
+        val inter = org.michimusic.mobile.ui.theme.InterFontFamily
+        assertEquals(inter, org.michimusic.mobile.ui.theme.MichiTypography.screenTitle.fontFamily)
+        assertEquals(inter, org.michimusic.mobile.ui.theme.MichiTypography.sectionTitle.fontFamily)
+        assertEquals(inter, org.michimusic.mobile.ui.theme.MichiTypography.cardTitle.fontFamily)
+        // Verify Inter is an authentic FontFamily backed by font resource declarations, not system SansSerif
+        assertTrue("InterFontFamily must be a composite FontFamily with authentic font declarations", inter is androidx.compose.ui.text.font.FontListFontFamily)
+        val fontList = (inter as androidx.compose.ui.text.font.FontListFontFamily).fonts
+        assertEquals(5, fontList.size)
     }
 }
