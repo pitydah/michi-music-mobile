@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -168,7 +169,9 @@ fun SyncWizardScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Volver",
                     onClick = {
                         when (currentStep) {
                             SyncWizardStep.SELECTION -> onBack()
@@ -176,14 +179,11 @@ fun SyncWizardScreen(
                             SyncWizardStep.REVIEW -> currentStep = SyncWizardStep.QUALITY
                         }
                     },
-                    modifier = Modifier.size(48.dp).testTag("sync_wizard_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Volver",
-                        tint = PureWhite
-                    )
-                }
+                    tint = PureWhite,
+                    iconSize = 24.dp,
+                    minTargetSize = 48.dp,
+                    testTag = "sync_wizard_back_button",
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(

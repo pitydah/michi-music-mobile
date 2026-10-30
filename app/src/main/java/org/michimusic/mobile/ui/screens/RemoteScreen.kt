@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -127,17 +128,14 @@ fun RemoteScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.Sync,
+                    contentDescription = "Sincronización y Dispositivos",
                     onClick = onNavigateToSync,
-                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Sync,
-                        contentDescription = "Sincronización y Dispositivos",
-                        tint = PureWhite,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
+                    tint = PureWhite,
+                    iconSize = 24.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                )
 
                 Text(
                     text = "Michi Control",

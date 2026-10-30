@@ -1086,19 +1086,15 @@ internal fun DeviceNodeCard(
                     Text(kind, style = MichiTypography.metadata, color = TextSecondary,
                         maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.Info,
+                    contentDescription = "Detalles de ${item.name}",
                     onClick = onInfoClick,
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("device_info_${item.ip}"),
-                ) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = "Detalles de ${item.name}",
-                        tint = TextSecondary,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
+                    tint = TextSecondary,
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "device_info_${item.ip}",
+                )
             }
             // Avoid compressing connection and trust badges into the title row.
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1188,14 +1184,14 @@ private fun DeviceDetailsDialog(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                     )
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(MichiSpacing.minTouchTarget)) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Cerrar",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Cerrar",
+                        onClick = onDismiss,
+                        tint = TextSecondary,
+                        iconSize = 18.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))

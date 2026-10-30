@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Clear
@@ -325,53 +326,41 @@ fun QueueScreen() {
                                     horizontalArrangement = Arrangement.End,
                                 ) {
                                     if (idx > 0) {
-                                        androidx.compose.material3.IconButton(
+                                        MichiIconAction(
+                                            icon = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "Subir ${track.title} en la cola",
                                             onClick = { controller.moveQueueItem(idx, idx - 1) },
-                                            modifier = Modifier.size(48.dp),
-                                        ) {
-                                            Icon(
-                                                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowUp,
-                                                contentDescription = "Subir ${track.title} en la cola",
-                                                tint = TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
+                                            tint = TextSecondary,
+                                            iconSize = 20.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
+                                        )
                                     }
                                     if (idx < queue.lastIndex) {
-                                        androidx.compose.material3.IconButton(
+                                        MichiIconAction(
+                                            icon = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Bajar ${track.title} en la cola",
                                             onClick = { controller.moveQueueItem(idx, idx + 1) },
-                                            modifier = Modifier.size(48.dp),
-                                        ) {
-                                            Icon(
-                                                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
-                                                contentDescription = "Bajar ${track.title} en la cola",
-                                                tint = TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
-                                    }
-                                    androidx.compose.material3.IconButton(
-                                        onClick = { controller.removeFromQueue(idx) },
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Clear,
-                                            contentDescription = "Quitar ${track.title} de la cola",
-                                            tint = org.michimusic.mobile.ui.theme.ErrorColor,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                    androidx.compose.material3.IconButton(
-                                        onClick = { selectedTrackForMenu = track },
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "Opciones de ${track.title}",
                                             tint = TextSecondary,
-                                            modifier = Modifier.size(20.dp),
+                                            iconSize = 20.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
                                         )
                                     }
+                                    MichiIconAction(
+                                        icon = Icons.Default.Clear,
+                                        contentDescription = "Quitar ${track.title} de la cola",
+                                        onClick = { controller.removeFromQueue(idx) },
+                                        tint = org.michimusic.mobile.ui.theme.ErrorColor,
+                                        iconSize = 18.dp,
+                                        minTargetSize = MichiSpacing.minTouchTarget,
+                                    )
+                                    MichiIconAction(
+                                        icon = Icons.Default.MoreVert,
+                                        contentDescription = "Opciones de ${track.title}",
+                                        onClick = { selectedTrackForMenu = track },
+                                        tint = TextSecondary,
+                                        iconSize = 20.dp,
+                                        minTargetSize = MichiSpacing.minTouchTarget,
+                                    )
                                 }
                             }
                         }

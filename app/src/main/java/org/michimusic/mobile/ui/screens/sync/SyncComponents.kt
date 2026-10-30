@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -267,9 +268,16 @@ fun ConnectedState(
             }
         }
         Spacer(Modifier.weight(1f))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = onDisconnect) { Text("Desconectar") }
-            IconButton(onClick = onForget, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Delete, contentDescription = "Olvidar servidor", tint = AccentPink) }
+            MichiIconAction(
+                icon = Icons.Default.Delete,
+                contentDescription = "Olvidar servidor",
+                onClick = onForget,
+                tint = AccentPink,
+                iconSize = 22.dp,
+                minTargetSize = 48.dp,
+            )
         }
     }
 }

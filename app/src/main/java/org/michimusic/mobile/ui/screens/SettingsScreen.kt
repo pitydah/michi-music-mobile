@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
@@ -185,18 +186,15 @@ fun SettingsScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (currentSection != SettingsSection.ROOT) {
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
                             onClick = { currentSection = SettingsSection.ROOT },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("settings_back_button"),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Volver",
-                                tint = PureWhite,
-                            )
-                        }
+                            tint = PureWhite,
+                            iconSize = 24.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "settings_back_button",
+                        )
                         Spacer(Modifier.width(8.dp))
                     }
                     Column {

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -197,34 +198,26 @@ fun MiniPlayer(
                         Spacer(modifier = Modifier.width(6.dp))
 
                         // Play / Pause Button
-                        IconButton(
+                        MichiIconAction(
+                            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                             onClick = { sessionManager.playPause() },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("mini_player_play_pause"),
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                                tint = PureWhite,
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
+                            tint = PureWhite,
+                            iconSize = 26.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "mini_player_play_pause",
+                        )
 
                         // Next Track Button
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.Filled.SkipNext,
+                            contentDescription = "Siguiente Canción",
                             onClick = { sessionManager.skipNext() },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("mini_player_next"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.SkipNext,
-                                contentDescription = "Siguiente Canción",
-                                tint = PureWhite,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
+                            tint = PureWhite,
+                            iconSize = 22.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "mini_player_next",
+                        )
                     }
                 }
             }
