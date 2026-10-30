@@ -421,18 +421,35 @@ class PlaybackSessionManager(
             val pos = _sessionState.value.position
 
             scope.launch {
-                // 1. Pause remote first to avoid two simultaneous audible sources
-                if (client != null && _sessionState.value.isRemoteActive) {
+                // 1. Pause remote first to avoid two simultaneous audible sources (K46D-38)
+                if (_sessionState.value.isRemoteActive) {
+                    if (client == null) {
+                        onResult(false, "No hay conexión activa con ${prevEndpoint.name}")
+                        return@launch
+                    }
+
                     if (prevEndpoint.type == EndpointType.STREAM_RECEIVER || prevEndpoint.capabilities.contains("AUDIO_OUTPUT")) {
                         val tok = activeReceiverSessionToken
-                        runCatching {
+                        val patchResult = runCatching {
                             client.patchReceiverLiteSession(
                                 org.michimusic.link.dto.ReceiverSessionPatchRequest(paused = true),
                                 sessionToken = tok
                             )
+                        }.getOrElse { Result.failure(it) }
+
+                        if (patchResult.isFailure) {
+                            onResult(false, "No se pudo pausar el receptor Michi Stream")
+                            return@launch
                         }
                     } else {
-                        runCatching { client.sendPlaybackCommand("pause") }
+                        val pauseResult = runCatching {
+                            client.sendPlaybackCommand("pause")
+                        }.getOrElse { Result.failure(it) }
+
+                        if (pauseResult.isFailure) {
+                            onResult(false, "No se pudo pausar la reproducción en ${prevEndpoint.name}")
+                            return@launch
+                        }
                     }
                 }
 

@@ -1211,4 +1211,134 @@ class PlaybackSessionManagerTest {
         verify(exactly = 1) { audioController.pause() }
         verify(exactly = 0) { audioController.play() }
     }
+
+    @Test
+    fun handoffToLocal_whenRemotePauseFails_abortsWithoutStartingLocalAudio() {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        coEvery { linkClient.sendPlaybackCommand("pause") } returns Result.failure(java.io.IOException("Remote connection lost"))
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_host_1") linkClient else null
+        }
+        connectionManager.updateState("remote_host_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val remoteEndpoint = PlaybackEndpoint("remote_host_1", "Remote Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false)
+        manager.attachRemote(remoteEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Set remote playing
+        manager.play()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(manager.sessionState.value.isPlaying)
+
+        var callbackSuccess = true
+        var callbackMessage = ""
+        manager.handoffTo(PlaybackEndpoint.LocalPhone) { success, msg ->
+            callbackSuccess = success
+            callbackMessage = msg
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // MUST fail safely without starting local audio
+        assertFalse("Handoff should have failed when remote pause failed", callbackSuccess)
+        verify(exactly = 0) { audioController.play() }
+        verify(exactly = 0) { audioController.playQueue(any(), any()) }
+        assertTrue(manager.sessionState.value.isRemoteActive)
+    }
+
+    @Test
+    fun handoffToLocal_whenStreamReceiverPauseFails_abortsWithoutStartingLocalAudio() {
+        val formatFlow = MutableStateFlow<PcmFormat?>(PcmFormat(sampleRate = 44100, channels = 2, bitDepth = 16, codec = "pcm_s16le"))
+        PlayerDependencies.mockPcmFormatFlow = formatFlow
+        PlayerDependencies.mockPcmFormatForTesting = formatFlow.value
+
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        every { linkClient.baseUrl } returns "http://192.168.1.50:8400"
+        coEvery { linkClient.getServerInfo() } returns Result.success(
+            ServerInfoDto(
+                server = "stream_1",
+                audio = AudioCapabilitiesDto(
+                    transports = listOf("rtp_udp"),
+                    codecs = listOf("pcm_s16le"),
+                    sampleRates = listOf(44100, 48000),
+                    bitDepths = listOf(16),
+                    channels = listOf(2),
+                    packetMs = listOf(10),
+                    payloadTypes = listOf(97)
+                )
+            )
+        )
+        coEvery { linkClient.createReceiverLiteSession(any()) } returns Result.success(
+            ReceiverSessionCreateResponse(
+                sessionId = "s_44100",
+                sessionToken = "tok_44100",
+                leaseSeconds = 30,
+                effective = ReceiverSessionEffectiveDto(
+                    transport = "rtp_udp",
+                    codec = "pcm_s16le",
+                    sampleRate = 44100,
+                    bitDepth = 16,
+                    channels = 2,
+                    packetMs = 10,
+                    bufferMs = 120,
+                    payloadType = 97,
+                    ssrc = 1000L,
+                    streamPort = 5004,
+                    volume = 70
+                )
+            )
+        )
+        coEvery { linkClient.patchReceiverLiteSession(any(), any()) } returns Result.failure(java.io.IOException("Stream error"))
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "stream_1") linkClient else null
+        }
+        connectionManager.updateState("stream_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyStateFlow = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyStateFlow
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val streamEndpoint = PlaybackEndpoint("stream_1", "Michi Stream", EndpointType.STREAM_RECEIVER, isLocal = false, capabilities = setOf("AUDIO_OUTPUT"))
+        manager.handoffTo(streamEndpoint) { _, _ -> }
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(EndpointType.STREAM_RECEIVER, manager.sessionState.value.activeEndpoint.type)
+
+        var callbackSuccess = true
+        var callbackMessage = ""
+        manager.handoffTo(PlaybackEndpoint.LocalPhone) { success, msg ->
+            callbackSuccess = success
+            callbackMessage = msg
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse("Handoff should fail when stream pause fails", callbackSuccess)
+        verify(exactly = 0) { audioController.play() }
+        assertEquals(EndpointType.STREAM_RECEIVER, manager.sessionState.value.activeEndpoint.type)
+    }
 }
+
