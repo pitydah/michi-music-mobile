@@ -433,7 +433,11 @@ fun NowPlayingScreen(
                         canPlayPause = currentTrack != null,
                         isShuffleEnabled = isShuffle,
                         repeatMode = repeatMode,
-                        isLoading = playerState.playbackStatus is org.michimusic.player.PlaybackStatus.Buffering,
+                        isLoading = if (sessionState.isRemoteActive) {
+                            sessionState.lastRemoteCommand?.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
+                        } else {
+                            playerState.playbackStatus is org.michimusic.player.PlaybackStatus.Buffering
+                        },
                     ),
                     onPlayPause = { sessionManager.playPause() },
                     onSkipPrevious = { sessionManager.skipPrevious() },
@@ -578,6 +582,53 @@ fun NowPlayingScreen(
 }
 
 @Composable
+private fun SignalTruthCard(
+    label: String,
+    tag: String,
+    tagColor: Color,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(0.75.dp, GlassBorderLow),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = label,
+                    color = OnSurfaceVariant,
+                    style = MichiTypography.metadata,
+                )
+                Text(
+                    text = tag,
+                    color = tagColor,
+                    style = MichiTypography.microLabel,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Text(
+                text = value,
+                color = PureWhite,
+                style = MichiTypography.sectionTitle.copy(fontSize = 17.sp),
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SignalTruthDialog(
     observation: org.michimusic.core.models.AudioSignalObservation,
     isRemote: Boolean,
@@ -596,9 +647,9 @@ private fun SignalTruthDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 540.dp)
+                    .heightIn(max = 580.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(18.dp),
+                    .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
@@ -606,13 +657,19 @@ private fun SignalTruthDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "Signal Truth",
-                        color = PureWhite,
-                        style = MichiTypography.sectionTitle,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Signal Truth",
+                            color = PureWhite,
+                            style = MichiTypography.sectionTitle,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Procedencia de la señal",
+                            color = OnSurfaceVariant,
+                            style = MichiTypography.metadata,
+                        )
+                    }
                     MichiIconAction(
                         icon = Icons.Filled.Close,
                         contentDescription = "Cerrar detalles de señal",
@@ -624,57 +681,92 @@ private fun SignalTruthDialog(
                 }
 
                 HorizontalDivider(color = GlassBorderLow)
-                Text(
-                    text = if (isRemote) "Salida remota · sin telemetría del receptor" else
-                        (observation.decodedFormat?.let { decodedPcmLabel(it.sampleRate, it.bitDepth) }
-                            ?: "Formato PCM no observado"),
-                    style = MichiTypography.trackTitle,
-                    color = TertiaryCyan,
+
+                // 1. Fuente
+                val sourceValue = observation.sourceFormat?.let {
+                    val codec = it.codec.uppercase()
+                    val bitStr = if (it.bitDepth > 0) " · ${it.bitDepth} bit" else ""
+                    val rateStr = if (it.sampleRate > 0) " / ${if (it.sampleRate % 1000 == 0) "${it.sampleRate / 1000}" else "%.1f".format(it.sampleRate / 1000f)} kHz" else ""
+                    "$codec$bitStr$rateStr"
+                } ?: if (isRemote) "Transmisión remota" else "Sin formato declarado"
+
+                SignalTruthCard(
+                    label = "Fuente",
+                    tag = "Declarado",
+                    tagColor = OnSurfaceVariant,
+                    value = sourceValue,
                 )
+
+                // 2. Decodificación
+                val hasDecoded = !isRemote && observation.decodedFormat != null
+                val decodedValue = if (hasDecoded) {
+                    val pcm = decodedPcmLabel(observation.decodedFormat!!.sampleRate, observation.decodedFormat!!.bitDepth)
+                    pcm ?: "PCM ${observation.decodedFormat!!.sampleRate} Hz"
+                } else {
+                    "No observado"
+                }
+                SignalTruthCard(
+                    label = "Decodificación",
+                    tag = if (hasDecoded) "Observado" else "Desconocido",
+                    tagColor = if (hasDecoded) TertiaryCyan else Color(0xFFE5A93C),
+                    value = decodedValue,
+                )
+
+                // 3. Procesamiento
+                val procValue = if (!isRemote && observation.dspStatus.isEqActive) {
+                    "EQ activo"
+                } else if (!isRemote && observation.dspStatus.isReplayGainActive) {
+                    "ReplayGain activo (${"%.1f".format(observation.dspStatus.replayGainAppliedDb)} dB)"
+                } else {
+                    "Sin EQ activo"
+                }
+                SignalTruthCard(
+                    label = "Procesamiento",
+                    tag = "Configurado",
+                    tagColor = OnSurfaceVariant,
+                    value = procValue,
+                )
+
+                // 4. Salida Android
+                val hasOutput = !isRemote && observation.outputConfig != null
+                val outputValue = if (hasOutput) {
+                    "AudioTrack"
+                } else if (isRemote) {
+                    "No aplica en remoto"
+                } else {
+                    "Pendiente"
+                }
+                SignalTruthCard(
+                    label = "Salida Android",
+                    tag = if (hasOutput) "Observado" else "Desconocido",
+                    tagColor = if (hasOutput) TertiaryCyan else Color(0xFFE5A93C),
+                    value = outputValue,
+                )
+
+                // 5. Dispositivo físico
+                SignalTruthCard(
+                    label = "Dispositivo físico",
+                    tag = "Desconocido",
+                    tagColor = Color(0xFFE5A93C),
+                    value = "No verificado",
+                )
+
+                Spacer(Modifier.height(4.dp))
+
                 Text(
-                    text = "Se muestran estados que el motor puede observar. No se infiere la salida física del DAC.",
-                    style = MichiTypography.metadata,
+                    text = "Los metadatos no certifican la salida física.",
                     color = OnSurfaceVariant,
+                    style = MichiTypography.microLabel,
                 )
 
                 if (isRemote) {
                     Text(
-                        text = "Reproducción remota: las medidas locales no describen la señal del receptor. Sin telemetría remota verificable.",
-                        color = OnSurfaceVariant,
-                        style = MichiTypography.metadata,
+                        text = "Reproducción remota activa: las medidas locales no describen la señal recibida por el receptor externo.",
+                        color = OnSurfaceVariant.copy(alpha = 0.8f),
+                        style = MichiTypography.microLabel,
                     )
-                } else {
-                    SignalTruthRow("Fuente Original", observation.sourceFormat?.let {
-                        "${it.codec} • ${if (it.sampleRate > 0) "${it.sampleRate} Hz" else "frecuencia desconocida"} • ${if (it.channels > 0) "${it.channels} ch" else "canales desconocidos"}"
-                    } ?: "No disponible")
-                SignalTruthRow("Decodificado (PCM)", observation.decodedFormat?.let {
-                    val pcm = decodedPcmLabel(it.sampleRate, it.bitDepth) ?: "Formato no verificado"
-                    "$pcm · ${if (it.channels > 0) "${it.channels} canales" else "canales desconocidos"}"
-                } ?: "No decodificado / Desconocido")
-                SignalTruthRow("Procesamiento DSP", if (observation.dspStatus.isEqActive) "Activo (EQ/FX)" else "Bypass / Neutro")
-                SignalTruthRow("ReplayGain", if (observation.dspStatus.isReplayGainActive) "Aplicado (${"%.1f".format(observation.dspStatus.replayGainAppliedDb)} dB)" else "Inactivo / Bypass")
-                SignalTruthRow("Enrutamiento", observation.routeStatus)
-                SignalTruthRow("Configuración AudioTrack", observation.outputConfig?.let {
-                    decodedPcmLabel(it.sampleRate, it.bitDepth) ?: "Datos insuficientes"
-                } ?: "No observada")
-                Text(
-                    text = "AudioTrack informa la configuración Android, no el formato final del hardware ni bit-perfect.",
-                    color = OnSurfaceVariant,
-                    style = MichiTypography.metadata,
-                )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SignalTruthRow(label: String, value: String) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Text(text = label, color = OnSurfaceVariant, style = MichiTypography.metadata)
-        Text(text = value, color = PureWhite, style = MichiTypography.trackTitle)
     }
 }

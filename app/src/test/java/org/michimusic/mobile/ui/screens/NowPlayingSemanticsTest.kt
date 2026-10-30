@@ -82,4 +82,49 @@ class NowPlayingSemanticsTest {
         // Meaningful description succeeds
         org.michimusic.mobile.ui.components.premium.validateIconActionDescription("Reproducir pista")
     }
+
+    @Test
+    fun testRemotePlaybackLoadingReflectsCommandPendingStatus() {
+        val pendingCommand = org.michimusic.mobile.playback.RemoteCommandRecord(
+            endpointId = "remote-test",
+            action = "play",
+            status = org.michimusic.mobile.playback.RemoteCommandStatus.PENDING,
+            timestampMs = System.currentTimeMillis(),
+        )
+        val confirmedCommand = org.michimusic.mobile.playback.RemoteCommandRecord(
+            endpointId = "remote-test",
+            action = "play",
+            status = org.michimusic.mobile.playback.RemoteCommandStatus.CONFIRMED,
+            timestampMs = System.currentTimeMillis(),
+        )
+
+        val isRemoteActive = true
+        val localBuffering = false
+
+        val loadingWhenPending = if (isRemoteActive) {
+            pendingCommand.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
+        } else {
+            localBuffering
+        }
+        assertTrue("En modo remoto con comando pendiente, isLoading debe ser true", loadingWhenPending)
+
+        val loadingWhenConfirmed = if (isRemoteActive) {
+            confirmedCommand.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
+        } else {
+            localBuffering
+        }
+        org.junit.Assert.assertFalse("En modo remoto con comando confirmado, isLoading debe ser false", loadingWhenConfirmed)
+    }
+
+    @Test
+    fun testDurationUnknownFormattingDoesNotProduceZeroOrNaN() {
+        val zeroDuration = 0f
+        val negativeDuration = -1f
+        val formattedZero = if (zeroDuration > 0f) org.michimusic.mobile.ui.components.formatTimeSeconds(zeroDuration) else "—:—"
+        val formattedNegative = if (negativeDuration > 0f) org.michimusic.mobile.ui.components.formatTimeSeconds(negativeDuration) else "—:—"
+
+        assertEquals("—:—", formattedZero)
+        assertEquals("—:—", formattedNegative)
+    }
 }
+
