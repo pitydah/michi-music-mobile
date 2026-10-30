@@ -135,13 +135,17 @@ fun MichiPlaybackControls(
             label = "play_pressed_alpha",
         )
 
+        val visualPrefs = LocalVisualPreferences.current
+
         Box(
             modifier = Modifier
                 .size(playButtonSize.coerceAtLeast(MichiSpacing.minTouchTarget))
                 .scale(scale * pressedScale)
                 .clickable(
                     onClick = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        if (visualPrefs.hapticsEnabled) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        }
                         onPlayPause()
                     },
                     enabled = !state.isLoading && state.canPlayPause,

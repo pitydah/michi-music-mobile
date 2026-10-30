@@ -363,6 +363,33 @@ fun NowPlayingScreen(
                             }
                         }
                     }
+
+                    sessionState.statusMessage?.let { status ->
+                        Spacer(Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(MichiShapes.pill)
+                                .background(if (sessionState.lastSessionError != null) PrimaryPinkContainer.copy(alpha = 0.15f) else TertiaryCyan.copy(alpha = 0.12f))
+                                .border(
+                                    0.75.dp,
+                                    if (sessionState.lastSessionError != null) PrimaryPinkContainer.copy(alpha = 0.35f) else TertiaryCyan.copy(alpha = 0.30f),
+                                    MichiShapes.pill
+                                )
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                                .testTag("now_playing_status_banner"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = status,
+                                style = MichiTypography.microLabel,
+                                color = if (sessionState.lastSessionError != null) PrimaryPinkContainer else TertiaryCyan,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                    }
                 }
 
                 // Progress Bar
