@@ -31,7 +31,10 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Headphones
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -176,19 +179,15 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.ExpandMore,
+                    contentDescription = "Colapsar reproductor",
                     onClick = onBack,
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .testTag("now_playing_close_button"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.ExpandMore,
-                        contentDescription = "Colapsar",
-                        tint = PureWhite,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
+                    tint = PureWhite,
+                    iconSize = 28.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "now_playing_close_button",
+                )
 
                 Column(
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
@@ -213,37 +212,29 @@ fun NowPlayingScreen(
                     val sleepTimerRemaining = playerState.sleepTimerRemainingMs
                     val sleepActive = sleepTimerRemaining > 0L
 
-                    IconButton(
+                    MichiIconAction(
+                        icon = Icons.Filled.Timer,
+                        contentDescription = if (sleepActive) "Temporizador activo. Cambiar duración" else "Activar temporizador",
                         onClick = {
                             val next = cycleSleepTimer(sleepTimerRemaining)
                             if (next <= 0L) audioController.cancelSleepTimer() else audioController.setSleepTimer(next)
                         },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("sleep_timer_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Timer,
-                            contentDescription = if (sleepActive) "Temporizador activo. Cambiar duración" else "Activar temporizador",
-                            tint = if (sleepActive) TertiaryCyan else PureWhite,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
+                        tint = if (sleepActive) TertiaryCyan else PureWhite,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "sleep_timer_button",
+                    )
 
-                    IconButton(
+                    MichiIconAction(
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = if (currentTrack != null) "Más opciones de la canción" else "Sin canción seleccionada",
                         onClick = { showTrackActionMenu = true },
                         enabled = currentTrack != null,
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("now_playing_more_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = if (currentTrack != null) "Más opciones de la canción" else "Sin canción seleccionada",
-                            tint = if (currentTrack != null) PureWhite else OnSurfaceVariant,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
+                        tint = if (currentTrack != null) PureWhite else OnSurfaceVariant,
+                        iconSize = 24.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "now_playing_more_button",
+                    )
                 }
             }
 
@@ -285,23 +276,44 @@ fun NowPlayingScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(if (compactLayout) 8.dp else 14.dp),
             ) {
-                // Information hierarchy: title always has full width; technical controls
-                // scroll independently rather than squeezing/overlapping on small phones.
+                // Information hierarchy: title + artist row with direct favorite action
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = currentTrack?.title ?: "Sin reproducción activa",
-                        style = if (compactLayout) MichiTypography.screenTitle.copy(fontSize = 23.sp, lineHeight = 28.sp)
-                            else MichiTypography.screenTitle,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = currentTrack?.artist ?: "Selecciona una canción",
-                        style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
-                        color = OnSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = currentTrack?.title ?: "Sin reproducción activa",
+                                style = if (compactLayout) MichiTypography.screenTitle.copy(fontSize = 23.sp, lineHeight = 28.sp)
+                                    else MichiTypography.screenTitle,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = currentTrack?.artist ?: "Selecciona una canción",
+                                style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
+                                color = OnSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        if (currentTrack != null) {
+                            val isFav = favoriteIds.contains(currentTrack.id)
+                            MichiIconAction(
+                                icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                contentDescription = if (isFav) "Quitar de favoritos" else "Añadir a favoritos",
+                                onClick = {
+                                    coroutineScope.launch { favoritesRepo.toggleFavorite(currentTrack.id) }
+                                },
+                                tint = if (isFav) PrimaryPinkContainer else OnSurfaceVariant,
+                                iconSize = 24.dp,
+                                minTargetSize = MichiSpacing.minTouchTarget,
+                                testTag = "now_playing_favorite_button",
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -457,19 +469,15 @@ fun NowPlayingScreen(
 
                     Spacer(Modifier.width(12.dp))
                     // Equalizer Button
-                    IconButton(
+                    MichiIconAction(
+                        icon = Icons.Filled.Equalizer,
+                        contentDescription = "Abrir ecualizador",
                         onClick = { showEqualizerDialog = true },
-                        modifier = Modifier
-                            .size(MichiSpacing.minTouchTarget)
-                            .testTag("equalizer_button"),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Equalizer,
-                            contentDescription = "Ecualizador",
-                            tint = PureWhite,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
+                        tint = PureWhite,
+                        iconSize = 24.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "equalizer_button",
+                    )
                 }
             }
         }

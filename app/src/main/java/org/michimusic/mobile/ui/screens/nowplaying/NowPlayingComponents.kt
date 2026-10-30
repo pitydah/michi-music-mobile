@@ -537,6 +537,14 @@ fun MediaControlsBar(
     }
 }
 
+fun validateMichiIconButtonContentDescription(onClick: (() -> Unit)?, contentDescription: String?) {
+    if (onClick != null) {
+        require(!contentDescription.isNullOrBlank()) {
+            "MichiIconButton requires an explicit, non-blank contentDescription when clickable (K46D-23)."
+        }
+    }
+}
+
 @Composable
 fun MichiIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -545,6 +553,7 @@ fun MichiIconButton(
     onClick: (() -> Unit)? = null,
     contentDescription: String? = null,
 ) {
+    validateMichiIconButtonContentDescription(onClick, contentDescription)
     if (onClick == null) {
         Box(
             modifier = Modifier.size((size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget)),
@@ -555,7 +564,7 @@ fun MichiIconButton(
     } else {
         org.michimusic.mobile.ui.components.premium.MichiIconAction(
             icon = icon,
-            contentDescription = contentDescription ?: "Acción",
+            contentDescription = contentDescription!!,
             onClick = onClick,
             tint = tint,
             iconSize = size,

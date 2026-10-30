@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.coverflow
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -8,11 +9,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import org.michimusic.mobile.ui.theme.PureWhite
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,6 +70,19 @@ fun MichiCoverFlowHost(
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        // Floor ambient reflection
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.72f)
+                .height(14.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(PureWhite.copy(alpha = 0.05f), Color.Transparent),
+                    ),
+                ),
+        )
+
         // Constrain the card to the actual viewport: very small windows must not clip covers.
         val pageWidth = minOf(maxWidth, if (maxWidth < 350.dp) 184.dp else 212.dp)
         val sidePadding = ((maxWidth - pageWidth) / 2).coerceAtLeast(0.dp)

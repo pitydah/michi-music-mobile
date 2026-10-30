@@ -22,6 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -81,6 +83,7 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
@@ -556,7 +559,7 @@ fun AlbumsScreen(
                                     )
                                 }
 
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(8.dp))
 
                                 val currentAlbum = albums.getOrNull(currentCoverflowIndex)
                                 if (currentAlbum != null) {
@@ -575,7 +578,7 @@ fun AlbumsScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                         ) {
-                                            Column(modifier = Modifier.weight(1f)) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                                 Text(
                                                     text = currentAlbum.album.title,
                                                     fontSize = 16.sp,
@@ -595,32 +598,81 @@ fun AlbumsScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
-                                                IconButton(
+                                                MichiIconAction(
+                                                    icon = Icons.Default.Add,
+                                                    contentDescription = "Añadir álbum a playlist",
                                                     onClick = { albumToAddToPlaylist = currentAlbum },
-                                                    modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.Add,
-                                                        contentDescription = "Añadir a playlist",
-                                                        tint = TextSecondary,
-                                                        modifier = Modifier.size(20.dp),
-                                                    )
-                                                }
-                                                IconButton(
+                                                    tint = TextSecondary,
+                                                    iconSize = 20.dp,
+                                                    minTargetSize = MichiSpacing.minTouchTarget,
+                                                    testTag = "coverflow_add_to_playlist",
+                                                )
+                                                MichiIconAction(
+                                                    icon = Icons.Default.PlayArrow,
+                                                    contentDescription = "Reproducir ${currentAlbum.album.title}",
                                                     onClick = {
                                                         if (currentAlbum.tracks.isNotEmpty()) {
                                                             audioController.playQueue(currentAlbum.tracks, 0)
                                                         }
                                                     },
-                                                    modifier = Modifier.size(48.dp),
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.PlayArrow,
-                                                        contentDescription = "Reproducir Álbum",
-                                                        tint = PureWhite,
-                                                        modifier = Modifier.size(28.dp),
+                                                    tint = PureWhite,
+                                                    iconSize = 28.dp,
+                                                    minTargetSize = MichiSpacing.minTouchTarget,
+                                                    testTag = "coverflow_play_album",
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    // Interactive in-screen album track list
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .padding(horizontal = 20.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        itemsIndexed(currentAlbum.tracks, key = { _, track -> track.id }) { index, track ->
+                                            val isCurrentPlaying = currentTrack?.id == track.id
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(MichiShapes.sm)
+                                                    .clickable {
+                                                        audioController.playQueue(currentAlbum.tracks, index)
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Text(
+                                                    text = "${index + 1}",
+                                                    style = MichiTypography.metadata,
+                                                    color = if (isCurrentPlaying) PrimaryPinkContainer else TextMuted,
+                                                    modifier = Modifier.width(28.dp),
+                                                )
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = track.title,
+                                                        style = MichiTypography.trackTitle,
+                                                        color = if (isCurrentPlaying) PrimaryPinkContainer else PureWhite,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    Text(
+                                                        text = track.artist,
+                                                        style = MichiTypography.microLabel,
+                                                        color = TextSecondary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
                                                     )
                                                 }
+                                                Text(
+                                                    text = formatTimeMillis(track.duration),
+                                                    style = MichiTypography.microLabel,
+                                                    color = TextMuted,
+                                                )
                                             }
                                         }
                                     }

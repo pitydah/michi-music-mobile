@@ -29,6 +29,12 @@ import org.michimusic.mobile.ui.theme.PureWhite
  * Guarantees a minimum touch target >= 48dp (WCAG 2.5.5 / Android Accessibility),
  * with a neutral transparent background by default and subtle ripple indication.
  */
+fun validateIconActionDescription(contentDescription: String) {
+    require(contentDescription.isNotBlank()) {
+        "MichiIconAction requires an explicit, meaningful contentDescription for TalkBack accessibility (K46D-15)."
+    }
+}
+
 @Composable
 fun MichiIconAction(
     icon: ImageVector,
@@ -41,9 +47,7 @@ fun MichiIconAction(
     minTargetSize: Dp = MichiSpacing.minTouchTarget,
     testTag: String? = null,
 ) {
-    require(contentDescription.isNotBlank()) {
-        "MichiIconAction requires an explicit, meaningful contentDescription for TalkBack accessibility (K46D-15)."
-    }
+    validateIconActionDescription(contentDescription)
     Box(
         modifier = modifier
             .size(minTargetSize.coerceAtLeast(MichiSpacing.minTouchTarget))
