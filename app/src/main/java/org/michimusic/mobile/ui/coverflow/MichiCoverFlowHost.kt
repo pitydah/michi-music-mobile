@@ -21,6 +21,7 @@ import org.michimusic.mobile.ui.theme.PureWhite
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
 import org.michimusic.mobile.ui.components.aeroCoverFlowShouldAnimate
@@ -68,28 +71,55 @@ fun MichiCoverFlowHost(
     val reducedMotion = LocalVisualPreferences.current.reducedMotion
     val density = LocalDensity.current.density
 
+    // Clamping when album list shrinks
     LaunchedEffect(albums.size) {
-        if (state.currentPage > albums.lastIndex) state.scrollToPage(albums.lastIndex)
+        if (albums.isNotEmpty() && state.currentPage > albums.lastIndex) {
+            val safeIdx = albums.lastIndex
+            state.scrollToPage(safeIdx)
+            onCurrentChanged(safeIdx)
+            onAlbumSelected?.invoke(albums[safeIdx].id)
+        }
     }
 
+    // Programmatic target selection and deleted album recovery (K46D-48)
     LaunchedEffect(selectedAlbumId, albums) {
         if (selectedAlbumId != null) {
             val targetIdx = albums.indexOfFirst { it.id == selectedAlbumId }
-            if (targetIdx in albums.indices && targetIdx != state.currentPage) {
-                if (aeroCoverFlowShouldAnimate(reducedMotion)) {
-                    state.animateScrollToPage(targetIdx)
-                } else {
-                    state.scrollToPage(targetIdx)
+            if (targetIdx in albums.indices) {
+                if (targetIdx != state.currentPage) {
+                    if (aeroCoverFlowShouldAnimate(reducedMotion)) {
+                        state.animateScrollToPage(targetIdx)
+                    } else {
+                        state.scrollToPage(targetIdx)
+                    }
                 }
+            } else if (albums.isNotEmpty()) {
+                // K46D-48: Target album was deleted or filtered out; fallback gracefully to current safe index.
+                val safeIdx = state.currentPage.coerceIn(0, albums.lastIndex)
+                if (safeIdx != state.currentPage) {
+                    state.scrollToPage(safeIdx)
+                }
+                onAlbumSelected?.invoke(albums[safeIdx].id)
             }
         }
     }
 
-    LaunchedEffect(state.currentPage, albums.size) {
-        state.currentPage.takeIf { it in albums.indices }?.let { page ->
-            onCurrentChanged(page)
-            onAlbumSelected?.invoke(albums[page].id)
+    // Settled-only synchronization: prevents oscillation and feedback loops during animations (K46D-48)
+    LaunchedEffect(state, albums) {
+        snapshotFlow {
+            if (!state.isScrollInProgress) state.settledPage else null
         }
+            .filterNotNull()
+            .distinctUntilChanged()
+            .collect { settledPage ->
+                if (settledPage in albums.indices) {
+                    onCurrentChanged(settledPage)
+                    val settledAlbumId = albums[settledPage].id
+                    if (settledAlbumId != selectedAlbumId) {
+                        onAlbumSelected?.invoke(settledAlbumId)
+                    }
+                }
+            }
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
