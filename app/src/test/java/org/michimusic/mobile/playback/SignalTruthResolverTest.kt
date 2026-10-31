@@ -306,4 +306,50 @@ class SignalTruthResolverTest {
         val physical = items.first { it.layer == SignalLayer.PHYSICAL_DEVICE }
         assertEquals(0L, physical.freshnessMs)
     }
+
+    @Test
+    fun `remotePlayback_neverBorrowsLocalObservationFreshness_reportsZeroMs`() {
+        // Local observation has an active timestamp from the local phone's audio pipeline
+        val localTimestamp = 123456789L
+        val localObservation = AudioSignalObservation(
+            sourceFormat = SignalFormat(codec = "FLAC", bitDepth = 24, sampleRate = 96000, channels = 2),
+            decodedFormat = SignalFormat(codec = "PCM", bitDepth = 24, sampleRate = 96000, channels = 2),
+            observedAtMs = localTimestamp,
+        )
+
+        val remoteTrack = Track(
+            id = "remote_song",
+            title = "Remote Track",
+            artist = "Artist",
+            format = "flac",
+            sampleRate = 96000,
+            bitrate = 1411,
+            source = TrackSource.STREAMING,
+        )
+
+        val items = SignalTruthResolver.resolveProvenance(
+            observation = localObservation,
+            activeEndpoint = remoteHostEndpoint,
+            currentTrack = remoteTrack,
+            isRemote = true,
+        )
+
+        // K48-06: Remote declared source metadata must NOT borrow localObservation.observedAtMs
+        val sourceItem = items.first { it.layer == SignalLayer.SOURCE }
+        assertEquals(SignalEvidenceType.DECLARED, sourceItem.evidenceType)
+        assertEquals(0L, sourceItem.freshnessMs)
+
+        // All other remote layers must also report 0L freshness
+        val decoding = items.first { it.layer == SignalLayer.DECODING }
+        assertEquals(0L, decoding.freshnessMs)
+
+        val processing = items.first { it.layer == SignalLayer.PROCESSING }
+        assertEquals(0L, processing.freshnessMs)
+
+        val output = items.first { it.layer == SignalLayer.ANDROID_OUTPUT }
+        assertEquals(0L, output.freshnessMs)
+
+        val physical = items.first { it.layer == SignalLayer.PHYSICAL_DEVICE }
+        assertEquals(0L, physical.freshnessMs)
+    }
 }

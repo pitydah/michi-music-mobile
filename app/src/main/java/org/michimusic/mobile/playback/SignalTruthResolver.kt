@@ -43,7 +43,7 @@ object SignalTruthResolver {
                     value = formatStr,
                     evidenceType = SignalEvidenceType.DECLARED,
                     originEndpointId = endpointId,
-                    freshnessMs = observationFreshness,
+                    freshnessMs = 0L,
                     confidenceNote = "Metadatos declarados por la biblioteca remota",
                 )
             } else {

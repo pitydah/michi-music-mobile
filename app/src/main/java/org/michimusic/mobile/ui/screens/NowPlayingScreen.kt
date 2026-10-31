@@ -322,7 +322,9 @@ fun NowPlayingScreen(
                     ) {
                         item {
                             val decoded = signalObservation.decodedFormat
-                            val label = if (!sessionState.isRemoteActive && decoded != null) {
+                            val isStreamReceiver = sessionState.isRemoteActive && !activeEndpoint.isLocal &&
+                                (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
+                            val label = if ((!sessionState.isRemoteActive || isStreamReceiver) && decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
                                 decodedPcmLabel(decoded.sampleRate, decoded.bitDepth) ?: "Signal Truth"
                             } else "Signal Truth"
                             Box(
