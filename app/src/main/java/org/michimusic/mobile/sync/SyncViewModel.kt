@@ -1164,6 +1164,10 @@ class SyncViewModel(
         airCatClient?.cancelTransfer(transferId)
     }
 
+    fun clearAirCatProgress() {
+        airCatClient?.clearProgress()
+    }
+
 
     fun recoverIncompleteAirCatTransfers(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val client = currentClient

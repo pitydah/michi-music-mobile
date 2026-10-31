@@ -298,15 +298,21 @@ fun DevicesScreen(
 
                 // AirCat Active Transfer Card
                 uiState.airCatProgress?.let { progress ->
-                    if (progress.state != org.michimusic.mobile.devices.aircat.AirCatTransferState.COMPLETED) {
-                        item {
-                            AirCatTransferCard(
-                                progress = progress,
-                                onPause = { viewModel.pauseAirCatTransfer(progress.transferId) },
-                                onResume = { viewModel.resumeAirCatTransfer(progress.transferId) },
-                                onCancel = { viewModel.cancelAirCatTransfer(progress.transferId) },
-                            )
-                        }
+                    item(key = "aircat_transfer_card") {
+                        AirCatTransferCard(
+                            progress = progress,
+                            onPause = { viewModel.pauseAirCatTransfer(progress.transferId) },
+                            onResume = { viewModel.resumeAirCatTransfer(progress.transferId) },
+                            onCancel = { viewModel.cancelAirCatTransfer(progress.transferId) },
+                            onRetry = {
+                                if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED) {
+                                    viewModel.recoverIncompleteAirCatTransfers(progress.transferId)
+                                } else {
+                                    viewModel.resumeAirCatTransfer(progress.transferId)
+                                }
+                            },
+                            onDismiss = { viewModel.clearAirCatProgress() },
+                        )
                     }
                 }
 
@@ -836,142 +842,17 @@ private fun AirCatTransferCard(
     onPause: () -> Unit,
     onResume: () -> Unit,
     onCancel: () -> Unit,
+    onRetry: () -> Unit = onResume,
+    onDismiss: () -> Unit = onCancel,
 ) {
-    val presentation = airCatUiPresentation(progress.state.name)
-    GlassCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("aircat_transfer_card"),
-        backgroundColor = SurfaceContainer.copy(alpha = 0.85f),
-        borderColor = TertiaryCyan.copy(alpha = 0.3f),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(MichiSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.WifiTethering,
-                        contentDescription = null,
-                        tint = TertiaryCyan,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Text(
-                        text = "Transferencia AirCat",
-                        style = MichiTypography.cardTitle,
-                        color = PureWhite,
-                    )
-                }
-
-                AeroStatusPill(
-                    label = presentation.label,
-                    accent = when {
-                        presentation.isError -> ErrorColor
-                        presentation.isTerminal -> TextSecondary
-                        else -> TertiaryCyan
-                    },
-                )
-            }
-
-            if (presentation.isError) {
-                Text(
-                    text = "La transferencia no se completó. Revisa la conexión antes de volver a iniciarla.",
-                    style = MichiTypography.metadata,
-                    color = ErrorColor,
-                )
-            }
-            Text(
-                text = progress.activeTrackTitle.ifBlank { "Archivo de audio" },
-                style = MichiTypography.trackTitle,
-                color = PureWhite,
-                maxLines = 1,
-            )
-
-            // Progress bar. A missing total is indeterminate, never zero percent.
-            val fraction = if (progress.totalBytes > 0) {
-                (progress.bytesTransferred.toFloat() / progress.totalBytes.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-
-            if (progress.totalBytes > 0L) {
-                androidx.compose.material3.LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = TertiaryCyan,
-                    trackColor = SurfaceObsidian,
-                )
-            } else {
-                androidx.compose.material3.LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = TertiaryCyan,
-                    trackColor = SurfaceObsidian,
-                )
-            }
-
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val transferredMb = progress.bytesTransferred / (1024.0 * 1024.0)
-                val totalMb = progress.totalBytes / (1024.0 * 1024.0)
-                val pct = transferProgressPercent(progress.bytesTransferred, progress.totalBytes)
-
-                Text(
-                    text = if (pct != null) {
-                        String.format(java.util.Locale.US, "%.1f / %.1f MB (%d%%)", transferredMb, totalMb, pct)
-                    } else {
-                        String.format(java.util.Locale.US, "%.1f MB transferidos · calculando total", transferredMb)
-                    },
-                    style = MichiTypography.metadata,
-                    color = TextMuted,
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    if (presentation.showPause) {
-                        OutlinedButton(
-                            onClick = onPause,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text(text = "Pausar", style = MichiTypography.microLabel)
-                        }
-                    } else if (presentation.showResume) {
-                        Button(
-                            onClick = onResume,
-                            colors = ButtonDefaults.buttonColors(containerColor = TertiaryCyan),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text(text = "Reanudar", style = MichiTypography.microLabel, color = SurfaceObsidian)
-                        }
-                    }
-
-                    if (presentation.showCancel) {
-                        OutlinedButton(
-                            onClick = onCancel,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text(text = "Cancelar", style = MichiTypography.microLabel, color = ErrorColor)
-                        }
-                    }
-                }
-            }
-        }
-    }
+    org.michimusic.mobile.ui.screens.sync.AirCatTransferSafeLayout(
+        progress = progress,
+        onPause = onPause,
+        onResume = onResume,
+        onCancel = onCancel,
+        onRetry = onRetry,
+        onDismiss = onDismiss,
+    )
 }
 
 @Composable

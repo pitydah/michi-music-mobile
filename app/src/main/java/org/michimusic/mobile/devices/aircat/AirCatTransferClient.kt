@@ -54,6 +54,8 @@ interface AirCatTransferClient {
         authorizedCriteria: List<AuthorizedTransferCriteria>? = null,
         onProgress: ((AirCatProgressEvent) -> Unit)? = null,
     ): Result<List<File>>
+
+    fun clearProgress() {}
 }
 
 class DefaultAirCatTransferClient(
@@ -66,6 +68,10 @@ class DefaultAirCatTransferClient(
 
     private val _progressEvents = MutableStateFlow<AirCatProgressEvent?>(null)
     override val progressEvents: StateFlow<AirCatProgressEvent?> = _progressEvents.asStateFlow()
+
+    override fun clearProgress() {
+        _progressEvents.value = null
+    }
 
     private val _processedTransferIds = MutableStateFlow<Set<String>>(emptySet())
     override val processedTransferIds: StateFlow<Set<String>> = _processedTransferIds.asStateFlow()
