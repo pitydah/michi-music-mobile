@@ -188,7 +188,12 @@ fun MichiNavHost() {
                 composable("synced") { SyncedTracksScreen() }
                 composable("diagnostics") { DiagnosticsScreen() }
                 composable("audio-route") { AudioRouteScreen() }
-                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("devices") }) }
+                composable("remote") {
+                    RemoteScreen(
+                        onNavigateToSync = { navController.navigate("devices") },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
             }
 

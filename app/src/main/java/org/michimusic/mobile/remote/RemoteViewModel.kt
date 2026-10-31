@@ -23,6 +23,8 @@ import org.michimusic.link.dto.PlaybackStateDto
 import org.michimusic.link.dto.QueueDto
 import org.michimusic.link.errors.LinkException
 
+import org.michimusic.mobile.playback.RemoteCommandStatus
+
 enum class RemoteSourceMode {
     LOCAL,
     REMOTE,
@@ -47,6 +49,8 @@ data class RemoteUiState(
     val connected: Boolean = false,
     val sourceName: String = "Reproductor local",
     val error: String? = null,
+    val pendingCommand: Boolean = false,
+    val pendingCommandMessage: String? = null,
 )
 
 class RemoteViewModel(
@@ -69,6 +73,8 @@ class RemoteViewModel(
                         connState = RemoteConnectionState.DISCONNECTED,
                         connected = false,
                         sourceName = "Reproductor local",
+                        pendingCommand = false,
+                        pendingCommandMessage = null,
                     )
                 } else {
                     val connState = when (connectionManager.connectionStates.value[ep.id]) {
@@ -77,6 +83,12 @@ class RemoteViewModel(
                         SyncConnectionState.OFFLINE -> RemoteConnectionState.OFFLINE
                         else -> RemoteConnectionState.CONNECTED
                     }
+                    val isPending = sState.lastRemoteCommand?.status == RemoteCommandStatus.PENDING ||
+                        sState.lastRemoteCommand?.status == RemoteCommandStatus.ACCEPTED
+                    val pendingMsg = if (isPending) {
+                        sState.lastRemoteCommand?.resultMessage ?: "Orden pendiente; espera confirmación"
+                    } else null
+
                     _uiState.value = _uiState.value.copy(
                         mode = RemoteSourceMode.REMOTE,
                         connState = connState,
@@ -108,6 +120,8 @@ class RemoteViewModel(
                             currentIndex = sState.queueIndex,
                         ),
                         error = null,
+                        pendingCommand = isPending,
+                        pendingCommandMessage = pendingMsg,
                     )
                 }
             }
