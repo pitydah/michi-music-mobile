@@ -145,9 +145,9 @@ fun MichiCoverFlowHost(
             pageSize = PageSize.Fixed(pageWidth),
             contentPadding = PaddingValues(horizontal = sidePadding),
             pageSpacing = 8.dp,
-            key = { albums[it].id },
+            key = { index -> if (index in albums.indices) albums[index].id else index },
         ) { page ->
-            val album = albums[page]
+            val album = albums.getOrNull(page) ?: return@HorizontalPager
             val signedOffset = (state.currentPage - page) + state.currentPageOffsetFraction
             val visual = coverFlowGeometry(signedOffset, reducedMotion)
             Box(
