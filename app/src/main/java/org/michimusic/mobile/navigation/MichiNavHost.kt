@@ -36,6 +36,7 @@ import org.michimusic.mobile.ui.screens.SyncedTracksScreen
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.player.AudioController
 import org.koin.compose.koinInject
 import androidx.compose.runtime.collectAsState
@@ -54,7 +55,8 @@ fun MichiNavHost() {
     val sessionState by sessionManager.sessionState.collectAsState()
     val audioController: AudioController = koinInject()
     val localState by audioController.state.collectAsState()
-    val hasMiniPlayer = sessionState.currentTrack != null || localState.currentTrack != null
+    val presentation = resolvePlaybackPresentation(sessionState, localState)
+    val hasMiniPlayer = presentation.hasActiveTrack
 
     Scaffold(
         containerColor = SurfaceObsidian,
@@ -102,9 +104,14 @@ fun MichiNavHost() {
                 composable("library") {
                     AlbumsScreen(
                         onNavigateToPlaylists = { navController.navigate("playlist") },
+                        sessionManager = sessionManager,
                     )
                 }
-                composable("search") { SearchScreen() }
+                composable("search") {
+                    SearchScreen(
+                        sessionManager = sessionManager,
+                    )
+                }
                 composable("devices") {
                     DevicesScreen(
                         onNavigateToSettings = { navController.navigate("settings") },
@@ -159,6 +166,7 @@ fun MichiNavHost() {
                 composable("playlist") {
                     PlaylistScreen(
                         onNavigateToPlaylist = { playlistId -> navController.navigate("playlist/$playlistId") },
+                        sessionManager = sessionManager,
                     )
                 }
                 composable(
@@ -169,13 +177,23 @@ fun MichiNavHost() {
                     PlaylistDetailScreen(
                         playlistId = playlistId,
                         onBack = { navController.popBackStack() },
+                        sessionManager = sessionManager,
                     )
                 }
-                composable("queue") { QueueScreen() }
+                composable("queue") {
+                    QueueScreen(
+                        sessionManager = sessionManager,
+                    )
+                }
                 composable("synced") { SyncedTracksScreen() }
                 composable("diagnostics") { DiagnosticsScreen() }
                 composable("audio-route") { AudioRouteScreen() }
-                composable("remote") { RemoteScreen(onNavigateToSync = { navController.navigate("devices") }) }
+                composable("remote") {
+                    RemoteScreen(
+                        onNavigateToSync = { navController.navigate("devices") },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
             }
 

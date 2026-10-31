@@ -164,7 +164,8 @@ class PlaylistsViewModel(
      */
     fun playPlaylist(
         id: String,
-        audioController: org.michimusic.player.AudioController,
+        audioController: org.michimusic.player.AudioController? = null,
+        sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
         onResult: (PlayPlaylistResult) -> Unit = {}
     ) {
         viewModelScope.launch(ioDispatcher) {
@@ -183,9 +184,33 @@ class PlaylistsViewModel(
                     }
                     return@launch
                 }
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                    audioController.playQueue(tracks, 0)
-                    onResult(PlayPlaylistResult.Success(tracks.size))
+                if (sessionManager != null) {
+                    val outcome = sessionManager.requestQueuePlayback(tracks, 0)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                        when (outcome) {
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Confirmed,
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Accepted -> {
+                                onResult(PlayPlaylistResult.Success(tracks.size))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Rejected -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Failed -> {
+                                onResult(PlayPlaylistResult.Error(outcome.error))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Disconnected -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Obsolete -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
+                        }
+                    }
+                } else {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                        audioController?.playQueue(tracks, 0)
+                        onResult(PlayPlaylistResult.Success(tracks.size))
+                    }
                 }
             } catch (e: Exception) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {

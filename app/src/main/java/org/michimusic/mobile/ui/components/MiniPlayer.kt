@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -55,8 +56,10 @@ import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
+import androidx.compose.ui.graphics.Brush
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.player.AudioController
 
@@ -68,12 +71,14 @@ fun MiniPlayer(
 ) {
     val sessionManager: PlaybackSessionManager = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
-    val activeEndpoint = sessionState.activeEndpoint
-
     val audioController: AudioController = koinInject()
     val localState by audioController.state.collectAsState()
 
-    val currentTrack = sessionState.currentTrack ?: localState.currentTrack
+    val presentation = org.michimusic.mobile.playback.resolvePlaybackPresentation(sessionState, localState)
+    val currentTrack = presentation.currentTrack
+    val activeEndpoint = presentation.endpoint
+    val isPlaying = presentation.isPlaying
+    val progressFraction = presentation.progressFraction
     val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
 
     AnimatedVisibility(
@@ -83,13 +88,6 @@ fun MiniPlayer(
         modifier = modifier,
     ) {
         if (currentTrack != null) {
-            val isPlaying = sessionState.isPlaying
-            val progressFraction = if (sessionState.duration > 0) {
-                (sessionState.position.toFloat() / sessionState.duration.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -102,7 +100,7 @@ fun MiniPlayer(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // Unknown duration is not 0% completion. Hide the timeline
                     // instead of rendering a misleading empty progress bar.
-                    if (sessionState.duration > 0) {
+                    if (presentation.duration > 0) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -195,44 +193,26 @@ fun MiniPlayer(
                         Spacer(modifier = Modifier.width(6.dp))
 
                         // Play / Pause Button
-                        IconButton(
-                            onClick = {
-                                sessionManager.playPause()
-                            },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("mini_player_play_pause"),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(PrimaryPinkContainer),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
+                        MichiIconAction(
+                            icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+                            onClick = { sessionManager.playPause() },
+                            tint = PureWhite,
+                            iconSize = 26.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "mini_player_play_pause",
+                        )
 
                         // Next Track Button
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.Filled.SkipNext,
+                            contentDescription = "Siguiente Canción",
                             onClick = { sessionManager.skipNext() },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("mini_player_next"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.SkipNext,
-                                contentDescription = "Siguiente Canción",
-                                tint = PureWhite,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
+                            tint = PureWhite,
+                            iconSize = 22.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "mini_player_next",
+                        )
                     }
                 }
             }

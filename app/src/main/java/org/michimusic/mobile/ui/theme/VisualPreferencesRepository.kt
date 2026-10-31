@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 data class VisualPreferences(
     val highContrast: Boolean = false,
     val reducedMotion: Boolean = false,
+    val hapticsEnabled: Boolean = true,
 )
 
 class VisualPreferencesRepository(context: Context) {
@@ -18,15 +19,17 @@ class VisualPreferencesRepository(context: Context) {
         VisualPreferences(
             highContrast = prefs.getBoolean("high_contrast", false),
             reducedMotion = prefs.getBoolean("reduced_motion", false),
+            hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
         )
     )
     val preferences: StateFlow<VisualPreferences> = _preferences.asStateFlow()
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "high_contrast" || key == "reduced_motion") {
+        if (key == "high_contrast" || key == "reduced_motion" || key == "haptics_enabled") {
             _preferences.value = VisualPreferences(
                 highContrast = prefs.getBoolean("high_contrast", false),
                 reducedMotion = prefs.getBoolean("reduced_motion", false),
+                hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
             )
         }
     }
@@ -43,5 +46,10 @@ class VisualPreferencesRepository(context: Context) {
     fun setReducedMotion(enabled: Boolean) {
         prefs.edit().putBoolean("reduced_motion", enabled).apply()
         _preferences.value = _preferences.value.copy(reducedMotion = enabled)
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("haptics_enabled", enabled).apply()
+        _preferences.value = _preferences.value.copy(hapticsEnabled = enabled)
     }
 }

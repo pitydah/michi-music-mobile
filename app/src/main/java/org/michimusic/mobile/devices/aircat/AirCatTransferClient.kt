@@ -54,6 +54,8 @@ interface AirCatTransferClient {
         authorizedCriteria: List<AuthorizedTransferCriteria>? = null,
         onProgress: ((AirCatProgressEvent) -> Unit)? = null,
     ): Result<List<File>>
+
+    fun clearProgress() {}
 }
 
 class DefaultAirCatTransferClient(
@@ -66,6 +68,10 @@ class DefaultAirCatTransferClient(
 
     private val _progressEvents = MutableStateFlow<AirCatProgressEvent?>(null)
     override val progressEvents: StateFlow<AirCatProgressEvent?> = _progressEvents.asStateFlow()
+
+    override fun clearProgress() {
+        _progressEvents.value = null
+    }
 
     private val _processedTransferIds = MutableStateFlow<Set<String>>(emptySet())
     override val processedTransferIds: StateFlow<Set<String>> = _processedTransferIds.asStateFlow()
@@ -426,7 +432,17 @@ class DefaultAirCatTransferClient(
 
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
             activeSessions.remove(intent.transferId)
-            emitEvent(intent.transferId, manifest.totalTracks, manifest.totalTracks, manifest.totalBytes, manifest.totalBytes, AirCatTransferState.COMPLETED, onProgress = onProgress)
+            emitEvent(
+                transferId = intent.transferId,
+                currentTrackIndex = manifest.totalTracks,
+                totalTracks = manifest.totalTracks,
+                bytesTransferred = manifest.totalBytes,
+                totalBytes = manifest.totalBytes,
+                state = AirCatTransferState.COMPLETED,
+                checksumVerified = true,
+                libraryCommitted = true,
+                onProgress = onProgress,
+            )
             Result.success(downloadedFiles)
 
         } catch (ce: CancellationException) {
@@ -740,6 +756,8 @@ class DefaultAirCatTransferClient(
             bytesTransferred = totalExpectedBytes,
             totalBytes = totalExpectedBytes,
             state = AirCatTransferState.COMPLETED,
+            checksumVerified = true,
+            libraryCommitted = true,
             onProgress = onProgress,
         )
 
@@ -755,6 +773,8 @@ class DefaultAirCatTransferClient(
         state: AirCatTransferState,
         activeTrackTitle: String = "",
         error: String? = null,
+        checksumVerified: Boolean = false,
+        libraryCommitted: Boolean = false,
         onProgress: ((AirCatProgressEvent) -> Unit)? = null,
     ) {
         val event = AirCatProgressEvent(
@@ -766,6 +786,8 @@ class DefaultAirCatTransferClient(
             state = state,
             activeTrackTitle = activeTrackTitle,
             error = error,
+            checksumVerified = checksumVerified,
+            libraryCommitted = libraryCommitted,
         )
         _progressEvents.value = event
         onProgress?.invoke(event)

@@ -74,8 +74,13 @@ import androidx.compose.ui.window.PopupProperties
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlin.math.sin
+import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.AeroSheen
+import org.michimusic.mobile.ui.theme.AeroTrack
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.components.aeroArtworkBackdropAllowed
 import org.michimusic.mobile.ui.components.aeroSafeFraction
@@ -85,12 +90,14 @@ import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.GlassHighlight
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
+import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.michiAccentFor
 
-val BgDark = Color(0xFF080A10)
-val GlassBorder = Color.White.copy(alpha = 0.08f)
+val BgDark = SurfaceObsidian
+val GlassBorder = AeroHairline
 val PremiumGlass = Color(0x1AFFFFFF)
 val PremiumGlassSoft = Color(0x0DFFFFFF)
 val GlassSmoke = Color(0x08000000)
@@ -125,9 +132,9 @@ fun PlayerBackdrop(coverId: String?, accent: Color) {
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            accent.copy(alpha = if (visualPrefs.highContrast) 0f else 0.07f),
-                            BgDark.copy(alpha = 0.62f),
-                            BgDark,
+                            accent.copy(alpha = if (visualPrefs.highContrast) 0f else 0.06f),
+                            SurfaceObsidian.copy(alpha = 0.72f),
+                            SurfaceObsidian,
                         )
                     )
                 )
@@ -139,7 +146,7 @@ fun PlayerBackdrop(coverId: String?, accent: Color) {
                     Brush.radialGradient(
                         listOf(
                             Color.Transparent,
-                            BgDark.copy(alpha = 0.35f),
+                            SurfaceObsidian.copy(alpha = 0.40f),
                         )
                     )
                 )
@@ -207,6 +214,8 @@ fun PlaybackSourceMenu(
     onSelect: (PlaybackSource) -> Unit,
 ) {
     if (expanded && sources.isNotEmpty()) {
+        val visualPrefs = LocalVisualPreferences.current
+        val floatingMaterial = aeroMaterialStyle(AeroSurfaceRole.Floating, visualPrefs.highContrast)
         Popup(
             alignment = Alignment.TopCenter,
             onDismissRequest = onDismiss,
@@ -216,12 +225,10 @@ fun PlaybackSourceMenu(
                 modifier = Modifier
                     .widthIn(min = 180.dp, max = 320.dp)
                     .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xFF1A1D26), Color(0xFF13151C))
-                        ),
+                        floatingMaterial.fill,
                         RoundedCornerShape(16.dp),
                     )
-                    .border(0.5.dp, GlassBorder, RoundedCornerShape(16.dp))
+                    .border(floatingMaterial.borderWidth, floatingMaterial.outline, RoundedCornerShape(16.dp))
                     .padding(6.dp),
             ) {
                 sources.forEach { source ->
@@ -233,8 +240,13 @@ fun PlaybackSourceMenu(
                             .semantics { selected = source.isActive }
                             .clickable(role = Role.Button) { onSelect(source) }
                             .background(
-                                if (source.isActive) GlassHighlight else Color.Transparent,
+                                if (source.isActive) PrimaryPinkContainer.copy(alpha = 0.18f) else Color.Transparent,
                                 RoundedCornerShape(12.dp),
+                            )
+                            .border(
+                                width = if (source.isActive) 0.65.dp else 0.dp,
+                                color = if (source.isActive) PrimaryPinkContainer.copy(alpha = 0.40f) else Color.Transparent,
+                                shape = RoundedCornerShape(12.dp),
                             )
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -243,7 +255,8 @@ fun PlaybackSourceMenu(
                         Spacer(Modifier.width(10.dp))
                         Text(
                             text = source.label,
-                            color = if (source.isActive) Color.White else TextSecondary,
+                            color = if (source.isActive) PureWhite else TextSecondary,
+                            fontWeight = if (source.isActive) FontWeight.SemiBold else FontWeight.Normal,
                             fontSize = 13.sp,
                         )
                     }
@@ -291,10 +304,8 @@ fun AlbumArtworkCard(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .border(
-                0.5.dp,
-                Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.06f))
-                ),
+                0.65.dp,
+                AeroHairline,
                 RoundedCornerShape(20.dp),
             ),
     ) {
@@ -395,34 +406,21 @@ fun UtilityIconRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                contentDescription = "Atrás",
-                tint = TextSecondary,
-                modifier = Modifier.size(24.dp),
-            )
-        }
+        org.michimusic.mobile.ui.components.premium.MichiIconAction(
+            icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+            contentDescription = "Atrás",
+            tint = TextSecondary,
+            iconSize = 24.dp,
+            onClick = onBack,
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (sleepTimerActive) {
-                IconButton(onClick = onTimerClick) {
-                    Icon(
-                        imageVector = Icons.Rounded.Timer,
-                        contentDescription = "Temporizador",
-                        tint = AccentCoral,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            } else {
-                IconButton(onClick = onTimerClick) {
-                    Icon(
-                        imageVector = Icons.Rounded.Timer,
-                        contentDescription = "Temporizador",
-                        tint = TextSecondary.copy(alpha = 0.6f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
+            org.michimusic.mobile.ui.components.premium.MichiIconAction(
+                icon = Icons.Rounded.Timer,
+                contentDescription = if (sleepTimerActive) "Temporizador de apagado activo" else "Temporizador de apagado",
+                tint = if (sleepTimerActive) AccentCoral else TextSecondary.copy(alpha = 0.6f),
+                iconSize = 18.dp,
+                onClick = onTimerClick,
+            )
             if (timerText != null) {
                 Text(
                     text = timerText,
@@ -457,7 +455,7 @@ fun MichiSlider(
             colors = SliderDefaults.colors(
                 thumbColor = Color.White,
                 activeTrackColor = accent,
-                inactiveTrackColor = Color.White.copy(alpha = 0.18f),
+                inactiveTrackColor = AeroTrack,
             ),
             thumb = {
                 Box(
@@ -477,7 +475,7 @@ fun MichiSlider(
                 Canvas(modifier = Modifier.fillMaxWidth().height(24.dp)) {
                     val barTop = (size.height - barHeightPx) / 2f
                     val activeW = size.width * active.coerceIn(0f, 1f)
-                    drawRoundRect(Color.White.copy(alpha = 0.14f), Offset(0f, barTop), Size(size.width, barHeightPx), CornerRadius(3f, 3f))
+                    drawRoundRect(AeroTrack, Offset(0f, barTop), Size(size.width, barHeightPx), CornerRadius(3f, 3f))
                     drawRoundRect(accent, Offset(0f, barTop), Size(activeW, barHeightPx), CornerRadius(3f, 3f))
                 }
             },
@@ -505,41 +503,29 @@ fun MediaControlsBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .height(72.dp)
             .padding(horizontal = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         MichiIconButton(Icons.Rounded.SkipPrevious, size = 27.dp, tint = ControlWhite, onClick = onPrevious, contentDescription = "Anterior")
-        Box(
-            modifier = Modifier
-                .size(58.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.96f),
-                            Color(0xFFF7F0E8),
-                            accent.copy(alpha = 0.34f),
-                        )
-                    )
-                )
-                .border(0.35.dp, Color.White.copy(alpha = 0.48f), CircleShape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onPlayPause
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                tint = BgDark,
-                modifier = Modifier.size(34.dp)
-            )
-        }
+        org.michimusic.mobile.ui.components.premium.MichiIconAction(
+            icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
+            onClick = onPlayPause,
+            tint = PureWhite,
+            iconSize = 42.dp,
+            minTargetSize = 68.dp,
+        )
         MichiIconButton(Icons.Rounded.SkipNext, size = 27.dp, tint = ControlWhite, onClick = onNext, contentDescription = "Siguiente")
+    }
+}
+
+fun validateMichiIconButtonContentDescription(onClick: (() -> Unit)?, contentDescription: String?) {
+    if (onClick != null) {
+        require(!contentDescription.isNullOrBlank()) {
+            "MichiIconButton requires an explicit, non-blank contentDescription when clickable (K46D-23)."
+        }
     }
 }
 
@@ -551,6 +537,7 @@ fun MichiIconButton(
     onClick: (() -> Unit)? = null,
     contentDescription: String? = null,
 ) {
+    validateMichiIconButtonContentDescription(onClick, contentDescription)
     if (onClick == null) {
         Box(
             modifier = Modifier.size((size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget)),
@@ -559,8 +546,13 @@ fun MichiIconButton(
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
         }
     } else {
-        IconButton(onClick = onClick, modifier = Modifier.size((size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget))) {
-            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(size))
-        }
+        org.michimusic.mobile.ui.components.premium.MichiIconAction(
+            icon = icon,
+            contentDescription = contentDescription!!,
+            onClick = onClick,
+            tint = tint,
+            iconSize = size,
+            minTargetSize = (size + 16.dp).coerceAtLeast(MichiSpacing.minTouchTarget),
+        )
     }
 }

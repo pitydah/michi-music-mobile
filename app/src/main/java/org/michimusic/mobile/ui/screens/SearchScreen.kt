@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -81,6 +83,8 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -99,6 +103,7 @@ import org.michimusic.player.AudioController
 
 @Composable
 fun SearchScreen(
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     viewModel: SearchViewModel = koinViewModel(),
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -107,7 +112,13 @@ fun SearchScreen(
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val keyboardController = LocalSoftwareKeyboardController.current
     val audioController: AudioController = koinInject()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val playerState by audioController.state.collectAsStateWithLifecycle()
+    val presentation = resolvePlaybackPresentation(sessionState, playerState)
+
+    fun playQueueSafe(tracks: List<Track>, index: Int) {
+        sessionManager.playQueue(tracks, index)
+    }
 
     var selectedArtistForDetail by remember { mutableStateOf<SearchArtistResult?>(null) }
     var selectedAlbumForDetail by remember { mutableStateOf<SearchAlbumResult?>(null) }
@@ -198,19 +209,15 @@ fun SearchScreen(
                     )
 
                     if (query.isNotEmpty()) {
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.Default.Clear,
+                            contentDescription = "Limpiar Búsqueda",
                             onClick = { viewModel.clearSearch() },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("search_clear_button"),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Limpiar Búsqueda",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
+                            tint = TextSecondary,
+                            iconSize = 18.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "search_clear_button",
+                        )
                     }
                 }
             }
@@ -225,12 +232,12 @@ fun SearchScreen(
                     val isSelected = filter == selectedFilter
                     Box(
                         modifier = Modifier
-                            .clip(MichiShapes.sm)
-                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
-                            .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.38f) else GlassBorderLow, MichiShapes.sm)
+                            .clip(MichiShapes.pill)
+                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.15f) else AeroGraphiteRaised)
+                            .border(0.75.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.50f) else AeroHairline, MichiShapes.pill)
                             .selectable(selected = isSelected, role = Role.Tab, onClick = { viewModel.setFilter(filter) })
                             .heightIn(min = 48.dp)
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
                             .testTag("search_filter_${filter.name.lowercase()}"),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -336,16 +343,18 @@ fun SearchScreen(
                             )
                         }
                         items(structuredResults.tracks) { item ->
-                            val isPlayingThis = playerState.currentTrack?.id == item.track.id
+                            val activeTrack = presentation.currentTrack
+                            val isAudioPlaying = presentation.isPlaying
+                            val isPlayingThis = activeTrack?.id == item.track.id
                             TrackSearchRow(
                                 track = item.track,
                                 source = item.source,
                                 isPlayingThis = isPlayingThis,
-                                isAudioPlaying = playerState.isPlaying,
+                                isAudioPlaying = isAudioPlaying,
                                 onClick = {
                                     val allTracks = structuredResults.tracks.map { it.track }
                                     val idx = allTracks.indexOfFirst { it.id == item.track.id }.coerceAtLeast(0)
-                                    audioController.playQueue(allTracks, idx)
+                                    playQueueSafe(allTracks, idx)
                                 },
                             )
                         }
@@ -361,19 +370,19 @@ fun SearchScreen(
                 onDismiss = { selectedArtistForDetail = null },
                 onPlayAll = {
                     if (artistResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(artistResult.tracks, 0)
+                        playQueueSafe(artistResult.tracks, 0)
                         selectedArtistForDetail = null
                     }
                 },
                 onShuffle = {
                     if (artistResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(artistResult.tracks.shuffled(), 0)
+                        playQueueSafe(artistResult.tracks.shuffled(), 0)
                         selectedArtistForDetail = null
                     }
                 },
                 onTrackClick = { track ->
                     val idx = artistResult.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    audioController.playQueue(artistResult.tracks, idx)
+                    playQueueSafe(artistResult.tracks, idx)
                 },
             )
         }
@@ -385,19 +394,19 @@ fun SearchScreen(
                 onDismiss = { selectedAlbumForDetail = null },
                 onPlayAll = {
                     if (albumResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(albumResult.tracks, 0)
+                        playQueueSafe(albumResult.tracks, 0)
                         selectedAlbumForDetail = null
                     }
                 },
                 onShuffle = {
                     if (albumResult.tracks.isNotEmpty()) {
-                        audioController.playQueue(albumResult.tracks.shuffled(), 0)
+                        playQueueSafe(albumResult.tracks.shuffled(), 0)
                         selectedAlbumForDetail = null
                     }
                 },
                 onTrackClick = { track ->
                     val idx = albumResult.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    audioController.playQueue(albumResult.tracks, idx)
+                    playQueueSafe(albumResult.tracks, idx)
                 },
             )
         }
@@ -635,14 +644,14 @@ private fun ArtistDetailDialog(
                             fontSize = 12.sp,
                         )
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Cerrar",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Cerrar",
+                        onClick = onDismiss,
+                        tint = TextSecondary,
+                        iconSize = 18.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
 
                 Spacer(Modifier.height(14.dp))
@@ -781,14 +790,14 @@ private fun AlbumDetailDialog(
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Cerrar",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Cerrar",
+                        onClick = onDismiss,
+                        tint = TextSecondary,
+                        iconSize = 18.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
 
                 Spacer(Modifier.height(14.dp))

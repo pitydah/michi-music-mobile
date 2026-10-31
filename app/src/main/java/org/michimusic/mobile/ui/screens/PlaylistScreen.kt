@@ -19,12 +19,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -75,6 +77,7 @@ fun PlaylistScreen(
     onNavigateToPlaylist: (String) -> Unit = {},
     viewModel: PlaylistsViewModel = koinViewModel(),
     audioController: org.michimusic.player.AudioController = org.koin.compose.koinInject(),
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -114,26 +117,14 @@ fun PlaylistScreen(
                 }
 
                 // Add Playlist Button
-                Box(
-                    modifier = Modifier
-                        .size(MichiSpacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .background(AeroGraphiteRaised)
-                        .border(1.dp, GlassBorderHigh, CircleShape)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(color = PrimaryPink),
-                            onClick = { showCreateDialog = true },
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Nueva Playlist",
-                        tint = PureWhite,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
+                MichiIconAction(
+                    icon = Icons.Default.Add,
+                    contentDescription = "Nueva Playlist",
+                    onClick = { showCreateDialog = true },
+                    tint = PureWhite,
+                    iconSize = 24.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                )
             }
 
             Spacer(Modifier.height(20.dp))
@@ -219,30 +210,27 @@ fun PlaylistScreen(
                                     )
                                 }
 
-                                Box(
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .background(PrimaryPinkContainer.copy(alpha = 0.12f))
-                                        .clickable {
-                                            viewModel.playPlaylist(playlist.id, audioController)
+                                MichiIconAction(
+                                    icon = Icons.Default.PlayArrow,
+                                    contentDescription = "Reproducir ${playlist.name}",
+                                    onClick = {
+                                        if (sessionManager != null) {
+                                            viewModel.playPlaylist(playlist.id, audioController = audioController, sessionManager = sessionManager)
+                                        } else {
+                                            viewModel.playPlaylist(playlist.id, audioController = audioController)
                                         }
-                                        .testTag("playlist_play_${playlist.id}"),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        Icons.Default.PlayArrow,
-                                        contentDescription = "Reproducir ${playlist.name}",
-                                        tint = PrimaryPinkContainer,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
+                                    },
+                                    tint = PureWhite,
+                                    iconSize = 24.dp,
+                                    minTargetSize = MichiSpacing.minTouchTarget,
+                                    testTag = "playlist_play_${playlist.id}",
+                                )
                             }
                         }
                     }
 
                     item {
-                        Spacer(Modifier.height(100.dp))
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
             }

@@ -62,11 +62,30 @@ class VisualPreferencesPropagationTest {
     }
 
     @Test
+    fun testSetHapticsEnabledUpdatesStateFlowAndPrefs() = runTest {
+        assertTrue(repository.preferences.value.hapticsEnabled)
+
+        repository.setHapticsEnabled(false)
+        assertFalse(repository.preferences.value.hapticsEnabled)
+        val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
+        assertFalse(prefs.getBoolean("haptics_enabled", true))
+
+        repository.setHapticsEnabled(true)
+        assertTrue(repository.preferences.value.hapticsEnabled)
+        assertTrue(prefs.getBoolean("haptics_enabled", true))
+    }
+
+    @Test
     fun testExternalSharedPreferencesChangeTriggersStateFlow() = runTest {
         val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("high_contrast", true).putBoolean("reduced_motion", true).commit()
+        prefs.edit()
+            .putBoolean("high_contrast", true)
+            .putBoolean("reduced_motion", true)
+            .putBoolean("haptics_enabled", false)
+            .commit()
 
         assertTrue(repository.preferences.value.highContrast)
         assertTrue(repository.preferences.value.reducedMotion)
+        assertFalse(repository.preferences.value.hapticsEnabled)
     }
 }

@@ -70,3 +70,32 @@ data class AudioSignalObservation(
     val bitPerfect: BitPerfectStatus = BitPerfectStatus.UNVERIFIABLE,
     val observedAtMs: Long = 0L,
 )
+
+@Serializable
+enum class SignalEvidenceType {
+    DECLARED,
+    OBSERVED,
+    CONFIGURED,
+    UNKNOWN,
+}
+
+@Serializable
+enum class SignalLayer {
+    SOURCE,
+    DECODING,
+    PROCESSING,
+    ANDROID_OUTPUT,
+    PHYSICAL_DEVICE,
+}
+
+@Serializable
+data class SignalProvenanceItem(
+    val layer: SignalLayer,
+    val label: String,
+    val value: String,
+    val evidenceType: SignalEvidenceType,
+    val originEndpointId: String,
+    val freshnessMs: Long = 0L,
+    val confidenceNote: String? = null,
+)
+
