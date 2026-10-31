@@ -31,28 +31,24 @@ object AirCatEligibilityPolicy {
             return false
         }
 
-        // Dedicated audio receiver roles without library/sync capabilities are ineligible
+        // Dedicated audio receiver roles without explicit aircat capability are ineligible
         if (device.roles.any {
                 val r = it.trim().lowercase()
                 r == "receiver" || r == "audio_receiver" || r == "dac" || r == "dap"
             } && device.roles.none {
-                val r = it.trim().lowercase()
-                r.contains("library") || r.contains("sync") || r.contains("aircat")
+                it.trim().lowercase().contains("aircat")
             }
         ) {
             return false
         }
 
-        // Must support AirCat explicitly or be a library/sync capable node
-        val hasExplicitAirCat = DeviceActionResolver.supportsAirCat(device) ||
+        // K49-04: Must announce verified AirCat capability explicitly.
+        // Being a desktop/server/phone alone does NOT guarantee AirCat file transfer capability.
+        val hasVerifiedAirCat = DeviceActionResolver.supportsAirCat(device) ||
             device.features.any { it.contains("aircat", ignoreCase = true) } ||
             device.roles.any { it.contains("aircat", ignoreCase = true) }
 
-        val hasGeneralStorageSync = (normalizedType in listOf("server", "desktop", "phone", "tablet") ||
-            device.roles.any { it.contains("library", ignoreCase = true) || it.contains("sync", ignoreCase = true) } ||
-            device.features.any { it.contains("library", ignoreCase = true) || it.contains("sync", ignoreCase = true) })
-
-        return hasExplicitAirCat || hasGeneralStorageSync
+        return hasVerifiedAirCat
     }
 
     fun filterEligibleDevices(devices: List<UnifiedDevice>): List<UnifiedDevice> {

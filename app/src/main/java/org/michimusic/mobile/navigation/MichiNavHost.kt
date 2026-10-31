@@ -53,6 +53,7 @@ fun MichiNavHost() {
     // Reserve mini player height only when a track actually exists.
     val sessionManager: PlaybackSessionManager = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
+    val pendingConfirmation by sessionManager.pendingQueueConfirmation.collectAsState()
     val audioController: AudioController = koinInject()
     val localState by audioController.state.collectAsState()
     val presentation = resolvePlaybackPresentation(sessionState, localState)
@@ -203,6 +204,15 @@ fun MichiNavHost() {
                 onClick = { navController.navigate("nowplaying") },
                 visible = miniPlayerVisible && hasMiniPlayer,
             )
+
+            pendingConfirmation?.let { conf ->
+                org.michimusic.mobile.ui.components.RemoteQueueConfirmationDialog(
+                    confirmation = conf,
+                    onConfirmReplace = { sessionManager.resolvePendingQueueConfirmation(org.michimusic.mobile.playback.RemoteQueueAction.REPLACE) },
+                    onConfirmAppend = { sessionManager.resolvePendingQueueConfirmation(org.michimusic.mobile.playback.RemoteQueueAction.APPEND) },
+                    onDismiss = { sessionManager.resolvePendingQueueConfirmation(org.michimusic.mobile.playback.RemoteQueueAction.CANCEL) },
+                )
+            }
         }
     }
 }

@@ -166,79 +166,36 @@ class DefaultAirCatTransferClient(
             return@withContext Result.failure(err)
         }
 
-        // 6. Storage check with safety margin (100MB minimum reserved)
-        val safetyMargin = 100L * 1024 * 1024
-        val requiredBytes = manifest.totalBytes + safetyMargin
-        if (availableStorageBytes < requiredBytes) {
-            val err = AirCatException.InsufficientStorage(requiredBytes, availableStorageBytes)
-            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-            return@withContext Result.failure(err)
-        }
-
-        // 7. Validate manifest structure (track count and byte totals consistency)
+        // 6. Validate non-negative totals and calculate required storage with overflow check (K49-01)
         if (manifest.totalTracks < 0 || manifest.totalBytes < 0) {
             val err = AirCatException.InvalidManifestStructure("Valores negativos en totalTracks (${manifest.totalTracks}) o totalBytes (${manifest.totalBytes})")
             emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
             return@withContext Result.failure(err)
         }
 
-        // K48-03: Always enforce items.size == totalTracks, even when items is empty
-        if (manifest.items.size != manifest.totalTracks) {
-            val err = AirCatException.InvalidManifestStructure("Items declarados (${manifest.items.size}) no coinciden con totalTracks (${manifest.totalTracks})")
+        val safetyMargin = 100L * 1024 * 1024
+        val requiredBytes = try {
+            Math.addExact(manifest.totalBytes, safetyMargin)
+        } catch (e: ArithmeticException) {
+            val err = AirCatException.InvalidManifestStructure("Desbordamiento numérico al calcular espacio requerido: totalBytes excede el rango admisible")
             emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
             return@withContext Result.failure(err)
         }
 
-        if (manifest.items.isNotEmpty()) {
-            // Check for blank IDs
-            if (manifest.items.any { it.logicalTrackId.isBlank() }) {
-                val err = AirCatException.InvalidManifestStructure("El manifiesto contiene pistas con logicalTrackId vacío o en blanco")
+        if (availableStorageBytes < requiredBytes) {
+            val err = AirCatException.InsufficientStorage(requiredBytes, availableStorageBytes)
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // 7. Validate manifest items and byte sum consistency (K49-02)
+        if (manifest.items.isEmpty()) {
+            if (manifest.totalTracks != 0 || manifest.totalBytes != 0L) {
+                val err = AirCatException.InvalidManifestStructure("Manifiesto vacío pero con totalTracks (${manifest.totalTracks}) o totalBytes (${manifest.totalBytes}) no nulo")
                 emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
                 return@withContext Result.failure(err)
             }
 
-            // Check for duplicate track IDs
-            val distinctIds = manifest.items.map { it.logicalTrackId }.toSet()
-            if (distinctIds.size != manifest.items.size) {
-                val err = AirCatException.InvalidManifestStructure("El manifiesto contiene IDs de pista duplicados")
-                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-                return@withContext Result.failure(err)
-            }
-
-            // Check for negative sizes or overflow in bytes sum
-            var itemsSumBytes = 0L
-            for (item in manifest.items) {
-                if (item.size < 0) {
-                    val err = AirCatException.InvalidManifestStructure("Pista '${item.logicalTrackId}' tiene tamaño negativo (${item.size})")
-                    emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-                    return@withContext Result.failure(err)
-                }
-                val nextSum = itemsSumBytes + item.size
-                if (nextSum < itemsSumBytes) {
-                    val err = AirCatException.InvalidManifestStructure("Desbordamiento numérico en suma de tamaños de pista")
-                    emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-                    return@withContext Result.failure(err)
-                }
-                itemsSumBytes = nextSum
-            }
-
-            if (manifest.totalBytes > 0 && itemsSumBytes != manifest.totalBytes) {
-                val err = AirCatException.InvalidManifestStructure("Suma de bytes (${itemsSumBytes}B) no coincide con totalBytes (${manifest.totalBytes}B)")
-                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-                return@withContext Result.failure(err)
-            }
-
-            // K48-02: Check SHA-256 formatting for all declared items
-            for (item in manifest.items) {
-                if (item.sha256.isNotEmpty() && !isValidSha256(item.sha256)) {
-                    val err = AirCatException.InvalidManifestStructure(
-                        "Checksum SHA-256 malformado para pista '${item.logicalTrackId}': '${item.sha256}'. Se requiere hash hexadecimal de 64 caracteres."
-                    )
-                    emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-                    return@withContext Result.failure(err)
-                }
-            }
-        } else {
             // Legitimate 0 tracks / 0 bytes case: complete without false verification claims
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
             activeSessions.remove(intent.transferId)
@@ -255,6 +212,64 @@ class DefaultAirCatTransferClient(
             )
             return@withContext Result.success(emptyList())
         }
+
+        // K48-03: Always enforce items.size == totalTracks
+        if (manifest.items.size != manifest.totalTracks) {
+            val err = AirCatException.InvalidManifestStructure("Items declarados (${manifest.items.size}) no coinciden con totalTracks (${manifest.totalTracks})")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // Check for blank IDs
+        if (manifest.items.any { it.logicalTrackId.isBlank() }) {
+            val err = AirCatException.InvalidManifestStructure("El manifiesto contiene pistas con logicalTrackId vacío o en blanco")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // Check for duplicate track IDs
+        val distinctIds = manifest.items.map { it.logicalTrackId }.toSet()
+        if (distinctIds.size != manifest.items.size) {
+            val err = AirCatException.InvalidManifestStructure("El manifiesto contiene IDs de pista duplicados")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // Check for negative sizes or overflow in bytes sum
+        var itemsSumBytes = 0L
+        for (item in manifest.items) {
+            if (item.size < 0) {
+                val err = AirCatException.InvalidManifestStructure("Pista '${item.logicalTrackId}' tiene tamaño negativo (${item.size})")
+                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                return@withContext Result.failure(err)
+            }
+            try {
+                itemsSumBytes = Math.addExact(itemsSumBytes, item.size)
+            } catch (e: ArithmeticException) {
+                val err = AirCatException.InvalidManifestStructure("Desbordamiento numérico en suma de tamaños de pista")
+                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                return@withContext Result.failure(err)
+            }
+        }
+
+        // K49-02: Strict equality between item sum and totalBytes in ALL cases
+        if (itemsSumBytes != manifest.totalBytes) {
+            val err = AirCatException.InvalidManifestStructure("Suma de bytes (${itemsSumBytes}B) no coincide con totalBytes (${manifest.totalBytes}B)")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // K48-02: Check SHA-256 formatting for all declared items
+        for (item in manifest.items) {
+            if (item.sha256.isNotEmpty() && !isValidSha256(item.sha256)) {
+                val err = AirCatException.InvalidManifestStructure(
+                    "Checksum SHA-256 malformado para pista '${item.logicalTrackId}': '${item.sha256}'. Se requiere hash hexadecimal de 64 caracteres."
+                )
+                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                return@withContext Result.failure(err)
+            }
+        }
+
 
         // 8. Transfer execution (Room-aware backup reconciliation)
         transferManager.reconcileOrphanBackups(

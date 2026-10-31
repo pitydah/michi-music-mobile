@@ -86,5 +86,23 @@ sealed interface QueuePlaybackOutcome {
         override val epoch: Long = 0L,
         val reason: String = "Operación descartada por cambio de destino o sesión"
     ) : QueuePlaybackOutcome
+
+    data class PendingConfirmation(
+        override val operationId: String,
+        override val endpointId: String,
+        override val requestedTrackCount: Int,
+        override val requestedIndex: Int,
+        override val epoch: Long = 0L,
+        val confirmation: RemoteQueuePreflightDecision.ConfirmationRequired
+    ) : QueuePlaybackOutcome
+
+    data class Cancelled(
+        override val operationId: String,
+        override val endpointId: String,
+        override val requestedTrackCount: Int,
+        override val requestedIndex: Int,
+        override val epoch: Long = 0L,
+        val reason: String = "Operación cancelada por el usuario"
+    ) : QueuePlaybackOutcome
 }
 

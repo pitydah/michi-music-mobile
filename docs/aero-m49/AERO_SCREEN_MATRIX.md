@@ -30,7 +30,7 @@
 | **MiniPlayer** | `MiniPlayer.kt` | **Yes (Pure Icon Play/Pause)** | $\ge 48\times 48\text{ dp}$ | **YES — Zero slider** | `emulator_miniplayer.png` |
 | **NowPlaying (Playing)** | `NowPlayingScreen.kt` | **Yes (Hero Pause floats clean)** | $64\times 64\text{ dp}$ hero | **YES — Zero slider** | `emulator_nowplaying_playing.png` |
 | **NowPlaying (Paused)** | `NowPlayingScreen.kt` | **Yes (Hero Play floats clean)** | $64\times 64\text{ dp}$ hero | **YES — Zero slider** | `emulator_nowplaying_paused.png` |
-| **Signal Truth Sheet** | `SignalTruthBottomSheet.kt` | Yes (Icon buttons) | $\ge 48\times 48\text{ dp}$ | N/A | `emulator_signal_truth_sheet.png` |
+| **Signal Truth Sheet** | `NowPlayingScreen.kt` (`SignalTruthDialog`) | Yes (Icon buttons) | $\ge 48\times 48\text{ dp}$ | N/A | `emulator_signal_truth_sheet.png` |
 | **Playback Queue** | `QueueScreen.kt` | Yes (drag/remove icons) | $\ge 48\times 48\text{ dp}$ | N/A | `emulator_queue.png` |
 | **Search (`Buscar`)** | `SearchScreen.kt` | Yes (clear query) | $\ge 48\times 48\text{ dp}$ | N/A | `emulator_search.png` |
 | **Devices (`Dispositivos`)** | `DevicesScreen.kt` | Yes (refresh/more icons) | $\ge 48\times 48\text{ dp}$ | N/A | `emulator_devices.png` |

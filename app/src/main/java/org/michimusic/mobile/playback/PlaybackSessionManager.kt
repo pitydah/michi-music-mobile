@@ -32,6 +32,9 @@ class PlaybackSessionManager(
     private val _sessionState = MutableStateFlow(PlaybackSessionState())
     val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
 
+    private val _pendingQueueConfirmation = MutableStateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?>(null)
+    val pendingQueueConfirmation: StateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?> = _pendingQueueConfirmation.asStateFlow()
+
     private val _sessionEpoch = java.util.concurrent.atomic.AtomicLong(1L)
     val currentSessionEpoch: Long get() = _sessionEpoch.get()
 
@@ -279,6 +282,7 @@ class PlaybackSessionManager(
     }
 
     private fun stopRemoteSync() {
+        _pendingQueueConfirmation.value = null
         eventJob?.cancel()
         eventJob = null
         eventClient?.disconnect()
@@ -361,6 +365,7 @@ class PlaybackSessionManager(
     ) {
         nextSessionEpoch()
         _activeQueuePlaybackOp.set(null)
+        _pendingQueueConfirmation.value = null
         val wasRemote = isRemoteSelected
         isRemoteSelected = false
         stopRemoteSync()
@@ -1087,7 +1092,11 @@ class PlaybackSessionManager(
      * Authority 3: Local Phone
      *   Dispatched directly to AudioController.
      */
-    fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+    fun playQueue(
+        tracks: List<Track>,
+        startIndex: Int = 0,
+        confirmedAction: RemoteQueueAction? = null
+    ) {
         if (tracks.isEmpty()) return
         val validIndex = startIndex.coerceIn(0, tracks.lastIndex)
         if (!isRemotePlaybackHost) {
@@ -1095,13 +1104,14 @@ class PlaybackSessionManager(
             return
         }
         scope.launch {
-            requestQueuePlayback(tracks, startIndex)
+            requestQueuePlayback(tracks, startIndex, confirmedAction)
         }
     }
 
     suspend fun requestQueuePlayback(
         tracks: List<Track>,
-        startIndex: Int = 0
+        startIndex: Int = 0,
+        confirmedAction: RemoteQueueAction? = null
     ): QueuePlaybackOutcome {
         val opId = java.util.UUID.randomUUID().toString()
         _activeQueuePlaybackOp.set(opId)
@@ -1185,12 +1195,73 @@ class PlaybackSessionManager(
                 )
             }
 
-            val trackIds = tracks.map { it.id }
+            // K49-03: Pre-dispatch authorization evaluation before issuing destructive remote queue replacements.
+            if (confirmedAction == RemoteQueueAction.CANCEL) {
+                _pendingQueueConfirmation.value = null
+                return QueuePlaybackOutcome.Cancelled(
+                    operationId = opId,
+                    endpointId = activeEp.id,
+                    requestedTrackCount = tracks.size,
+                    requestedIndex = validIndex,
+                    epoch = opEpoch,
+                    reason = "Transferencia de cola cancelada por el usuario"
+                )
+            }
+
+            if (confirmedAction == null) {
+                val remoteQueueSize = _sessionState.value.queue.size
+                val remotePlaying = _sessionState.value.isPlaying
+                val remoteTrackTitle = _sessionState.value.currentTrack?.title
+
+                val preflightDecision = RemoteQueuePreflightPolicy.evaluate(
+                    destinationId = activeEp.id,
+                    destinationName = activeEp.name,
+                    remoteQueueSize = remoteQueueSize,
+                    remoteActiveTrackTitle = remoteTrackTitle,
+                    remotePlaying = remotePlaying,
+                    proposedTracks = tracks,
+                    proposedStartIndex = validIndex
+                )
+
+                if (preflightDecision is RemoteQueuePreflightDecision.ConfirmationRequired) {
+                    _pendingQueueConfirmation.value = preflightDecision
+                    return QueuePlaybackOutcome.PendingConfirmation(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        epoch = opEpoch,
+                        confirmation = preflightDecision
+                    )
+                }
+            }
+
+            _pendingQueueConfirmation.value = null
+
+            val isAppend = confirmedAction == RemoteQueueAction.APPEND
+            val finalTracks = if (isAppend) {
+                _sessionState.value.queue + tracks
+            } else {
+                tracks
+            }
+            val finalIndex = if (isAppend) {
+                _sessionState.value.queueIndex.coerceIn(0, (finalTracks.size - 1).coerceAtLeast(0))
+            } else {
+                validIndex
+            }
+            val finalPos = if (isAppend) {
+                _sessionState.value.position
+            } else {
+                0L
+            }
+            val transferSource = if (isAppend) "mobile_queue_append" else "mobile_queue"
+
+            val trackIds = finalTracks.map { it.id }
             val cmd = RemoteCommandRecord(
                 commandId = opId,
                 endpointId = activeEp.id,
                 epoch = opEpoch,
-                action = "play_queue",
+                action = if (isAppend) "append_queue" else "play_queue",
                 param = selectedTrack.id,
                 status = RemoteCommandStatus.PENDING,
             )
@@ -1198,9 +1269,9 @@ class PlaybackSessionManager(
 
             val req = org.michimusic.link.dto.QueueTransferRequest(
                 trackIds = trackIds,
-                currentIndex = validIndex,
-                positionMs = 0L,
-                source = "mobile_queue"
+                currentIndex = finalIndex,
+                positionMs = finalPos,
+                source = transferSource
             )
 
             // Operation check before transferQueue
@@ -1208,8 +1279,8 @@ class PlaybackSessionManager(
                 return QueuePlaybackOutcome.Obsolete(
                     operationId = opId,
                     endpointId = activeEp.id,
-                    requestedTrackCount = tracks.size,
-                    requestedIndex = validIndex,
+                    requestedTrackCount = finalTracks.size,
+                    requestedIndex = finalIndex,
                     epoch = opEpoch,
                     reason = "Sesión invalidada antes de transferir cola"
                 )
@@ -1222,23 +1293,27 @@ class PlaybackSessionManager(
                 return QueuePlaybackOutcome.Obsolete(
                     operationId = opId,
                     endpointId = activeEp.id,
-                    requestedTrackCount = tracks.size,
-                    requestedIndex = validIndex,
+                    requestedTrackCount = finalTracks.size,
+                    requestedIndex = finalIndex,
                     epoch = opEpoch,
                     reason = "Sesión invalidada durante la transferencia de cola"
                 )
             }
 
             if (transferRes.isSuccess) {
-                val playRes = client.sendPlaybackCommand("play")
+                val playRes = if (isAppend && _sessionState.value.isPlaying) {
+                    Result.success("already_playing")
+                } else {
+                    client.sendPlaybackCommand("play")
+                }
 
                 // Epoch & operation guard after play command
                 if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                     return QueuePlaybackOutcome.Obsolete(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         reason = "Sesión invalidada durante la orden play"
                     )
@@ -1257,8 +1332,8 @@ class PlaybackSessionManager(
                     return QueuePlaybackOutcome.Failed(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         error = "Cola transferida pero falló orden play en ${activeEp.name}: $playFailMsg"
                     )
@@ -1272,8 +1347,8 @@ class PlaybackSessionManager(
                     return QueuePlaybackOutcome.Obsolete(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         reason = "Sesión invalidada durante la confirmación de estado"
                     )
@@ -1297,8 +1372,8 @@ class PlaybackSessionManager(
 
                 // Strict verification via RemoteQueueConfirmation (K47-01)
                 val verification = RemoteQueueConfirmation.verify(
-                    requestedTracks = tracks,
-                    requestedIndex = validIndex,
+                    requestedTracks = finalTracks,
+                    requestedIndex = finalIndex,
                     remoteQueueTracks = q?.tracks,
                     remotePlaybackState = st
                 )
@@ -1323,8 +1398,8 @@ class PlaybackSessionManager(
                     QueuePlaybackOutcome.Confirmed(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         message = "Cola completa confirmada en ${activeEp.name}"
                     )
@@ -1332,8 +1407,8 @@ class PlaybackSessionManager(
                     QueuePlaybackOutcome.Accepted(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         message = "Cola transferida a ${activeEp.name}; $verificationNote"
                     )
@@ -1349,24 +1424,24 @@ class PlaybackSessionManager(
                     RemoteCommandStatus.DISCONNECTED -> QueuePlaybackOutcome.Disconnected(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         reason = failMsg
                     )
                     RemoteCommandStatus.REJECTED -> QueuePlaybackOutcome.Rejected(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         reason = failMsg
                     )
                     else -> QueuePlaybackOutcome.Failed(
                         operationId = opId,
                         endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
+                        requestedTrackCount = finalTracks.size,
+                        requestedIndex = finalIndex,
                         epoch = opEpoch,
                         error = failMsg
                     )
@@ -1384,6 +1459,30 @@ class PlaybackSessionManager(
             epoch = opEpoch,
             message = "Reproduciendo localmente"
         )
+    }
+
+    /**
+     * Resolves an interactive preflight queue confirmation prompt (K49-03).
+     * If CANCEL, dismisses without issuing destructive mutations.
+     * If REPLACE or APPEND, executes remote queue transfer with chosen policy.
+     */
+    fun resolvePendingQueueConfirmation(action: RemoteQueueAction) {
+        val conf = _pendingQueueConfirmation.value ?: return
+        _pendingQueueConfirmation.value = null
+        if (action == RemoteQueueAction.CANCEL) {
+            return
+        }
+        scope.launch {
+            requestQueuePlayback(
+                tracks = conf.proposedTracks,
+                startIndex = conf.proposedStartIndex,
+                confirmedAction = action
+            )
+        }
+    }
+
+    fun dismissPendingQueueConfirmation() {
+        resolvePendingQueueConfirmation(RemoteQueueAction.CANCEL)
     }
 
     fun playNext(track: Track) {

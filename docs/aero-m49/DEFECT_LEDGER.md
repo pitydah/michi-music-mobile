@@ -126,3 +126,102 @@
 * **Test Verification:**
   - `app/src/test/java/org/michimusic/mobile/signaltruth/SignalTruthResolverTest.kt` (`remotePlayback_neverBorrowsLocalObservationFreshness_reportsZeroMs`)
 
+---
+
+## KILLCRITIC M49 Remediation Log (K49-01 through K49-05)
+
+### K49-01: AirCat Required Storage Calculation Overflow Prevention
+
+* **Severity:** P1 (HIGH)
+* **Symptom:**
+  In `AirCatTransferClient.kt`, the storage check `manifest.totalBytes + safetyMargin` was performed before validating that `totalBytes` was non-negative, and used standard 64-bit addition without overflow protection. Extremely large values could overflow to negative numbers, bypassing storage checks.
+* **Root Cause:**
+  Premature evaluation of storage capacity before syntactic and bounds validation of the manifest.
+* **Resolution:**
+  - Re-ordered validation pipeline: `manifest.totalBytes < 0 || totalTracks < 0` is checked first.
+  - Replaced arithmetic addition with `Math.addExact(manifest.totalBytes, safetyMargin)`, catching `ArithmeticException` to reject overflow with `InvalidManifestStructure`.
+  - Queried available storage only after arithmetic overflow validation.
+* **Files Modified:**
+  - `app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt`
+* **Test Verification:**
+  - `app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatContractTest.kt` (`manifestWithOverflowRequiredBytes_rejectedWithInvalidManifestStructure`, `manifestWithNegativeTrackSize_rejectedWithInvalidManifestStructure`)
+
+---
+
+### K49-02: AirCat Manifest Strict Size and Item Sum Equality
+
+* **Severity:** P1 (HIGH)
+* **Symptom:**
+  `AirCatTransferClient.kt` compared item sizes sum with `manifest.totalBytes` only if `manifest.totalBytes > 0`, allowing a manifest with `totalBytes = 0` to declare positive-size tracks, or empty items with non-zero declared bytes.
+* **Root Cause:**
+  Conditional check `if (manifest.totalBytes > 0 && itemsSumBytes != manifest.totalBytes)`.
+* **Resolution:**
+  - Enforced strict unconditional equality: `if (itemsSumBytes != manifest.totalBytes) return Failure(InvalidManifestStructure)`.
+  - Replaced empty-transfer return with `Result.success(emptyList())`.
+* **Files Modified:**
+  - `app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt`
+* **Test Verification:**
+  - `app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatContractTest.kt` (`manifestWithZeroTotalBytesAndNonEmptyItems_rejectedWithInvalidManifestStructure`, `manifestEmptyItemsWithNonZeroTotalBytes_rejectedWithInvalidManifestStructure`)
+
+---
+
+### K49-03: Remote Queue Interactive Preflight Authorization
+
+* **Severity:** P1 (CRITICAL)
+* **Symptom:**
+  Remote queue replacement occurred destructively without pre-dispatch interactive authorization. While `RemoteQueueConfirmation` verified queue state after dispatch, no preflight gate existed to prevent overwriting active queues.
+* **Root Cause:**
+  Missing interactive preflight policy and lack of pending confirmation state in `PlaybackSessionManager` connected to the UI.
+* **Resolution:**
+  - Created domain policy `RemoteQueuePreflightPolicy` in `RemoteQueueAuthorization.kt`.
+  - Connected `pendingQueueConfirmation: StateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?>` to `PlaybackSessionManager.kt`.
+  - Integrated `RemoteQueueConfirmationDialog` in `MichiNavHost.kt` providing user choices: "Reemplazar cola" (`REPLACE`), "Añadir al final" (`APPEND`), and "Cancelar" (`CANCEL`).
+  - Implemented preflight resolution handlers in `PlaybackSessionManager`: `resolvePendingQueueConfirmation(action)` and `dismissPendingQueueConfirmation()`.
+* **Files Modified:**
+  - `app/src/main/java/org/michimusic/mobile/playback/RemoteQueueAuthorization.kt`
+  - `app/src/main/java/org/michimusic/mobile/playback/RemoteCommandModels.kt`
+  - `app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt`
+  - `app/src/main/java/org/michimusic/mobile/ui/components/DialogComponents.kt`
+  - `app/src/main/java/org/michimusic/mobile/navigation/MichiNavHost.kt`
+* **Test Verification:**
+  - `app/src/test/java/org/michimusic/mobile/playback/RemoteQueueAuthorizationTest.kt` (4 tests)
+  - `app/src/test/java/org/michimusic/mobile/playback/PlaybackSessionManagerTest.kt` (33 tests)
+
+---
+
+### K49-04: Verifiable AirCat Capability Requirement in Device Eligibility
+
+* **Severity:** P2 (MEDIUM)
+* **Symptom:**
+  `AirCatEligibilityPolicy` permitted devices solely based on generic device types (`server`, `desktop`, `phone`, `tablet`) without verifying AirCat protocol capability.
+* **Root Cause:**
+  Device type fallback bypassed protocol advertisement check.
+* **Resolution:**
+  - Removed unconditional device type bypass.
+  - Mandated verifiable AirCat capability: `supportsAirCat(device)` or `device.features`/`roles` containing `"aircat"`.
+* **Files Modified:**
+  - `app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatEligibilityPolicy.kt`
+* **Test Verification:**
+  - `app/src/test/java/org/michimusic/mobile/devices/aircat/AirCatEligibilityPolicyTest.kt` (11 tests)
+
+---
+
+### K49-05: Test File Alignment, Android Reality Check & Honest Scorecard
+
+* **Severity:** P1 / P2
+* **Symptom:**
+  Documentation cited non-existent test filenames (`ComposePureIconAuditTest.kt`, `NowPlayingScreenTest.kt`, etc.), lacked new Android instrumented tests, and claimed an unverified 100/100 score.
+* **Root Cause:**
+  Stale documentation references and lack of dedicated instrumented test class in `app/src/androidTest`.
+* **Resolution:**
+  - Aligned all documentation with real test files: `NowPlayingSemanticsTest.kt`, `NowPlayingNoVolumeTest.kt`, `CoverFlowGeometryTest.kt`, `CoverFlowMotionPolicyTest.kt`, `MichiCoverFlowHostTest.kt`, `RemoteQueueAuthorizationTest.kt`.
+  - Added new instrumented Android test `AeroQualityGateInstrumentationTest.kt` validating pure-icon touch targets ($\ge 48\text{ dp}$), accessibility content descriptions, and preflight confirmation dialogs.
+  - Accurately documented emulator parameters ($1080\times 2400$, API 34) and dynamic scaling verification via `AeroResponsivePolicyTest.kt` and `A11yAndTokensTest.kt`.
+* **Files Modified:**
+  - `app/src/androidTest/java/org/michimusic/mobile/AeroQualityGateInstrumentationTest.kt`
+  - `docs/aero-m49/EVIDENCE_MATRIX.md`
+  - `docs/aero-m49/AERO_SCREEN_MATRIX.md`
+  - `docs/aero-m49/PR7_RELEASE_READINESS.md`
+  - `docs/aero-m49/DEFECT_LEDGER.md`
+
+

@@ -998,7 +998,7 @@ class PlaybackSessionManagerTest {
 
         // 5. playQueue in Remote Mode with Remote-playable track:
         val remotePlayableTrack = Track("srv_track_99", "Server Song", "Artist", source = TrackSource.STREAMING)
-        manager.playQueue(listOf(remotePlayableTrack), 0)
+        manager.playQueue(listOf(remotePlayableTrack), 0, confirmedAction = RemoteQueueAction.REPLACE)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { linkClient.transferQueue(match { it.trackIds == listOf("srv_track_99") && it.currentIndex == 0 }) }
         verify(exactly = 0) { audioController.playQueue(any(), any()) }

@@ -192,6 +192,12 @@ class PlaylistsViewModel(
                             is org.michimusic.mobile.playback.QueuePlaybackOutcome.Accepted -> {
                                 onResult(PlayPlaylistResult.Success(tracks.size))
                             }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.PendingConfirmation -> {
+                                onResult(PlayPlaylistResult.Success(tracks.size))
+                            }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Cancelled -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
                             is org.michimusic.mobile.playback.QueuePlaybackOutcome.Rejected -> {
                                 onResult(PlayPlaylistResult.Error(outcome.reason))
                             }
