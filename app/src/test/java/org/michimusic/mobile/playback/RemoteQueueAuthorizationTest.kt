@@ -358,6 +358,7 @@ class RemoteQueueAuthorizationTest {
             createdAtMs = System.currentTimeMillis() - 70_000L,
             validDurationMs = 60_000L,
         )
+        manager.registerTicketForTesting(expiredTicket)
 
         val outcome = manager.requestQueuePlayback(
             tracks = listOf(track),
@@ -409,6 +410,7 @@ class RemoteQueueAuthorizationTest {
             snapshotTrackCount = 1,
             snapshotTrackFingerprint = "srv_1",
         )
+        manager.registerTicketForTesting(ticket)
 
         val outcome = manager.requestQueuePlayback(
             tracks = listOf(track),
@@ -420,5 +422,133 @@ class RemoteQueueAuthorizationTest {
 
         assertTrue("Queue drift must reject REPLACE to prevent clobbering concurrent user actions (K49B-04)", outcome is QueuePlaybackOutcome.Cancelled)
         assertTrue((outcome as QueuePlaybackOutcome.Cancelled).reason.contains("cambió"))
+    }
+
+    @Test
+    fun requestQueuePlayback_whenTicketNotIssuedByManager_rejectsWithRejected() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track = Track("srv_1", "Track", "Artist", filepath = "http://host/1", source = TrackSource.STREAMING)
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto())
+        coEvery { linkClient.getQueue() } returns Result.success(QueueDto())
+        val connections = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = linkClient
+        }
+        connections.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val controller = mockk<AudioController>(relaxed = true)
+        every { controller.state } returns MutableStateFlow(PlayerState())
+        val discovery = mockk<LinkDiscovery>(relaxed = true)
+        every { discovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+        val manager = PlaybackSessionManager(controller, connections, discovery, registry)
+        manager.attachRemote(PlaybackEndpoint("remote_1", "Host", EndpointType.DESKTOP_PLAYER,
+            isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))) { _, _ -> }
+
+        // Arbitrary unissued ticket created by external caller (K50-02)
+        val unissuedTicket = RemoteQueueAuthorizationTicket(
+            endpointId = "remote_1",
+            sessionEpoch = manager.currentSessionEpoch,
+            snapshotTrackCount = 0
+        )
+        val outcome = manager.requestQueuePlayback(
+            tracks = listOf(track),
+            startIndex = 0,
+            confirmedAction = RemoteQueueAction.REPLACE,
+            confirmedTicket = unissuedTicket
+        )
+        assertTrue("Ticket not in manager registry must be rejected (K50-02)", outcome is QueuePlaybackOutcome.Rejected)
+        assertTrue((outcome as QueuePlaybackOutcome.Rejected).reason.contains("no fue emitido"))
+        coVerify(exactly = 0) { linkClient.transferQueue(any()) }
+    }
+
+    @Test
+    fun requestQueuePlayback_whenTicketReused_rejectsSecondUseWithRejected() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track = Track("srv_1", "Track 1", "Artist", filepath = "http://host/1", source = TrackSource.STREAMING)
+        val trackDto = QueueTrackDto(trackId = "srv_1", title = "Track 1", artist = "Artist", duration = 120_000L)
+        val playStateDto = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_1", position = 0L, duration = 120_000L)
+        val queueDto = QueueDto(tracks = listOf(trackDto), currentIndex = 0)
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto)
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+
+        val connections = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = linkClient
+        }
+        connections.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val controller = mockk<AudioController>(relaxed = true)
+        every { controller.state } returns MutableStateFlow(PlayerState())
+        val discovery = mockk<LinkDiscovery>(relaxed = true)
+        every { discovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+        val manager = PlaybackSessionManager(controller, connections, discovery, registry)
+        manager.attachRemote(PlaybackEndpoint("remote_1", "Host", EndpointType.DESKTOP_PLAYER,
+            isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))) { _, _ -> }
+
+        // 1. Issue genuine ticket via preflight
+        val pending = manager.requestQueuePlayback(listOf(track), 0)
+        assertTrue(pending is QueuePlaybackOutcome.PendingConfirmation)
+        val ticket = (pending as QueuePlaybackOutcome.PendingConfirmation).confirmation.ticket
+
+        // 2. Consume ticket first time
+        val firstOutcome = manager.requestQueuePlayback(
+            tracks = listOf(track),
+            startIndex = 0,
+            confirmedAction = RemoteQueueAction.REPLACE,
+            confirmedTicket = ticket
+        )
+        assertTrue("First use must confirm", firstOutcome is QueuePlaybackOutcome.Confirmed)
+
+        // 3. Re-use same ticket second time (Single-use policy violation, K50-02)
+        val secondOutcome = manager.requestQueuePlayback(
+            tracks = listOf(track),
+            startIndex = 0,
+            confirmedAction = RemoteQueueAction.REPLACE,
+            confirmedTicket = ticket
+        )
+        assertTrue("Second use must be rejected (single-use policy)", secondOutcome is QueuePlaybackOutcome.Rejected)
+        assertTrue((secondOutcome as QueuePlaybackOutcome.Rejected).reason.contains("consumido"))
+    }
+
+    @Test
+    fun requestQueuePlayback_whenInitiallyEmptyQueueBecomesOccupied_blocksDirectDispatchAndRequiresConfirmation() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track = Track("srv_1", "New Track", "Artist", filepath = "http://host/1", source = TrackSource.STREAMING)
+
+        val emptyQueue = QueueDto(tracks = emptyList(), currentIndex = 0)
+        val occupiedTrack = QueueTrackDto(trackId = "srv_other", title = "Added by other controller", artist = "Artist")
+        val occupiedQueue = QueueDto(tracks = listOf(occupiedTrack), currentIndex = 0)
+
+        // 1st getQueue (during preflight): empty.
+        // 2nd getQueue (during final check): occupied!
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = false)) andThen
+            Result.success(PlaybackStateDto(playing = false, queueIndex = 0, trackId = "srv_other"))
+        coEvery { linkClient.getQueue() } returns Result.success(emptyQueue) andThen Result.success(occupiedQueue)
+
+        val connections = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = linkClient
+        }
+        connections.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val controller = mockk<AudioController>(relaxed = true)
+        every { controller.state } returns MutableStateFlow(PlayerState())
+        val discovery = mockk<LinkDiscovery>(relaxed = true)
+        every { discovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+        val manager = PlaybackSessionManager(controller, connections, discovery, registry)
+        manager.attachRemote(PlaybackEndpoint("remote_1", "Host", EndpointType.DESKTOP_PLAYER,
+            isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))) { _, _ -> }
+
+        // Initial request with confirmedAction = null
+        val outcome = manager.requestQueuePlayback(listOf(track), 0)
+        advanceUntilIdle()
+
+        // K50-01: Must NOT proceed with transferQueue! Must demand confirmation!
+        coVerify(exactly = 0) { linkClient.transferQueue(any()) }
+        assertTrue("Must halt and return PendingConfirmation when empty queue becomes occupied (K50-01), got: $outcome",
+            outcome is QueuePlaybackOutcome.PendingConfirmation)
+        assertNotNull(manager.pendingQueueConfirmation.value)
     }
 }

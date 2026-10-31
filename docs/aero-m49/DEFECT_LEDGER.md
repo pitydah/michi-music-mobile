@@ -228,4 +228,44 @@
   - `docs/aero-m49/PR7_RELEASE_READINESS.md`
   - `docs/aero-m49/DEFECT_LEDGER.md`
 
+---
+
+## M50 Residual Defects & Remediations (K50-01 to K50-04)
+
+### K50-01: Initially Empty Remote Queue Becoming Occupied Without Authorization
+* **Severity:** P1 (CRITICAL)
+* **Status:** **RESOLVED**
+* **Symptom:**
+  If the remote host was empty and idle during initial preflight (yielding `ProceedDirectly`), but another controller added tracks or started playback before dispatch, the final check had no ticket comparison and would transfer the queue, replacing remote tracks without user consent.
+* **Resolution:**
+  Added strict pre-transfer state verification in `PlaybackSessionManager`: even when `confirmedAction == null`, if `liveQ.tracks.isNotEmpty()` or `liveSt.playing` or `liveFingerprint != initialRemoteFingerprint`, direct transfer is halted immediately. A fresh preflight decision is evaluated, a ticket is registered, and `PendingConfirmation` is emitted to prompt the user.
+* **Files Modified:** `app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt`
+* **Test Verification:** `app/src/test/java/org/michimusic/mobile/playback/RemoteQueueAuthorizationTest.kt:requestQueuePlayback_whenInitiallyEmptyQueueBecomesOccupied_blocksDirectDispatchAndRequiresConfirmation`
+
+### K50-02: Authoritative Manager Ticket Registry & Single-Use Policy
+* **Severity:** P1 (CRITICAL)
+* **Status:** **RESOLVED**
+* **Symptom:**
+  `requestQueuePlayback()` accepted any `RemoteQueueAuthorizationTicket` instance passed by callers without validating that its `ticketId` was genuinely issued by the manager or preventing replay/multi-use.
+* **Resolution:**
+  Introduced `_issuedTickets: ConcurrentHashMap<String, RemoteQueueAuthorizationTicket>` in `PlaybackSessionManager`. Tickets are registered upon issuance and atomically consumed (`_issuedTickets.remove`) on execution. Unissued tickets and re-used tickets are rejected with `QueuePlaybackOutcome.Rejected`. Tickets are also cleared upon session epoch changes.
+* **Files Modified:** `app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt`
+* **Test Verification:**
+  - `RemoteQueueAuthorizationTest.kt:requestQueuePlayback_whenTicketNotIssuedByManager_rejectsWithRejected`
+  - `RemoteQueueAuthorizationTest.kt:requestQueuePlayback_whenTicketReused_rejectsSecondUseWithRejected`
+
+### K50-03: Concurrency in Queue APPEND (Read-Modify-Write)
+* **Severity:** P1 (ARCHITECTURAL)
+* **Status:** **PENDING HOST API CONTRACT**
+* **Finding:**
+  APPEND currently fetches current tracks from the server, combines them, and sends a complete `transferQueue` request. True atomic append or CAS (Compare-And-Swap) revision control requires host-side support on the Michi Link protocol.
+* **Remediation Note:** Documented contract requirement for server-side atomic append. The mobile client protects against local race conditions via generation checking, but multi-controller race coordination must be enforced by the server authority.
+
+### K50-04: Android Instrumented Certification in CI
+* **Severity:** P2 (EVIDENCE)
+* **Status:** **PENDING CI RUNNER PROVISIONING**
+* **Finding:**
+  Instrumented tests exist (`AeroQualityGateInstrumentationTest.kt`), but the GitHub Actions CI pipeline runs JVM tests only. TalkBack, font scaling, and physical touch target testing remain verified via unit tests and local emulator runs.
+
+
 

@@ -35,10 +35,21 @@ class PlaybackSessionManager(
     private val _pendingQueueConfirmation = MutableStateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?>(null)
     val pendingQueueConfirmation: StateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?> = _pendingQueueConfirmation.asStateFlow()
 
+    // K50-02: Authoritative ticket registry and single-use policy managed by session manager
+    private val _issuedTickets = java.util.concurrent.ConcurrentHashMap<String, RemoteQueueAuthorizationTicket>()
+
+    @androidx.annotation.VisibleForTesting
+    internal fun registerTicketForTesting(ticket: RemoteQueueAuthorizationTicket) {
+        _issuedTickets[ticket.ticketId] = ticket
+    }
+
     private val _sessionEpoch = java.util.concurrent.atomic.AtomicLong(1L)
     val currentSessionEpoch: Long get() = _sessionEpoch.get()
 
-    fun nextSessionEpoch(): Long = _sessionEpoch.incrementAndGet()
+    fun nextSessionEpoch(): Long {
+        _issuedTickets.clear()
+        return _sessionEpoch.incrementAndGet()
+    }
 
     private val _activeQueuePlaybackOp = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
@@ -1216,6 +1227,10 @@ class PlaybackSessionManager(
                 )
             }
 
+            var initialRemoteFingerprint: String? = null
+            var initialRemoteSize = 0
+            var initialRemotePlaying = false
+
             if (confirmedAction == null) {
                 // M50: Unknown host state must NEVER be interpreted as an empty queue.
                 val freshSt = runCatching { client.getPlaybackState().getOrNull() }.getOrNull()
@@ -1242,6 +1257,10 @@ class PlaybackSessionManager(
                     queueIndex = freshSt.queueIndex,
                 )
                 val remoteFingerprint = freshQ.tracks.joinToString(",") { it.trackId }
+                initialRemoteFingerprint = remoteFingerprint
+                initialRemoteSize = freshQ.tracks.size
+                initialRemotePlaying = freshSt.playing
+
                 val preflightDecision = RemoteQueuePreflightPolicy.evaluate(
                     destinationId = activeEp.id,
                     destinationName = activeEp.name,
@@ -1254,6 +1273,8 @@ class PlaybackSessionManager(
                     snapshotFingerprint = remoteFingerprint,
                 )
                 if (preflightDecision is RemoteQueuePreflightDecision.ConfirmationRequired) {
+                    // K50-02: Register issued ticket in authoritative manager registry
+                    _issuedTickets[preflightDecision.ticket.ticketId] = preflightDecision.ticket
                     _pendingQueueConfirmation.value = preflightDecision
                     return QueuePlaybackOutcome.PendingConfirmation(
                         operationId = opId,
@@ -1274,6 +1295,14 @@ class PlaybackSessionManager(
                     "La modificación de cola requiere una confirmación válida")
             }
             if (confirmedTicket != null) {
+                // K50-02: Validate ticket against issued registry and consume it (single-use policy)
+                val recordedTicket = _issuedTickets.remove(confirmedTicket.ticketId)
+                if (recordedTicket == null || recordedTicket != confirmedTicket) {
+                    return QueuePlaybackOutcome.Rejected(
+                        opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "El ticket de confirmación no fue emitido por esta sesión o ya ha sido consumido"
+                    )
+                }
                 if (confirmedTicket.isExpired) {
                     return QueuePlaybackOutcome.Cancelled(opId, activeEp.id, tracks.size, validIndex, opEpoch,
                         "La confirmación de cola caducó. Vuelve a intentarlo")
@@ -1299,8 +1328,40 @@ class PlaybackSessionManager(
                 return QueuePlaybackOutcome.Failed(opId, activeEp.id, tracks.size, validIndex, opEpoch,
                     "No se pudo verificar la cola del host; modificación no enviada")
             }
-            if (confirmedTicket != null) {
-                val liveFingerprint = liveQ.tracks.joinToString(",") { it.trackId }
+
+            val liveFingerprint = liveQ.tracks.joinToString(",") { it.trackId }
+            if (confirmedAction == null) {
+                // K50-01: An initially empty/idle queue must NOT become occupied without explicit user confirmation!
+                if (liveQ.tracks.isNotEmpty() || liveSt.playing ||
+                    liveQ.tracks.size != initialRemoteSize || liveFingerprint != initialRemoteFingerprint) {
+                    val newDecision = RemoteQueuePreflightPolicy.evaluate(
+                        destinationId = activeEp.id,
+                        destinationName = activeEp.name,
+                        remoteQueueSize = liveQ.tracks.size,
+                        remoteActiveTrackTitle = liveQ.tracks.getOrNull(liveSt.queueIndex)?.title,
+                        remotePlaying = liveSt.playing,
+                        proposedTracks = tracks,
+                        proposedStartIndex = validIndex,
+                        sessionEpoch = opEpoch,
+                        snapshotFingerprint = liveFingerprint,
+                    )
+                    if (newDecision is RemoteQueuePreflightDecision.ConfirmationRequired) {
+                        _issuedTickets[newDecision.ticket.ticketId] = newDecision.ticket
+                        _pendingQueueConfirmation.value = newDecision
+                        return QueuePlaybackOutcome.PendingConfirmation(
+                            operationId = opId,
+                            endpointId = activeEp.id,
+                            requestedTrackCount = tracks.size,
+                            requestedIndex = validIndex,
+                            epoch = opEpoch,
+                            confirmation = newDecision
+                        )
+                    } else {
+                        return QueuePlaybackOutcome.Cancelled(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                            "La cola remota cambió antes de transferir; operación detenida")
+                    }
+                }
+            } else if (confirmedTicket != null) {
                 if (confirmedTicket.snapshotTrackCount != liveQ.tracks.size ||
                     confirmedTicket.snapshotTrackFingerprint == null ||
                     confirmedTicket.snapshotTrackFingerprint != liveFingerprint) {
@@ -1531,15 +1592,18 @@ class PlaybackSessionManager(
         val conf = _pendingQueueConfirmation.value ?: return
         _pendingQueueConfirmation.value = null
         if (action == RemoteQueueAction.CANCEL) {
+            _issuedTickets.remove(conf.ticket.ticketId)
             return
         }
         if (conf.ticket.isExpired) {
+            _issuedTickets.remove(conf.ticket.ticketId)
             _sessionState.value = _sessionState.value.copy(
                 statusMessage = "La confirmación de cola caducó; por favor, confirma nuevamente."
             )
             return
         }
         if (_sessionEpoch.get() != conf.ticket.sessionEpoch || _sessionState.value.activeEndpoint.id != conf.ticket.endpointId) {
+            _issuedTickets.remove(conf.ticket.ticketId)
             _sessionState.value = _sessionState.value.copy(
                 statusMessage = "El destino de reproducción cambió durante la confirmación."
             )
