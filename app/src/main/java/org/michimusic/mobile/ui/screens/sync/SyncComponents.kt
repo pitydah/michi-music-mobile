@@ -372,6 +372,8 @@ fun AirCatTransferSafeLayout(
                 AirCatCompletedView(
                     totalTracks = progress.totalTracks,
                     totalBytes = progress.totalBytes,
+                    checksumVerified = progress.checksumVerified,
+                    libraryCommitted = progress.libraryCommitted,
                     onDismiss = onDismiss,
                 )
             } else {
@@ -573,6 +575,8 @@ private fun AirCatErrorView(
 private fun AirCatCompletedView(
     totalTracks: Int,
     totalBytes: Long,
+    checksumVerified: Boolean,
+    libraryCommitted: Boolean,
     onDismiss: () -> Unit,
 ) {
     val totalMb = totalBytes / (1024.0 * 1024.0)
@@ -616,8 +620,17 @@ private fun AirCatCompletedView(
                 .border(0.75.dp, androidx.compose.ui.graphics.Color(0x6600E5FF), RoundedCornerShape(12.dp))
                 .padding(12.dp),
         ) {
+            // K47-05: Only report full SHA-256 verification and library admission when flags are verified
+            val statusMessage = when {
+                checksumVerified && libraryCommitted ->
+                    "Todos los archivos pasaron la verificación SHA-256 e ingresaron a la biblioteca."
+                checksumVerified && !libraryCommitted ->
+                    "Archivos verificados por SHA-256; incorporación a la biblioteca en curso."
+                else ->
+                    "Archivos transferidos; verificación de integridad SHA-256 pendiente."
+            }
             Text(
-                text = "Todos los archivos pasaron la verificación SHA-256 e ingresaron a la biblioteca.",
+                text = statusMessage,
                 color = org.michimusic.mobile.ui.theme.TextSecondary,
                 fontSize = 12.sp,
             )

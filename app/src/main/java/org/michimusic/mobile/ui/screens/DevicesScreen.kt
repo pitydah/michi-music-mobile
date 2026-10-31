@@ -143,6 +143,8 @@ fun DevicesScreen(
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForPassword by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.mobile.ui.screens.devices.DeviceUiItem?>(null) }
+    var showAirCatTargetPicker by remember { mutableStateOf(false) }
+    var showNoEligibleAirCatNotice by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (uiState.state == SyncConnectionState.DISCONNECTED) {
@@ -165,6 +167,15 @@ fun DevicesScreen(
         }
     }
     val rememberedOfflineDevices = uiState.unifiedDevices.filterNot { it in activeDevices }
+
+    // K47-05: Filter strictly eligible AirCat destinations (active, valid ID, non-stream, library/sync capable)
+    val eligibleAirCatDevices = activeDevices.filter { device ->
+        device.id.isNotBlank() &&
+            !isProvisionedMichiStream(device.deviceType) &&
+            (device.deviceType.uppercase() in listOf("SERVER", "DESKTOP", "PHONE") ||
+                device.roles.any { it.contains("LIBRARY", ignoreCase = true) || it.contains("SYNC", ignoreCase = true) } ||
+                device.features.any { it.contains("library", ignoreCase = true) || it.contains("sync", ignoreCase = true) || it.contains("aircat", ignoreCase = true) })
+    }
 
     val onPerformDeviceAction: (UnifiedDevice, DeviceAction) -> Unit = { device, action ->
         when (action.type) {
@@ -448,8 +459,18 @@ fun DevicesScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                val defaultTarget = activeDevices.firstOrNull()?.id ?: ""
-                                onNavigateToSyncWizard(defaultTarget)
+                                // K47-05: Never navigate with empty string or ineligible device
+                                when {
+                                    eligibleAirCatDevices.isEmpty() -> {
+                                        showNoEligibleAirCatNotice = true
+                                    }
+                                    eligibleAirCatDevices.size == 1 -> {
+                                        onNavigateToSyncWizard(eligibleAirCatDevices.first().id)
+                                    }
+                                    else -> {
+                                        showAirCatTargetPicker = true
+                                    }
+                                }
                             }
                             .testTag("aircat_sync_shortcut"),
                         backgroundColor = GlassFillLow,
@@ -577,6 +598,95 @@ fun DevicesScreen(
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showUnverifiedReceiverNotice = false }) {
                         androidx.compose.material3.Text("Cerrar")
+                    }
+                },
+            )
+        }
+
+        if (showNoEligibleAirCatNotice) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showNoEligibleAirCatNotice = false },
+                title = { androidx.compose.material3.Text("Sin destinos AirCat elegibles") },
+                text = {
+                    androidx.compose.material3.Text(
+                        "No se encontraron servidores o escritorios Michi activos con soporte de biblioteca en la red local. Asegúrate de encender y vincular un servidor Michi compatible."
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showNoEligibleAirCatNotice = false
+                        viewModel.startDiscovery()
+                    }) { androidx.compose.material3.Text("Buscar dispositivos") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showNoEligibleAirCatNotice = false }) {
+                        androidx.compose.material3.Text("Cerrar")
+                    }
+                },
+            )
+        }
+
+        if (showAirCatTargetPicker) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showAirCatTargetPicker = false },
+                title = { androidx.compose.material3.Text("Seleccionar destino AirCat") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        androidx.compose.material3.Text(
+                            text = "Selecciona el nodo con el que deseas sincronizar:",
+                            style = MichiTypography.metadata,
+                            color = TextMuted,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        eligibleAirCatDevices.forEach { dev ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(GlassFillLow)
+                                    .border(0.75.dp, GlassBorderLow, RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        showAirCatTargetPicker = false
+                                        onNavigateToSyncWizard(dev.id)
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                                    .testTag("aircat_target_${dev.id}"),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = getNodeIcon(dev.deviceType),
+                                        contentDescription = null,
+                                        tint = TertiaryCyan,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                    Column {
+                                        androidx.compose.material3.Text(
+                                            text = dev.name.ifEmpty { "Dispositivo Michi" },
+                                            style = MichiTypography.cardTitle.copy(fontSize = 14.sp),
+                                            color = PureWhite,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        androidx.compose.material3.Text(
+                                            text = "${formatDeviceTypeLabel(dev.deviceType)} · ${dev.ip}",
+                                            style = MichiTypography.metadata,
+                                            color = TextMuted,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showAirCatTargetPicker = false }) {
+                        androidx.compose.material3.Text("Cancelar")
                     }
                 },
             )

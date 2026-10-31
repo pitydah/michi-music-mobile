@@ -73,6 +73,8 @@ data class AirCatProgressEvent(
     val state: AirCatTransferState,
     val activeTrackTitle: String = "",
     val error: String? = null,
+    val checksumVerified: Boolean = false,
+    val libraryCommitted: Boolean = false,
 )
 
 sealed class AirCatException(message: String) : Exception(message) {

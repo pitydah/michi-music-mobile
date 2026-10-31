@@ -136,6 +136,8 @@ class AirCatSafeLayoutTest {
             totalBytes = 150_000_000L,
             state = AirCatTransferState.COMPLETED,
             activeTrackTitle = "Finale.flac",
+            checksumVerified = true,
+            libraryCommitted = true,
         )
 
         composeTestRule.setContent {
@@ -155,5 +157,33 @@ class AirCatSafeLayoutTest {
             .assertHeightIsAtLeast(48.dp)
             .performClick()
         assertTrue(dismissClicked)
+    }
+
+    @Test
+    fun airCatSafeLayout_completedState_unverifiedChecksum_doesNotClaimVerification() {
+        val unverifiedProgress = AirCatProgressEvent(
+            transferId = "xfer_04",
+            currentTrackIndex = 5,
+            totalTracks = 5,
+            bytesTransferred = 50_000_000L,
+            totalBytes = 50_000_000L,
+            state = AirCatTransferState.COMPLETED,
+            activeTrackTitle = "Unverified.flac",
+            checksumVerified = false,
+            libraryCommitted = false,
+        )
+
+        composeTestRule.setContent {
+            MichiTheme {
+                AirCatTransferSafeLayout(
+                    progress = unverifiedProgress,
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Transferencia completada").assertIsDisplayed()
+        // K47-05: Must show pending verification message, NOT fake "Todos los archivos pasaron la verificación SHA-256"
+        composeTestRule.onNodeWithText("Archivos transferidos; verificación de integridad SHA-256 pendiente.").assertIsDisplayed()
     }
 }
