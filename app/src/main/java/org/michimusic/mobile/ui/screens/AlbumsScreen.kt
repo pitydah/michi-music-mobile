@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -129,8 +130,9 @@ fun AlbumsScreen(
     val audioController: AudioController = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
     val playerState by audioController.state.collectAsState()
-    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
-    val isPlaying = if (sessionState.isRemoteActive) sessionState.isPlaying else playerState.isPlaying
+    val presentation = resolvePlaybackPresentation(sessionState, playerState)
+    val currentTrack = presentation.currentTrack
+    val isPlaying = presentation.isPlaying
 
     fun playQueueSafe(tracks: List<Track>, index: Int) {
         sessionManager.playQueue(tracks, index)
@@ -639,7 +641,7 @@ fun AlbumsScreen(
                                     Spacer(Modifier.height(4.dp))
 
                                     // Interactive in-screen album track list
-                                    val activeTrack = if (sessionState.isRemoteActive) sessionState.currentTrack else playerState.currentTrack
+                                    val activeTrack = presentation.currentTrack
                                     LazyColumn(
                                         modifier = Modifier
                                             .fillMaxWidth()

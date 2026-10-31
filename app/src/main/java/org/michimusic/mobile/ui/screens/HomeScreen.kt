@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -110,9 +111,9 @@ fun HomeScreen(
     val activeEndpoint = sessionState.activeEndpoint
 
     val playerState by audioController.state.collectAsState()
-
-    val currentTrack = if (sessionState.isRemoteActive) sessionState.currentTrack else playerState.currentTrack
-    val isPlaying = sessionState.isPlaying
+    val presentation = resolvePlaybackPresentation(sessionState, playerState)
+    val currentTrack = presentation.currentTrack
+    val isPlaying = presentation.isPlaying
     // The hero already represents the active song. Avoid repeating it below.
     val visibleRecent = remember(recentTracks, currentTrack?.id) {
         recentTracks.filterNot { it.id == currentTrack?.id }.distinctBy { it.id }.take(8)

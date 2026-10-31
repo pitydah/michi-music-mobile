@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -113,6 +114,7 @@ fun SearchScreen(
     val audioController: AudioController = koinInject()
     val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val playerState by audioController.state.collectAsStateWithLifecycle()
+    val presentation = resolvePlaybackPresentation(sessionState, playerState)
 
     fun playQueueSafe(tracks: List<Track>, index: Int) {
         sessionManager.playQueue(tracks, index)
@@ -341,8 +343,8 @@ fun SearchScreen(
                             )
                         }
                         items(structuredResults.tracks) { item ->
-                            val activeTrack = if (sessionState.isRemoteActive) sessionState.currentTrack else playerState.currentTrack
-                            val isAudioPlaying = if (sessionState.isRemoteActive) sessionState.isPlaying else playerState.isPlaying
+                            val activeTrack = presentation.currentTrack
+                            val isAudioPlaying = presentation.isPlaying
                             val isPlayingThis = activeTrack?.id == item.track.id
                             TrackSearchRow(
                                 track = item.track,

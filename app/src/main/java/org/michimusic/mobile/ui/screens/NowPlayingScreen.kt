@@ -118,21 +118,21 @@ fun NowPlayingScreen(
 ) {
     val sessionManager: PlaybackSessionManager = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
-    val activeEndpoint = sessionState.activeEndpoint
-
     val audioController: AudioController = koinInject()
     val favoritesRepo: FavoritesRepository = koinInject()
     val coroutineScope = rememberCoroutineScope()
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
     val playerState by audioController.state.collectAsState()
 
-    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
-    val isPlaying = sessionState.isPlaying
-    val positionSeconds = (sessionState.position / 1000f).coerceAtLeast(0f)
-    val durationSeconds = (sessionState.duration / 1000f).coerceAtLeast(0f)
+    val presentation = org.michimusic.mobile.playback.resolvePlaybackPresentation(sessionState, playerState)
+    val currentTrack = presentation.currentTrack
+    val activeEndpoint = presentation.endpoint
+    val isPlaying = presentation.isPlaying
+    val positionSeconds = (presentation.position / 1000f).coerceAtLeast(0f)
+    val durationSeconds = (presentation.duration / 1000f).coerceAtLeast(0f)
 
-    val isShuffle = if (sessionState.isRemoteActive) sessionState.shuffleMode == 1 else playerState.shuffleMode
-    val repeatMode = if (sessionState.isRemoteActive) sessionState.repeatMode else playerState.repeatMode
+    val isShuffle = presentation.shuffleMode == 1
+    val repeatMode = presentation.repeatMode
     // This singleton is the same instance fed by the Media3 service.
     val signalTracker: org.michimusic.player.SignalTruthTracker = koinInject()
     val signalObservation by signalTracker.observation.collectAsState()
@@ -355,7 +355,7 @@ fun NowPlayingScreen(
                                 Icon(Icons.Filled.Headphones, contentDescription = null,
                                     tint = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
                                     modifier = Modifier.size(16.dp))
-                                Text(text = activeEndpoint.name, color = PureWhite,
+                                Text(text = presentation.endpointDescription, color = PureWhite,
                                     style = MichiTypography.metadata, maxLines = 1,
                                     overflow = TextOverflow.Ellipsis)
                                 Icon(Icons.Filled.ExpandMore, contentDescription = null,

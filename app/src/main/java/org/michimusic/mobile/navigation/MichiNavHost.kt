@@ -36,6 +36,7 @@ import org.michimusic.mobile.ui.screens.SyncedTracksScreen
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.player.AudioController
 import org.koin.compose.koinInject
 import androidx.compose.runtime.collectAsState
@@ -54,7 +55,8 @@ fun MichiNavHost() {
     val sessionState by sessionManager.sessionState.collectAsState()
     val audioController: AudioController = koinInject()
     val localState by audioController.state.collectAsState()
-    val hasMiniPlayer = sessionState.currentTrack != null || localState.currentTrack != null
+    val presentation = resolvePlaybackPresentation(sessionState, localState)
+    val hasMiniPlayer = presentation.hasActiveTrack
 
     Scaffold(
         containerColor = SurfaceObsidian,

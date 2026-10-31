@@ -71,12 +71,14 @@ fun MiniPlayer(
 ) {
     val sessionManager: PlaybackSessionManager = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
-    val activeEndpoint = sessionState.activeEndpoint
-
     val audioController: AudioController = koinInject()
     val localState by audioController.state.collectAsState()
 
-    val currentTrack = sessionState.currentTrack ?: localState.currentTrack
+    val presentation = org.michimusic.mobile.playback.resolvePlaybackPresentation(sessionState, localState)
+    val currentTrack = presentation.currentTrack
+    val activeEndpoint = presentation.endpoint
+    val isPlaying = presentation.isPlaying
+    val progressFraction = presentation.progressFraction
     val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
 
     AnimatedVisibility(
@@ -86,13 +88,6 @@ fun MiniPlayer(
         modifier = modifier,
     ) {
         if (currentTrack != null) {
-            val isPlaying = sessionState.isPlaying
-            val progressFraction = if (sessionState.duration > 0) {
-                (sessionState.position.toFloat() / sessionState.duration.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
-
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -105,7 +100,7 @@ fun MiniPlayer(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     // Unknown duration is not 0% completion. Hide the timeline
                     // instead of rendering a misleading empty progress bar.
-                    if (sessionState.duration > 0) {
+                    if (presentation.duration > 0) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
