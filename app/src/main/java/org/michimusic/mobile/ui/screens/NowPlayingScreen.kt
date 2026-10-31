@@ -75,7 +75,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
+import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.mobile.playback.SignalTruthResolver
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GradientProgressBar
@@ -539,6 +541,8 @@ fun NowPlayingScreen(
         if (showSignalTruthDialog) {
             SignalTruthDialog(
                 observation = signalObservation,
+                activeEndpoint = sessionState.activeEndpoint,
+                currentTrack = currentTrack,
                 isRemote = sessionState.isRemoteActive,
                 onDismiss = { showSignalTruthDialog = false },
             )
@@ -631,10 +635,21 @@ private fun SignalTruthCard(
 @Composable
 private fun SignalTruthDialog(
     observation: org.michimusic.core.models.AudioSignalObservation,
+    activeEndpoint: org.michimusic.mobile.playback.PlaybackEndpoint,
+    currentTrack: org.michimusic.core.models.Track?,
     isRemote: Boolean,
     onDismiss: () -> Unit,
 ) {
     val floating = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
+    val provenanceItems = remember(observation, activeEndpoint, currentTrack, isRemote) {
+        SignalTruthResolver.resolveProvenance(
+            observation = observation,
+            activeEndpoint = activeEndpoint,
+            currentTrack = currentTrack,
+            isRemote = isRemote,
+        )
+    }
+
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
@@ -682,74 +697,20 @@ private fun SignalTruthDialog(
 
                 HorizontalDivider(color = GlassBorderLow)
 
-                // 1. Fuente
-                val sourceValue = observation.sourceFormat?.let {
-                    val codec = it.codec.uppercase()
-                    val bitStr = if (it.bitDepth > 0) " · ${it.bitDepth} bit" else ""
-                    val rateStr = if (it.sampleRate > 0) " / ${if (it.sampleRate % 1000 == 0) "${it.sampleRate / 1000}" else "%.1f".format(it.sampleRate / 1000f)} kHz" else ""
-                    "$codec$bitStr$rateStr"
-                } ?: if (isRemote) "Transmisión remota" else "Sin formato declarado"
-
-                SignalTruthCard(
-                    label = "Fuente",
-                    tag = "Declarado",
-                    tagColor = OnSurfaceVariant,
-                    value = sourceValue,
-                )
-
-                // 2. Decodificación
-                val hasDecoded = !isRemote && observation.decodedFormat != null
-                val decodedValue = if (hasDecoded) {
-                    val pcm = decodedPcmLabel(observation.decodedFormat!!.sampleRate, observation.decodedFormat!!.bitDepth)
-                    pcm ?: "PCM ${observation.decodedFormat!!.sampleRate} Hz"
-                } else {
-                    "No observado"
+                provenanceItems.forEach { item ->
+                    val (tagText, tagColor) = when (item.evidenceType) {
+                        org.michimusic.core.models.SignalEvidenceType.OBSERVED -> "Observado" to TertiaryCyan
+                        org.michimusic.core.models.SignalEvidenceType.DECLARED -> "Declarado" to OnSurfaceVariant
+                        org.michimusic.core.models.SignalEvidenceType.CONFIGURED -> "Configurado" to OnSurfaceVariant
+                        org.michimusic.core.models.SignalEvidenceType.UNKNOWN -> "Desconocido" to Color(0xFFE5A93C)
+                    }
+                    SignalTruthCard(
+                        label = item.label,
+                        tag = tagText,
+                        tagColor = tagColor,
+                        value = item.value,
+                    )
                 }
-                SignalTruthCard(
-                    label = "Decodificación",
-                    tag = if (hasDecoded) "Observado" else "Desconocido",
-                    tagColor = if (hasDecoded) TertiaryCyan else Color(0xFFE5A93C),
-                    value = decodedValue,
-                )
-
-                // 3. Procesamiento
-                val procValue = if (!isRemote && observation.dspStatus.isEqActive) {
-                    "EQ activo"
-                } else if (!isRemote && observation.dspStatus.isReplayGainActive) {
-                    "ReplayGain activo (${"%.1f".format(observation.dspStatus.replayGainAppliedDb)} dB)"
-                } else {
-                    "Sin EQ activo"
-                }
-                SignalTruthCard(
-                    label = "Procesamiento",
-                    tag = "Configurado",
-                    tagColor = OnSurfaceVariant,
-                    value = procValue,
-                )
-
-                // 4. Salida Android
-                val hasOutput = !isRemote && observation.outputConfig != null
-                val outputValue = if (hasOutput) {
-                    "AudioTrack"
-                } else if (isRemote) {
-                    "No aplica en remoto"
-                } else {
-                    "Pendiente"
-                }
-                SignalTruthCard(
-                    label = "Salida Android",
-                    tag = if (hasOutput) "Observado" else "Desconocido",
-                    tagColor = if (hasOutput) TertiaryCyan else Color(0xFFE5A93C),
-                    value = outputValue,
-                )
-
-                // 5. Dispositivo físico
-                SignalTruthCard(
-                    label = "Dispositivo físico",
-                    tag = "Desconocido",
-                    tagColor = Color(0xFFE5A93C),
-                    value = "No verificado",
-                )
 
                 Spacer(Modifier.height(4.dp))
 
@@ -760,8 +721,15 @@ private fun SignalTruthDialog(
                 )
 
                 if (isRemote) {
+                    val isStream = !activeEndpoint.isLocal &&
+                        (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
+                    val remoteNote = if (isStream) {
+                        "Michi Stream activo: decodificación PCM local transmitida por red; salida física en receptor externo."
+                    } else {
+                        "Reproducción remota activa: las medidas locales no describen la señal recibida por el receptor externo."
+                    }
                     Text(
-                        text = "Reproducción remota activa: las medidas locales no describen la señal recibida por el receptor externo.",
+                        text = remoteNote,
                         color = OnSurfaceVariant.copy(alpha = 0.8f),
                         style = MichiTypography.microLabel,
                     )
