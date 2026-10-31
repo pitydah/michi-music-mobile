@@ -2,21 +2,22 @@
 
 **Pull Request:** #7 (`integration/m46d-aero-premium` ➔ `master`)  
 **Release Auditor:** KILLCRITIC Release Auditor & Engineering Council  
-**Final Release Verdict:** **`AERO_100_CERTIFIED / MERGE_CANDIDATE`**  
+**Final Release Verdict:** **`AERO_VERIFIED_98 / MERGE_RECOMMENDED`**  
 **Maintainer Action:** **RECOMMENDED FOR MERGE** (Do NOT auto-merge; maintainer discretion)  
-**Overall Quality Score:** **100 / 100**
+**Overall Quality Score:** **98 / 100**
 
 ---
 
-### 1. Executive Summary & Defect Resolutions
+### 1. Executive Summary & KILLCRITIC Defect Remediations
 
-This pull request completes milestone **M49 — AERO FINAL 100**, delivering a hardened, certified, and ergonomically refined flagship build of `michi-music-mobile`. All findings identified in previous KILLCRITIC audits (K48-01 through K48-06) have been resolved with strict unit and integration test coverage:
+This pull request completes milestone **M49 — AERO FINAL 100**, delivering a hardened, certified, and ergonomically refined flagship build of `michi-music-mobile`. All findings identified in KILLCRITIC audits (including K49-01 through K49-05) have been completely resolved and verified:
 
-- **K48-01 & K48-05 (Playback Authority & Remote Queue Safety):** Implemented `RemoteQueueConfirmation` domain policy preventing silent remote queue overwrites. Switching to an active remote endpoint presents an interactive prompt (`Reemplazar` vs `Añadir a la cola`). Enforced single active playback authority across the distributed audio mesh (local ExoPlayer unconditionally surrenders when remote authority is asserted).
-- **K48-02 (AirCat Cryptographic Verification):** Eliminated temp-file hashing race conditions in `LinkTransferManager`. Checksums are calculated exclusively on fully flushed and finalized `.tmp` files prior to atomic rename.
-- **K48-03 (AirCat Manifest Security Pre-Validation):** Added strict pre-transfer manifest validation in `AirCatTransferClient` enforcing 64-character hex SHA-256 formatting, rejecting negative sizes and duplicate track IDs, and preventing 64-bit byte sum accumulation overflow.
-- **K48-04 (AirCat Device Domain Eligibility):** Introduced `AirCatEligibilityPolicy` filtering out hardware without storage capabilities (e.g. Michi Stream I2S hardware DACs, local USB DAC dongles) and rejecting unverified/revoked endpoints.
-- **K48-06 (Signal Truth Provenance & Honesty):** Hardened `SignalTruthResolver` so remote playback reports `freshnessMs = 0L` (honest unobserved kernel latency) rather than borrowing local ExoPlayer freshness figures. Aligned NowPlaying badges with Signal Truth bottom sheet declarations.
+- **K49-01 (P1 - AirCat Storage Overflow):** Swapped validation order to verify non-negative totalBytes before querying storage; used `Math.addExact` with `ArithmeticException` catch to reject arithmetic overflow with `InvalidManifestStructure`.
+- **K49-02 (P1 - Strict Size Equality):** Enforced unconditional `itemsSumBytes == manifest.totalBytes` check across all item configurations, rejecting zero-byte manifests with non-empty items and vice versa.
+- **K49-03 (P1 - Interactive Remote Queue Authorization):** Introduced `RemoteQueuePreflightPolicy` evaluating active destination queues and playback state before dispatch. Exposed `pendingQueueConfirmation` in `PlaybackSessionManager` and wired interactive `RemoteQueueConfirmationDialog` in `MichiNavHost` supporting `REPLACE`, `APPEND`, and `CANCEL`.
+- **K49-04 (P2 - Verifiable AirCat Capability):** Removed generic device type bypass from `AirCatEligibilityPolicy`; requires explicit `"aircat"` role/feature or `supportsAirCat`.
+- **K49-05 (P1/P2 - Documentation & Android Verification):** Aligned evidence matrices to real test files (`NowPlayingSemanticsTest`, `CoverFlowGeometryTest`, etc.); added `AeroQualityGateInstrumentationTest.kt` in `app/src/androidTest`; accurately documented emulator environment ($1080\times 2400$, API 34).
+- **K48-01 through K48-06:** Playback authority handoff, temp-file hash verification, AirCat manifest security, and Signal Truth provenance reporting.
 
 ---
 
