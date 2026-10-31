@@ -37,6 +37,14 @@ class PlaybackSessionManager(
 
     fun nextSessionEpoch(): Long = _sessionEpoch.incrementAndGet()
 
+    private val _activeQueuePlaybackOp = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+    private fun isQueuePlaybackCurrent(opId: String, opEpoch: Long, targetEndpointId: String): Boolean {
+        return _activeQueuePlaybackOp.get() == opId &&
+            _sessionEpoch.get() == opEpoch &&
+            _sessionState.value.activeEndpoint.id == targetEndpointId
+    }
+
     private var eventClient: org.michimusic.link.EventClient? = null
     private var eventJob: Job? = null
     private var remotePollingJob: Job? = null
@@ -352,6 +360,7 @@ class PlaybackSessionManager(
         resumePlayback: Boolean = false
     ) {
         nextSessionEpoch()
+        _activeQueuePlaybackOp.set(null)
         val wasRemote = isRemoteSelected
         isRemoteSelected = false
         stopRemoteSync()
@@ -417,6 +426,7 @@ class PlaybackSessionManager(
         }
 
         nextSessionEpoch()
+        _activeQueuePlaybackOp.set(null)
         isRemoteSelected = true
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = target,
@@ -427,6 +437,7 @@ class PlaybackSessionManager(
 
     fun handoffTo(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
         nextSessionEpoch()
+        _activeQueuePlaybackOp.set(null)
         if (target.isLocal) {
             // Handoff Remote -> Local (K46D-32)
             val prevEndpoint = _sessionState.value.activeEndpoint
@@ -1093,6 +1104,7 @@ class PlaybackSessionManager(
         startIndex: Int = 0
     ): QueuePlaybackOutcome {
         val opId = java.util.UUID.randomUUID().toString()
+        _activeQueuePlaybackOp.set(opId)
         val opEpoch = _sessionEpoch.get()
         val validIndex = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
         val activeEp = _sessionState.value.activeEndpoint
@@ -1190,10 +1202,23 @@ class PlaybackSessionManager(
                 positionMs = 0L,
                 source = "mobile_queue"
             )
+
+            // Operation check before transferQueue
+            if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
+                return QueuePlaybackOutcome.Obsolete(
+                    operationId = opId,
+                    endpointId = activeEp.id,
+                    requestedTrackCount = tracks.size,
+                    requestedIndex = validIndex,
+                    epoch = opEpoch,
+                    reason = "Sesión invalidada antes de transferir cola"
+                )
+            }
+
             val transferRes = client.transferQueue(req)
 
-            // Epoch guard after transferQueue
-            if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) {
+            // Epoch & operation guard after transferQueue
+            if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                 return QueuePlaybackOutcome.Obsolete(
                     operationId = opId,
                     endpointId = activeEp.id,
@@ -1207,8 +1232,8 @@ class PlaybackSessionManager(
             if (transferRes.isSuccess) {
                 val playRes = client.sendPlaybackCommand("play")
 
-                // Epoch guard after play command
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) {
+                // Epoch & operation guard after play command
+                if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                     return QueuePlaybackOutcome.Obsolete(
                         operationId = opId,
                         endpointId = activeEp.id,
@@ -1226,7 +1251,7 @@ class PlaybackSessionManager(
                         epoch = opEpoch,
                         resultMessage = "Cola transferida pero falló orden play: $playFailMsg"
                     )
-                    if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
+                    if (isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                         _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                     }
                     return QueuePlaybackOutcome.Failed(
@@ -1242,8 +1267,8 @@ class PlaybackSessionManager(
                 val stRes = client.getPlaybackState()
                 val qRes = client.getQueue()
 
-                // Epoch guard after query state
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) {
+                // Epoch & operation guard after query state
+                if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                     return QueuePlaybackOutcome.Obsolete(
                         operationId = opId,
                         endpointId = activeEp.id,
@@ -1254,45 +1279,34 @@ class PlaybackSessionManager(
                     )
                 }
 
-                var isFullyConfirmed = false
-                var verificationNote = ""
+                val st = stRes.getOrNull()
+                val q = qRes.getOrNull()
 
-                if (stRes.isSuccess && qRes.isSuccess) {
-                    val st = stRes.getOrThrow()
-                    val q = qRes.getOrThrow()
-                    if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
-                        val qTracks = q.tracks.map { it.toDomainTrack() }
-                        val current = qTracks.getOrNull(st.queueIndex)
-                        _sessionState.value = _sessionState.value.copy(
-                            currentTrack = current,
-                            isPlaying = st.playing,
-                            position = st.effectivePosition,
-                            duration = st.effectiveDuration,
-                            queue = qTracks,
-                            queueIndex = st.queueIndex
-                        )
-                    }
-
-                    val isPlaying = st.playing
-                    val queueSizeMatches = q.tracks.size >= tracks.size
-                    val trackMatches = (q.tracks.getOrNull(st.queueIndex)?.trackId == selectedTrack.id) ||
-                                       (st.queueIndex == validIndex)
-
-                    if (isPlaying && queueSizeMatches && trackMatches) {
-                        isFullyConfirmed = true
-                    } else {
-                        verificationNote = when {
-                            !isPlaying -> "reproductor en pausa o buffering en ${activeEp.name}"
-                            !queueSizeMatches -> "longitud de cola no coincide (${q.tracks.size}/${tracks.size})"
-                            else -> "pista activa no alineada en ${activeEp.name}"
-                        }
-                    }
-                } else {
-                    verificationNote = "sincronización de estado pendiente"
+                if (st != null && q != null && isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
+                    val qTracks = q.tracks.map { it.toDomainTrack() }
+                    val current = qTracks.getOrNull(st.queueIndex)
+                    _sessionState.value = _sessionState.value.copy(
+                        currentTrack = current,
+                        isPlaying = st.playing,
+                        position = st.effectivePosition,
+                        duration = st.effectiveDuration,
+                        queue = qTracks,
+                        queueIndex = st.queueIndex
+                    )
                 }
 
+                // Strict verification via RemoteQueueConfirmation (K47-01)
+                val verification = RemoteQueueConfirmation.verify(
+                    requestedTracks = tracks,
+                    requestedIndex = validIndex,
+                    remoteQueueTracks = q?.tracks,
+                    remotePlaybackState = st
+                )
+                val isFullyConfirmed = verification.isFullyConfirmed
+                val verificationNote = verification.note
+
                 val outcome = if (isFullyConfirmed) {
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch, resultMessage = verificationNote)
                 } else {
                     cmd.copy(
                         status = RemoteCommandStatus.ACCEPTED,
@@ -1301,7 +1315,7 @@ class PlaybackSessionManager(
                     )
                 }
 
-                if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
+                if (isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
 
@@ -1328,7 +1342,7 @@ class PlaybackSessionManager(
                 // Honest error reporting: do NOT secretly fall back to play_track (K46D-39)
                 val (failStatus, failMsg) = resolveFailureStatus(client, transferRes)
                 val outcome = cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
-                if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
+                if (isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
                 return when (failStatus) {

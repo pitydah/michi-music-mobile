@@ -1650,5 +1650,144 @@ class PlaybackSessionManagerTest {
         val ep3 = manager.currentSessionEpoch
         assertTrue(ep3 > ep2)
     }
+
+    @Test
+    fun requestQueuePlayback_withExtraTracksInRemote_isAcceptedNotConfirmed() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+
+        val qTrack1 = QueueTrackDto(trackId = "srv_1", title = "Song 1", artist = "Artist 1")
+        val qTrackExtra = QueueTrackDto(trackId = "srv_extra", title = "Extra Song", artist = "Artist 1")
+
+        val playStateDto = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_1")
+        val queueDtoWithExtra = org.michimusic.link.dto.QueueDto(tracks = listOf(qTrack1, qTrackExtra), currentIndex = 0)
+
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDtoWithExtra)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val outcome = manager.requestQueuePlayback(listOf(track1), 0)
+
+        // K47-01: Must NOT be Confirmed when remote queue has extra tracks! Must be Accepted.
+        assertTrue("Expected Accepted (not Confirmed) due to extra tracks, got $outcome", outcome is QueuePlaybackOutcome.Accepted)
+        assertEquals(RemoteCommandStatus.ACCEPTED, manager.sessionState.value.lastRemoteCommand?.status)
+    }
+
+    @Test
+    fun requestQueuePlayback_withPermutedTracksInRemote_isAcceptedNotConfirmed() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+        val track2 = Track(id = "srv_2", title = "Song 2", artist = "Artist 2", filepath = "http://srv/2", source = TrackSource.STREAMING)
+
+        val qTrack1 = QueueTrackDto(trackId = "srv_1", title = "Song 1", artist = "Artist 1")
+        val qTrack2 = QueueTrackDto(trackId = "srv_2", title = "Song 2", artist = "Artist 2")
+
+        // Permuted queue on remote
+        val playStateDto = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_2")
+        val permutedQueueDto = org.michimusic.link.dto.QueueDto(tracks = listOf(qTrack2, qTrack1), currentIndex = 0)
+
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(permutedQueueDto)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val outcome = manager.requestQueuePlayback(listOf(track1, track2), 0)
+
+        // K47-01: Must NOT be Confirmed when remote queue is permuted!
+        assertTrue("Expected Accepted (not Confirmed) due to permuted order, got $outcome", outcome is QueuePlaybackOutcome.Accepted)
+    }
+
+    @Test
+    fun requestQueuePlayback_whenConcurrentCommandIssued_cancelsPreviousOperationAndReturnsObsolete() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+        val track2 = Track(id = "srv_2", title = "Song 2", artist = "Artist 2", filepath = "http://srv/2", source = TrackSource.STREAMING)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val qTrack2 = QueueTrackDto(trackId = "srv_2", title = "Song 2", artist = "Artist 2")
+        val playStateDto = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_2")
+        val queueDto = org.michimusic.link.dto.QueueDto(tracks = listOf(qTrack2), currentIndex = 0)
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto)
+
+        // When command 1 executes transferQueue, simulate command 2 preempting it
+        val preempted = java.util.concurrent.atomic.AtomicBoolean(false)
+        coEvery { linkClient.transferQueue(any()) } coAnswers {
+            if (preempted.compareAndSet(false, true)) {
+                // New command starts immediately
+                manager.requestQueuePlayback(listOf(track2), 0)
+            }
+            Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        }
+
+        val outcome1 = manager.requestQueuePlayback(listOf(track1), 0)
+
+        // K47-06: Preempted operation 1 must be Obsolete
+        assertTrue("Expected Obsolete when command 1 was preempted, got $outcome1", outcome1 is QueuePlaybackOutcome.Obsolete)
+    }
 }
 
