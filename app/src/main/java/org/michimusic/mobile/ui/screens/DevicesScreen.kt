@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LaptopMac
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
@@ -435,6 +436,51 @@ fun DevicesScreen(
                     }
                 }
 
+                // Dedicated AirCat card per V13_05_DEVICES_REMOTE.png
+                item(key = "aircat_sync_shortcut") {
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val defaultTarget = activeDevices.firstOrNull()?.id ?: ""
+                                onNavigateToSyncWizard(defaultTarget)
+                            }
+                            .testTag("aircat_sync_shortcut"),
+                        backgroundColor = GlassFillLow,
+                        borderColor = GlassBorderLow,
+                        shape = MichiShapes.md,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(TertiaryCyan.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddLink,
+                                    contentDescription = null,
+                                    tint = TertiaryCyan,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Text(
+                                text = "Sincronizar con AirCat",
+                                style = MichiTypography.cardTitle.copy(fontSize = 15.sp),
+                                color = PureWhite,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                }
+
                 item {
                     Spacer(Modifier.height(24.dp))
                 }
@@ -601,25 +647,43 @@ private fun DevicesTopBar(
     onQrClick: () -> Unit,
     onSettingsClick: () -> Unit,
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 4.dp),
+            .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 6.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "MICHI LINK",
-                style = MichiTypography.screenEyebrow,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+            Column {
+                Text(
+                    text = "Dispositivos",
+                    style = MichiTypography.screenTitle.copy(fontSize = 28.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = PureWhite,
+                )
+                Text(
+                    text = "Michi Link",
+                    style = MichiTypography.metadata.copy(fontSize = 14.sp),
+                    color = TertiaryCyan,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                if (isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = TertiaryCyan,
+                        strokeWidth = 2.dp,
+                    )
+                }
                 MichiIconAction(
                     icon = Icons.Filled.Refresh,
                     contentDescription = "Buscar dispositivos",
@@ -647,10 +711,47 @@ private fun DevicesTopBar(
                     minTargetSize = MichiSpacing.minTouchTarget,
                     testTag = "devices_settings_button",
                 )
+                Box {
+                    MichiIconAction(
+                        icon = Icons.Filled.MoreVert,
+                        contentDescription = "Más opciones de dispositivos",
+                        onClick = { showMenu = true },
+                        tint = PureWhite,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "devices_more_button",
+                    )
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Buscar dispositivos") },
+                            onClick = { showMenu = false; onRefreshClick() },
+                            leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TertiaryCyan) }
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Escanear código QR") },
+                            onClick = { showMenu = false; onQrClick() },
+                            leadingIcon = { Icon(Icons.Filled.QrCodeScanner, null, tint = TertiaryCyan) }
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Ajustes de conexión") },
+                            onClick = { showMenu = false; onSettingsClick() },
+                            leadingIcon = { Icon(Icons.Filled.Settings, null, tint = TertiaryCyan) }
+                        )
+                    }
+                }
             }
         }
-        Text("Tus dispositivos", style = MichiTypography.screenTitle,
-            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+        Spacer(Modifier.height(14.dp))
+        Text(
+            text = "Tus dispositivos",
+            style = MichiTypography.sectionTitle.copy(fontSize = 18.sp),
+            fontWeight = FontWeight.Bold,
+            color = PureWhite,
+            modifier = Modifier.padding(start = 2.dp),
+        )
     }
 }
 
@@ -1052,69 +1153,97 @@ internal fun DeviceNodeCard(
         org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.CONNECTING -> PrimaryPinkContainer to "Conectando"
         org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.OFFLINE -> TextSecondary to "Sin conexión"
         org.michimusic.mobile.ui.screens.devices.DeviceConnectionStatus.ERROR -> ErrorColor to "Error"
-        else -> TextSecondary to "Disponible"
+        else -> Color(0xFF4CAF50) to "Disponible"
     }
     val (trustColor, trustLabel) = when (item.trustStatus) {
         org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED -> TertiaryCyan to "Vinculado"
         org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.REVOKED -> ErrorColor to "Confianza revocada"
         org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.IDENTITY_MISMATCH -> ErrorColor to "Identidad no coincide"
-        else -> TextSecondary to "Identidad no verificada"
+        else -> Color(0xFFE5A93C) to "Identidad no verificada"
     }
+
+    val iconBoxColor = when {
+        connected -> TertiaryCyan
+        item.trustStatus != org.michimusic.mobile.ui.screens.devices.DeviceTrustStatus.TRUSTED -> Color(0xFFE5A93C)
+        else -> Color(0xFF4CAF50)
+    }
+
     GlassCard(
         modifier = Modifier.fillMaxWidth().testTag("device_node_${item.ip}"),
         backgroundColor = if (connected) GlassFillHigh else GlassFillLow,
-        borderColor = GlassBorderLow,
+        borderColor = if (connected) TertiaryCyan.copy(alpha = 0.35f) else GlassBorderLow,
         shape = MichiShapes.md,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Box(
-                    modifier = Modifier.size(48.dp).clip(MichiShapes.sm)
-                        .background(connectionColor.copy(alpha = 0.12f)),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(iconBoxColor.copy(alpha = 0.12f))
+                        .border(1.dp, iconBoxColor.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(icon, contentDescription = null, tint = connectionColor,
-                        modifier = Modifier.size(24.dp))
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = iconBoxColor,
+                        modifier = Modifier.size(24.dp),
+                    )
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(item.name, style = MichiTypography.cardTitle,
-                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        item.name,
+                        style = MichiTypography.cardTitle.copy(fontSize = 16.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = PureWhite,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        AeroStatusPill(connectionLabel, connectionColor)
+                        AeroStatusPill(trustLabel, trustColor)
+                    }
                     val kind = formatDeviceTypeLabel(item.deviceType)
-                    Text(kind, style = MichiTypography.metadata, color = TextSecondary,
-                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text(
+                        kind,
+                        style = MichiTypography.metadata,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    if (item.capabilities.isNotEmpty()) {
+                        Text(
+                            item.capabilities.sorted().joinToString(" · "),
+                            style = MichiTypography.metadata,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 MichiIconAction(
-                    icon = Icons.Filled.Info,
+                    icon = Icons.Filled.MoreVert,
                     contentDescription = "Detalles de ${item.name}",
                     onClick = onInfoClick,
-                    tint = TextSecondary,
+                    tint = PureWhite,
                     iconSize = 22.dp,
                     minTargetSize = MichiSpacing.minTouchTarget,
                     testTag = "device_info_${item.ip}",
                 )
             }
-            // Avoid compressing connection and trust badges into the title row.
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AeroStatusPill(connectionLabel, connectionColor)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AeroStatusPill(trustLabel, trustColor)
-                }
-                if (item.capabilities.isNotEmpty()) {
-                    Text(item.capabilities.sorted().joinToString(" · "),
-                        style = MichiTypography.metadata, color = TextSecondary,
-                        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                }
-            }
-            // One action per row: long localized labels remain readable at 320dp.
+
+            // Primary action CTA button
             item.primaryAction?.let { action ->
                 Button(
                     onClick = { onActionClick(action) },
@@ -1125,32 +1254,43 @@ internal fun DeviceNodeCard(
                     ),
                     shape = MichiShapes.sm,
                 ) {
-                    Text(action.label, color = PureWhite, fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp, maxLines = 2)
+                    Text(
+                        action.label,
+                        color = PureWhite,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                    )
                 }
             }
-            // Keep every domain-provided action reachable. M25 displayed only
-            // firstOrNull(), silently hiding transfer, remote and other actions.
-            (if (showAllActions) item.secondaryActions else item.secondaryActions.take(1))
-                .forEach { action ->
+
+            // Secondary actions if expanded
+            if (showAllActions) {
+                item.secondaryActions.forEach { action ->
                     OutlinedButton(
                         onClick = { onActionClick(action) },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         shape = MichiShapes.sm,
                     ) {
-                        Text(action.label,
+                        Text(
+                            action.label,
                             color = if (action.isDestructive) ErrorColor else PureWhite,
-                            fontSize = 13.sp, maxLines = 2)
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                        )
                     }
                 }
-            if (item.secondaryActions.size > 1) {
+            }
+
+            if (item.secondaryActions.isNotEmpty()) {
                 TextButton(
                     onClick = { showAllActions = !showAllActions },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
                 ) {
                     Text(
-                        if (showAllActions) "Mostrar menos" else "Ver ${item.secondaryActions.size - 1} acciones más",
+                        if (showAllActions) "Mostrar menos" else "Ver ${item.secondaryActions.size} acciones más",
                         color = TertiaryCyan,
+                        fontSize = 12.sp,
                     )
                 }
             }
