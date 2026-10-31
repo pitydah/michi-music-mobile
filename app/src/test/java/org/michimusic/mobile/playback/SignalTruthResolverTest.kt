@@ -204,4 +204,106 @@ class SignalTruthResolverTest {
             assertFalse(item.value.contains("null"))
         }
     }
+
+    @Test
+    fun `remotePlayback_neverInheritsLocalSourceFormat`() {
+        // Local observation contains leftover measurements from previous local playback (FLAC 24/192)
+        val localStaleObservation = AudioSignalObservation(
+            sourceFormat = SignalFormat(codec = "FLAC", bitDepth = 24, sampleRate = 192000, channels = 2),
+            decodedFormat = SignalFormat(codec = "PCM", bitDepth = 24, sampleRate = 192000, channels = 2),
+            observedAtMs = 5000L,
+        )
+
+        // Case 1: Remote track has AAC metadata
+        val remoteTrackWithMetadata = Track(
+            id = "remote_1",
+            title = "Remote Stream",
+            artist = "Remote Artist",
+            format = "aac",
+            sampleRate = 44100,
+            bitrate = 256,
+            source = TrackSource.STREAMING,
+        )
+
+        val items = SignalTruthResolver.resolveProvenance(
+            observation = localStaleObservation,
+            activeEndpoint = remoteHostEndpoint,
+            currentTrack = remoteTrackWithMetadata,
+            isRemote = true,
+        )
+
+        val sourceItem = items.first { it.layer == SignalLayer.SOURCE }
+        assertEquals(SignalEvidenceType.DECLARED, sourceItem.evidenceType)
+        // Must reflect remote track, NOT local FLAC 24/192
+        assertTrue("Expected AAC in remote source, got: ${sourceItem.value}", sourceItem.value.startsWith("AAC"))
+        assertFalse("Must not contain FLAC from stale observation", sourceItem.value.contains("FLAC"))
+
+        // Case 2: Remote track without format or null track -> UNKNOWN / No declarado
+        val remoteTrackNoFormat = Track(
+            id = "remote_2",
+            title = "Remote Unknown",
+            artist = "Unknown",
+            format = "",
+            source = TrackSource.STREAMING,
+        )
+
+        val itemsNoFormat = SignalTruthResolver.resolveProvenance(
+            observation = localStaleObservation,
+            activeEndpoint = remoteHostEndpoint,
+            currentTrack = remoteTrackNoFormat,
+            isRemote = true,
+        )
+        val sourceItemNoFormat = itemsNoFormat.first { it.layer == SignalLayer.SOURCE }
+        assertEquals(SignalEvidenceType.UNKNOWN, sourceItemNoFormat.evidenceType)
+        assertEquals("No declarado", sourceItemNoFormat.value)
+    }
+
+    @Test
+    fun `invalidSampleRateOrBitDepth_isUnknown_neverDefaultsTo16_44`() {
+        val zeroRateObservation = AudioSignalObservation(
+            decodedFormat = SignalFormat(codec = "PCM", bitDepth = 0, sampleRate = 0, channels = 2),
+            observedAtMs = 1000L,
+        )
+
+        val items = SignalTruthResolver.resolveProvenance(
+            observation = zeroRateObservation,
+            activeEndpoint = localEndpoint,
+            currentTrack = testTrack,
+            isRemote = false,
+        )
+
+        val decoding = items.first { it.layer == SignalLayer.DECODING }
+        // K47-03: Must NOT fabricate PCM 16/44.1 or claim OBSERVED
+        assertEquals(SignalEvidenceType.UNKNOWN, decoding.evidenceType)
+        assertEquals("No observado", decoding.value)
+        assertFalse(decoding.value.contains("16/44.1"))
+    }
+
+    @Test
+    fun `freshness_comesFromObservationTimestamp_neverInventedSystemCurrentTime`() {
+        val testTimestamp = 987654321L
+        val observation = AudioSignalObservation(
+            decodedFormat = SignalFormat(codec = "PCM", bitDepth = 24, sampleRate = 48000, channels = 2),
+            outputConfig = SignalFormat(codec = "AudioTrack", bitDepth = 24, sampleRate = 48000, channels = 2),
+            dspStatus = DspPipelineStatus(isEqActive = true),
+            observedAtMs = testTimestamp,
+        )
+
+        val items = SignalTruthResolver.resolveProvenance(
+            observation = observation,
+            activeEndpoint = localEndpoint,
+            currentTrack = testTrack,
+            isRemote = false,
+        )
+
+        val decoding = items.first { it.layer == SignalLayer.DECODING }
+        assertEquals(testTimestamp, decoding.freshnessMs)
+
+        val output = items.first { it.layer == SignalLayer.ANDROID_OUTPUT }
+        assertEquals(testTimestamp, output.freshnessMs)
+
+        // Physical device is unverified -> 0L
+        val physical = items.first { it.layer == SignalLayer.PHYSICAL_DEVICE }
+        assertEquals(0L, physical.freshnessMs)
+    }
 }

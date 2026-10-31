@@ -29,11 +29,13 @@ object SignalTruthResolver {
         val isStream = isRemote && !activeEndpoint.isLocal &&
             (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
         val endpointId = activeEndpoint.id
-        val now = System.currentTimeMillis()
+        val observationFreshness = observation.observedAtMs
 
         // 1. FUENTE
+        // K47-02: Remote playback MUST NEVER inherit observation.sourceFormat from local tracker.
+        // It must solely reflect currentTrack declared metadata or UNKNOWN ("No declarado").
         val sourceItem = if (isRemote && !isStream) {
-            val formatStr = formatSourceDescriptor(observation.sourceFormat, currentTrack)
+            val formatStr = formatTrackSourceDescriptor(currentTrack)
             if (formatStr != null) {
                 SignalProvenanceItem(
                     layer = SignalLayer.SOURCE,
@@ -41,16 +43,18 @@ object SignalTruthResolver {
                     value = formatStr,
                     evidenceType = SignalEvidenceType.DECLARED,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = observationFreshness,
+                    confidenceNote = "Metadatos declarados por la biblioteca remota",
                 )
             } else {
                 SignalProvenanceItem(
                     layer = SignalLayer.SOURCE,
                     label = "Fuente",
-                    value = "Transmisión remota",
-                    evidenceType = SignalEvidenceType.DECLARED,
+                    value = "No declarado",
+                    evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
+                    confidenceNote = "Host remoto sin metadatos de formato de audio",
                 )
             }
         } else {
@@ -62,7 +66,7 @@ object SignalTruthResolver {
                     value = formatStr,
                     evidenceType = SignalEvidenceType.DECLARED,
                     originEndpointId = if (isStream) "local_phone" else endpointId,
-                    freshnessMs = now,
+                    freshnessMs = observationFreshness,
                 )
             } else {
                 SignalProvenanceItem(
@@ -71,12 +75,13 @@ object SignalTruthResolver {
                     value = "Sin formato declarado",
                     evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
                 )
             }
         }
 
         // 2. DECODIFICACIÓN
+        // K47-03: Never default to 16/44.1 or claim OBSERVED when measurements are missing or <= 0.
         val decodingItem = when {
             isRemote && !isStream -> {
                 SignalProvenanceItem(
@@ -85,24 +90,24 @@ object SignalTruthResolver {
                     value = "No observado",
                     evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
                     confidenceNote = "Decodificación gestionada por el host remoto",
                 )
             }
-            observation.decodedFormat != null -> {
+            observation.decodedFormat != null &&
+                observation.decodedFormat!!.sampleRate > 0 &&
+                observation.decodedFormat!!.bitDepth > 0 -> {
                 val decoded = observation.decodedFormat!!
-                val bitStr = if (decoded.bitDepth > 0) "${decoded.bitDepth}" else "16"
-                val rateKhz = if (decoded.sampleRate > 0) {
-                    if (decoded.sampleRate % 1000 == 0) "${decoded.sampleRate / 1000}"
-                    else String.format(java.util.Locale.US, "%.1f", decoded.sampleRate / 1000f)
-                } else "44.1"
+                val bitStr = "${decoded.bitDepth}"
+                val rateKhz = if (decoded.sampleRate % 1000 == 0) "${decoded.sampleRate / 1000}"
+                else String.format(java.util.Locale.US, "%.1f", decoded.sampleRate / 1000f)
                 SignalProvenanceItem(
                     layer = SignalLayer.DECODING,
                     label = "Decodificación",
                     value = "PCM $bitStr/$rateKhz",
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
-                    freshnessMs = now,
+                    freshnessMs = observationFreshness,
                     confidenceNote = if (isStream) "Decodificado en teléfono para transmisión RTP" else null,
                 )
             }
@@ -113,7 +118,8 @@ object SignalTruthResolver {
                     value = "No observado",
                     evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
+                    confidenceNote = if (observation.decodedFormat != null) "Medición de decodificación incompleta o no disponible" else null,
                 )
             }
         }
@@ -127,7 +133,7 @@ object SignalTruthResolver {
                     value = "Desconocido",
                     evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
                     confidenceNote = "Sin telemetría DSP del host remoto",
                 )
             }
@@ -147,7 +153,7 @@ object SignalTruthResolver {
                     value = value,
                     evidenceType = SignalEvidenceType.CONFIGURED,
                     originEndpointId = "local_phone",
-                    freshnessMs = now,
+                    freshnessMs = observationFreshness,
                 )
             }
         }
@@ -161,7 +167,7 @@ object SignalTruthResolver {
                     value = "No observado",
                     evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
                     confidenceNote = "Audio reproducido en hardware remoto",
                 )
             }
@@ -172,7 +178,7 @@ object SignalTruthResolver {
                     value = "RTP Stream (altavoz local silenciado)",
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
-                    freshnessMs = now,
+                    freshnessMs = observationFreshness,
                 )
             }
             observation.outputConfig != null -> {
@@ -182,7 +188,7 @@ object SignalTruthResolver {
                     value = "AudioTrack",
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
-                    freshnessMs = now,
+                    freshnessMs = observationFreshness,
                 )
             }
             else -> {
@@ -192,7 +198,7 @@ object SignalTruthResolver {
                     value = "Pendiente",
                     evidenceType = SignalEvidenceType.UNKNOWN,
                     originEndpointId = endpointId,
-                    freshnessMs = now,
+                    freshnessMs = 0L,
                 )
             }
         }
@@ -204,11 +210,25 @@ object SignalTruthResolver {
             value = "No verificado",
             evidenceType = SignalEvidenceType.UNKNOWN,
             originEndpointId = endpointId,
-            freshnessMs = now,
+            freshnessMs = 0L,
             confidenceNote = "Los metadatos no certifican la salida física.",
         )
 
         return listOf(sourceItem, decodingItem, processingItem, outputItem, physicalItem)
+    }
+
+    private fun formatTrackSourceDescriptor(track: Track?): String? {
+        if (track != null && track.format.isNotBlank()) {
+            val codec = track.format.uppercase()
+            val rateStr = if (track.sampleRate > 0) {
+                val khz = if (track.sampleRate % 1000 == 0) "${track.sampleRate / 1000}"
+                else String.format(java.util.Locale.US, "%.1f", track.sampleRate / 1000f)
+                " / $khz kHz"
+            } else ""
+            val bitStr = if (track.bitrate > 0) " · ${track.bitrate} kbps" else ""
+            return "$codec$bitStr$rateStr"
+        }
+        return null
     }
 
     private fun formatSourceDescriptor(
@@ -225,16 +245,6 @@ object SignalTruthResolver {
             } else ""
             return "$codec$bitStr$rateStr"
         }
-        if (track != null && track.format.isNotBlank()) {
-            val codec = track.format.uppercase()
-            val rateStr = if (track.sampleRate > 0) {
-                val khz = if (track.sampleRate % 1000 == 0) "${track.sampleRate / 1000}"
-                else String.format(java.util.Locale.US, "%.1f", track.sampleRate / 1000f)
-                " / $khz kHz"
-            } else ""
-            val bitStr = if (track.bitrate > 0) " · ${track.bitrate} kbps" else ""
-            return "$codec$bitStr$rateStr"
-        }
-        return null
+        return formatTrackSourceDescriptor(track)
     }
 }
