@@ -82,6 +82,7 @@ import org.koin.compose.koinInject
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.UnifiedDevice
+import org.michimusic.mobile.devices.aircat.AirCatEligibilityPolicy
 import org.michimusic.mobile.playback.PlaybackEndpoint
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.sync.DeviceAction
@@ -168,14 +169,8 @@ fun DevicesScreen(
     }
     val rememberedOfflineDevices = uiState.unifiedDevices.filterNot { it in activeDevices }
 
-    // K47-05: Filter strictly eligible AirCat destinations (active, valid ID, non-stream, library/sync capable)
-    val eligibleAirCatDevices = activeDevices.filter { device ->
-        device.id.isNotBlank() &&
-            !isProvisionedMichiStream(device.deviceType) &&
-            (device.deviceType.uppercase() in listOf("SERVER", "DESKTOP", "PHONE") ||
-                device.roles.any { it.contains("LIBRARY", ignoreCase = true) || it.contains("SYNC", ignoreCase = true) } ||
-                device.features.any { it.contains("library", ignoreCase = true) || it.contains("sync", ignoreCase = true) || it.contains("aircat", ignoreCase = true) })
-    }
+    // K48-04: Filter strictly eligible AirCat destinations using AirCatEligibilityPolicy
+    val eligibleAirCatDevices = AirCatEligibilityPolicy.filterEligibleDevices(activeDevices)
 
     val onPerformDeviceAction: (UnifiedDevice, DeviceAction) -> Unit = { device, action ->
         when (action.type) {
@@ -465,7 +460,10 @@ fun DevicesScreen(
                                         showNoEligibleAirCatNotice = true
                                     }
                                     eligibleAirCatDevices.size == 1 -> {
-                                        onNavigateToSyncWizard(eligibleAirCatDevices.first().id)
+                                        val target = eligibleAirCatDevices.first()
+                                        viewModel.startAirCatTransfer(targetDeviceId = target.id) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
                                     }
                                     else -> {
                                         showAirCatTargetPicker = true
@@ -650,7 +648,9 @@ fun DevicesScreen(
                                     .border(0.75.dp, GlassBorderLow, RoundedCornerShape(12.dp))
                                     .clickable {
                                         showAirCatTargetPicker = false
-                                        onNavigateToSyncWizard(dev.id)
+                                        viewModel.startAirCatTransfer(targetDeviceId = dev.id) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
                                     }
                                     .padding(horizontal = 14.dp, vertical = 12.dp)
                                     .testTag("aircat_target_${dev.id}"),
