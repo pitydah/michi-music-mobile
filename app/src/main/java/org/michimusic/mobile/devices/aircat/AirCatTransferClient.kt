@@ -175,19 +175,85 @@ class DefaultAirCatTransferClient(
             return@withContext Result.failure(err)
         }
 
-        // 7. Validate manifest structure (track count and byte totals consistency when items provided)
+        // 7. Validate manifest structure (track count and byte totals consistency)
+        if (manifest.totalTracks < 0 || manifest.totalBytes < 0) {
+            val err = AirCatException.InvalidManifestStructure("Valores negativos en totalTracks (${manifest.totalTracks}) o totalBytes (${manifest.totalBytes})")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
+        // K48-03: Always enforce items.size == totalTracks, even when items is empty
+        if (manifest.items.size != manifest.totalTracks) {
+            val err = AirCatException.InvalidManifestStructure("Items declarados (${manifest.items.size}) no coinciden con totalTracks (${manifest.totalTracks})")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
+        }
+
         if (manifest.items.isNotEmpty()) {
-            if (manifest.items.size != manifest.totalTracks) {
-                val err = AirCatException.InvalidManifestStructure("Items declarados (${manifest.items.size}) no coinciden con totalTracks (${manifest.totalTracks})")
+            // Check for blank IDs
+            if (manifest.items.any { it.logicalTrackId.isBlank() }) {
+                val err = AirCatException.InvalidManifestStructure("El manifiesto contiene pistas con logicalTrackId vacío o en blanco")
                 emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
                 return@withContext Result.failure(err)
             }
-            val itemsSumBytes = manifest.items.sumOf { it.size }
+
+            // Check for duplicate track IDs
+            val distinctIds = manifest.items.map { it.logicalTrackId }.toSet()
+            if (distinctIds.size != manifest.items.size) {
+                val err = AirCatException.InvalidManifestStructure("El manifiesto contiene IDs de pista duplicados")
+                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                return@withContext Result.failure(err)
+            }
+
+            // Check for negative sizes or overflow in bytes sum
+            var itemsSumBytes = 0L
+            for (item in manifest.items) {
+                if (item.size < 0) {
+                    val err = AirCatException.InvalidManifestStructure("Pista '${item.logicalTrackId}' tiene tamaño negativo (${item.size})")
+                    emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                    return@withContext Result.failure(err)
+                }
+                val nextSum = itemsSumBytes + item.size
+                if (nextSum < itemsSumBytes) {
+                    val err = AirCatException.InvalidManifestStructure("Desbordamiento numérico en suma de tamaños de pista")
+                    emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                    return@withContext Result.failure(err)
+                }
+                itemsSumBytes = nextSum
+            }
+
             if (manifest.totalBytes > 0 && itemsSumBytes != manifest.totalBytes) {
                 val err = AirCatException.InvalidManifestStructure("Suma de bytes (${itemsSumBytes}B) no coincide con totalBytes (${manifest.totalBytes}B)")
                 emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
                 return@withContext Result.failure(err)
             }
+
+            // K48-02: Check SHA-256 formatting for all declared items
+            for (item in manifest.items) {
+                if (item.sha256.isNotEmpty() && !isValidSha256(item.sha256)) {
+                    val err = AirCatException.InvalidManifestStructure(
+                        "Checksum SHA-256 malformado para pista '${item.logicalTrackId}': '${item.sha256}'. Se requiere hash hexadecimal de 64 caracteres."
+                    )
+                    emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+                    return@withContext Result.failure(err)
+                }
+            }
+        } else {
+            // Legitimate 0 tracks / 0 bytes case: complete without false verification claims
+            _processedTransferIds.value = _processedTransferIds.value + intent.transferId
+            activeSessions.remove(intent.transferId)
+            emitEvent(
+                transferId = intent.transferId,
+                currentTrackIndex = 0,
+                totalTracks = 0,
+                bytesTransferred = 0L,
+                totalBytes = 0L,
+                state = AirCatTransferState.COMPLETED,
+                checksumVerified = false,
+                libraryCommitted = false,
+                onProgress = onProgress,
+            )
+            return@withContext Result.success(emptyList())
         }
 
         // 8. Transfer execution (Room-aware backup reconciliation)
@@ -199,6 +265,8 @@ class DefaultAirCatTransferClient(
         )
         val downloadedFiles = mutableListOf<File>()
         var transferredBytesAcc = 0L
+        var allItemsChecksumVerified = true
+        var allItemsLibraryCommitted = (libraryRepository != null)
 
         emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.TRANSFERRING, onProgress = onProgress)
 
@@ -248,6 +316,10 @@ class DefaultAirCatTransferClient(
                 val effectiveKey = downloadItem.effectiveTransferKey
                 val legacyKey = "${intent.sourceMichiId}:${intent.destinationLibraryId}:${item.logicalTrackId}"
 
+                if (item.sha256.isEmpty() || !isValidSha256(item.sha256)) {
+                    allItemsChecksumVerified = false
+                }
+
                 // Check if track is already completed in persistent checkpoint and file exists on disk
                 val existingCp = checkpointRepository?.getCheckpoint(effectiveKey)
                     ?: checkpointRepository?.getCheckpoint(legacyKey)
@@ -256,7 +328,8 @@ class DefaultAirCatTransferClient(
                     existingCp.remoteDeviceId == intent.sourceMichiId &&
                     existingCp.destinationLibraryId == intent.destinationLibraryId &&
                     item.size > 0 && finalCandidate.length() == item.size &&
-                    item.sha256.isNotEmpty() && verifyChecksum(finalCandidate, item.sha256)
+                    item.sha256.isNotEmpty() && isValidSha256(item.sha256) && verifyChecksum(finalCandidate, item.sha256) &&
+                    (libraryRepository == null || libraryRepository.isLocationRegistered(finalCandidate.absolutePath))
                 ) {
                     downloadedFiles.add(finalCandidate)
                     transferredBytesAcc += finalCandidate.length()
@@ -432,6 +505,8 @@ class DefaultAirCatTransferClient(
 
             _processedTransferIds.value = _processedTransferIds.value + intent.transferId
             activeSessions.remove(intent.transferId)
+            val isVerified = manifest.items.isNotEmpty() && allItemsChecksumVerified
+            val isCommitted = manifest.items.isNotEmpty() && allItemsLibraryCommitted && libraryRepository != null
             emitEvent(
                 transferId = intent.transferId,
                 currentTrackIndex = manifest.totalTracks,
@@ -439,8 +514,8 @@ class DefaultAirCatTransferClient(
                 bytesTransferred = manifest.totalBytes,
                 totalBytes = manifest.totalBytes,
                 state = AirCatTransferState.COMPLETED,
-                checksumVerified = true,
-                libraryCommitted = true,
+                checksumVerified = isVerified,
+                libraryCommitted = isCommitted,
                 onProgress = onProgress,
             )
             Result.success(downloadedFiles)
@@ -608,12 +683,18 @@ class DefaultAirCatTransferClient(
         val recoveredFiles = mutableListOf<File>()
         val totalExpectedBytes = pendingCheckpoints.sumOf { it.expectedSize }
         var bytesAccumulated = 0L
+        var allItemsChecksumVerified = true
+        var allItemsLibraryCommitted = (libraryRepository != null)
 
         pendingCheckpoints.forEachIndexed { index, cp ->
             // Re-verify peer authorization dynamically in case peer was revoked during transfer
             val currentDeviceState = pairedDeviceRegistry.getDevice(remoteDeviceId)
             if (currentDeviceState == null || currentDeviceState.isRevoked) {
                 return@withContext Result.failure(AirCatException.UnauthorizedPeer(remoteDeviceId))
+            }
+
+            if (cp.expectedSha256.isEmpty() || !isValidSha256(cp.expectedSha256)) {
+                allItemsChecksumVerified = false
             }
 
             val ext = cp.finalFilePath.substringAfterLast('.', "mp3")
@@ -749,6 +830,8 @@ class DefaultAirCatTransferClient(
             transferManager.discardBackup(finalFile)
         }
 
+        val isVerified = pendingCheckpoints.isNotEmpty() && allItemsChecksumVerified
+        val isCommitted = pendingCheckpoints.isNotEmpty() && allItemsLibraryCommitted && libraryRepository != null
         emitEvent(
             transferId = pendingCheckpoints.first().transferId,
             currentTrackIndex = pendingCheckpoints.size,
@@ -756,8 +839,8 @@ class DefaultAirCatTransferClient(
             bytesTransferred = totalExpectedBytes,
             totalBytes = totalExpectedBytes,
             state = AirCatTransferState.COMPLETED,
-            checksumVerified = true,
-            libraryCommitted = true,
+            checksumVerified = isVerified,
+            libraryCommitted = isCommitted,
             onProgress = onProgress,
         )
 
@@ -812,6 +895,15 @@ class DefaultAirCatTransferClient(
             digest.digest().joinToString("") { "%02x".format(it) }
         } catch (_: Exception) {
             ""
+        }
+    }
+
+    companion object {
+        fun isValidSha256(hash: String?): Boolean {
+            if (hash.isNullOrEmpty() || hash.length != 64) return false
+            return hash.all { c ->
+                (c in '0'..'9') || (c in 'a'..'f') || (c in 'A'..'F')
+            }
         }
     }
 }

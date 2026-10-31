@@ -303,10 +303,10 @@ class LinkTransferManager(
 
             // SHA-256 Checksum check
             if (item.checksum.isNotEmpty()) {
-                val matches = verifyChecksum(tempFile, item.checksum)
+                val actualHex = calculateSha256(tempFile)
+                val matches = actualHex.equals(item.checksum, ignoreCase = true)
                 if (!matches) {
                     tempFile.delete()
-                    val actualHex = calculateSha256(tempFile)
                     val err = TransferChecksumMismatchException(item.trackId, item.checksum, actualHex)
                     _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
                     updateCheckpoint(transferKey) { it?.copy(state = TransferState.FAILED) }
