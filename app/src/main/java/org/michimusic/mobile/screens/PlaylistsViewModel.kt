@@ -201,6 +201,9 @@ class PlaylistsViewModel(
                             is org.michimusic.mobile.playback.QueuePlaybackOutcome.Disconnected -> {
                                 onResult(PlayPlaylistResult.Error(outcome.reason))
                             }
+                            is org.michimusic.mobile.playback.QueuePlaybackOutcome.Obsolete -> {
+                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                            }
                         }
                     }
                 } else {

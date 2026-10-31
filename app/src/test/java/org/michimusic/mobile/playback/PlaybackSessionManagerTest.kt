@@ -27,6 +27,8 @@ import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkDiscovery
 import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.dto.AudioCapabilitiesDto
+import org.michimusic.link.dto.PlaybackStateDto
+import org.michimusic.link.dto.QueueTrackDto
 import org.michimusic.link.dto.QueueTransferResponse
 import org.michimusic.link.dto.ReceiverSessionCreateResponse
 import org.michimusic.link.dto.ReceiverSessionEffectiveDto
@@ -1438,6 +1440,215 @@ class PlaybackSessionManagerTest {
         assertFalse("Handoff should fail when stream pause fails", callbackSuccess)
         verify(exactly = 0) { audioController.play() }
         assertEquals(EndpointType.STREAM_RECEIVER, manager.sessionState.value.activeEndpoint.type)
+    }
+
+    @Test
+    fun requestQueuePlayback_whenHostStateIsPaused_returnsAcceptedNotConfirmed() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+        val trackDto = org.michimusic.link.dto.QueueTrackDto(trackId = "srv_1", title = "Song 1", artist = "Artist 1", duration = 180_000L)
+        val playStateDto = PlaybackStateDto(
+            playing = false, // Host reports paused!
+            queueIndex = 0,
+            position = 0L,
+            duration = 180_000L
+        )
+        val queueDto = org.michimusic.link.dto.QueueDto(tracks = listOf(trackDto), currentIndex = 0)
+
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val outcome = manager.requestQueuePlayback(listOf(track), 0)
+
+        assertTrue("Expected Accepted when host is paused, but got $outcome", outcome is QueuePlaybackOutcome.Accepted)
+        val accepted = outcome as QueuePlaybackOutcome.Accepted
+        assertTrue("Message should explain paused state: ${accepted.message}", accepted.message.contains("pausa", ignoreCase = true))
+    }
+
+    @Test
+    fun requestQueuePlayback_whenQueueMismatch_returnsAcceptedNotConfirmed() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+        val track2 = Track(id = "srv_2", title = "Song 2", artist = "Artist 1", filepath = "http://srv/2", source = TrackSource.STREAMING)
+        val playStateDto = PlaybackStateDto(
+            playing = true,
+            queueIndex = 0,
+            position = 0L,
+            duration = 180_000L
+        )
+        // Host queue returns only 1 track when 2 were transferred
+        val queueDto = org.michimusic.link.dto.QueueDto(tracks = listOf(org.michimusic.link.dto.QueueTrackDto(trackId = "srv_1", title = "Song 1")), currentIndex = 0)
+
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val outcome = manager.requestQueuePlayback(listOf(track1, track2), 0)
+
+        assertTrue("Expected Accepted on queue mismatch, but got $outcome", outcome is QueuePlaybackOutcome.Accepted)
+        val accepted = outcome as QueuePlaybackOutcome.Accepted
+        assertTrue("Message should explain queue length mismatch: ${accepted.message}", accepted.message.contains("longitud de cola no coincide", ignoreCase = true))
+    }
+
+    @Test
+    fun requestQueuePlayback_whenHostPlayingAndQueueMatches_returnsConfirmed() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+        val trackDto = org.michimusic.link.dto.QueueTrackDto(trackId = "srv_1", title = "Song 1", artist = "Artist 1", duration = 180_000L)
+        val playStateDto = PlaybackStateDto(
+            playing = true,
+            queueIndex = 0,
+            position = 0L,
+            duration = 180_000L
+        )
+        val queueDto = org.michimusic.link.dto.QueueDto(tracks = listOf(trackDto), currentIndex = 0)
+
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val outcome = manager.requestQueuePlayback(listOf(track1), 0)
+
+        assertTrue("Expected Confirmed, but got $outcome", outcome is QueuePlaybackOutcome.Confirmed)
+        assertEquals(targetEp.id, outcome.endpointId)
+        assertEquals(manager.currentSessionEpoch, outcome.epoch)
+    }
+
+    @Test
+    fun requestQueuePlayback_whenEndpointSwitchedDuringTransfer_abortsAndReturnsObsolete() = kotlinx.coroutines.test.runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        // When transferQueue is executed, simulate user immediately switching to local phone
+        coEvery { linkClient.transferQueue(any()) } answers {
+            manager.selectLocalEndpoint()
+            Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        }
+
+        val outcome = manager.requestQueuePlayback(listOf(track), 0)
+
+        assertTrue("Expected Obsolete when endpoint switched during transfer, got $outcome", outcome is QueuePlaybackOutcome.Obsolete)
+        coVerify(exactly = 0) { linkClient.sendPlaybackCommand("play") }
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+    }
+
+    @Test
+    fun sessionEpoch_incrementsOnTransitions() {
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = mockk(relaxed = true)
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val ep1 = manager.currentSessionEpoch
+        manager.attachRemote(PlaybackEndpoint("remote_1", "Remote", EndpointType.DESKTOP_PLAYER, isLocal = false)) { _, _ -> }
+        val ep2 = manager.currentSessionEpoch
+        assertTrue(ep2 > ep1)
+
+        manager.selectLocalEndpoint()
+        val ep3 = manager.currentSessionEpoch
+        assertTrue(ep3 > ep2)
     }
 }
 

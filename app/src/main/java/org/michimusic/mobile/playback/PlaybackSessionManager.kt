@@ -32,6 +32,11 @@ class PlaybackSessionManager(
     private val _sessionState = MutableStateFlow(PlaybackSessionState())
     val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
 
+    private val _sessionEpoch = java.util.concurrent.atomic.AtomicLong(1L)
+    val currentSessionEpoch: Long get() = _sessionEpoch.get()
+
+    fun nextSessionEpoch(): Long = _sessionEpoch.incrementAndGet()
+
     private var eventClient: org.michimusic.link.EventClient? = null
     private var eventJob: Job? = null
     private var remotePollingJob: Job? = null
@@ -230,15 +235,20 @@ class PlaybackSessionManager(
     }
 
     private suspend fun refreshRemotePlayback(client: LinkClient, peer: DiscoveredPeer, deviceId: String) {
+        val opEpoch = _sessionEpoch.get()
         client.getPlaybackState().onSuccess { stateDto ->
-            if (isRemoteSelected) {
+            if (isRemoteSelected && opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
                 client.getQueue().onSuccess { queueDto ->
-                    withContext(Dispatchers.Main) {
-                        applyRemoteState(peer, stateDto, queueDto, deviceId)
+                    if (opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
+                        withContext(Dispatchers.Main) {
+                            applyRemoteState(peer, stateDto, queueDto, deviceId)
+                        }
                     }
                 }.onFailure {
-                    withContext(Dispatchers.Main) {
-                        applyRemoteState(peer, stateDto, null, deviceId)
+                    if (opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
+                        withContext(Dispatchers.Main) {
+                            applyRemoteState(peer, stateDto, null, deviceId)
+                        }
                     }
                 }
             }
@@ -246,11 +256,14 @@ class PlaybackSessionManager(
     }
 
     private suspend fun refreshRemoteQueue(client: LinkClient, peer: DiscoveredPeer, deviceId: String) {
+        val opEpoch = _sessionEpoch.get()
         client.getQueue().onSuccess { queueDto ->
-            if (isRemoteSelected) {
+            if (isRemoteSelected && opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
                 client.getPlaybackState().onSuccess { stateDto ->
-                    withContext(Dispatchers.Main) {
-                        applyRemoteState(peer, stateDto, queueDto, deviceId)
+                    if (opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
+                        withContext(Dispatchers.Main) {
+                            applyRemoteState(peer, stateDto, queueDto, deviceId)
+                        }
                     }
                 }
             }
@@ -338,6 +351,7 @@ class PlaybackSessionManager(
         message: String? = null,
         resumePlayback: Boolean = false
     ) {
+        nextSessionEpoch()
         val wasRemote = isRemoteSelected
         isRemoteSelected = false
         stopRemoteSync()
@@ -402,6 +416,7 @@ class PlaybackSessionManager(
             return
         }
 
+        nextSessionEpoch()
         isRemoteSelected = true
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = target,
@@ -411,6 +426,7 @@ class PlaybackSessionManager(
     }
 
     fun handoffTo(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
+        nextSessionEpoch()
         if (target.isLocal) {
             // Handoff Remote -> Local (K46D-32)
             val prevEndpoint = _sessionState.value.activeEndpoint
@@ -754,8 +770,10 @@ class PlaybackSessionManager(
                     }
                 }
             } else {
+                val opEpoch = _sessionEpoch.get()
                 scope.launch {
                     val result = client?.sendPlaybackCommand("play")
+                    if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) return@launch
                     if (result != null && result.isSuccess) {
                         _sessionState.value = _sessionState.value.copy(isPlaying = true, statusMessage = null)
                     } else {
@@ -790,8 +808,10 @@ class PlaybackSessionManager(
                     }
                 }
             } else {
+                val opEpoch = _sessionEpoch.get()
                 scope.launch {
                     val result = client?.sendPlaybackCommand("pause")
+                    if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) return@launch
                     if (result != null && result.isSuccess) {
                         _sessionState.value = _sessionState.value.copy(isPlaying = false, statusMessage = null)
                     } else {
@@ -827,8 +847,10 @@ class PlaybackSessionManager(
                     }
                 }
             } else {
+                val opEpoch = _sessionEpoch.get()
                 scope.launch {
                     val result = client?.sendPlaybackCommand("stop")
+                    if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) return@launch
                     if (result != null && result.isSuccess) {
                         _sessionState.value = _sessionState.value.copy(isPlaying = false, position = 0L, statusMessage = null)
                     } else {
@@ -850,7 +872,12 @@ class PlaybackSessionManager(
 
     fun skipNext() {
         if (isRemotePlaybackHost) {
-            scope.launch { connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("next") }
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
+            scope.launch {
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
+                connectionManager.getClient(targetEndpoint.id)?.sendPlaybackCommand("next")
+            }
         } else {
             audioController?.skipNext()
         }
@@ -858,7 +885,12 @@ class PlaybackSessionManager(
 
     fun skipPrevious() {
         if (isRemotePlaybackHost) {
-            scope.launch { connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendPlaybackCommand("previous") }
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
+            scope.launch {
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
+                connectionManager.getClient(targetEndpoint.id)?.sendPlaybackCommand("previous")
+            }
         } else {
             audioController?.skipPrevious()
         }
@@ -866,7 +898,12 @@ class PlaybackSessionManager(
 
     fun seekTo(positionMs: Long) {
         if (isRemotePlaybackHost) {
-            scope.launch { connectionManager.getClient(_sessionState.value.activeEndpoint.id)?.sendSeek(positionMs) }
+            val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
+            scope.launch {
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
+                connectionManager.getClient(targetEndpoint.id)?.sendSeek(positionMs)
+            }
         } else {
             audioController?.seekTo(positionMs)
         }
@@ -875,9 +912,11 @@ class PlaybackSessionManager(
     fun skipToQueueIndex(index: Int) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             scope.launch {
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 connectionManager.getClient(targetEndpoint.id)?.queueJump(index)
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(queueIndex = index)
                 }
             }
@@ -912,12 +951,14 @@ class PlaybackSessionManager(
     fun removeFromQueue(index: Int) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val currentQ = _sessionState.value.queue
             if (index in currentQ.indices) {
                 val item = currentQ[index]
                 val cmd = RemoteCommandRecord(
                     endpointId = targetEndpoint.id,
+                    epoch = opEpoch,
                     action = "remove_queue_item",
                     param = item.id,
                     status = RemoteCommandStatus.PENDING,
@@ -925,11 +966,12 @@ class PlaybackSessionManager(
                 _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
                 scope.launch {
                     val result = client?.removeQueueItem(item.id)
+                    if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                     val outcome = if (result != null && result.isSuccess) {
                         var queueSynced = false
                         var queueErr = ""
                         client.getQueue().onSuccess { qDto ->
-                            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                            if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                                 val tracks = qDto.tracks.map { it.toDomainTrack() }
                                 _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                             }
@@ -938,15 +980,15 @@ class PlaybackSessionManager(
                             queueErr = err.message ?: "Fallo al sincronizar cola remota"
                         }
                         if (queueSynced) {
-                            cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                            cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                         } else {
-                            cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
+                            cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                         }
                     } else {
                         val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                        cmd.copy(status = failStatus, resultMessage = failMsg)
+                        cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                     }
-                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                         _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                     }
                 }
@@ -959,9 +1001,11 @@ class PlaybackSessionManager(
     fun playNow(track: Track) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "play_track",
                 param = track.id,
                 status = RemoteCommandStatus.PENDING,
@@ -969,6 +1013,7 @@ class PlaybackSessionManager(
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.sendPlaybackCommand("play_track", track.id)
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
                     var synced = false
                     var syncErr = ""
@@ -977,7 +1022,7 @@ class PlaybackSessionManager(
                     if (stRes.isSuccess && qRes.isSuccess) {
                         val st = stRes.getOrThrow()
                         val q = qRes.getOrThrow()
-                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                             val tracks = q.tracks.map { it.toDomainTrack() }
                             val current = tracks.getOrNull(st.queueIndex)
                             _sessionState.value = _sessionState.value.copy(
@@ -996,15 +1041,15 @@ class PlaybackSessionManager(
                             ?: "Fallo al sincronizar estado y cola remotos"
                     }
                     if (synced) {
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($syncErr)")
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($syncErr)")
                     }
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
@@ -1048,6 +1093,7 @@ class PlaybackSessionManager(
         startIndex: Int = 0
     ): QueuePlaybackOutcome {
         val opId = java.util.UUID.randomUUID().toString()
+        val opEpoch = _sessionEpoch.get()
         val validIndex = startIndex.coerceIn(0, (tracks.size - 1).coerceAtLeast(0))
         val activeEp = _sessionState.value.activeEndpoint
 
@@ -1057,6 +1103,7 @@ class PlaybackSessionManager(
                 endpointId = activeEp.id,
                 requestedTrackCount = 0,
                 requestedIndex = startIndex,
+                epoch = opEpoch,
                 reason = "La lista de reproducción está vacía"
             )
         }
@@ -1071,6 +1118,7 @@ class PlaybackSessionManager(
                 endpointId = activeEp.id,
                 requestedTrackCount = tracks.size,
                 requestedIndex = validIndex,
+                epoch = opEpoch,
                 message = "Reproduciendo cola en ${activeEp.name} vía Michi Stream"
             )
         }
@@ -1082,6 +1130,7 @@ class PlaybackSessionManager(
                 val cmd = RemoteCommandRecord(
                     commandId = opId,
                     endpointId = activeEp.id,
+                    epoch = opEpoch,
                     action = "play_queue",
                     param = selectedTrack.id,
                     status = RemoteCommandStatus.DISCONNECTED,
@@ -1096,6 +1145,7 @@ class PlaybackSessionManager(
                     endpointId = activeEp.id,
                     requestedTrackCount = tracks.size,
                     requestedIndex = validIndex,
+                    epoch = opEpoch,
                     reason = "No hay conexión activa con ${activeEp.name}"
                 )
             }
@@ -1118,6 +1168,7 @@ class PlaybackSessionManager(
                     endpointId = activeEp.id,
                     requestedTrackCount = tracks.size,
                     requestedIndex = validIndex,
+                    epoch = opEpoch,
                     reason = reasonMsg
                 )
             }
@@ -1126,6 +1177,7 @@ class PlaybackSessionManager(
             val cmd = RemoteCommandRecord(
                 commandId = opId,
                 endpointId = activeEp.id,
+                epoch = opEpoch,
                 action = "play_queue",
                 param = selectedTrack.id,
                 status = RemoteCommandStatus.PENDING,
@@ -1139,15 +1191,42 @@ class PlaybackSessionManager(
                 source = "mobile_queue"
             )
             val transferRes = client.transferQueue(req)
+
+            // Epoch guard after transferQueue
+            if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) {
+                return QueuePlaybackOutcome.Obsolete(
+                    operationId = opId,
+                    endpointId = activeEp.id,
+                    requestedTrackCount = tracks.size,
+                    requestedIndex = validIndex,
+                    epoch = opEpoch,
+                    reason = "Sesión invalidada durante la transferencia de cola"
+                )
+            }
+
             if (transferRes.isSuccess) {
                 val playRes = client.sendPlaybackCommand("play")
+
+                // Epoch guard after play command
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) {
+                    return QueuePlaybackOutcome.Obsolete(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        epoch = opEpoch,
+                        reason = "Sesión invalidada durante la orden play"
+                    )
+                }
+
                 if (playRes.isFailure) {
                     val (playFailStatus, playFailMsg) = resolveFailureStatus(client, playRes)
                     val outcome = cmd.copy(
                         status = playFailStatus,
+                        epoch = opEpoch,
                         resultMessage = "Cola transferida pero falló orden play: $playFailMsg"
                     )
-                    if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+                    if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
                         _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                     }
                     return QueuePlaybackOutcome.Failed(
@@ -1155,17 +1234,33 @@ class PlaybackSessionManager(
                         endpointId = activeEp.id,
                         requestedTrackCount = tracks.size,
                         requestedIndex = validIndex,
+                        epoch = opEpoch,
                         error = "Cola transferida pero falló orden play en ${activeEp.name}: $playFailMsg"
                     )
                 }
 
-                var synced = false
                 val stRes = client.getPlaybackState()
                 val qRes = client.getQueue()
+
+                // Epoch guard after query state
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != activeEp.id) {
+                    return QueuePlaybackOutcome.Obsolete(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        epoch = opEpoch,
+                        reason = "Sesión invalidada durante la confirmación de estado"
+                    )
+                }
+
+                var isFullyConfirmed = false
+                var verificationNote = ""
+
                 if (stRes.isSuccess && qRes.isSuccess) {
                     val st = stRes.getOrThrow()
                     val q = qRes.getOrThrow()
-                    if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+                    if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
                         val qTracks = q.tracks.map { it.toDomainTrack() }
                         val current = qTracks.getOrNull(st.queueIndex)
                         _sessionState.value = _sessionState.value.copy(
@@ -1177,22 +1272,46 @@ class PlaybackSessionManager(
                             queueIndex = st.queueIndex
                         )
                     }
-                    synced = true
-                }
-                val outcome = if (synced) {
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+
+                    val isPlaying = st.playing
+                    val queueSizeMatches = q.tracks.size >= tracks.size
+                    val trackMatches = (q.tracks.getOrNull(st.queueIndex)?.trackId == selectedTrack.id) ||
+                                       (st.queueIndex == validIndex)
+
+                    if (isPlaying && queueSizeMatches && trackMatches) {
+                        isFullyConfirmed = true
+                    } else {
+                        verificationNote = when {
+                            !isPlaying -> "reproductor en pausa o buffering en ${activeEp.name}"
+                            !queueSizeMatches -> "longitud de cola no coincide (${q.tracks.size}/${tracks.size})"
+                            else -> "pista activa no alineada en ${activeEp.name}"
+                        }
+                    }
                 } else {
-                    cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Cola transferida; sincronización de estado pendiente")
+                    verificationNote = "sincronización de estado pendiente"
                 }
-                if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+
+                val outcome = if (isFullyConfirmed) {
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                } else {
+                    cmd.copy(
+                        status = RemoteCommandStatus.ACCEPTED,
+                        epoch = opEpoch,
+                        resultMessage = "Cola transferida; $verificationNote"
+                    )
+                }
+
+                if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
-                return if (synced) {
+
+                return if (isFullyConfirmed) {
                     QueuePlaybackOutcome.Confirmed(
                         operationId = opId,
                         endpointId = activeEp.id,
                         requestedTrackCount = tracks.size,
                         requestedIndex = validIndex,
+                        epoch = opEpoch,
                         message = "Cola completa confirmada en ${activeEp.name}"
                     )
                 } else {
@@ -1201,14 +1320,15 @@ class PlaybackSessionManager(
                         endpointId = activeEp.id,
                         requestedTrackCount = tracks.size,
                         requestedIndex = validIndex,
-                        message = "Cola transferida a ${activeEp.name}"
+                        epoch = opEpoch,
+                        message = "Cola transferida a ${activeEp.name}; $verificationNote"
                     )
                 }
             } else {
                 // Honest error reporting: do NOT secretly fall back to play_track (K46D-39)
                 val (failStatus, failMsg) = resolveFailureStatus(client, transferRes)
-                val outcome = cmd.copy(status = failStatus, resultMessage = failMsg)
-                if (_sessionState.value.activeEndpoint.id == activeEp.id) {
+                val outcome = cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
+                if (_sessionState.value.activeEndpoint.id == activeEp.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
                 return when (failStatus) {
@@ -1217,6 +1337,7 @@ class PlaybackSessionManager(
                         endpointId = activeEp.id,
                         requestedTrackCount = tracks.size,
                         requestedIndex = validIndex,
+                        epoch = opEpoch,
                         reason = failMsg
                     )
                     RemoteCommandStatus.REJECTED -> QueuePlaybackOutcome.Rejected(
@@ -1224,6 +1345,7 @@ class PlaybackSessionManager(
                         endpointId = activeEp.id,
                         requestedTrackCount = tracks.size,
                         requestedIndex = validIndex,
+                        epoch = opEpoch,
                         reason = failMsg
                     )
                     else -> QueuePlaybackOutcome.Failed(
@@ -1231,6 +1353,7 @@ class PlaybackSessionManager(
                         endpointId = activeEp.id,
                         requestedTrackCount = tracks.size,
                         requestedIndex = validIndex,
+                        epoch = opEpoch,
                         error = failMsg
                     )
                 }
@@ -1244,6 +1367,7 @@ class PlaybackSessionManager(
             endpointId = PlaybackEndpoint.LocalPhone.id,
             requestedTrackCount = tracks.size,
             requestedIndex = validIndex,
+            epoch = opEpoch,
             message = "Reproduciendo localmente"
         )
     }
@@ -1251,9 +1375,11 @@ class PlaybackSessionManager(
     fun playNext(track: Track) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "play_next",
                 param = track.id,
                 status = RemoteCommandStatus.PENDING,
@@ -1261,11 +1387,12 @@ class PlaybackSessionManager(
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.sendPlaybackCommand("play_next", track.id)
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
                     var queueSynced = false
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
-                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                             val tracks = qDto.tracks.map { it.toDomainTrack() }
                             _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                         }
@@ -1274,15 +1401,15 @@ class PlaybackSessionManager(
                         queueErr = err.message ?: "Fallo al sincronizar cola remota"
                     }
                     if (queueSynced) {
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
@@ -1294,9 +1421,11 @@ class PlaybackSessionManager(
     fun addToQueue(track: Track) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "add_to_queue",
                 param = track.id,
                 status = RemoteCommandStatus.PENDING,
@@ -1304,11 +1433,12 @@ class PlaybackSessionManager(
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.sendPlaybackCommand("add_to_queue", track.id)
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
                     var queueSynced = false
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
-                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                             val tracks = qDto.tracks.map { it.toDomainTrack() }
                             _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                         }
@@ -1317,15 +1447,15 @@ class PlaybackSessionManager(
                         queueErr = err.message ?: "Fallo al sincronizar cola remota"
                     }
                     if (queueSynced) {
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
@@ -1337,9 +1467,11 @@ class PlaybackSessionManager(
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "reorder_queue",
                 param = "$fromIndex->$toIndex",
                 status = RemoteCommandStatus.PENDING,
@@ -1347,11 +1479,12 @@ class PlaybackSessionManager(
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.reorderQueue(org.michimusic.link.dto.QueueReorderRequest(fromIndex = fromIndex, toIndex = toIndex))
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
                     var queueSynced = false
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
-                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                        if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                             val tracks = qDto.tracks.map { it.toDomainTrack() }
                             _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                         }
@@ -1360,15 +1493,15 @@ class PlaybackSessionManager(
                         queueErr = err.message ?: "Fallo al sincronizar cola remota"
                     }
                     if (queueSynced) {
-                        cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                        cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                     } else {
-                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
+                        cmd.copy(status = RemoteCommandStatus.ACCEPTED, epoch = opEpoch, resultMessage = "Aceptado por el servidor; sincronización de estado pendiente ($queueErr)")
                     }
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
@@ -1380,25 +1513,28 @@ class PlaybackSessionManager(
     fun clearQueue() {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "clear_queue",
                 status = RemoteCommandStatus.PENDING,
             )
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.sendPlaybackCommand("clear_queue")
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
-                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                         _sessionState.value = _sessionState.value.copy(queue = emptyList(), queueIndex = -1)
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
@@ -1410,10 +1546,12 @@ class PlaybackSessionManager(
     fun setRepeatMode(mode: Int) {
         if (_sessionState.value.isRemoteActive) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val repeatStr = when (mode) { 1 -> "one"; 2 -> "all"; else -> "off" }
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "set_repeat_mode",
                 param = repeatStr,
                 status = RemoteCommandStatus.PENDING,
@@ -1421,16 +1559,17 @@ class PlaybackSessionManager(
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.setQueueRepeatMode(repeatStr)
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
-                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                         _sessionState.value = _sessionState.value.copy(repeatMode = mode)
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
@@ -1453,9 +1592,11 @@ class PlaybackSessionManager(
     fun setShuffleMode(mode: Int) {
         if (_sessionState.value.isRemoteActive) {
             val targetEndpoint = _sessionState.value.activeEndpoint
+            val opEpoch = _sessionEpoch.get()
             val client = connectionManager.getClient(targetEndpoint.id)
             val cmd = RemoteCommandRecord(
                 endpointId = targetEndpoint.id,
+                epoch = opEpoch,
                 action = "set_shuffle_mode",
                 param = mode.toString(),
                 status = RemoteCommandStatus.PENDING,
@@ -1463,16 +1604,17 @@ class PlaybackSessionManager(
             _sessionState.value = _sessionState.value.copy(lastRemoteCommand = cmd)
             scope.launch {
                 val result = client?.setQueueShuffle(mode == 1)
+                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
                 val outcome = if (result != null && result.isSuccess) {
-                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                    if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                         _sessionState.value = _sessionState.value.copy(shuffleMode = mode)
                     }
-                    cmd.copy(status = RemoteCommandStatus.CONFIRMED)
+                    cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
                 } else {
                     val (failStatus, failMsg) = resolveFailureStatus(client, result)
-                    cmd.copy(status = failStatus, resultMessage = failMsg)
+                    cmd.copy(status = failStatus, epoch = opEpoch, resultMessage = failMsg)
                 }
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id) {
+                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
                     _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
