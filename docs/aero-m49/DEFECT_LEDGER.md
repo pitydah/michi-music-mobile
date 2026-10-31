@@ -139,7 +139,7 @@
   Premature evaluation of storage capacity before syntactic and bounds validation of the manifest.
 * **Resolution:**
   - Re-ordered validation pipeline: `manifest.totalBytes < 0 || totalTracks < 0` is checked first.
-  - Replaced arithmetic addition with `Math.addExact(manifest.totalBytes, safetyMargin)`, catching `ArithmeticException` to reject overflow with `InvalidManifestStructure`.
+  - Implemented explicit bounds check `if (manifest.totalBytes > Long.MAX_VALUE - safetyMargin)` in addition to `Math.addExact(manifest.totalBytes, safetyMargin)`, catching `ArithmeticException` to reject overflow with `InvalidManifestStructure`.
   - Queried available storage only after arithmetic overflow validation.
 * **Files Modified:**
   - `app/src/main/java/org/michimusic/mobile/devices/aircat/AirCatTransferClient.kt`
@@ -165,15 +165,19 @@
 
 ---
 
-### K49-03: Remote Queue Interactive Preflight Authorization
+### K49-03: Remote Queue Interactive Preflight Authorization & Ticket Concurrency Gate
 
 * **Severity:** P1 (CRITICAL)
 * **Symptom:**
-  Remote queue replacement occurred destructively without pre-dispatch interactive authorization. While `RemoteQueueConfirmation` verified queue state after dispatch, no preflight gate existed to prevent overwriting active queues.
+  Remote queue replacement occurred destructively without pre-dispatch interactive authorization. While `RemoteQueueConfirmation` verified queue state after dispatch, no preflight gate existed to prevent overwriting active queues or handling race conditions when remote queues drifted during prompt presentation.
 * **Root Cause:**
   Missing interactive preflight policy and lack of pending confirmation state in `PlaybackSessionManager` connected to the UI.
 * **Resolution:**
   - Created domain policy `RemoteQueuePreflightPolicy` in `RemoteQueueAuthorization.kt`.
+  - Introduced `RemoteQueueAuthorizationTicket` with UUID, session epoch, snapshot track count, fingerprint, and 60-second expiration.
+  - Queried fresh remote playback state and queue directly from host before issuing confirmation tickets.
+  - Added race condition and queue drift protection: if host queue changes while confirmation dialog is open, destructive `REPLACE` is cancelled to prevent clobbering concurrent user actions.
+  - Ensured `APPEND` fetches fresh host queue tracks directly, preserving current host index and playback position.
   - Connected `pendingQueueConfirmation: StateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?>` to `PlaybackSessionManager.kt`.
   - Integrated `RemoteQueueConfirmationDialog` in `MichiNavHost.kt` providing user choices: "Reemplazar cola" (`REPLACE`), "Añadir al final" (`APPEND`), and "Cancelar" (`CANCEL`).
   - Implemented preflight resolution handlers in `PlaybackSessionManager`: `resolvePendingQueueConfirmation(action)` and `dismissPendingQueueConfirmation()`.
@@ -184,7 +188,7 @@
   - `app/src/main/java/org/michimusic/mobile/ui/components/DialogComponents.kt`
   - `app/src/main/java/org/michimusic/mobile/navigation/MichiNavHost.kt`
 * **Test Verification:**
-  - `app/src/test/java/org/michimusic/mobile/playback/RemoteQueueAuthorizationTest.kt` (4 tests)
+  - `app/src/test/java/org/michimusic/mobile/playback/RemoteQueueAuthorizationTest.kt` (9 tests)
   - `app/src/test/java/org/michimusic/mobile/playback/PlaybackSessionManagerTest.kt` (33 tests)
 
 ---

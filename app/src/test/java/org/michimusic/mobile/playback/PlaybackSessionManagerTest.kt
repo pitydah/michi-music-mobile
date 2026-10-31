@@ -1167,7 +1167,7 @@ class PlaybackSessionManagerTest {
             Track("srv_2", "Song 2", "Artist", source = TrackSource.STREAMING)
         )
 
-        manager.playQueue(remoteTracks, 1)
+        manager.playQueue(remoteTracks, 1, confirmedAction = RemoteQueueAction.REPLACE)
         testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 1) {
@@ -1482,7 +1482,7 @@ class PlaybackSessionManagerTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        val outcome = manager.requestQueuePlayback(listOf(track), 0)
+        val outcome = manager.requestQueuePlayback(listOf(track), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         assertTrue("Expected Accepted when host is paused, but got $outcome", outcome is QueuePlaybackOutcome.Accepted)
         val accepted = outcome as QueuePlaybackOutcome.Accepted
@@ -1530,7 +1530,7 @@ class PlaybackSessionManagerTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        val outcome = manager.requestQueuePlayback(listOf(track1, track2), 0)
+        val outcome = manager.requestQueuePlayback(listOf(track1, track2), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         assertTrue("Expected Accepted on queue mismatch, but got $outcome", outcome is QueuePlaybackOutcome.Accepted)
         val accepted = outcome as QueuePlaybackOutcome.Accepted
@@ -1577,7 +1577,7 @@ class PlaybackSessionManagerTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        val outcome = manager.requestQueuePlayback(listOf(track1), 0)
+        val outcome = manager.requestQueuePlayback(listOf(track1), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         assertTrue("Expected Confirmed, but got $outcome", outcome is QueuePlaybackOutcome.Confirmed)
         assertEquals(targetEp.id, outcome.endpointId)
@@ -1625,7 +1625,7 @@ class PlaybackSessionManagerTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        val outcome = manager.requestQueuePlayback(listOf(track1), 0)
+        val outcome = manager.requestQueuePlayback(listOf(track1), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         assertTrue("Expected Accepted when trackId mismatches, but got $outcome", outcome is QueuePlaybackOutcome.Accepted)
         val accepted = outcome as QueuePlaybackOutcome.Accepted
@@ -1739,7 +1739,7 @@ class PlaybackSessionManagerTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        val outcome = manager.requestQueuePlayback(listOf(track1), 0)
+        val outcome = manager.requestQueuePlayback(listOf(track1), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         // K47-01: Must NOT be Confirmed when remote queue has extra tracks! Must be Accepted.
         assertTrue("Expected Accepted (not Confirmed) due to extra tracks, got $outcome", outcome is QueuePlaybackOutcome.Accepted)
@@ -1785,7 +1785,7 @@ class PlaybackSessionManagerTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        val outcome = manager.requestQueuePlayback(listOf(track1, track2), 0)
+        val outcome = manager.requestQueuePlayback(listOf(track1, track2), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         // K47-01: Must NOT be Confirmed when remote queue is permuted!
         assertTrue("Expected Accepted (not Confirmed) due to permuted order, got $outcome", outcome is QueuePlaybackOutcome.Accepted)
@@ -1830,12 +1830,12 @@ class PlaybackSessionManagerTest {
         coEvery { linkClient.transferQueue(any()) } coAnswers {
             if (preempted.compareAndSet(false, true)) {
                 // New command starts immediately
-                manager.requestQueuePlayback(listOf(track2), 0)
+                manager.requestQueuePlayback(listOf(track2), 0, confirmedAction = RemoteQueueAction.REPLACE)
             }
             Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
         }
 
-        val outcome1 = manager.requestQueuePlayback(listOf(track1), 0)
+        val outcome1 = manager.requestQueuePlayback(listOf(track1), 0, confirmedAction = RemoteQueueAction.REPLACE)
 
         // K47-06: Preempted operation 1 must be Obsolete
         assertTrue("Expected Obsolete when command 1 was preempted, got $outcome1", outcome1 is QueuePlaybackOutcome.Obsolete)

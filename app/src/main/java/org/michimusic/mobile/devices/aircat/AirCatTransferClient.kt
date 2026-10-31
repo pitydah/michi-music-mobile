@@ -173,6 +173,25 @@ class DefaultAirCatTransferClient(
             return@withContext Result.failure(err)
         }
 
+        // 7. Legitimate 0 tracks / 0 bytes empty transfer (K49-02, K49B-06):
+        // Complete immediately without requiring 100 MB storage safety margin.
+        if (manifest.totalTracks == 0 && manifest.totalBytes == 0L && manifest.items.isEmpty()) {
+            _processedTransferIds.value = _processedTransferIds.value + intent.transferId
+            activeSessions.remove(intent.transferId)
+            emitEvent(
+                transferId = intent.transferId,
+                currentTrackIndex = 0,
+                totalTracks = 0,
+                bytesTransferred = 0L,
+                totalBytes = 0L,
+                state = AirCatTransferState.COMPLETED,
+                checksumVerified = false,
+                libraryCommitted = false,
+                onProgress = onProgress,
+            )
+            return@withContext Result.success(emptyList())
+        }
+
         val safetyMargin = 100L * 1024 * 1024
         val requiredBytes = try {
             Math.addExact(manifest.totalBytes, safetyMargin)
@@ -188,29 +207,11 @@ class DefaultAirCatTransferClient(
             return@withContext Result.failure(err)
         }
 
-        // 7. Validate manifest items and byte sum consistency (K49-02)
+        // 8. Validate manifest items and byte sum consistency (K49-02)
         if (manifest.items.isEmpty()) {
-            if (manifest.totalTracks != 0 || manifest.totalBytes != 0L) {
-                val err = AirCatException.InvalidManifestStructure("Manifiesto vacío pero con totalTracks (${manifest.totalTracks}) o totalBytes (${manifest.totalBytes}) no nulo")
-                emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
-                return@withContext Result.failure(err)
-            }
-
-            // Legitimate 0 tracks / 0 bytes case: complete without false verification claims
-            _processedTransferIds.value = _processedTransferIds.value + intent.transferId
-            activeSessions.remove(intent.transferId)
-            emitEvent(
-                transferId = intent.transferId,
-                currentTrackIndex = 0,
-                totalTracks = 0,
-                bytesTransferred = 0L,
-                totalBytes = 0L,
-                state = AirCatTransferState.COMPLETED,
-                checksumVerified = false,
-                libraryCommitted = false,
-                onProgress = onProgress,
-            )
-            return@withContext Result.success(emptyList())
+            val err = AirCatException.InvalidManifestStructure("Manifiesto vacío pero con totalTracks (${manifest.totalTracks}) o totalBytes (${manifest.totalBytes}) no nulo")
+            emitEvent(intent.transferId, 0, manifest.totalTracks, 0L, manifest.totalBytes, AirCatTransferState.FAILED, error = err.message, onProgress = onProgress)
+            return@withContext Result.failure(err)
         }
 
         // K48-03: Always enforce items.size == totalTracks

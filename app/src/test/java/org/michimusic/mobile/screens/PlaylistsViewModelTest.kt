@@ -740,6 +740,62 @@ class PlaylistsViewModelTest {
         assertEquals(2, (result as PlayPlaylistResult.Success).trackCount)
     }
 
+    @Test
+    fun playPlaylist_withSessionManager_whenPendingConfirmation_emitsPendingConfirmationAndNotSuccess() = runTest(testDispatcher) {
+        val tracks = listOf(Track(id = "trk-1", title = "Track 1"), Track(id = "trk-2", title = "Track 2"))
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = tracks)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockSessionManager = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        val confirmation = org.michimusic.mobile.playback.RemoteQueuePreflightDecision.ConfirmationRequired(
+            destinationId = "remote-1",
+            destinationName = "Remote Node",
+            remoteQueueSize = 3,
+            remoteActiveTrackTitle = "Song",
+            proposedTracks = tracks,
+            proposedStartIndex = 0,
+        )
+        io.mockk.coEvery { mockSessionManager.requestQueuePlayback(tracks, 0) } returns
+            org.michimusic.mobile.playback.QueuePlaybackOutcome.PendingConfirmation(
+                operationId = "op-1",
+                endpointId = "remote-1",
+                requestedTrackCount = 2,
+                requestedIndex = 0,
+                confirmation = confirmation
+            )
+
+        var result: PlayPlaylistResult? = null
+        vm.playPlaylist("p1", sessionManager = mockSessionManager) { result = it }
+        advanceUntilIdle()
+
+        assertFalse("Must NOT emit Success while awaiting interactive authorization (K49B-01)", result is PlayPlaylistResult.Success)
+        assertTrue("Must emit PendingConfirmation", result is PlayPlaylistResult.PendingConfirmation)
+        assertEquals(2, (result as PlayPlaylistResult.PendingConfirmation).trackCount)
+    }
+
+    @Test
+    fun playPlaylist_withSessionManager_whenCancelled_emitsCancelledAndNotSuccess() = runTest(testDispatcher) {
+        val tracks = listOf(Track(id = "trk-1", title = "Track 1"), Track(id = "trk-2", title = "Track 2"))
+        val recordingRepo = RecordingPlaylistRepo(initialTracks = tracks)
+        val vm = PlaylistsViewModel(recordingRepo, LocalMediaRepository(), testDispatcher)
+        val mockSessionManager = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        io.mockk.coEvery { mockSessionManager.requestQueuePlayback(tracks, 0) } returns
+            org.michimusic.mobile.playback.QueuePlaybackOutcome.Cancelled(
+                operationId = "op-1",
+                endpointId = "remote-1",
+                requestedTrackCount = 2,
+                requestedIndex = 0,
+                reason = "Transferencia cancelada por el usuario"
+            )
+
+        var result: PlayPlaylistResult? = null
+        vm.playPlaylist("p1", sessionManager = mockSessionManager) { result = it }
+        advanceUntilIdle()
+
+        assertFalse("Must NOT emit Success on user cancellation (K49B-01)", result is PlayPlaylistResult.Success)
+        assertTrue("Must emit Cancelled", result is PlayPlaylistResult.Cancelled)
+        assertEquals("Transferencia cancelada por el usuario", (result as PlayPlaylistResult.Cancelled).reason)
+    }
+
 
     @Test
     fun createPlaylist_validName_callsRepositoryAndInvokesCallback() = runTest(testDispatcher) {

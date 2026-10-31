@@ -21,6 +21,8 @@ object AirCatEligibilityPolicy {
         if (device.id.isBlank()) return false
         if (device.isRevoked) return false
         if (!device.isPaired) return false
+        // K49B-06: Require effective connection state; devices in CONNECTING, PAIRING, or DISCONNECTED are not ready for transfer
+        if (device.connectionState != org.michimusic.core.models.SyncConnectionState.CONNECTED) return false
 
         val normalizedType = device.deviceType.trim().lowercase().replace('-', '_')
         if (isProvisionedMichiStream(device.deviceType) ||

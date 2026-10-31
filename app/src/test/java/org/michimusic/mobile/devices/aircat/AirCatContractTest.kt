@@ -1576,6 +1576,39 @@ class AirCatContractTest {
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
+
+    @Test
+    fun manifestWithZeroTracksAndZeroBytes_succeedsEvenWithLowStorage() = runBlocking {
+        val sourceId = "peer_empty_zero"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_empty_zero",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_empty_zero",
+            sourceDeviceId = sourceId,
+            totalTracks = 0,
+            totalBytes = 0L,
+            items = emptyList()
+        )
+
+        // Only 10 KB free storage (far less than the 100 MB safetyMargin!)
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024,
+        )
+
+        assertTrue("Legitimate 0 tracks / 0 bytes transfer must succeed without demanding 100MB margin (K49B-06)", result.isSuccess)
+        assertEquals(0, result.getOrThrow().size)
+    }
 }
 
 

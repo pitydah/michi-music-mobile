@@ -432,10 +432,17 @@ class PlaybackSessionManager(
 
         nextSessionEpoch()
         _activeQueuePlaybackOp.set(null)
+        _pendingQueueConfirmation.value = null
         isRemoteSelected = true
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = target,
             isRemoteActive = true,
+            currentTrack = null,
+            queue = emptyList(),
+            queueIndex = 0,
+            isPlaying = false,
+            position = 0L,
+            duration = 0L,
         )
         onResult(true, "Controlando ${target.name}")
     }
@@ -1111,7 +1118,8 @@ class PlaybackSessionManager(
     suspend fun requestQueuePlayback(
         tracks: List<Track>,
         startIndex: Int = 0,
-        confirmedAction: RemoteQueueAction? = null
+        confirmedAction: RemoteQueueAction? = null,
+        confirmedTicket: RemoteQueueAuthorizationTicket? = null,
     ): QueuePlaybackOutcome {
         val opId = java.util.UUID.randomUUID().toString()
         _activeQueuePlaybackOp.set(opId)
@@ -1209,9 +1217,27 @@ class PlaybackSessionManager(
             }
 
             if (confirmedAction == null) {
-                val remoteQueueSize = _sessionState.value.queue.size
-                val remotePlaying = _sessionState.value.isPlaying
-                val remoteTrackTitle = _sessionState.value.currentTrack?.title
+                // K49B-02: Query host directly for fresh remote playback & queue state before preflight
+                val freshSt = runCatching { client.getPlaybackState().getOrNull() }.getOrNull()
+                val freshQ = runCatching { client.getQueue().getOrNull() }.getOrNull()
+                if (freshQ != null) {
+                    val qTracks = freshQ.tracks.map { it.toDomainTrack() }
+                    _sessionState.value = _sessionState.value.copy(
+                        currentTrack = qTracks.getOrNull(freshSt?.queueIndex ?: 0),
+                        isPlaying = freshSt?.playing ?: false,
+                        position = freshSt?.effectivePosition ?: 0L,
+                        duration = freshSt?.effectiveDuration ?: 0L,
+                        queue = qTracks,
+                        queueIndex = freshSt?.queueIndex ?: 0,
+                    )
+                }
+
+                val remoteQueueSize = freshQ?.tracks?.size ?: _sessionState.value.queue.size
+                val remotePlaying = freshSt?.playing ?: _sessionState.value.isPlaying
+                val remoteTrackTitle = freshQ?.tracks?.getOrNull(freshSt?.queueIndex ?: 0)?.title
+                    ?: _sessionState.value.currentTrack?.title
+                val remoteFingerprint = freshQ?.tracks?.joinToString(",") { it.trackId }
+                    ?: _sessionState.value.queue.joinToString(",") { it.id }
 
                 val preflightDecision = RemoteQueuePreflightPolicy.evaluate(
                     destinationId = activeEp.id,
@@ -1220,7 +1246,9 @@ class PlaybackSessionManager(
                     remoteActiveTrackTitle = remoteTrackTitle,
                     remotePlaying = remotePlaying,
                     proposedTracks = tracks,
-                    proposedStartIndex = validIndex
+                    proposedStartIndex = validIndex,
+                    sessionEpoch = opEpoch,
+                    snapshotFingerprint = remoteFingerprint,
                 )
 
                 if (preflightDecision is RemoteQueuePreflightDecision.ConfirmationRequired) {
@@ -1238,19 +1266,62 @@ class PlaybackSessionManager(
 
             _pendingQueueConfirmation.value = null
 
+            // K49B-04: Validate ticket expiration and concurrent drift
+            if (confirmedTicket != null) {
+                if (confirmedTicket.isExpired) {
+                    return QueuePlaybackOutcome.Cancelled(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        epoch = opEpoch,
+                        reason = "La confirmación de cola caducó (tiempo límite excedido). Por favor, intenta de nuevo.",
+                    )
+                }
+                if (confirmedTicket.sessionEpoch != opEpoch || confirmedTicket.endpointId != activeEp.id) {
+                    return QueuePlaybackOutcome.Obsolete(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        reason = "El destino de reproducción o la sesión cambiaron durante la confirmación.",
+                    )
+                }
+            }
+
+            // K49B-03: Fetch fresh host queue immediately before applying chosen action
+            val liveSt = runCatching { client.getPlaybackState().getOrNull() }.getOrNull()
+            val liveQ = runCatching { client.getQueue().getOrNull() }.getOrNull()
+
+            if (confirmedAction == RemoteQueueAction.REPLACE && confirmedTicket != null) {
+                val liveTrackCount = liveQ?.tracks?.size ?: _sessionState.value.queue.size
+                if (liveTrackCount != confirmedTicket.snapshotTrackCount) {
+                    return QueuePlaybackOutcome.Cancelled(
+                        operationId = opId,
+                        endpointId = activeEp.id,
+                        requestedTrackCount = tracks.size,
+                        requestedIndex = validIndex,
+                        epoch = opEpoch,
+                        reason = "La cola remota cambió concurrentemente. Operación cancelada para evitar sobreescritura accidental.",
+                    )
+                }
+            }
+
             val isAppend = confirmedAction == RemoteQueueAction.APPEND
             val finalTracks = if (isAppend) {
-                _sessionState.value.queue + tracks
+                val hostTracks = liveQ?.tracks?.map { it.toDomainTrack() } ?: _sessionState.value.queue
+                hostTracks + tracks
             } else {
                 tracks
             }
             val finalIndex = if (isAppend) {
-                _sessionState.value.queueIndex.coerceIn(0, (finalTracks.size - 1).coerceAtLeast(0))
+                val hostIdx = liveSt?.queueIndex ?: _sessionState.value.queueIndex
+                hostIdx.coerceIn(0, (finalTracks.size - 1).coerceAtLeast(0))
             } else {
                 validIndex
             }
             val finalPos = if (isAppend) {
-                _sessionState.value.position
+                liveSt?.effectivePosition ?: _sessionState.value.position
             } else {
                 0L
             }
@@ -1472,11 +1543,24 @@ class PlaybackSessionManager(
         if (action == RemoteQueueAction.CANCEL) {
             return
         }
+        if (conf.ticket.isExpired) {
+            _sessionState.value = _sessionState.value.copy(
+                statusMessage = "La confirmación de cola caducó; por favor, confirma nuevamente."
+            )
+            return
+        }
+        if (_sessionEpoch.get() != conf.ticket.sessionEpoch || _sessionState.value.activeEndpoint.id != conf.ticket.endpointId) {
+            _sessionState.value = _sessionState.value.copy(
+                statusMessage = "El destino de reproducción cambió durante la confirmación."
+            )
+            return
+        }
         scope.launch {
             requestQueuePlayback(
                 tracks = conf.proposedTracks,
                 startIndex = conf.proposedStartIndex,
-                confirmedAction = action
+                confirmedAction = action,
+                confirmedTicket = conf.ticket,
             )
         }
     }

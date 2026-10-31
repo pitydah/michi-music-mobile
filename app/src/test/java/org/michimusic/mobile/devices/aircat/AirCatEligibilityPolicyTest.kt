@@ -113,6 +113,24 @@ class AirCatEligibilityPolicyTest {
     }
 
     @Test
+    fun isAirCatEligible_whenConnectingOrPairing_returnsFalse() {
+        val connectingDevice = createDevice(connectionState = SyncConnectionState.CONNECTING)
+        assertFalse("Device in CONNECTING state must not be eligible for AirCat (K49B-06)", AirCatEligibilityPolicy.isAirCatEligible(connectingDevice))
+
+        val pairingDevice = createDevice(connectionState = SyncConnectionState.PAIRING)
+        assertFalse("Device in PAIRING state must not be eligible for AirCat (K49B-06)", AirCatEligibilityPolicy.isAirCatEligible(pairingDevice))
+    }
+
+    @Test
+    fun isAirCatEligible_whenDisconnectedOrOffline_returnsFalse() {
+        val disconnected = createDevice(connectionState = SyncConnectionState.DISCONNECTED)
+        assertFalse("Disconnected device must not be eligible for AirCat (K49B-06)", AirCatEligibilityPolicy.isAirCatEligible(disconnected))
+
+        val offline = createDevice(connectionState = SyncConnectionState.OFFLINE)
+        assertFalse("Offline device must not be eligible for AirCat (K49B-06)", AirCatEligibilityPolicy.isAirCatEligible(offline))
+    }
+
+    @Test
     fun filterEligibleDevices_filtersCorrectly() {
         val eligible1 = createDevice(id = "srv_1", deviceType = "SERVER", features = listOf("aircat"))
         val eligible2 = createDevice(id = "desk_1", deviceType = "DESKTOP", features = listOf("devices_aircat"))
@@ -120,8 +138,9 @@ class AirCatEligibilityPolicyTest {
         val ineligibleNoAirCat = createDevice(id = "srv_no_aircat", deviceType = "SERVER", features = emptyList())
         val ineligibleRevoked = createDevice(id = "rev_1", isRevoked = true)
         val ineligibleUnpaired = createDevice(id = "unp_1", isPaired = false)
+        val ineligibleConnecting = createDevice(id = "conn_1", connectionState = SyncConnectionState.CONNECTING)
 
-        val list = listOf(eligible1, ineligibleStream, eligible2, ineligibleNoAirCat, ineligibleRevoked, ineligibleUnpaired)
+        val list = listOf(eligible1, ineligibleStream, eligible2, ineligibleNoAirCat, ineligibleRevoked, ineligibleUnpaired, ineligibleConnecting)
         val filtered = AirCatEligibilityPolicy.filterEligibleDevices(list)
 
         assertEquals(2, filtered.size)

@@ -31,6 +31,8 @@ sealed interface PlaylistDetailUiState {
 
 sealed interface PlayPlaylistResult {
     data class Success(val trackCount: Int) : PlayPlaylistResult
+    data class PendingConfirmation(val trackCount: Int) : PlayPlaylistResult
+    data class Cancelled(val reason: String) : PlayPlaylistResult
     data object Empty : PlayPlaylistResult
     data object NotFound : PlayPlaylistResult
     data class Error(val message: String) : PlayPlaylistResult
@@ -193,10 +195,10 @@ class PlaylistsViewModel(
                                 onResult(PlayPlaylistResult.Success(tracks.size))
                             }
                             is org.michimusic.mobile.playback.QueuePlaybackOutcome.PendingConfirmation -> {
-                                onResult(PlayPlaylistResult.Success(tracks.size))
+                                onResult(PlayPlaylistResult.PendingConfirmation(tracks.size))
                             }
                             is org.michimusic.mobile.playback.QueuePlaybackOutcome.Cancelled -> {
-                                onResult(PlayPlaylistResult.Error(outcome.reason))
+                                onResult(PlayPlaylistResult.Cancelled(outcome.reason))
                             }
                             is org.michimusic.mobile.playback.QueuePlaybackOutcome.Rejected -> {
                                 onResult(PlayPlaylistResult.Error(outcome.reason))

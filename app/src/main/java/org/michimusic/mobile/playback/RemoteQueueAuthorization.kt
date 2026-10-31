@@ -12,6 +12,22 @@ enum class RemoteQueueAction {
 }
 
 /**
+ * Cryptographically unique, time-bounded authorization ticket issued during preflight (K49B-04).
+ * Prevents race conditions, concurrent drift, and stale authorization replays.
+ */
+data class RemoteQueueAuthorizationTicket(
+    val ticketId: String = java.util.UUID.randomUUID().toString(),
+    val endpointId: String,
+    val sessionEpoch: Long,
+    val snapshotTrackCount: Int,
+    val snapshotTrackFingerprint: String? = null,
+    val createdAtMs: Long = System.currentTimeMillis(),
+    val validDurationMs: Long = 60_000L,
+) {
+    val isExpired: Boolean get() = (System.currentTimeMillis() - createdAtMs) > validDurationMs
+}
+
+/**
  * Pre-dispatch authorization evaluation state for remote queue mutations.
  */
 sealed interface RemoteQueuePreflightDecision {
@@ -31,6 +47,12 @@ sealed interface RemoteQueuePreflightDecision {
         val remoteQueueSize: Int,
         val proposedTracks: List<Track>,
         val proposedStartIndex: Int,
+        val ticket: RemoteQueueAuthorizationTicket = RemoteQueueAuthorizationTicket(
+            endpointId = destinationId,
+            sessionEpoch = 0L,
+            snapshotTrackCount = remoteQueueSize,
+            snapshotTrackFingerprint = remoteActiveTrackTitle,
+        ),
     ) : RemoteQueuePreflightDecision
 
     /** Operation rejected before preflight (e.g. empty queue). */
@@ -39,7 +61,7 @@ sealed interface RemoteQueuePreflightDecision {
 
 /**
  * Domain policy evaluating whether an impending remote queue dispatch requires
- * interactive user consent prior to issuing destructive REPLACE commands (K49-03).
+ * interactive user consent prior to issuing destructive REPLACE commands (K49-03, K49B-04).
  */
 object RemoteQueuePreflightPolicy {
 
@@ -51,6 +73,8 @@ object RemoteQueuePreflightPolicy {
         remotePlaying: Boolean,
         proposedTracks: List<Track>,
         proposedStartIndex: Int,
+        sessionEpoch: Long = 0L,
+        snapshotFingerprint: String? = null,
     ): RemoteQueuePreflightDecision {
         if (proposedTracks.isEmpty()) {
             return RemoteQueuePreflightDecision.Rejected("La cola solicitada no contiene pistas")
@@ -59,6 +83,12 @@ object RemoteQueuePreflightPolicy {
         // If the target host has an active queue (> 0 tracks) or is actively playing,
         // an unprompted REPLACE would destroy existing listening state. Require explicit confirmation!
         if (remoteQueueSize > 0 || remotePlaying) {
+            val ticket = RemoteQueueAuthorizationTicket(
+                endpointId = destinationId,
+                sessionEpoch = sessionEpoch,
+                snapshotTrackCount = remoteQueueSize,
+                snapshotTrackFingerprint = snapshotFingerprint ?: remoteActiveTrackTitle,
+            )
             return RemoteQueuePreflightDecision.ConfirmationRequired(
                 destinationId = destinationId,
                 destinationName = destinationName,
@@ -66,6 +96,7 @@ object RemoteQueuePreflightPolicy {
                 remoteQueueSize = remoteQueueSize,
                 proposedTracks = proposedTracks,
                 proposedStartIndex = proposedStartIndex.coerceIn(0, proposedTracks.lastIndex),
+                ticket = ticket,
             )
         }
 
