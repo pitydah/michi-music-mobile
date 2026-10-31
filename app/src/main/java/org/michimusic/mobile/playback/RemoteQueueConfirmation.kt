@@ -62,6 +62,14 @@ object RemoteQueueConfirmation {
             )
         }
 
+        if (remotePlaybackState.queueSize > 0 && remotePlaybackState.queueSize != requestedTracks.size) {
+            return RemoteQueueVerificationResult(
+                status = RemoteQueueSyncStatus.MISMATCH_COUNT,
+                isFullyConfirmed = false,
+                note = "Tamaño de cola en estado remoto (${remotePlaybackState.queueSize}) no coincide con longitud solicitada (${requestedTracks.size})"
+            )
+        }
+
         // 2. Exact track IDs in exact order
         for (i in requestedTracks.indices) {
             val reqId = requestedTracks[i].id
@@ -85,7 +93,7 @@ object RemoteQueueConfirmation {
             )
         }
 
-        // 4. Active track identity at remoteIndex
+        // 4. Active track identity at remoteIndex in queue
         val remoteActiveTrack = remoteQueueTracks[remoteIndex]
         if (remoteActiveTrack.trackId != expectedTrack.id || remoteIndex != validIndex) {
             return RemoteQueueVerificationResult(
@@ -95,7 +103,28 @@ object RemoteQueueConfirmation {
             )
         }
 
-        // 5. Playing state: Must be actively playing to claim CONFIRMED_PLAYING
+        // 5. Active track identity in playback state telemetry (K48-01)
+        val stateTrackId = remotePlaybackState.trackId.ifEmpty {
+            remotePlaybackState.currentTrack?.effectiveId ?: ""
+        }
+
+        if (stateTrackId.isEmpty()) {
+            return RemoteQueueVerificationResult(
+                status = RemoteQueueSyncStatus.QUEUE_SYNCED,
+                isFullyConfirmed = false,
+                note = "Cola sincronizada exactamente, pero host remoto no publicó el ID de pista activa en su telemetría de reproducción"
+            )
+        }
+
+        if (stateTrackId != expectedTrack.id) {
+            return RemoteQueueVerificationResult(
+                status = RemoteQueueSyncStatus.MISMATCH_ACTIVE_TRACK,
+                isFullyConfirmed = false,
+                note = "Pista activa en telemetría de reproducción ('$stateTrackId') no coincide con pista solicitada ('${expectedTrack.id}')"
+            )
+        }
+
+        // 6. Playing state: Must be actively playing to claim CONFIRMED_PLAYING
         if (!remotePlaybackState.playing) {
             return RemoteQueueVerificationResult(
                 status = RemoteQueueSyncStatus.QUEUE_SYNCED,

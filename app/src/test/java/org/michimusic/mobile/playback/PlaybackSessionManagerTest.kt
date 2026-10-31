@@ -1450,6 +1450,7 @@ class PlaybackSessionManagerTest {
         val playStateDto = PlaybackStateDto(
             playing = false, // Host reports paused!
             queueIndex = 0,
+            trackId = "srv_1",
             position = 0L,
             duration = 180_000L
         )
@@ -1496,6 +1497,7 @@ class PlaybackSessionManagerTest {
         val playStateDto = PlaybackStateDto(
             playing = true,
             queueIndex = 0,
+            trackId = "srv_1",
             position = 0L,
             duration = 180_000L
         )
@@ -1543,6 +1545,7 @@ class PlaybackSessionManagerTest {
         val playStateDto = PlaybackStateDto(
             playing = true,
             queueIndex = 0,
+            trackId = "srv_1",
             position = 0L,
             duration = 180_000L
         )
@@ -1579,6 +1582,54 @@ class PlaybackSessionManagerTest {
         assertTrue("Expected Confirmed, but got $outcome", outcome is QueuePlaybackOutcome.Confirmed)
         assertEquals(targetEp.id, outcome.endpointId)
         assertEquals(manager.currentSessionEpoch, outcome.epoch)
+    }
+
+    @Test
+    fun requestQueuePlayback_whenHostReportsDifferentTrackId_returnsAcceptedNotConfirmed() = kotlinx.coroutines.test.runTest {
+        // K48-01: Host has correct queue and queueIndex=0, but is still playing a different track (trackId = srv_other)
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track(id = "srv_1", title = "Song 1", artist = "Artist 1", filepath = "http://srv/1", source = TrackSource.STREAMING)
+        val trackDto = org.michimusic.link.dto.QueueTrackDto(trackId = "srv_1", title = "Song 1", artist = "Artist 1", duration = 180_000L)
+        val playStateDto = PlaybackStateDto(
+            playing = true,
+            queueIndex = 0,
+            trackId = "srv_other", // Different track ID!
+            position = 0L,
+            duration = 180_000L
+        )
+        val queueDto = org.michimusic.link.dto.QueueDto(tracks = listOf(trackDto), currentIndex = 0)
+
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s_1"))
+        coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDto)
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry
+        )
+
+        val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        val outcome = manager.requestQueuePlayback(listOf(track1), 0)
+
+        assertTrue("Expected Accepted when trackId mismatches, but got $outcome", outcome is QueuePlaybackOutcome.Accepted)
+        val accepted = outcome as QueuePlaybackOutcome.Accepted
+        assertTrue("Message should indicate active track mismatch: ${accepted.message}", accepted.message.contains("no coincide con pista solicitada", ignoreCase = true))
     }
 
     @Test

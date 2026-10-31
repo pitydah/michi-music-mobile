@@ -118,4 +118,64 @@ class RemoteQueueConfirmationTest {
         assertFalse(res2.isFullyConfirmed)
         assertEquals(RemoteQueueSyncStatus.TELEMETRY_UNAVAILABLE, res2.status)
     }
+
+    @Test
+    fun verify_remotePlaybackStateTrackIdMismatch_returnsMismatchActiveTrack() {
+        // K48-01: remoteQueueTracks[0] has srv_1, but remotePlaybackState.trackId is srv_2 (host hasn't transitioned yet)
+        val requested = listOf(track1, track2)
+        val remoteQueue = listOf(qTrack1, qTrack2)
+        val state = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_2")
+
+        val res = RemoteQueueConfirmation.verify(requested, 0, remoteQueue, state)
+
+        assertFalse(res.isFullyConfirmed)
+        assertEquals(RemoteQueueSyncStatus.MISMATCH_ACTIVE_TRACK, res.status)
+        assertTrue(res.note.contains("telemetría de reproducción"))
+    }
+
+    @Test
+    fun verify_remotePlaybackStateTrackIdEmpty_returnsQueueSynced() {
+        // K48-01: remote host did not publish trackId in telemetry
+        val requested = listOf(track1, track2)
+        val remoteQueue = listOf(qTrack1, qTrack2)
+        val state = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "")
+
+        val res = RemoteQueueConfirmation.verify(requested, 0, remoteQueue, state)
+
+        assertFalse(res.isFullyConfirmed)
+        assertEquals(RemoteQueueSyncStatus.QUEUE_SYNCED, res.status)
+        assertTrue(res.note.contains("no publicó el ID de pista activa"))
+    }
+
+    @Test
+    fun verify_remotePlaybackStateQueueSizeMismatch_returnsMismatchCount() {
+        val requested = listOf(track1, track2)
+        val remoteQueue = listOf(qTrack1, qTrack2)
+        val state = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_1", queueSize = 5)
+
+        val res = RemoteQueueConfirmation.verify(requested, 0, remoteQueue, state)
+
+        assertFalse(res.isFullyConfirmed)
+        assertEquals(RemoteQueueSyncStatus.MISMATCH_COUNT, res.status)
+        assertTrue(res.note.contains("Tamaño de cola en estado remoto"))
+    }
+
+    @Test
+    fun verify_duplicateTrackIdsInQueue_distinguishesByIndex() {
+        // Duplicate tracks in queue: srv_1, srv_2, srv_1
+        val requested = listOf(track1, track2, track1)
+        val remoteQueue = listOf(qTrack1, qTrack2, qTrack1)
+        // Request index 2 (second occurrence of srv_1)
+        // If remote state reports queueIndex = 0 (first occurrence), it must be rejected!
+        val stateWrongIndex = PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_1")
+        val resWrongIndex = RemoteQueueConfirmation.verify(requested, 2, remoteQueue, stateWrongIndex)
+        assertFalse(resWrongIndex.isFullyConfirmed)
+        assertEquals(RemoteQueueSyncStatus.MISMATCH_ACTIVE_TRACK, resWrongIndex.status)
+
+        // If remote state reports queueIndex = 2 and trackId = srv_1, it must be confirmed!
+        val stateCorrectIndex = PlaybackStateDto(playing = true, queueIndex = 2, trackId = "srv_1")
+        val resCorrect = RemoteQueueConfirmation.verify(requested, 2, remoteQueue, stateCorrectIndex)
+        assertTrue(resCorrect.isFullyConfirmed)
+        assertEquals(RemoteQueueSyncStatus.CONFIRMED_PLAYING, resCorrect.status)
+    }
 }
