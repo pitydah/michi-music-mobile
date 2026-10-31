@@ -172,31 +172,85 @@ fun RemoteScreenContent(
                         modifier = Modifier.testTag("remote_title"),
                     )
 
-                    if (isConnected) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(TertiaryCyan),
-                            )
+                    when (state.connState) {
+                        RemoteConnectionState.CONNECTED -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(TertiaryCyan),
+                                )
+                                Text(
+                                    text = "Conectado",
+                                    color = TertiaryCyan,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                        RemoteConnectionState.CONNECTING -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(AmberPendingColor),
+                                )
+                                Text(
+                                    text = "Conectando...",
+                                    color = AmberPendingColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                        RemoteConnectionState.UNAUTHORIZED -> {
                             Text(
-                                text = "Conectado",
-                                color = TertiaryCyan,
+                                text = "No autorizado",
+                                color = Color(0xFFE55353),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                             )
                         }
-                    } else {
-                        Text(
-                            text = "Sin conexión",
-                            color = TextMuted,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                        RemoteConnectionState.FORBIDDEN -> {
+                            Text(
+                                text = "Acceso revocado",
+                                color = Color(0xFFE55353),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        RemoteConnectionState.OFFLINE -> {
+                            Text(
+                                text = "Fuera de línea",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        RemoteConnectionState.ERROR -> {
+                            Text(
+                                text = "Error",
+                                color = Color(0xFFE55353),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        else -> {
+                            Text(
+                                text = "Sin conexión",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
                 }
 
@@ -211,6 +265,28 @@ fun RemoteScreenContent(
             }
 
             if (!isConnected) {
+                val emptyTitle = when (state.connState) {
+                    RemoteConnectionState.CONNECTING -> "Estableciendo conexión..."
+                    RemoteConnectionState.UNAUTHORIZED -> "Autenticación requerida"
+                    RemoteConnectionState.FORBIDDEN -> "Acceso revocado"
+                    RemoteConnectionState.OFFLINE -> "Dispositivo fuera de línea"
+                    RemoteConnectionState.ERROR -> "Error de conexión"
+                    else -> "No hay dispositivo conectado"
+                }
+                val emptyDesc = when (state.connState) {
+                    RemoteConnectionState.CONNECTING -> "Conectando con ${state.sourceName}. Espera un momento..."
+                    RemoteConnectionState.UNAUTHORIZED -> "El dispositivo remoto requiere autorización o emparejamiento para permitir el control de reproducción."
+                    RemoteConnectionState.FORBIDDEN -> "El host remoto revocó los permisos de control para este teléfono."
+                    RemoteConnectionState.OFFLINE -> "El host remoto no responde en la red local. Verifica que esté encendido y conectado a la red."
+                    RemoteConnectionState.ERROR -> state.error ?: "Ocurrió un error al comunicarse con el host remoto."
+                    else -> "Conecta Michi Music a tu servidor de escritorio o receptor para controlar la reproducción de forma remota."
+                }
+                val ctaText = when (state.connState) {
+                    RemoteConnectionState.UNAUTHORIZED, RemoteConnectionState.FORBIDDEN -> "Gestionar Dispositivos"
+                    RemoteConnectionState.OFFLINE, RemoteConnectionState.ERROR -> "Reintentar Conexión"
+                    else -> "Buscar Dispositivos"
+                }
+
                 // Disconnected Empty State
                 Box(
                     modifier = Modifier
@@ -229,13 +305,13 @@ fun RemoteScreenContent(
                             modifier = Modifier.size(64.dp),
                         )
                         Text(
-                            text = "No hay dispositivo conectado",
+                            text = emptyTitle,
                             color = PureWhite,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = "Conecta Michi Music a tu servidor de escritorio o receptor para controlar la reproducción de forma remota.",
+                            text = emptyDesc,
                             color = TextMuted,
                             fontSize = 13.sp,
                             textAlign = TextAlign.Center,
@@ -260,7 +336,7 @@ fun RemoteScreenContent(
                                     modifier = Modifier.size(20.dp),
                                 )
                                 Text(
-                                    text = "Buscar Dispositivos",
+                                    text = ctaText,
                                     color = PureWhite,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
