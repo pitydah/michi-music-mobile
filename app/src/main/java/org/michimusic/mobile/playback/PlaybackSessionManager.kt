@@ -1217,40 +1217,42 @@ class PlaybackSessionManager(
             }
 
             if (confirmedAction == null) {
-                // K49B-02: Query host directly for fresh remote playback & queue state before preflight
+                // M50: Unknown host state must NEVER be interpreted as an empty queue.
                 val freshSt = runCatching { client.getPlaybackState().getOrNull() }.getOrNull()
-                val freshQ = runCatching { client.getQueue().getOrNull() }.getOrNull()
-                if (freshQ != null) {
-                    val qTracks = freshQ.tracks.map { it.toDomainTrack() }
-                    _sessionState.value = _sessionState.value.copy(
-                        currentTrack = qTracks.getOrNull(freshSt?.queueIndex ?: 0),
-                        isPlaying = freshSt?.playing ?: false,
-                        position = freshSt?.effectivePosition ?: 0L,
-                        duration = freshSt?.effectiveDuration ?: 0L,
-                        queue = qTracks,
-                        queueIndex = freshSt?.queueIndex ?: 0,
-                    )
+                if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
+                    return QueuePlaybackOutcome.Obsolete(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "El destino cambió mientras se consultaba su reproducción")
                 }
-
-                val remoteQueueSize = freshQ?.tracks?.size ?: _sessionState.value.queue.size
-                val remotePlaying = freshSt?.playing ?: _sessionState.value.isPlaying
-                val remoteTrackTitle = freshQ?.tracks?.getOrNull(freshSt?.queueIndex ?: 0)?.title
-                    ?: _sessionState.value.currentTrack?.title
-                val remoteFingerprint = freshQ?.tracks?.joinToString(",") { it.trackId }
-                    ?: _sessionState.value.queue.joinToString(",") { it.id }
-
+                val freshQ = runCatching { client.getQueue().getOrNull() }.getOrNull()
+                if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
+                    return QueuePlaybackOutcome.Obsolete(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "El destino cambió mientras se consultaba su cola")
+                }
+                if (freshSt == null || freshQ == null) {
+                    return QueuePlaybackOutcome.Failed(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "No se pudo comprobar el estado actual de la cola remota; no se ha enviado ninguna modificación")
+                }
+                val qTracks = freshQ.tracks.map { it.toDomainTrack() }
+                _sessionState.value = _sessionState.value.copy(
+                    currentTrack = qTracks.getOrNull(freshSt.queueIndex),
+                    isPlaying = freshSt.playing,
+                    position = freshSt.effectivePosition,
+                    duration = freshSt.effectiveDuration,
+                    queue = qTracks,
+                    queueIndex = freshSt.queueIndex,
+                )
+                val remoteFingerprint = freshQ.tracks.joinToString(",") { it.trackId }
                 val preflightDecision = RemoteQueuePreflightPolicy.evaluate(
                     destinationId = activeEp.id,
                     destinationName = activeEp.name,
-                    remoteQueueSize = remoteQueueSize,
-                    remoteActiveTrackTitle = remoteTrackTitle,
-                    remotePlaying = remotePlaying,
+                    remoteQueueSize = freshQ.tracks.size,
+                    remoteActiveTrackTitle = freshQ.tracks.getOrNull(freshSt.queueIndex)?.title,
+                    remotePlaying = freshSt.playing,
                     proposedTracks = tracks,
                     proposedStartIndex = validIndex,
                     sessionEpoch = opEpoch,
                     snapshotFingerprint = remoteFingerprint,
                 )
-
                 if (preflightDecision is RemoteQueuePreflightDecision.ConfirmationRequired) {
                     _pendingQueueConfirmation.value = preflightDecision
                     return QueuePlaybackOutcome.PendingConfirmation(
@@ -1266,65 +1268,53 @@ class PlaybackSessionManager(
 
             _pendingQueueConfirmation.value = null
 
-            // K49B-04: Validate ticket expiration and concurrent drift
+            // M50: Explicit user action requires a valid ticket. No implicit bypass.
+            if (confirmedAction != null && confirmedTicket == null) {
+                return QueuePlaybackOutcome.Rejected(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                    "La modificación de cola requiere una confirmación válida")
+            }
             if (confirmedTicket != null) {
                 if (confirmedTicket.isExpired) {
-                    return QueuePlaybackOutcome.Cancelled(
-                        operationId = opId,
-                        endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
-                        epoch = opEpoch,
-                        reason = "La confirmación de cola caducó (tiempo límite excedido). Por favor, intenta de nuevo.",
-                    )
+                    return QueuePlaybackOutcome.Cancelled(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "La confirmación de cola caducó. Vuelve a intentarlo")
                 }
                 if (confirmedTicket.sessionEpoch != opEpoch || confirmedTicket.endpointId != activeEp.id) {
-                    return QueuePlaybackOutcome.Obsolete(
-                        operationId = opId,
-                        endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
-                        reason = "El destino de reproducción o la sesión cambiaron durante la confirmación.",
-                    )
+                    return QueuePlaybackOutcome.Obsolete(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "El destino o la sesión cambiaron durante la confirmación")
                 }
             }
 
-            // K49B-03: Fetch fresh host queue immediately before applying chosen action
+            // Never mutate a host on an unknown state or after an obsolete network response.
             val liveSt = runCatching { client.getPlaybackState().getOrNull() }.getOrNull()
+            if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
+                return QueuePlaybackOutcome.Obsolete(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                    "La reproducción cambió durante la comprobación final")
+            }
             val liveQ = runCatching { client.getQueue().getOrNull() }.getOrNull()
-
-            if (confirmedAction == RemoteQueueAction.REPLACE && confirmedTicket != null) {
-                val liveTrackCount = liveQ?.tracks?.size ?: _sessionState.value.queue.size
-                if (liveTrackCount != confirmedTicket.snapshotTrackCount) {
-                    return QueuePlaybackOutcome.Cancelled(
-                        operationId = opId,
-                        endpointId = activeEp.id,
-                        requestedTrackCount = tracks.size,
-                        requestedIndex = validIndex,
-                        epoch = opEpoch,
-                        reason = "La cola remota cambió concurrentemente. Operación cancelada para evitar sobreescritura accidental.",
-                    )
+            if (!isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
+                return QueuePlaybackOutcome.Obsolete(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                    "La cola cambió de destino durante la comprobación final")
+            }
+            if (liveSt == null || liveQ == null) {
+                return QueuePlaybackOutcome.Failed(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                    "No se pudo verificar la cola del host; modificación no enviada")
+            }
+            if (confirmedTicket != null) {
+                val liveFingerprint = liveQ.tracks.joinToString(",") { it.trackId }
+                if (confirmedTicket.snapshotTrackCount != liveQ.tracks.size ||
+                    confirmedTicket.snapshotTrackFingerprint == null ||
+                    confirmedTicket.snapshotTrackFingerprint != liveFingerprint) {
+                    return QueuePlaybackOutcome.Cancelled(opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "La cola remota cambió desde la confirmación; vuelve a revisarla")
                 }
             }
 
             val isAppend = confirmedAction == RemoteQueueAction.APPEND
-            val finalTracks = if (isAppend) {
-                val hostTracks = liveQ?.tracks?.map { it.toDomainTrack() } ?: _sessionState.value.queue
-                hostTracks + tracks
-            } else {
-                tracks
-            }
+            val finalTracks = if (isAppend) liveQ.tracks.map { it.toDomainTrack() } + tracks else tracks
             val finalIndex = if (isAppend) {
-                val hostIdx = liveSt?.queueIndex ?: _sessionState.value.queueIndex
-                hostIdx.coerceIn(0, (finalTracks.size - 1).coerceAtLeast(0))
-            } else {
-                validIndex
-            }
-            val finalPos = if (isAppend) {
-                liveSt?.effectivePosition ?: _sessionState.value.position
-            } else {
-                0L
-            }
+                liveSt.queueIndex.coerceIn(0, (finalTracks.size - 1).coerceAtLeast(0))
+            } else validIndex
+            val finalPos = if (isAppend) liveSt.effectivePosition else 0L
             val transferSource = if (isAppend) "mobile_queue_append" else "mobile_queue"
 
             val trackIds = finalTracks.map { it.id }

@@ -124,6 +124,9 @@ class RemoteQueueAuthorizationTest {
 
         coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true))
         coEvery { linkClient.sendPlaybackCommand("play") } returns Result.success("ok")
+        val remoteExistingTrack = QueueTrackDto(trackId = "srv_0", title = "Remote Existing", artist = "Artist")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = true, queueIndex = 0, trackId = "srv_0"))
+        coEvery { linkClient.getQueue() } returns Result.success(QueueDto(tracks = listOf(remoteExistingTrack), currentIndex = 0))
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
@@ -206,8 +209,12 @@ class RemoteQueueAuthorizationTest {
         val targetEp = PlaybackEndpoint("remote_1", "Michi Desktop", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
         manager.attachRemote(targetEp) { _, _ -> }
 
-        // Request with explicit REPLACE pre-approval
-        val outcome = manager.requestQueuePlayback(listOf(track), 0, confirmedAction = RemoteQueueAction.REPLACE)
+        // Obtain the real preflight ticket; do not bypass user authorization in tests.
+        val pending = manager.requestQueuePlayback(listOf(track), 0)
+        assertTrue(pending is QueuePlaybackOutcome.PendingConfirmation)
+        val outcome = manager.requestQueuePlayback(listOf(track), 0,
+            confirmedAction = RemoteQueueAction.REPLACE,
+            confirmedTicket = (pending as QueuePlaybackOutcome.PendingConfirmation).confirmation.ticket)
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
@@ -234,7 +241,8 @@ class RemoteQueueAuthorizationTest {
 
         coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true))
         coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
-        coEvery { linkClient.getQueue() } returns Result.success(queueDtoBefore) andThen Result.success(queueDtoAfter)
+        coEvery { linkClient.getQueue() } returns Result.success(queueDtoBefore) andThen
+            Result.success(queueDtoBefore) andThen Result.success(queueDtoAfter)
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
@@ -269,8 +277,12 @@ class RemoteQueueAuthorizationTest {
             position = 40_000L,
         )
 
-        // Request with APPEND pre-approval
-        val outcome = manager.requestQueuePlayback(listOf(newTrack), 0, confirmedAction = RemoteQueueAction.APPEND)
+        // APPEND also requires a ticket bound to the host queue snapshot.
+        val pending = manager.requestQueuePlayback(listOf(newTrack), 0)
+        assertTrue(pending is QueuePlaybackOutcome.PendingConfirmation)
+        val outcome = manager.requestQueuePlayback(listOf(newTrack), 0,
+            confirmedAction = RemoteQueueAction.APPEND,
+            confirmedTicket = (pending as QueuePlaybackOutcome.PendingConfirmation).confirmation.ticket)
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
@@ -284,6 +296,30 @@ class RemoteQueueAuthorizationTest {
             )
         }
         assertTrue("Expected Confirmed outcome, got $outcome", outcome is QueuePlaybackOutcome.Confirmed)
+    }
+
+    @Test
+    fun requestQueuePlayback_whenConfirmedActionHasNoTicket_rejectsWithoutTransfer() = runTest {
+        val client = mockk<LinkClient>(relaxed = true)
+        val track = Track("srv_1", "Track", "Artist", filepath = "http://host/1", source = TrackSource.STREAMING)
+        coEvery { client.getPlaybackState() } returns Result.success(PlaybackStateDto())
+        coEvery { client.getQueue() } returns Result.success(QueueDto())
+        val connections = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = client
+        }
+        connections.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val controller = mockk<AudioController>(relaxed = true)
+        every { controller.state } returns MutableStateFlow(PlayerState())
+        val discovery = mockk<LinkDiscovery>(relaxed = true)
+        every { discovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+        val manager = PlaybackSessionManager(controller, connections, discovery, registry)
+        manager.attachRemote(PlaybackEndpoint("remote_1", "Host", EndpointType.DESKTOP_PLAYER,
+            isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))) { _, _ -> }
+        val outcome = manager.requestQueuePlayback(listOf(track), 0, RemoteQueueAction.REPLACE)
+        assertTrue(outcome is QueuePlaybackOutcome.Rejected)
+        coVerify(exactly = 0) { client.transferQueue(any()) }
     }
 
     @Test
@@ -383,6 +419,6 @@ class RemoteQueueAuthorizationTest {
         advanceUntilIdle()
 
         assertTrue("Queue drift must reject REPLACE to prevent clobbering concurrent user actions (K49B-04)", outcome is QueuePlaybackOutcome.Cancelled)
-        assertTrue((outcome as QueuePlaybackOutcome.Cancelled).reason.contains("cambió concurrentemente"))
+        assertTrue((outcome as QueuePlaybackOutcome.Cancelled).reason.contains("cambió"))
     }
 }
