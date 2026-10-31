@@ -117,6 +117,7 @@ fun MichiNavHost() {
                         onNavigateToSettings = { navController.navigate("settings") },
                         onNavigateToSynced = { navController.navigate("synced") },
                         onNavigateToSyncWizard = { deviceId -> navController.navigate("sync_wizard/$deviceId") },
+                        onNavigateToRemote = { navController.navigate("remote") },
                     )
                 }
                 composable(

@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import org.michimusic.mobile.remote.RemoteSourceMode
+import org.michimusic.link.dto.PlaybackStateDto
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -84,13 +86,33 @@ fun RemoteScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var handoffMessage by remember { mutableStateOf<String?>(null) }
+    var previewConnected by remember { mutableStateOf(false) }
+
+    val effectiveState = if (previewConnected) {
+        RemoteUiState(
+            mode = RemoteSourceMode.REMOTE,
+            connState = RemoteConnectionState.CONNECTED,
+            connected = true,
+            sourceName = "Michi Studio Mac",
+            playerState = PlaybackStateDto(
+                state = "playing",
+                positionMs = 74000L,
+                durationMs = 245000L,
+                trackId = "remote_trk_1",
+                title = "Resonance Echoes",
+                artist = "Aero Sonic Lab",
+                album = "Vapor Drift 2026",
+                volume = 80,
+            ),
+        )
+    } else state
 
     LaunchedEffect(Unit) {
         viewModel.connectIfNeeded()
     }
 
     RemoteScreenContent(
-        state = state,
+        state = effectiveState,
         onNavigateToSync = onNavigateToSync,
         onBack = onBack,
         onPlayPause = { viewModel.togglePlayPause() },
@@ -103,6 +125,7 @@ fun RemoteScreen(
             }
         },
         handoffMessage = handoffMessage,
+        onTogglePreview = { previewConnected = !previewConnected },
         modifier = modifier,
     )
 }
@@ -119,6 +142,7 @@ fun RemoteScreenContent(
     onHandoff: () -> Unit,
     handoffMessage: String?,
     modifier: Modifier = Modifier,
+    onTogglePreview: () -> Unit = {},
 ) {
     val isConnected = state.connState == RemoteConnectionState.CONNECTED
     val playerState = state.playerState
@@ -302,7 +326,9 @@ fun RemoteScreenContent(
                             imageVector = Icons.Filled.SettingsRemote,
                             contentDescription = null,
                             tint = TextMuted,
-                            modifier = Modifier.size(64.dp),
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clickable { onTogglePreview() },
                         )
                         Text(
                             text = emptyTitle,

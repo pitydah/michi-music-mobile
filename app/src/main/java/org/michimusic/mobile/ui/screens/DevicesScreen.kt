@@ -125,6 +125,7 @@ fun DevicesScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToSynced: () -> Unit = {},
     onNavigateToSyncWizard: (deviceId: String) -> Unit = {},
+    onNavigateToRemote: () -> Unit = {},
     viewModel: SyncViewModel = koinViewModel(),
     modifier: Modifier = Modifier,
 ) {
@@ -226,6 +227,9 @@ fun DevicesScreen(
                 )
                 sessionManager.attachRemote(endpoint) { success, msg ->
                     scope.launch { snackbarHostState.showSnackbar(msg) }
+                    if (success) {
+                        onNavigateToRemote()
+                    }
                 }
             }
             org.michimusic.mobile.sync.DeviceActionType.CONTINUE_PLAYBACK_HERE -> {
@@ -265,6 +269,7 @@ fun DevicesScreen(
                 onRefreshClick = { viewModel.startDiscovery() },
                 onQrClick = { showQrDialog = true },
                 onSettingsClick = onNavigateToSettings,
+                onRemoteClick = onNavigateToRemote,
             )
 
             LazyColumn(
@@ -762,6 +767,7 @@ private fun DevicesTopBar(
     onRefreshClick: () -> Unit,
     onQrClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onRemoteClick: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -855,6 +861,12 @@ private fun DevicesTopBar(
                             text = { Text("Ajustes de conexión") },
                             onClick = { showMenu = false; onSettingsClick() },
                             leadingIcon = { Icon(Icons.Filled.Settings, null, tint = TertiaryCyan) }
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Control Remoto") },
+                            onClick = { showMenu = false; onRemoteClick() },
+                            leadingIcon = { Icon(Icons.Filled.WifiTethering, null, tint = TertiaryCyan) },
+                            modifier = Modifier.testTag("menu_remote_control"),
                         )
                     }
                 }
