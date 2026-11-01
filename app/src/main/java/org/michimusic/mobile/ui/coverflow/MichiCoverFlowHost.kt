@@ -68,7 +68,9 @@ fun MichiCoverFlowHost(
         pageCount = { albums.size },
     )
     val scope = rememberCoroutineScope()
-    val reducedMotion = LocalVisualPreferences.current.reducedMotion
+    val visualPrefs = LocalVisualPreferences.current
+    val reducedMotion = visualPrefs.reducedMotion
+    val highContrast = visualPrefs.highContrast
     val density = LocalDensity.current.density
 
     // Clamping when album list shrinks
@@ -123,28 +125,19 @@ fun MichiCoverFlowHost(
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        // Floor ambient reflection
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(0.72f)
-                .height(14.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(PureWhite.copy(alpha = 0.05f), Color.Transparent),
-                    ),
-                ),
-        )
+        // Avoid invalid pager sizes during zero-constraint measurement.
+        if (maxWidth <= 0.dp || maxHeight <= 0.dp) return@BoxWithConstraints
+        // No fake floor reflection: the real album art provides the visual emphasis.
 
         // Constrain the card to the actual viewport: very small windows must not clip covers.
-        val pageWidth = minOf(maxWidth, if (maxWidth < 350.dp) 184.dp else 212.dp)
+        val pageWidth = coverFlowPageWidthDp(maxWidth.value).dp
         val sidePadding = ((maxWidth - pageWidth) / 2).coerceAtLeast(0.dp)
         HorizontalPager(
             state = state,
             modifier = Modifier.fillMaxSize().testTag("michi_coverflow_compose"),
             pageSize = PageSize.Fixed(pageWidth),
             contentPadding = PaddingValues(horizontal = sidePadding),
-            pageSpacing = 8.dp,
+            pageSpacing = if (maxWidth < 350.dp) 6.dp else 10.dp,
             key = { index -> if (index in albums.indices) albums[index].id else index },
         ) { page ->
             val album = albums.getOrNull(page) ?: return@HorizontalPager
@@ -155,12 +148,12 @@ fun MichiCoverFlowHost(
                     .fillMaxWidth()
                     .padding(vertical = 10.dp)
                     .graphicsLayer {
-                        rotationY = visual.rotationY
+                        rotationY = if (highContrast) 0f else visual.rotationY
                         cameraDistance = 24f * density
                         scaleX = visual.scale
                         scaleY = visual.scale
-                        alpha = visual.opacity
-                        shadowElevation = if (visual.raised) 8f else 0f
+                        alpha = if (highContrast) 1f else visual.opacity
+                        shadowElevation = if (visual.raised && !reducedMotion && !highContrast) 3f * density else 0f
                     }
                     .clip(RoundedCornerShape(16.dp))
                     .then(

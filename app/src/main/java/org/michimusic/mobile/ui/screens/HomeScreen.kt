@@ -634,21 +634,15 @@ private fun RecentTrackCard(
             )
             .testTag("recent_track_${track.id}"),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(MichiShapes.md)
-                .border(
-                    width = if (isCurrent) 1.dp else 0.65.dp,
-                    color = if (isCurrent) PrimaryPinkContainer.copy(alpha = 0.75f) else GlassBorderLow,
-                    shape = MichiShapes.md,
-                ),
+        org.michimusic.mobile.ui.components.AeroArtworkMat(
+            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+            cornerRadius = 14.dp,
+            inset = 3.dp,
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
                 imageModel = track.coverId.takeIf { it.isNotBlank() },
-                    fallbackMediaUri = track.filepath,
+                fallbackMediaUri = track.filepath,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -665,6 +659,10 @@ private fun RecentTrackCard(
                         modifier = Modifier.size(28.dp),
                     )
                 }
+            }
+            if (isCurrent) {
+                Box(Modifier.fillMaxSize().border(1.2.dp,
+                    PrimaryPinkContainer.copy(alpha = 0.83f), MichiShapes.md))
             }
         }
 

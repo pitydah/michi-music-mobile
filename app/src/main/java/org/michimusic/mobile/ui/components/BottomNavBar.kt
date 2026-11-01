@@ -115,6 +115,7 @@ fun BottomNavBar(
 
                     val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
                     val itemColor by animateColorAsState(
+                            // Dock is one shared surface; per-tab icon targets stay unpainted.
                         targetValue = if (isSelected) PrimaryPinkContainer else TextMuted,
                         animationSpec = if (reducedMotion) androidx.compose.animation.core.snap()
                             else androidx.compose.animation.core.tween(durationMillis = 180),
@@ -146,7 +147,7 @@ fun BottomNavBar(
                         ) {
                             Box(
                                 Modifier
-                                    .size(width = 20.dp, height = 2.dp)
+                                    .size(width = 24.dp, height = 2.dp)
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(if (isSelected) PrimaryPinkContainer else Color.Transparent),
                             )

@@ -79,6 +79,12 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
+import org.michimusic.mobile.ui.components.AeroActionButton
+import org.michimusic.mobile.ui.components.AeroActionKind
+import org.michimusic.mobile.ui.components.AeroEmptyEditorial
+import org.michimusic.mobile.ui.components.AeroSegmentedChoice
+import org.michimusic.mobile.ui.components.AeroSegmentRail
+import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
@@ -222,12 +228,22 @@ fun AlbumsScreen(
                         letterSpacing = 2.sp,
                     )
                     Text(
-                        text = "La música es tuya.",
+                        text = "Tu biblioteca",
                         style = MichiTypography.screenTitle.copy(fontSize = 22.sp, lineHeight = 27.sp),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.testTag("library_title"),
                     )
+                    if (!isLoading && allTracks.isNotEmpty()) {
+                        Text(
+                            text = "${allTracks.size} pistas  ·  ${albums.size} álbumes",
+                            style = MichiTypography.microLabel,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 5.dp).testTag("library_real_count"),
+                        )
+                    }
                 }
 
                 Row(
@@ -329,63 +345,34 @@ fun AlbumsScreen(
                 }
             }
 
-            // View Type Tabs (Canciones / Álbumes / Artistas)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // M55: cohesive inset rail for content type; one treatment for library filters.
+            AeroSegmentRail(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
             ) {
                 LibraryTab.values().forEach { tab ->
-                    val isSelected = tab == selectedTab
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.11f) else GlassFillLow)
-                            .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.40f) else GlassBorderLow, RoundedCornerShape(10.dp))
-                            .clickable { selectedTab = tab }
-                            .semantics { selected = isSelected }
-                            .testTag("library_tab_${tab.name.lowercase()}"),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = tab.displayName,
-                            color = if (isSelected) PureWhite else TextSecondary,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        )
-                    }
+                    AeroSegmentedChoice(
+                        label = tab.displayName,
+                        selected = selectedTab == tab,
+                        onClick = { selectedTab = tab },
+                        modifier = Modifier.weight(1f),
+                        testTag = "library_tab_${tab.name.lowercase()}",
+                    )
                 }
             }
 
-            // Filter Chips (Todo / Lossless / Descargadas)
             if (selectedTab == LibraryTab.SONGS) {
                 LazyRow(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(LibraryFilter.values()) { filter ->
-                        val isSelected = filter == selectedFilter
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.10f) else GlassFillLow)
-                                .border(0.65.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.38f) else GlassBorderLow, RoundedCornerShape(8.dp))
-                                .clickable { selectedFilter = filter }
-                                .semantics { selected = isSelected }
-                                .heightIn(min = 48.dp)
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                .testTag("library_filter_${filter.name.lowercase()}"),
-                        ) {
-                            Text(
-                                text = filter.displayName,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) PureWhite else TextSecondary,
-                            )
-                        }
+                        AeroSegmentedChoice(
+                            label = filter.displayName,
+                            selected = selectedFilter == filter,
+                            onClick = { selectedFilter = filter },
+                            treatment = AeroSegmentTreatment.Filter,
+                            testTag = "library_filter_${filter.name.lowercase()}",
+                        )
                     }
                 }
             }
@@ -405,50 +392,26 @@ fun AlbumsScreen(
                     )
                 }
             } else if (allTracks.isEmpty()) {
-                // Empty Library State
+                // M55: one editorial empty state, with a real rescan action and no fake data.
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 18.dp),
+                    contentAlignment = Alignment.TopCenter,
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    AeroEmptyEditorial(
+                        eyebrow = "TU COLECCIÓN",
+                        title = "Sin música disponible",
+                        description = "Comprueba los permisos multimedia y las fuentes de tu biblioteca."
+                            + " También puedes volver a buscar archivos de audio.",
+                        icon = Icons.Filled.LibraryMusic,
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(56.dp),
+                        AeroActionButton(
+                            label = "Volver a escanear",
+                            onClick = { viewModel.loadMedia() },
+                            icon = Icons.Filled.Refresh,
+                            kind = AeroActionKind.Primary,
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "library_rescan_button",
                         )
-                        Text(
-                            text = "No encontramos música en este dispositivo",
-                            color = PureWhite,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Asegúrate de otorgar permisos de lectura multimedia y tener archivos de audio en tu almacenamiento.",
-                            color = TextMuted,
-                            fontSize = 13.sp,
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(PrimaryPinkContainer)
-                                .clickable { viewModel.loadMedia() }
-                                .padding(horizontal = 20.dp, vertical = 12.dp)
-                                .testTag("library_rescan_button"),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(Icons.Filled.Refresh, contentDescription = null, tint = PureWhite, modifier = Modifier.size(18.dp))
-                                Text("Volver a escanear", color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
                     }
                 }
             } else {
@@ -457,24 +420,42 @@ fun AlbumsScreen(
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
+                            if (filteredTracks.isEmpty()) {
+                                item(key = "library_filter_empty") {
+                                    AeroEmptyEditorial(
+                                        eyebrow = "FILTRO ACTIVO",
+                                        title = "No hay coincidencias",
+                                        description = "No encontramos pistas con este filtro en tu biblioteca.",
+                                        icon = Icons.Filled.LibraryMusic,
+                                    ) {
+                                        AeroActionButton(
+                                            label = "Mostrar todas",
+                                            onClick = { selectedFilter = LibraryFilter.ALL },
+                                            kind = AeroActionKind.Secondary,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            testTag = "library_clear_filter",
+                                        )
+                                    }
+                                }
+                            }
                             items(filteredTracks, key = { it.id }) { track ->
                                 val isCurrent = currentTrack?.id == track.id
-                                GlassCard(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    backgroundColor = if (isCurrent) TertiaryCyan.copy(alpha = 0.08f) else GlassFillLow,
-                                    borderColor = if (isCurrent) TertiaryCyan.copy(alpha = 0.4f) else GlassBorderLow,
-                                    accent = if (isCurrent) TertiaryCyan else null,
-                                    onClick = {
-                                        val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                                        playQueueSafe(filteredTracks, idx)
-                                    },
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(MichiShapes.sm)
+                                        .background(if (isCurrent) TertiaryCyan.copy(alpha = 0.075f) else androidx.compose.ui.graphics.Color.Transparent)
+                                        .clickable(role = Role.Button) {
+                                            val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+                                            playQueueSafe(filteredTracks, idx)
+                                        },
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
@@ -729,14 +710,20 @@ fun AlbumsScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                                         ) {
-                                            AlbumArtView(
-                                                coverStyle = coverStyleFor(localAlbum.album.coverId ?: localAlbum.album.title),
-                                                imageModel = localAlbum.album.coverId,
-                                                fallbackMediaUri = localAlbum.tracks.firstOrNull()?.filepath,
-                                                modifier = Modifier
-                                                    .size(52.dp)
-                                                    .clip(RoundedCornerShape(10.dp)),
-                                            )
+                                            org.michimusic.mobile.ui.components.AeroArtworkMat(
+                                                modifier = Modifier.size(58.dp),
+                                                cornerRadius = 10.dp,
+                                                inset = 3.dp,
+                                            ) {
+                                                AlbumArtView(
+                                                    coverStyle = coverStyleFor(localAlbum.album.coverId ?: localAlbum.album.title),
+                                                    imageModel = localAlbum.album.coverId,
+                                                    fallbackMediaUri = localAlbum.tracks.firstOrNull()?.filepath,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    cornerRadius = 10.dp,
+                                                    borderWidth = 0.dp,
+                                                )
+                                            }
 
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(

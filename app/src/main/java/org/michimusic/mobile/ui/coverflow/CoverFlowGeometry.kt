@@ -23,6 +23,12 @@ internal fun coverFlowGeometry(offset: Float, reducedMotion: Boolean): CoverFlow
     )
 }
 
+/** CoverFlow selection and perspective are bounded by the real phone viewport. */
+internal fun coverFlowPageWidthDp(viewportDp: Float): Float {
+    if (!viewportDp.isFinite() || viewportDp <= 0f) return 0f
+    return (viewportDp * 0.60f).coerceIn(140f, 248f).coerceAtMost(viewportDp)
+}
+
 /** Valid for empty, shrinking or reconstructed album libraries. */
 internal fun safeCoverFlowIndex(requested: Int, itemCount: Int): Int =
     if (itemCount <= 0) 0 else requested.coerceIn(0, itemCount - 1)

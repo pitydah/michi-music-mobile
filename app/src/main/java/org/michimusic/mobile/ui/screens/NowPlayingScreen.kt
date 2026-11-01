@@ -68,6 +68,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -258,37 +260,34 @@ fun NowPlayingScreen(
                     .padding(vertical = if (compactLayout) 6.dp else 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                val artSide = minOf(maxWidth * 0.89f, maxHeight).coerceAtLeast(0.dp)
-                // An unanimated tonal surround creates depth without blurring
-                // the cover or spending GPU time on oversized glow effects.
+                val artSide = org.michimusic.mobile.ui.components.aeroArtworkSideDp(maxWidth.value, maxHeight.value).dp
+                // Fixed, source-faithful artwork. Matte surround is decorative only.
                 Box(
                     modifier = Modifier.size(artSide)
                         .background(
                             Brush.verticalGradient(listOf(
-                                TertiaryCyan.copy(alpha = 0.12f),
-                                PrimaryPinkContainer.copy(alpha = 0.045f),
+                                TertiaryCyan.copy(alpha = 0.10f),
+                                PrimaryPinkContainer.copy(alpha = 0.028f),
                                 Color.Transparent,
-                            )),
-                            MichiShapes.lg,
+                            )), MichiShapes.lg,
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(
+                    org.michimusic.mobile.ui.components.AeroArtworkMat(
                         modifier = Modifier
-                            .size((artSide - 10.dp).coerceAtLeast(0.dp))
-                            .shadow(elevation = 18.dp, shape = MichiShapes.lg)
-                            .clip(MichiShapes.lg)
-                            .border(raised.borderWidth, raised.outline, MichiShapes.lg)
+                            .size((artSide - 8.dp).coerceAtLeast(0.dp))
                             .testTag("now_playing_album_art"),
+                        cornerRadius = 21.dp,
+                        inset = if (compactLayout) 3.dp else 6.dp,
                     ) {
-                    AlbumArtView(
-                        coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
-                        imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
-                        fallbackMediaUri = currentTrack?.filepath,
-                        modifier = Modifier.fillMaxSize(),
-                        cornerRadius = 24.dp,
-                        borderWidth = 0.dp,
-                    )
+                        AlbumArtView(
+                            coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
+                            imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
+                            fallbackMediaUri = currentTrack?.filepath,
+                            modifier = Modifier.fillMaxSize(),
+                            cornerRadius = 21.dp,
+                            borderWidth = 0.dp,
+                        )
                     }
                 }
             }
@@ -356,6 +355,11 @@ fun NowPlayingScreen(
                                     .clickable(role = Role.Button) { showSignalTruthDialog = true }
                                     .heightIn(min = 48.dp)
                                     .padding(horizontal = 14.dp, vertical = 8.dp)
+                                    .semantics {
+                                        contentDescription = if (label.startsWith("PCM decodificado ·"))
+                                            "${label.replace(" · ", ": ")}. No certifica la salida física. Abrir Signal Truth"
+                                        else "Abrir Signal Truth: información de la cadena de audio"
+                                    }
                                     .testTag("signal_truth_button"),
                                 contentAlignment = Alignment.Center,
                             ) {

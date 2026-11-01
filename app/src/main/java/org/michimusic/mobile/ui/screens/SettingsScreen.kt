@@ -228,13 +228,8 @@ fun SettingsScreen(
 
             AnimatedContent(
                 targetState = currentSection,
-                transitionSpec = {
-                    if (visualPrefs.reducedMotion) {
-                        EnterTransition.None togetherWith ExitTransition.None
-                    } else {
-                        fadeIn() togetherWith fadeOut()
-                    }
-                },
+                // No simultaneous translucent sections: prevents doubled text / ghosting.
+                transitionSpec = { EnterTransition.None togetherWith ExitTransition.None },
                 label = "settings_hierarchy",
             ) { target ->
                 when (target) {
@@ -736,34 +731,33 @@ private fun SettingsCategoryNavCard(
     onClick: () -> Unit,
 ) {
     GlassCard(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 86.dp),
-        backgroundColor = GlassFillHigh,
-        borderColor = accent.copy(alpha = 0.20f),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp),
+        backgroundColor = GlassFillLow,
+        borderColor = GlassBorderLow,
         onClick = onClick,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Row(
                 modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(MichiShapes.sm)
-                        .background(accent.copy(alpha = 0.15f)),
+                        .size(32.dp)
+                        .clip(MichiShapes.sm),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         lineHeight = 21.sp)
                     Spacer(Modifier.height(3.dp))
                     Text(subtitle, color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)

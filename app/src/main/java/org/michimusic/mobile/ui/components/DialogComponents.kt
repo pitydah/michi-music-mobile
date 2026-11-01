@@ -1473,12 +1473,7 @@ fun AudioRouteDialog(
 
                                         Column {
                                             Text(
-                                                text = when {
-                                                    device.isUsbDac -> device.name.ifBlank { "DAC USB" }
-                                                    device.isBluetooth -> device.name.ifBlank { "Salida Bluetooth" }
-                                                    device.isWired -> device.name.ifBlank { "Auriculares con cable" }
-                                                    else -> "Altavoz del teléfono · ruta ${device.id}"
-                                                },
+                                                text = audioOutputFriendlyName(device),
                                                 color = if (isCurrentSelected) TertiaryCyan else PureWhite,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.SemiBold,

@@ -91,6 +91,8 @@ import org.michimusic.mobile.sync.DeviceActionType
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
+import org.michimusic.mobile.ui.components.AeroActionButton
+import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.isProvisionedMichiStream
 import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
@@ -776,6 +778,8 @@ private fun DevicesTopBar(
     onRemoteClick: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val compactHeader = configuration.screenWidthDp < 430 || configuration.fontScale > 1.15f
 
     Column(
         modifier = Modifier
@@ -812,33 +816,35 @@ private fun DevicesTopBar(
                         strokeWidth = 2.dp,
                     )
                 }
-                MichiIconAction(
-                    icon = Icons.Filled.Refresh,
-                    contentDescription = "Buscar dispositivos",
-                    onClick = onRefreshClick,
-                    tint = if (isSearching) TertiaryCyan else PureWhite,
-                    iconSize = 22.dp,
-                    minTargetSize = MichiSpacing.minTouchTarget,
-                    testTag = "devices_refresh_button",
-                )
-                MichiIconAction(
-                    icon = Icons.Filled.QrCodeScanner,
-                    contentDescription = "Escanear QR",
-                    onClick = onQrClick,
-                    tint = PureWhite,
-                    iconSize = 22.dp,
-                    minTargetSize = MichiSpacing.minTouchTarget,
-                    testTag = "devices_qr_button",
-                )
-                MichiIconAction(
-                    icon = Icons.Filled.Settings,
-                    contentDescription = "Ajustes",
-                    onClick = onSettingsClick,
-                    tint = PureWhite,
-                    iconSize = 22.dp,
-                    minTargetSize = MichiSpacing.minTouchTarget,
-                    testTag = "devices_settings_button",
-                )
+                if (!compactHeader) {
+                    MichiIconAction(
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "Buscar dispositivos",
+                        onClick = onRefreshClick,
+                        tint = if (isSearching) TertiaryCyan else PureWhite,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "devices_refresh_button",
+                    )
+                    MichiIconAction(
+                        icon = Icons.Filled.QrCodeScanner,
+                        contentDescription = "Escanear QR",
+                        onClick = onQrClick,
+                        tint = PureWhite,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "devices_qr_button",
+                    )
+                    MichiIconAction(
+                        icon = Icons.Filled.Settings,
+                        contentDescription = "Ajustes",
+                        onClick = onSettingsClick,
+                        tint = PureWhite,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "devices_settings_button",
+                    )
+                }
                 Box {
                     MichiIconAction(
                         icon = Icons.Filled.MoreVert,
@@ -853,21 +859,24 @@ private fun DevicesTopBar(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
                     ) {
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Buscar dispositivos") },
-                            onClick = { showMenu = false; onRefreshClick() },
-                            leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TertiaryCyan) }
-                        )
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Escanear código QR") },
-                            onClick = { showMenu = false; onQrClick() },
-                            leadingIcon = { Icon(Icons.Filled.QrCodeScanner, null, tint = TertiaryCyan) }
-                        )
-                        androidx.compose.material3.DropdownMenuItem(
-                            text = { Text("Ajustes de conexión") },
-                            onClick = { showMenu = false; onSettingsClick() },
-                            leadingIcon = { Icon(Icons.Filled.Settings, null, tint = TertiaryCyan) }
-                        )
+                        // Compact layout exposes the same actions via overflow.
+                        if (compactHeader) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Buscar dispositivos") },
+                                onClick = { showMenu = false; onRefreshClick() },
+                                leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TertiaryCyan) }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Escanear código QR") },
+                                onClick = { showMenu = false; onQrClick() },
+                                leadingIcon = { Icon(Icons.Filled.QrCodeScanner, null, tint = TertiaryCyan) }
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Ajustes de conexión") },
+                                onClick = { showMenu = false; onSettingsClick() },
+                                leadingIcon = { Icon(Icons.Filled.Settings, null, tint = TertiaryCyan) }
+                            )
+                        }
                         androidx.compose.material3.DropdownMenuItem(
                             text = { Text("Control Remoto") },
                             onClick = { showMenu = false; onRemoteClick() },
@@ -1084,67 +1093,13 @@ private fun AddDeviceShortcutsRow(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md),
     ) {
-        GlassCard(
-            modifier = Modifier
-                .weight(1f)
-                .height(48.dp)
-                .testTag("scan_qr_shortcut"),
-            onClick = onScanQr,
-            backgroundColor = GlassFillLow,
-            borderColor = GlassBorderLow,
-            shape = MichiShapes.sm,
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.QrCodeScanner,
-                    contentDescription = null,
-                    tint = PrimaryPinkContainer,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Escanear QR",
-                    color = PureWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
+        AeroActionButton(label = "Escanear QR", icon = Icons.Filled.QrCodeScanner,
+            onClick = onScanQr, kind = AeroActionKind.Secondary,
+            modifier = Modifier.weight(1f), testTag = "scan_qr_shortcut")
 
-        GlassCard(
-            modifier = Modifier
-                .weight(1f)
-                .height(48.dp)
-                .testTag("manual_ip_shortcut"),
-            onClick = onManualIp,
-            backgroundColor = GlassFillLow,
-            borderColor = GlassBorderLow,
-            shape = MichiShapes.sm,
-        ) {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.AddLink,
-                    contentDescription = null,
-                    tint = TertiaryCyan,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Conexión manual",
-                    color = PureWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
+        AeroActionButton(label = "Conexión manual", icon = Icons.Filled.AddLink,
+            onClick = onManualIp, kind = AeroActionKind.Quiet,
+            modifier = Modifier.weight(1f), testTag = "manual_ip_shortcut")
     }
 }
 
@@ -1406,22 +1361,21 @@ private fun EmptyDevicesCard(
             modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Button(
+            AeroActionButton(
+                label = if (isSearching) "Explorando..." else "Buscar dispositivos",
                 onClick = onSearchAgain,
                 enabled = !isSearching,
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                shape = MichiShapes.sm,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) {
-                Text(if (isSearching) "Explorando..." else "Buscar dispositivos", fontSize = 13.sp)
-            }
-            OutlinedButton(
+                kind = AeroActionKind.Primary,
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Filled.Refresh,
+            )
+            AeroActionButton(
+                label = "Conexión manual por IP",
                 onClick = onManualConnect,
-                shape = MichiShapes.sm,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            ) {
-                Text("Conexión manual por IP", color = PureWhite, fontSize = 13.sp)
-            }
+                kind = AeroActionKind.Secondary,
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Filled.AddLink,
+            )
         }
     }
 }

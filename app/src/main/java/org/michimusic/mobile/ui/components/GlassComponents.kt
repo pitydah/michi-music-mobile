@@ -109,8 +109,10 @@ fun GlassCard(
     val baseModifier = modifier
         .then(if (material.elevation > 0.dp) Modifier.shadow(material.elevation, shape) else Modifier)
         .clip(shape)
-        .background(resolvedFill)
-        .then(if (highContrast) Modifier else Modifier.background(
+        .background(if (!highContrast && role == AeroSurfaceRole.Floating && backgroundColor == GlassFillHigh)
+            Brush.verticalGradient(listOf(Color(0xFF333B47), material.fill, Color(0xFF20262F)))
+            else Brush.verticalGradient(listOf(resolvedFill, resolvedFill)))
+        .then(if (highContrast || role != AeroSurfaceRole.Floating) Modifier else Modifier.background(
             Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.032f), Color.Transparent)),
         ))
         .then(if (material.borderWidth > 0.dp) Modifier.border(material.borderWidth, resolvedBorder, shape) else Modifier)

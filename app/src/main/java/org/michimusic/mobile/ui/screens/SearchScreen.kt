@@ -55,6 +55,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -83,6 +85,8 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
+import org.michimusic.mobile.ui.components.AeroSegmentedChoice
+import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
@@ -162,7 +166,7 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
                     .clip(MichiShapes.md)
-                    .background(org.michimusic.mobile.ui.theme.AeroGraphite)
+                    .background(Brush.verticalGradient(listOf(Color(0xFF232B35), Color(0xFF171D26))))
                     .border(
                         width = 0.65.dp,
                         color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.48f) else GlassBorderLow,
@@ -227,30 +231,16 @@ fun SearchScreen(
 
             Spacer(Modifier.height(MichiSpacing.md))
 
-            // Filter Chips
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            // M55: shared selection policy, contrast and responsive targets.
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(SearchFilter.entries) { filter ->
-                    val isSelected = filter == selectedFilter
-                    Box(
-                        modifier = Modifier
-                            .clip(MichiShapes.pill)
-                            .background(if (isSelected) PrimaryPinkContainer.copy(alpha = 0.15f) else AeroGraphiteRaised)
-                            .border(0.75.dp, if (isSelected) PrimaryPinkContainer.copy(alpha = 0.50f) else AeroHairline, MichiShapes.pill)
-                            .selectable(selected = isSelected, role = Role.Tab, onClick = { viewModel.setFilter(filter) })
-                            .heightIn(min = 48.dp)
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .testTag("search_filter_${filter.name.lowercase()}"),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = filter.displayName,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) PureWhite else TextSecondary,
-                        )
-                    }
+                    AeroSegmentedChoice(
+                        label = filter.displayName,
+                        selected = filter == selectedFilter,
+                        onClick = { viewModel.setFilter(filter) },
+                        treatment = AeroSegmentTreatment.Filter,
+                        testTag = "search_filter_${filter.name.lowercase()}",
+                    )
                 }
             }
 

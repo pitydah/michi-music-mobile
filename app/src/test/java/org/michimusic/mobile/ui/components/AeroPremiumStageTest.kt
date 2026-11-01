@@ -19,6 +19,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = Application::class)
 class AeroPremiumStageTest {
     @get:Rule val compose = createComposeRule()
+    @Test fun heroActionsStackForNarrowAndLargeFontScreens() {
+        org.junit.Assert.assertTrue(aeroHeroActionsVertical(360, 1f))
+        org.junit.Assert.assertTrue(aeroHeroActionsVertical(420, 1.6f))
+        org.junit.Assert.assertFalse(aeroHeroActionsVertical(440, 1f))
+    }
 
     @Test fun editorialHeroReflectsRealLibraryAndExecutesOriginalActions() {
         var playCount = 0

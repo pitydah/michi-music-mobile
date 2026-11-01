@@ -43,6 +43,16 @@ class CoverFlowGeometryTest {
         assertEquals(1f, visual.scale, 0.001f)
     }
 
+    @Test fun pageWidthFollowsRealViewportWithoutOverflow() {
+        assertEquals(0f, coverFlowPageWidthDp(0f), 0.001f)
+        assertEquals(0f, coverFlowPageWidthDp(Float.NaN), 0.001f)
+        assertEquals(100f, coverFlowPageWidthDp(100f), 0.001f)
+        assertEquals(192f, coverFlowPageWidthDp(320f), 0.001f)
+        assertEquals(216f, coverFlowPageWidthDp(360f), 0.001f)
+        assertEquals(247.2f, coverFlowPageWidthDp(412f), 0.01f)
+        assertEquals(248f, coverFlowPageWidthDp(900f), 0.001f)
+    }
+
     @Test fun restoredIndexClampsForShrinkingLibrary() {
         assertEquals(0, safeCoverFlowIndex(42, 0))
         assertEquals(0, safeCoverFlowIndex(-5, 8))

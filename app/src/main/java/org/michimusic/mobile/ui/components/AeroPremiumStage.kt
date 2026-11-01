@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -41,6 +42,7 @@ import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
 /**
  * M52 visual foundation. Restrained light, editorial typography and musical
@@ -52,22 +54,25 @@ fun AeroPremiumBackdrop(
     accent: Color = TertiaryCyan,
     modifier: Modifier = Modifier,
 ) {
+    val highContrast = LocalVisualPreferences.current.highContrast
     Box(
         modifier = modifier.fillMaxSize().background(
             Brush.verticalGradient(
-                0f to AeroGraphite.copy(alpha = 0.54f),
+                0f to AeroGraphite.copy(alpha = if (highContrast) 0.25f else 0.54f),
                 0.36f to SurfaceObsidian,
                 1f to SurfaceObsidian,
             ),
         ),
     ) {
-        Box(
-            modifier = Modifier.fillMaxWidth().height(150.dp).background(
-                Brush.verticalGradient(
-                    listOf(accent.copy(alpha = 0.045f), Color.Transparent),
+        if (!highContrast) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(200.dp).background(
+                    Brush.verticalGradient(
+                        listOf(accent.copy(alpha = 0.072f), accent.copy(alpha = 0.018f), Color.Transparent),
+                    ),
                 ),
-            ),
-        )
+            )
+        }
     }
 }
 
@@ -83,11 +88,13 @@ fun AeroEditorialHero(
     Column(
         modifier = modifier.fillMaxWidth()
             .background(
-                Brush.verticalGradient(listOf(AeroGraphiteRaised, AeroGraphite)),
+                Brush.verticalGradient(listOf(Color(0xFF323A46), AeroGraphiteRaised, AeroGraphite)),
                 shape,
             )
-            .border(0.8.dp, AeroHairline, shape)
-            .padding(horizontal = 23.dp, vertical = 24.dp),
+            .border(if (LocalVisualPreferences.current.highContrast) 1.3.dp else 0.8.dp,
+                if (LocalVisualPreferences.current.highContrast) Color.White.copy(alpha = 0.8f)
+                else AeroHairline, shape)
+            .padding(horizontal = 23.dp, vertical = 26.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -100,6 +107,7 @@ fun AeroEditorialHero(
             fontSize = 29.sp,
             lineHeight = 35.sp,
             fontWeight = FontWeight.Bold,
+            fontFamily = org.michimusic.mobile.ui.theme.InterFontFamily,
             letterSpacing = (-0.75).sp,
             color = PureWhite,
             maxLines = 2,
@@ -108,23 +116,16 @@ fun AeroEditorialHero(
         Text("$trackCount ${if (trackCount == 1) "canción" else "canciones"} en tu biblioteca",
             color = TextSecondary, fontSize = 13.sp)
         Spacer(Modifier.height(3.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = onPlayAll,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("quick_play_button"),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                shape = RoundedCornerShape(13.dp),
-            ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(19.dp))
-                Text("Reproducir", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        val configuration = LocalConfiguration.current
+        if (aeroHeroActionsVertical(configuration.screenWidthDp, configuration.fontScale)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AeroPlayAllAction(onPlayAll, Modifier.fillMaxWidth())
+                AeroShuffleAction(onShuffle, Modifier.fillMaxWidth())
             }
-            OutlinedButton(
-                onClick = onShuffle,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("shuffle_button"),
-                shape = RoundedCornerShape(13.dp),
-            ) {
-                Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(17.dp))
-                Text("Aleatorio", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AeroPlayAllAction(onPlayAll, Modifier.weight(1f))
+                AeroShuffleAction(onShuffle, Modifier.weight(1f))
             }
         }
     }
@@ -143,8 +144,8 @@ fun AeroEmptyEditorial(
     val shape = RoundedCornerShape(22.dp)
     Column(
         modifier = modifier.fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(AeroGraphiteRaised, AeroGraphite)), shape)
-            .border(0.7.dp, AeroHairline, shape)
+            .background(Brush.verticalGradient(listOf(Color(0xFF303743), AeroGraphite)), shape)
+            .border(0.85.dp, AeroHairline, shape)
             .padding(24.dp),
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -165,4 +166,26 @@ fun AeroEmptyEditorial(
         Text(description, fontSize = 13.sp, lineHeight = 19.sp, color = TextSecondary)
         content()
     }
+}
+
+/** Stable, testable responsive policy, independent of Composition. */
+fun aeroHeroActionsVertical(screenWidthDp: Int, fontScale: Float): Boolean =
+    screenWidthDp < 390 || fontScale >= 1.25f
+
+@Composable
+private fun AeroPlayAllAction(onPlayAll: () -> Unit, modifier: Modifier) {
+    AeroActionButton(
+        label = "Reproducir", onClick = onPlayAll, modifier = modifier,
+        icon = Icons.Filled.PlayArrow, kind = AeroActionKind.Primary,
+        testTag = "quick_play_button",
+    )
+}
+
+@Composable
+private fun AeroShuffleAction(onShuffle: () -> Unit, modifier: Modifier) {
+    AeroActionButton(
+        label = "Aleatorio", onClick = onShuffle, modifier = modifier,
+        icon = Icons.Filled.Shuffle, kind = AeroActionKind.Secondary,
+        testTag = "shuffle_button",
+    )
 }

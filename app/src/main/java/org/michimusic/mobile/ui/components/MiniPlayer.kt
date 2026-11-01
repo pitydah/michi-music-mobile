@@ -93,8 +93,8 @@ fun MiniPlayer(
                     .fillMaxWidth()
                     .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 4.dp)
                     .clip(MichiShapes.md)
-                    .background(AeroGraphiteRaised)
-                    .border(0.65.dp, AeroHairline, MichiShapes.md)
+                    .background(Brush.verticalGradient(listOf(Color(0xFF333B47), AeroGraphiteRaised, Color(0xFF1A222C))))
+                    .border(0.8.dp, AeroHairline, MichiShapes.md)
                     .testTag("mini_player_bar"),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -192,7 +192,7 @@ fun MiniPlayer(
                         }
                         Spacer(modifier = Modifier.width(6.dp))
 
-                        // Play / Pause Button
+                        // Aero v1.3: icon-only transport; the 48dp hitbox stays invisible.
                         MichiIconAction(
                             icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (isPlaying) "Pausar" else "Reproducir",

@@ -150,6 +150,7 @@ fun MichiPlaybackControls(
                     },
                     enabled = !state.isLoading && state.canPlayPause,
                     role = Role.Button,
+                // Aero v1.3: 68dp invisible hitbox, bare icon. No circle, fill, or rim.
                     interactionSource = playInteractionSource,
                     indication = null, // Tactile scale and opacity replaces circular ripple disks
                 )
@@ -171,7 +172,7 @@ fun MichiPlaybackControls(
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = null,
-                        tint = if (state.canPlayPause) PureWhite else OnSurfaceVariant.copy(alpha = 0.5f),
+                        tint = if (state.canPlayPause && !state.isLoading) PureWhite else OnSurfaceVariant.copy(alpha = 0.52f),
                         modifier = Modifier.size(42.dp),
                     )
                 }
