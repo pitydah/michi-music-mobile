@@ -165,12 +165,12 @@ class ComposeNavigationIntegrationTest {
         assertTrue(chrome.showDock)
         assertTrue(chrome.showMiniPlayer)
 
-        // 2. Settings maps to home
+        // 2. Settings does not claim home tab (M52)
         composeTestRule.runOnUiThread { navController.navigate("settings") }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("route_settings").assertIsDisplayed()
         chrome = navigationPresentationFor("settings")
-        assertEquals("home", chrome.selectedPrimaryTab)
+        assertEquals(null, chrome.selectedPrimaryTab)
         assertTrue(chrome.showDock)
 
         // 3. Remote maps to devices

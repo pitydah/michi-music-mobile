@@ -161,7 +161,12 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Brush.verticalGradient(
-                    listOf(SurfaceContainerLowest, SurfaceObsidian, SurfaceObsidian),
+                    listOf(
+                        TertiaryCyan.copy(alpha = 0.055f),
+                        SurfaceContainerLowest,
+                        SurfaceObsidian,
+                        SurfaceObsidian,
+                    ),
                 )),
         )
 
@@ -254,14 +259,28 @@ fun NowPlayingScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 val artSide = minOf(maxWidth * 0.89f, maxHeight).coerceAtLeast(0.dp)
+                // An unanimated tonal surround creates depth without blurring
+                // the cover or spending GPU time on oversized glow effects.
                 Box(
-                    modifier = Modifier
-                        .size(artSide)
-                        .shadow(elevation = 10.dp, shape = MichiShapes.lg)
-                        .clip(MichiShapes.lg)
-                        .border(raised.borderWidth, raised.outline, MichiShapes.lg)
-                        .testTag("now_playing_album_art"),
+                    modifier = Modifier.size(artSide)
+                        .background(
+                            Brush.verticalGradient(listOf(
+                                TertiaryCyan.copy(alpha = 0.12f),
+                                PrimaryPinkContainer.copy(alpha = 0.045f),
+                                Color.Transparent,
+                            )),
+                            MichiShapes.lg,
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size((artSide - 10.dp).coerceAtLeast(0.dp))
+                            .shadow(elevation = 18.dp, shape = MichiShapes.lg)
+                            .clip(MichiShapes.lg)
+                            .border(raised.borderWidth, raised.outline, MichiShapes.lg)
+                            .testTag("now_playing_album_art"),
+                    ) {
                     AlbumArtView(
                         coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
                         imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
@@ -270,6 +289,7 @@ fun NowPlayingScreen(
                         cornerRadius = 24.dp,
                         borderWidth = 0.dp,
                     )
+                    }
                 }
             }
 
@@ -325,7 +345,8 @@ fun NowPlayingScreen(
                             val isStreamReceiver = sessionState.isRemoteActive && !activeEndpoint.isLocal &&
                                 (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
                             val label = if ((!sessionState.isRemoteActive || isStreamReceiver) && decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
-                                decodedPcmLabel(decoded.sampleRate, decoded.bitDepth) ?: "Signal Truth"
+                                decodedPcmLabel(decoded.sampleRate, decoded.bitDepth)?.let { "PCM decodificado · $it" }
+                                    ?: "Signal Truth"
                             } else "Signal Truth"
                             Box(
                                 modifier = Modifier

@@ -110,6 +110,9 @@ fun GlassCard(
         .then(if (material.elevation > 0.dp) Modifier.shadow(material.elevation, shape) else Modifier)
         .clip(shape)
         .background(resolvedFill)
+        .then(if (highContrast) Modifier else Modifier.background(
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.032f), Color.Transparent)),
+        ))
         .then(if (material.borderWidth > 0.dp) Modifier.border(material.borderWidth, resolvedBorder, shape) else Modifier)
         .then(
             if (onClick != null) Modifier.clickable(

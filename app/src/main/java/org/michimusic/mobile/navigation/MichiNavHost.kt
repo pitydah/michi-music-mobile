@@ -1,5 +1,7 @@
 package org.michimusic.mobile.navigation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.fillMaxSize
@@ -90,6 +92,12 @@ fun MichiNavHost() {
             NavHost(
                 navController = navController,
                 startDestination = "home",
+                // M52: deterministic hand-off prevents ghost text/cards in tab transitions.
+                // Do not use crossfade for two full screen destinations rendered together.
+                enterTransition = { EnterTransition.None },
+                exitTransition = { ExitTransition.None },
+                popEnterTransition = { EnterTransition.None },
+                popExitTransition = { ExitTransition.None },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = if (miniPlayerVisible && hasMiniPlayer) MichiSpacing.miniPlayerSpace else 0.dp),
@@ -163,6 +171,7 @@ fun MichiNavHost() {
                 composable("settings") {
                     SettingsScreen(
                         onNavigateToDiagnostics = { navController.navigate("diagnostics") },
+                        onNavigateBack = { navController.popBackStack() },
                     )
                 }
                 composable("playlist") {

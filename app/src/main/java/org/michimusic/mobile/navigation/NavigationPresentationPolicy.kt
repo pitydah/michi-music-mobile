@@ -26,7 +26,7 @@ fun navigationPresentationFor(route: String?): MichiNavigationPresentation {
         route == "sync_wizard/{deviceId}" || route?.startsWith("sync_wizard/") == true
     val section = when {
         primary != null -> primary
-        route == "settings" || route == "diagnostics" -> "home"
+        route == "settings" || route == "diagnostics" -> null
         route == "playlist" || route == "playlist/{playlistId}" ||
             route?.startsWith("playlist/") == true || route == "queue" -> "library"
         route == "synced" || route == "remote" || route == "sync" ||

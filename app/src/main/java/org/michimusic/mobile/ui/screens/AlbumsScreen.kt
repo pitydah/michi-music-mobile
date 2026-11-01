@@ -78,6 +78,7 @@ import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.TrackActionBottomSheet
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
@@ -197,6 +198,7 @@ fun AlbumsScreen(
             .fillMaxSize()
             .background(SurfaceObsidian),
     ) {
+        AeroPremiumBackdrop(accent = PrimaryPinkContainer)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -220,7 +222,7 @@ fun AlbumsScreen(
                         letterSpacing = 2.sp,
                     )
                     Text(
-                        text = "Tu biblioteca",
+                        text = "La música es tuya.",
                         style = MichiTypography.screenTitle.copy(fontSize = 22.sp, lineHeight = 27.sp),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
