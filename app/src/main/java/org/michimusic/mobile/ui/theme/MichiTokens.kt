@@ -6,11 +6,13 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.michimusic.mobile.R
 
 /**
  * Michi Spacing System — Consistently structured spatial tokens.
@@ -59,10 +61,19 @@ object MichiMotion {
 
 /**
  * Michi Semantic Typography — Role-based typography tokens for maximal legibility.
+ * Configured with authentic Inter font resources across all primary weights.
  */
+val InterFontFamily = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+    Font(R.font.inter_extrabold, FontWeight.ExtraBold),
+)
+
 object MichiTypography {
     val screenEyebrow = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 11.sp,
         lineHeight = 14.sp,
@@ -71,7 +82,7 @@ object MichiTypography {
     )
 
     val screenTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.ExtraBold,
         fontSize = 25.sp,
         lineHeight = 31.sp,
@@ -80,7 +91,7 @@ object MichiTypography {
     )
 
     val sectionTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 19.sp,
         lineHeight = 25.sp,
@@ -89,7 +100,7 @@ object MichiTypography {
     )
 
     val cardTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 15.sp,
         lineHeight = 20.sp,
@@ -98,7 +109,7 @@ object MichiTypography {
     )
 
     val trackTitle = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 18.sp,
@@ -107,7 +118,7 @@ object MichiTypography {
     )
 
     val metadata = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
@@ -116,7 +127,7 @@ object MichiTypography {
     )
 
     val microLabel = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
         lineHeight = 14.sp,

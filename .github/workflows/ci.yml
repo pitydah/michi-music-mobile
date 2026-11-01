@@ -50,8 +50,8 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      - name: Run Core & Normal Unit Tests
-        run: ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest :player:testDebugUnitTest :michi-link-client:testDebugUnitTest :app:testNormalDebugUnitTest
+      - name: Run Core & Normal Unit Tests and Verify Android Instrumented Tests
+        run: ./gradlew :core:testDebugUnitTest :data:testDebugUnitTest :player:testDebugUnitTest :michi-link-client:testDebugUnitTest :app:testNormalDebugUnitTest :app:compileNormalDebugAndroidTestKotlin :app:assembleNormalDebugAndroidTest
 
   unit-tests-fdroid:
     name: "Job C — Unit Tests (F-Droid)"
@@ -71,8 +71,8 @@ jobs:
           restore-keys: ${{ runner.os }}-gradle-
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-      - name: Run F-Droid Unit Tests
-        run: ./gradlew :app:testFdroidDebugUnitTest
+      - name: Run F-Droid Unit Tests and Verify Android Instrumented Tests
+        run: ./gradlew :app:testFdroidDebugUnitTest :app:compileFdroidDebugAndroidTestKotlin
 
   migrations-and-schema:
     name: "Job D — Room Migrations & Schemas"

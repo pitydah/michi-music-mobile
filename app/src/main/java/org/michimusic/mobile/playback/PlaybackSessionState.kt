@@ -36,6 +36,16 @@ enum class HandoffState {
     FAILED,
 }
 
+enum class PlaybackTransitionIntent {
+    USER_HANDOFF_TO_PHONE,
+    USER_SWITCH_OUTPUT,
+    USER_STOP,
+    RTP_FAILURE,
+    NETWORK_LOST,
+    SESSION_REVOKED,
+    FORMAT_FAILURE,
+}
+
 data class PlaybackEndpoint(
     val id: String,
     val name: String,
@@ -75,6 +85,7 @@ data class PlaybackSessionState(
     val remoteVolume: Int = 50,
     val statusMessage: String? = null,
     val lastSessionError: StreamErrorReason? = null,
+    val lastTransitionIntent: PlaybackTransitionIntent? = null,
     val rtpMetrics: RtpMetrics? = null,
     val lastRemoteCommand: RemoteCommandRecord? = null,
 )

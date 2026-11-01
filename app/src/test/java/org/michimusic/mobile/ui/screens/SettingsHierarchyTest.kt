@@ -104,7 +104,9 @@ class SettingsHierarchyTest {
     @Test
     fun testClickingReplayGainModeInComposeUpdatesPlayerDependencies() {
         composeTestRule.setContent {
-            SettingsScreen(initialSection = SettingsSection.AUDIO_QUALITY)
+            org.koin.compose.KoinContext {
+                SettingsScreen(initialSection = SettingsSection.AUDIO_QUALITY)
+            }
         }
         composeTestRule.waitForIdle()
 
@@ -124,4 +126,22 @@ class SettingsHierarchyTest {
 
         assertEquals(ReplayGainMode.OFF, PlayerDependencies.replayGainMode)
     }
+
+    @Test
+    fun testHapticsToggleInAccessibilitySection_invokesRepository() {
+        composeTestRule.setContent {
+            org.koin.compose.KoinContext {
+                SettingsScreen(initialSection = SettingsSection.ACCESSIBILITY)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_haptics_switch")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.waitForIdle()
+
+        io.mockk.verify(atLeast = 1) { mockVisualRepo.setHapticsEnabled(any()) }
+    }
 }
+

@@ -49,4 +49,28 @@ class CoverFlowGeometryTest {
         assertEquals(7, safeCoverFlowIndex(42, 8))
         assertEquals(3, safeCoverFlowIndex(3, 8))
     }
+
+    @Test fun stableAlbumIdLookupPreservesSelectionAcrossResorting() {
+        val albums = listOf(
+            org.michimusic.mobile.library.coverflow.CoverFlowAlbum(id = "album_a", title = "Alpha", artist = "Artist 1", year = 2020, trackCount = 10),
+            org.michimusic.mobile.library.coverflow.CoverFlowAlbum(id = "album_b", title = "Beta", artist = "Artist 2", year = 2021, trackCount = 12),
+            org.michimusic.mobile.library.coverflow.CoverFlowAlbum(id = "album_c", title = "Gamma", artist = "Artist 3", year = 2022, trackCount = 8),
+        )
+        val selectedId = "album_b"
+
+        val initialIndex = albums.indexOfFirst { it.id == selectedId }
+        assertEquals(1, initialIndex)
+
+        // Resort albums alphabetically descending
+        val resorted = albums.sortedByDescending { it.title }
+        val newIndex = resorted.indexOfFirst { it.id == selectedId }
+        assertEquals(1, newIndex)
+
+        // Prepend another album
+        val extended = listOf(org.michimusic.mobile.library.coverflow.CoverFlowAlbum(id = "album_z", title = "Zeta", artist = "Artist 0", year = 2019, trackCount = 5)) + albums
+        val indexInExtended = extended.indexOfFirst { it.id == selectedId }
+        assertEquals(2, indexInExtended) // Index changed from 1 to 2, but ID selection remains "album_b"
+        assertEquals("Beta", extended[indexInExtended].title)
+    }
 }
+

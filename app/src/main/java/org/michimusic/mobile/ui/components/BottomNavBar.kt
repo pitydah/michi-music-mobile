@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.AeroGraphite
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
@@ -94,9 +95,9 @@ fun BottomNavBar(
                 .fillMaxWidth()
                 .height(dockHeight)
                 .clip(MichiShapes.lg)
-                .background(AeroGraphite.copy(alpha = 0.98f))
+                .background(AeroGraphiteRaised)
                 .border(
-                    width = 0.65.dp,
+                    width = 0.75.dp,
                     color = AeroHairline,
                     shape = MichiShapes.lg,
                 )
@@ -124,9 +125,6 @@ fun BottomNavBar(
                             .weight(1f)
                             .height(dockHeight - 16.dp)
                             .clip(MichiShapes.md)
-                            .background(
-                                if (isSelected) PrimaryPinkContainer.copy(alpha = 0.075f) else Color.Transparent,
-                            )
                             .semantics(mergeDescendants = true) {
                                 selected = isSelected
                                 stateDescription = if (isSelected) "Sección actual" else "Otra sección"

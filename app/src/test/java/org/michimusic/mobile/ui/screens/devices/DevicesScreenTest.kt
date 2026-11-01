@@ -109,4 +109,39 @@ class DevicesScreenTest {
         // Primary action displayed
         composeTestRule.onNodeWithText("Conectar").assertIsDisplayed()
     }
+
+    @Test
+    fun deviceNodeCard_connectedStreamDevice_displaysConnectedBadge() {
+        val streamItem = DeviceUiItem(
+            id = "stream-01",
+            name = "Michi Stream",
+            ip = "192.168.1.80",
+            port = 7331,
+            deviceType = "speaker",
+            discoveryStatus = DeviceDiscoveryStatus.DISCOVERED,
+            trustStatus = DeviceTrustStatus.TRUSTED,
+            connectionStatus = DeviceConnectionStatus.CONNECTED,
+            capabilities = setOf("Receptor Stream"),
+            primaryAction = DeviceAction(
+                type = DeviceActionType.PLAY_ON_DEVICE,
+                label = "Transmitir aquí",
+                isPrimary = true,
+            ),
+            secondaryActions = emptyList(),
+        )
+
+        composeTestRule.setContent {
+            MichiTheme {
+                DeviceNodeCard(
+                    item = streamItem,
+                    onInfoClick = {},
+                    onActionClick = {},
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Michi Stream").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Conectado").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Transmitir aquí").assertIsDisplayed()
+    }
 }

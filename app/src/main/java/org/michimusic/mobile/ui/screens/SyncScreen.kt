@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.material.icons.filled.DesktopWindows
@@ -68,6 +69,7 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
@@ -149,17 +151,14 @@ fun SyncScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.FolderSpecial,
+                    contentDescription = "Pistas Sincronizadas",
                     onClick = onNavigateToSynced,
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.FolderSpecial,
-                        contentDescription = "Pistas Sincronizadas",
-                        tint = PrimaryPink,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
+                    tint = PrimaryPink,
+                    iconSize = 24.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                )
 
                 Text(
                     text = "Michi Link",
@@ -168,19 +167,15 @@ fun SyncScreen(
                     modifier = Modifier.testTag("sync_title"),
                 )
 
-                IconButton(
+                MichiIconAction(
+                    icon = Icons.Filled.Refresh,
+                    contentDescription = "Refrescar búsqueda",
                     onClick = { viewModel.startDiscovery() },
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "Refrescar",
-                        tint = PrimaryPink,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .then(if (isSearching) Modifier.rotate(spinAngle) else Modifier),
-                    )
-                }
+                    isLoading = isSearching,
+                    tint = PrimaryPink,
+                    iconSize = 24.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                )
             }
 
             LazyColumn(

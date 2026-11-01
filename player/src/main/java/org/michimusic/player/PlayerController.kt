@@ -126,7 +126,11 @@ class PlayerController(
             val key = configKey(audioTrackConfig)
             val record = synchronized(pendingGenerationsLock) {
                 val rec = trackRecords.firstOrNull { it.configKey == key && !it.isInitialized && !it.isReleased }
-                    ?: trackRecords.lastOrNull { !it.isInitialized && !it.isReleased }
+                if (rec == null) {
+                    // Cannot definitively correlate initialization callback to an expected instance;
+                    // degrade instrumentation rather than adopting an ambiguous instance.
+                    signalTruthTracker?.markInstrumentationDegraded()
+                }
                 rec?.isInitialized = true
                 rec
             }
@@ -149,18 +153,25 @@ class PlayerController(
                 }
                 val matched = byState
                     ?: trackRecords.firstOrNull { rec -> rec.configKey == key && !rec.isReleased }
-                    ?: trackRecords.firstOrNull { !it.isReleased }
 
-                matched?.isReleased = true
+                if (matched == null) {
+                    // Cannot correlate release callback unambiguously.
+                    // Strictly NEVER detach an active AudioTrack based on an ambiguous inference.
+                    signalTruthTracker?.markInstrumentationDegraded()
+                    return@synchronized null
+                }
+
+                matched.isReleased = true
                 if (trackRecords.size > 20) {
                     trackRecords.removeAll { it.isReleased }
                 }
                 matched
             }
-            val gen = record?.generation ?: activeTrackGeneration
-            val track = record?.track
-            signalTruthTracker?.onAudioTrackReleased(gen)
-            routeObserver?.detachAudioTrack(audioTrack = track, generation = gen)
+
+            if (record != null) {
+                signalTruthTracker?.onAudioTrackReleased(record.generation)
+                routeObserver?.detachAudioTrack(audioTrack = record.track, generation = record.generation)
+            }
         }
     }
 

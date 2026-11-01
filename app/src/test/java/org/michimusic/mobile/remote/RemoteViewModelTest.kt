@@ -127,4 +127,59 @@ class RemoteViewModelTest {
 
         verify { sessionManager.skipToQueueIndex(2) }
     }
+
+    @Test
+    fun `unmappedOrAbsentConnectionState_isDisconnected_neverConnected`() = runTest(testDispatcher) {
+        val job = backgroundScope.launch { viewModel.uiState.collect { } }
+        // Update connectionStates to empty map (dev_1 missing)
+        connectionStates.value = emptyMap()
+        runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals(RemoteConnectionState.DISCONNECTED, state.connState)
+        assertFalse("Must NOT claim connected when device state is missing", state.connected)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `unauthorizedConnectionState_isUnauthorized_notConnected`() = runTest(testDispatcher) {
+        val job = backgroundScope.launch { viewModel.uiState.collect { } }
+        connectionStates.value = mapOf("dev_1" to SyncConnectionState.UNAUTHORIZED)
+        runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals(RemoteConnectionState.UNAUTHORIZED, state.connState)
+        assertFalse(state.connected)
+        assertEquals("Autenticación requerida con el host remoto", state.error)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `offlineConnectionState_isOffline_notConnected`() = runTest(testDispatcher) {
+        val job = backgroundScope.launch { viewModel.uiState.collect { } }
+        connectionStates.value = mapOf("dev_1" to SyncConnectionState.OFFLINE)
+        runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals(RemoteConnectionState.OFFLINE, state.connState)
+        assertFalse(state.connected)
+        assertEquals("Host remoto fuera de línea", state.error)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `connectingConnectionState_isConnecting_notConnected`() = runTest(testDispatcher) {
+        val job = backgroundScope.launch { viewModel.uiState.collect { } }
+        connectionStates.value = mapOf("dev_1" to SyncConnectionState.CONNECTING)
+        runCurrent()
+
+        val state = viewModel.uiState.value
+        assertEquals(RemoteConnectionState.CONNECTING, state.connState)
+        assertFalse(state.connected)
+
+        job.cancel()
+    }
 }

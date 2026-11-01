@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
@@ -185,18 +186,15 @@ fun SettingsScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (currentSection != SettingsSection.ROOT) {
-                        IconButton(
+                        MichiIconAction(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
                             onClick = { currentSection = SettingsSection.ROOT },
-                            modifier = Modifier
-                                .size(MichiSpacing.minTouchTarget)
-                                .testTag("settings_back_button"),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Volver",
-                                tint = PureWhite,
-                            )
-                        }
+                            tint = PureWhite,
+                            iconSize = 24.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "settings_back_button",
+                        )
                         Spacer(Modifier.width(8.dp))
                     }
                     Column {
@@ -559,7 +557,7 @@ fun SettingsScreen(
                             SettingsSectionCard(
                                 icon = Icons.Default.AccessibilityNew,
                                 title = "Accesibilidad & Interfaz",
-                                subtitle = "Optimización visual y de movimiento",
+                                subtitle = "Optimización visual, movimiento y respuesta háptica",
                                 accent = TertiaryCyan,
                             ) {
                                 SettingSwitchRow(
@@ -569,6 +567,7 @@ fun SettingsScreen(
                                     onCheckedChange = {
                                         visualPreferencesRepo.setHighContrast(it)
                                     },
+                                    testTag = "settings_high_contrast",
                                 )
 
                                 Spacer(Modifier.height(12.dp))
@@ -580,6 +579,19 @@ fun SettingsScreen(
                                     onCheckedChange = {
                                         visualPreferencesRepo.setReducedMotion(it)
                                     },
+                                    testTag = "settings_reduced_motion",
+                                )
+
+                                Spacer(Modifier.height(12.dp))
+
+                                SettingSwitchRow(
+                                    title = "Vibración táctil sutil (Aero)",
+                                    subtitle = "Respuesta háptica precisa al pulsar botones y controles de reproducción",
+                                    checked = visualPrefs.hapticsEnabled,
+                                    onCheckedChange = {
+                                        visualPreferencesRepo.setHapticsEnabled(it)
+                                    },
+                                    testTag = "settings_haptics",
                                 )
                             }
                         }
@@ -615,7 +627,7 @@ fun SettingsScreen(
                 }
             }
 
-            Spacer(Modifier.height(100.dp))
+            Spacer(Modifier.height(24.dp))
         }
 
         if (showEqualizerDialog) {
@@ -793,9 +805,13 @@ private fun SettingSwitchRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    testTag: String? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MichiSpacing.minTouchTarget)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -806,6 +822,7 @@ private fun SettingSwitchRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+            modifier = if (testTag != null) Modifier.testTag("${testTag}_switch") else Modifier,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = PureWhite,
                 checkedTrackColor = TertiaryCyan,
@@ -815,3 +832,4 @@ private fun SettingSwitchRow(
         )
     }
 }
+

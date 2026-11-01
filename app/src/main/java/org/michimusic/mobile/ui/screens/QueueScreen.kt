@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Clear
@@ -84,15 +85,20 @@ import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.player.AudioController
 
 @Composable
-fun QueueScreen() {
-    val controller: AudioController = koinInject()
-    val favoritesRepo: FavoritesRepository = koinInject()
+fun QueueScreen(
+    sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
+    controller: AudioController = koinInject(),
+    favoritesRepo: FavoritesRepository = koinInject(),
+) {
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
     val coroutineScope = rememberCoroutineScope()
-    val state by controller.state.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsState()
+    val localState by controller.state.collectAsState()
     val isReady by controller.isReady.collectAsState()
-    val queue = state.queue
-    val currentIndex = state.queueIndex
+    val isRemote = sessionState.isRemoteActive
+    val queue = if (isRemote) sessionState.queue else localState.queue
+    val currentIndex = if (isRemote) sessionState.queueIndex else localState.queueIndex
+    val isPlaying = if (isRemote) sessionState.isPlaying else localState.isPlaying
     var showClearConfirmation by remember { mutableStateOf(false) }
 
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -129,7 +135,7 @@ fun QueueScreen() {
                     )
                 }
 
-                if (queue.isNotEmpty() && isReady) {
+                if (queue.isNotEmpty() && (isReady || isRemote)) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
@@ -186,7 +192,7 @@ fun QueueScreen() {
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             EqualizerWaveBars(
-                                isPlaying = state.isPlaying,
+                                isPlaying = isPlaying,
                                 barCount = 4,
                                 color = TertiaryCyan,
                             )
@@ -219,23 +225,45 @@ fun QueueScreen() {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(24.dp),
                     ) {
+                        val endpointName = sessionState.activeEndpoint.name
+                        val lastCmd = sessionState.lastRemoteCommand
+                        val isPending = isRemote && lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
+                        val isFailed = isRemote && (
+                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.REJECTED ||
+                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.FAILED ||
+                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.DISCONNECTED
+                        )
+
                         Icon(
                             Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = if (isFailed) org.michimusic.mobile.ui.theme.ErrorColor else TextMuted,
                             modifier = Modifier.size(56.dp),
                         )
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "La cola está vacía",
+                            text = when {
+                                isPending -> "Sincronizando cola con $endpointName..."
+                                isFailed -> "Error en cola de $endpointName"
+                                isRemote -> "Cola remota vacía en $endpointName"
+                                else -> "La cola está vacía"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = PureWhite,
                         )
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Reproduce una canción, álbum o playlist para comenzar",
+                            text = when {
+                                isPending -> "Esperando respuesta del host remoto..."
+                                isFailed -> lastCmd?.resultMessage ?: "No se pudo actualizar la cola en el host remoto"
+                                isRemote -> "No hay pistas en la cola del dispositivo $endpointName"
+                                else -> "Reproduce una canción, álbum o playlist para comenzar"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted,
+                            color = if (isFailed) org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.8f) else TextMuted,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                     }
                 }
@@ -244,14 +272,14 @@ fun QueueScreen() {
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(queue) { idx, track ->
+                    itemsIndexed(queue, key = { idx, track -> "${track.id}_$idx" }) { idx, track ->
                         val isCurrent = idx == currentIndex
                         GlassCard(
                             modifier = Modifier.fillMaxWidth(),
                             backgroundColor = if (isCurrent) AeroGraphiteRaised else GlassFillLow,
                             borderColor = GlassBorderLow,
                             accent = if (isCurrent) PrimaryPinkContainer else null,
-                            onClick = { controller.playQueue(queue, idx) },
+                            onClick = { sessionManager.playQueue(queue, idx) },
                         ) {
                             // Separate track metadata from queue actions. Four 44dp icons
                             // alongside title/artwork did not fit 320dp screens.
@@ -266,7 +294,7 @@ fun QueueScreen() {
                                     modifier = Modifier.size(28.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    if (isCurrent && state.isPlaying) {
+                                    if (isCurrent && isPlaying) {
                                         EqualizerWaveBars(
                                             isPlaying = true,
                                             barCount = 3,
@@ -325,60 +353,48 @@ fun QueueScreen() {
                                     horizontalArrangement = Arrangement.End,
                                 ) {
                                     if (idx > 0) {
-                                        androidx.compose.material3.IconButton(
-                                            onClick = { controller.moveQueueItem(idx, idx - 1) },
-                                            modifier = Modifier.size(48.dp),
-                                        ) {
-                                            Icon(
-                                                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowUp,
-                                                contentDescription = "Subir ${track.title} en la cola",
-                                                tint = TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
+                                        MichiIconAction(
+                                            icon = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "Subir ${track.title} en la cola",
+                                            onClick = { sessionManager.moveQueueItem(idx, idx - 1) },
+                                            tint = TextSecondary,
+                                            iconSize = 20.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
+                                        )
                                     }
                                     if (idx < queue.lastIndex) {
-                                        androidx.compose.material3.IconButton(
-                                            onClick = { controller.moveQueueItem(idx, idx + 1) },
-                                            modifier = Modifier.size(48.dp),
-                                        ) {
-                                            Icon(
-                                                imageVector = androidx.compose.material.icons.Icons.Default.KeyboardArrowDown,
-                                                contentDescription = "Bajar ${track.title} en la cola",
-                                                tint = TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        }
-                                    }
-                                    androidx.compose.material3.IconButton(
-                                        onClick = { controller.removeFromQueue(idx) },
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Clear,
-                                            contentDescription = "Quitar ${track.title} de la cola",
-                                            tint = org.michimusic.mobile.ui.theme.ErrorColor,
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                    androidx.compose.material3.IconButton(
-                                        onClick = { selectedTrackForMenu = track },
-                                        modifier = Modifier.size(48.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = "Opciones de ${track.title}",
+                                        MichiIconAction(
+                                            icon = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Bajar ${track.title} en la cola",
+                                            onClick = { sessionManager.moveQueueItem(idx, idx + 1) },
                                             tint = TextSecondary,
-                                            modifier = Modifier.size(20.dp),
+                                            iconSize = 20.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
                                         )
                                     }
+                                    MichiIconAction(
+                                        icon = Icons.Default.Clear,
+                                        contentDescription = "Quitar ${track.title} de la cola",
+                                        onClick = { sessionManager.removeFromQueue(idx) },
+                                        tint = org.michimusic.mobile.ui.theme.ErrorColor,
+                                        iconSize = 18.dp,
+                                        minTargetSize = MichiSpacing.minTouchTarget,
+                                    )
+                                    MichiIconAction(
+                                        icon = Icons.Default.MoreVert,
+                                        contentDescription = "Opciones de ${track.title}",
+                                        onClick = { selectedTrackForMenu = track },
+                                        tint = TextSecondary,
+                                        iconSize = 20.dp,
+                                        minTargetSize = MichiSpacing.minTouchTarget,
+                                    )
                                 }
                             }
                         }
                     }
 
                     item {
-                        Spacer(Modifier.height(100.dp))
+                        Spacer(Modifier.height(24.dp))
                     }
                 }
             }
@@ -392,7 +408,7 @@ fun QueueScreen() {
                 confirmButton = {
                     TextButton(onClick = {
                         showClearConfirmation = false
-                        controller.clearQueue()
+                        sessionManager.clearQueue()
                     }) { Text("Vaciar cola") }
                 },
                 dismissButton = {
@@ -411,13 +427,13 @@ fun QueueScreen() {
                 onDismiss = { selectedTrackForMenu = null },
                 onPlayNow = {
                     val idx = queue.indexOf(track).coerceAtLeast(0)
-                    controller.playQueue(queue, idx)
+                    sessionManager.playQueue(queue, idx)
                 },
                 onPlayNext = {
-                    controller.playNext(track)
+                    sessionManager.playNext(track)
                 },
                 onAddToQueue = {
-                    controller.addToQueue(track)
+                    sessionManager.addToQueue(track)
                 },
                 onAddToPlaylist = {
                     trackToAddToPlaylist = track

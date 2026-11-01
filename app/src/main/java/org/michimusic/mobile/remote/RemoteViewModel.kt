@@ -23,6 +23,10 @@ import org.michimusic.link.dto.PlaybackStateDto
 import org.michimusic.link.dto.QueueDto
 import org.michimusic.link.errors.LinkException
 
+import org.michimusic.mobile.playback.RemoteCommandStatus
+
+import kotlinx.coroutines.flow.combine
+
 enum class RemoteSourceMode {
     LOCAL,
     REMOTE,
@@ -30,10 +34,12 @@ enum class RemoteSourceMode {
 
 enum class RemoteConnectionState {
     DISCONNECTED,
+    CONNECTING,
     CONNECTED,
     UNAUTHORIZED,
     FORBIDDEN,
     OFFLINE,
+    ERROR,
     INCOMPATIBLE,
     ENDPOINT_MISSING,
     CONTRACT_PARTIAL,
@@ -47,6 +53,8 @@ data class RemoteUiState(
     val connected: Boolean = false,
     val sourceName: String = "Reproductor local",
     val error: String? = null,
+    val pendingCommand: Boolean = false,
+    val pendingCommandMessage: String? = null,
 )
 
 class RemoteViewModel(
@@ -59,30 +67,52 @@ class RemoteViewModel(
     val uiState: StateFlow<RemoteUiState> = _uiState.asStateFlow()
 
     init {
-        // Observe authoritative PlaybackSessionManager state
+        // Observe authoritative PlaybackSessionManager and ConnectionManager states reactively
         viewModelScope.launch {
-            sessionManager.sessionState.collect { sState ->
+            combine(
+                sessionManager.sessionState,
+                connectionManager.connectionStates,
+            ) { sState, connStates ->
                 val ep = sState.activeEndpoint
                 if (ep.isLocal) {
-                    _uiState.value = RemoteUiState(
+                    RemoteUiState(
                         mode = RemoteSourceMode.LOCAL,
                         connState = RemoteConnectionState.DISCONNECTED,
                         connected = false,
                         sourceName = "Reproductor local",
+                        pendingCommand = false,
+                        pendingCommandMessage = null,
                     )
                 } else {
-                    val connState = when (connectionManager.connectionStates.value[ep.id]) {
+                    // K47-04: Exhaustive mapping from SyncConnectionState; unmapped/absent must be DISCONNECTED and connected = false
+                    val syncState = connStates[ep.id]
+                    val connState = when (syncState) {
                         SyncConnectionState.CONNECTED -> RemoteConnectionState.CONNECTED
-                        SyncConnectionState.UNAUTHORIZED -> RemoteConnectionState.UNAUTHORIZED
+                        SyncConnectionState.CONNECTING,
+                        SyncConnectionState.DISCOVERING,
+                        SyncConnectionState.PAIRING,
+                        SyncConnectionState.PAIRED -> RemoteConnectionState.CONNECTING
+                        SyncConnectionState.PAIRING_REQUIRED,
+                        SyncConnectionState.UNAUTHORIZED,
+                        SyncConnectionState.AUTH_ERROR -> RemoteConnectionState.UNAUTHORIZED
+                        SyncConnectionState.REVOKED -> RemoteConnectionState.FORBIDDEN
                         SyncConnectionState.OFFLINE -> RemoteConnectionState.OFFLINE
-                        else -> RemoteConnectionState.CONNECTED
+                        SyncConnectionState.ERROR -> RemoteConnectionState.ERROR
+                        SyncConnectionState.DISCONNECTED, null -> RemoteConnectionState.DISCONNECTED
                     }
-                    _uiState.value = _uiState.value.copy(
+                    val isConnected = connState == RemoteConnectionState.CONNECTED
+                    val isPending = sState.lastRemoteCommand?.status == RemoteCommandStatus.PENDING ||
+                        sState.lastRemoteCommand?.status == RemoteCommandStatus.ACCEPTED
+                    val pendingMsg = if (isPending) {
+                        sState.lastRemoteCommand?.resultMessage ?: "Orden pendiente; espera confirmación"
+                    } else null
+
+                    RemoteUiState(
                         mode = RemoteSourceMode.REMOTE,
                         connState = connState,
-                        connected = true,
+                        connected = isConnected,
                         sourceName = ep.name,
-                        playerState = PlaybackStateDto(
+                        playerState = if (isConnected) PlaybackStateDto(
                             state = if (sState.isPlaying) "playing" else "paused",
                             positionMs = sState.position,
                             durationMs = sState.duration,
@@ -93,8 +123,8 @@ class RemoteViewModel(
                             album = sState.currentTrack?.album ?: "",
                             repeat = when (sState.repeatMode) { 1 -> "one"; 2 -> "all"; else -> "off" },
                             shuffle = sState.shuffleMode == 1,
-                        ),
-                        queue = QueueDto(
+                        ) else PlaybackStateDto(),
+                        queue = if (isConnected) QueueDto(
                             tracks = sState.queue.map { t ->
                                 org.michimusic.link.dto.QueueTrackDto(
                                     trackId = t.id,
@@ -106,10 +136,20 @@ class RemoteViewModel(
                                 )
                             },
                             currentIndex = sState.queueIndex,
-                        ),
-                        error = null,
+                        ) else QueueDto(),
+                        error = when (connState) {
+                            RemoteConnectionState.UNAUTHORIZED -> "Autenticación requerida con el host remoto"
+                            RemoteConnectionState.FORBIDDEN -> "Acceso revocado por el host remoto"
+                            RemoteConnectionState.OFFLINE -> "Host remoto fuera de línea"
+                            RemoteConnectionState.ERROR -> "Error de comunicación con el host remoto"
+                            else -> null
+                        },
+                        pendingCommand = isPending,
+                        pendingCommandMessage = pendingMsg,
                     )
                 }
+            }.collect { newState ->
+                _uiState.value = newState
             }
         }
     }

@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
+import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -109,9 +111,9 @@ fun HomeScreen(
     val activeEndpoint = sessionState.activeEndpoint
 
     val playerState by audioController.state.collectAsState()
-
-    val currentTrack = sessionState.currentTrack ?: playerState.currentTrack
-    val isPlaying = sessionState.isPlaying
+    val presentation = resolvePlaybackPresentation(sessionState, playerState)
+    val currentTrack = presentation.currentTrack
+    val isPlaying = presentation.isPlaying
     // The hero already represents the active song. Avoid repeating it below.
     val visibleRecent = remember(recentTracks, currentTrack?.id) {
         recentTracks.filterNot { it.id == currentTrack?.id }.distinctBy { it.id }.take(8)
@@ -206,8 +208,8 @@ fun HomeScreen(
                         )
                     } else if (allTracks.isNotEmpty()) {
                         ActionButtonsSection(
-                            onQuickPlay = { audioController.playQueue(allTracks, 0) },
-                            onShuffle = { audioController.playQueue(allTracks.shuffled(), 0) },
+                            onQuickPlay = { sessionManager.playQueue(allTracks, 0) },
+                            onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },
                         )
                     } else {
                         EmptyLibraryHomeCard()
@@ -226,7 +228,7 @@ fun HomeScreen(
                                 val index = allTracks.indexOfFirst { it.id == track.id }
                                 // A stale suggestion must never play the first unrelated track.
                                 if (index >= 0) {
-                                    audioController.playQueue(allTracks, index)
+                                    sessionManager.playQueue(allTracks, index)
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
                                 }
@@ -244,7 +246,7 @@ fun HomeScreen(
                                 val index = allTracks.indexOfFirst { it.id == track.id }
                                 // A stale suggestion must never play the first unrelated track.
                                 if (index >= 0) {
-                                    audioController.playQueue(allTracks, index)
+                                    sessionManager.playQueue(allTracks, index)
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
                                 }
@@ -264,10 +266,10 @@ fun HomeScreen(
                         onCreatePlaylist = { showCreatePlaylist = true },
                         onPlaylistClick = { type ->
                             when (type) {
-                                "favorites" -> if (favoriteTracks.isNotEmpty()) audioController.playQueue(favoriteTracks, 0)
-                                "top" -> if (topTracks.isNotEmpty()) audioController.playQueue(topTracks, 0)
-                                "recent" -> if (recentTracks.isNotEmpty()) audioController.playQueue(recentTracks, 0)
-                                else -> if (allTracks.isNotEmpty()) audioController.playQueue(allTracks, 0)
+                                "favorites" -> if (favoriteTracks.isNotEmpty()) sessionManager.playQueue(favoriteTracks, 0)
+                                "top" -> if (topTracks.isNotEmpty()) sessionManager.playQueue(topTracks, 0)
+                                "recent" -> if (recentTracks.isNotEmpty()) sessionManager.playQueue(recentTracks, 0)
+                                else -> if (allTracks.isNotEmpty()) sessionManager.playQueue(allTracks, 0)
                             }
                         },
                         onNavigateToPlaylist = onNavigateToPlaylist,
@@ -285,7 +287,7 @@ fun HomeScreen(
                                 val index = allTracks.indexOfFirst { it.id == track.id }
                                 // A stale suggestion must never play the first unrelated track.
                                 if (index >= 0) {
-                                    audioController.playQueue(allTracks, index)
+                                    sessionManager.playQueue(allTracks, index)
                                 } else {
                                     scope.launch { snackbarHostState.showSnackbar("Esta canción ya no está disponible en la biblioteca") }
                                 }
@@ -348,21 +350,15 @@ private fun HomeTopBar(
             )
         }
 
-        IconButton(
+        MichiIconAction(
+            icon = Icons.Filled.Settings,
+            contentDescription = "Ajustes",
             onClick = onSettingsClick,
-            modifier = Modifier
-                .size(MichiSpacing.minTouchTarget)
-                .clip(CircleShape)
-                .background(GlassFillLow)
-                .testTag("home_settings_button"),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Ajustes",
-                tint = PureWhite,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+            tint = PureWhite,
+            iconSize = 24.dp,
+            minTargetSize = MichiSpacing.minTouchTarget,
+            testTag = "home_settings_button",
+        )
     }
 }
 
@@ -437,20 +433,14 @@ private fun ContinueListeningCard(
                 }
 
                 if (!isRemote) {
-                    Button(
+                    MichiIconAction(
+                        icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "Pausar" else "Reproducir",
                         onClick = onPlayPause,
-                        modifier = Modifier.size(MichiSpacing.minTouchTarget),
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                        contentPadding = PaddingValues(0.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                            tint = PureWhite,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
+                        tint = PureWhite,
+                        iconSize = 28.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
                 }
             }
             if (isRemote) {
@@ -712,20 +702,14 @@ private fun YourPlaylistsSection(
                 text = "Tu Colección",
                 style = MichiTypography.sectionTitle,
             )
-            IconButton(
+            MichiIconAction(
+                icon = Icons.Filled.Add,
+                contentDescription = "Crear Playlist",
                 onClick = onCreatePlaylist,
-                modifier = Modifier
-                    .size(MichiSpacing.minTouchTarget)
-                    .clip(CircleShape)
-                    .background(GlassFillLow),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = "Crear Playlist",
-                    tint = PureWhite,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
+                tint = PureWhite,
+                iconSize = 22.dp,
+                minTargetSize = MichiSpacing.minTouchTarget,
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))

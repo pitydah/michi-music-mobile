@@ -82,6 +82,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.collectAsState
 import org.michimusic.mobile.ui.theme.*
+import org.michimusic.mobile.ui.components.premium.AeroFloatingSurface
+import org.michimusic.mobile.playback.RemoteQueuePreflightDecision
 
 data class EqBand(val frequencyLabel: String, var gainDb: Float)
 
@@ -93,10 +95,8 @@ fun QueueDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -251,10 +251,8 @@ fun EqualizerDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .padding(vertical = 12.dp)
@@ -822,10 +820,8 @@ fun QrScannerDialog(
     var scanError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -960,10 +956,8 @@ fun ManualConnectionDialog(
     var connectionError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1080,10 +1074,8 @@ fun CreatePlaylistDialog(
     Dialog(onDismissRequest = {
         if (!isCreating) onDismiss()
     }) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1198,10 +1190,8 @@ fun AudioRouteDialog(
     val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice) })
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp)
@@ -1543,10 +1533,8 @@ fun PinPairingDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1676,10 +1664,8 @@ fun ReceiverButtonPairingDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1709,7 +1695,7 @@ fun ReceiverButtonPairingDialog(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Emparejamiento Físico",
+                    text = "Autorización de Receptor",
                     color = PureWhite,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -1718,7 +1704,7 @@ fun ReceiverButtonPairingDialog(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Presiona el botón físico en $deviceName e ingresa el código PIN mostrado en el dispositivo para autorizar la conexión:",
+                    text = "Ingresa el código PIN o clave de autorización mostrado en $deviceName para autorizar la conexión:",
                     color = TextSecondary,
                     fontSize = 13.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1801,10 +1787,8 @@ fun PlayerPasswordPairingDialog(
     var error by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(24.dp),
-            color = SurfaceObsidian,
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -1956,10 +1940,8 @@ fun AddTracksDialog(
     val selectedIds = remember { mutableStateListOf<String>() }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2105,10 +2087,8 @@ fun RemoveTrackFromPlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2176,10 +2156,8 @@ fun DeletePlaylistDialog(
     onDismiss: () -> Unit,
 ) {
     Dialog(onDismissRequest = { if (!isDeleting) onDismiss() }) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2263,10 +2241,8 @@ fun RenamePlaylistDialog(
     }
 
     Dialog(onDismissRequest = { if (!isSaving) onDismiss() }) {
-        Surface(
+        AeroFloatingSurface(
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceContainer,
-            border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderHigh),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(8.dp)
@@ -2410,6 +2386,152 @@ private fun AddTracksDialogRow(
                         tint = PureWhite,
                         modifier = Modifier.size(14.dp),
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Pre-dispatch interactive dialog prompting user to choose between REPLACE, APPEND, or CANCEL
+ * when sending a new queue to an active remote playback host (K49-03).
+ */
+@Composable
+fun RemoteQueueConfirmationDialog(
+    confirmation: RemoteQueuePreflightDecision.ConfirmationRequired,
+    onConfirmReplace: () -> Unit,
+    onConfirmAppend: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        AeroFloatingSurface(
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp)
+                .testTag("remote_queue_confirmation_dialog"),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                            contentDescription = null,
+                            tint = TertiaryCyan,
+                            modifier = Modifier.size(24.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Cola en ${confirmation.destinationName}",
+                            color = PureWhite,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("remote_queue_close_button"),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cerrar",
+                            tint = OnSurfaceVariant,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val subtitle = buildString {
+                    append("El host remoto tiene ")
+                    append(confirmation.remoteQueueSize)
+                    append(" pista(s) en su cola activa")
+                    if (!confirmation.remoteActiveTrackTitle.isNullOrBlank()) {
+                        append(" (reproduciendo: \"${confirmation.remoteActiveTrackTitle}\")")
+                    }
+                    append(". ¿Deseas reemplazarla o añadir las ")
+                    append(confirmation.proposedTracks.size)
+                    append(" pista(s) al final?")
+                }
+
+                Text(
+                    text = subtitle,
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Button(
+                        onClick = onConfirmReplace,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("remote_queue_replace_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = TertiaryCyan,
+                            contentColor = PureWhite,
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            text = "Reemplazar cola",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onConfirmAppend,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("remote_queue_append_button"),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            text = "Añadir al final",
+                            color = PureWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .testTag("remote_queue_cancel_button"),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            text = "Cancelar",
+                            color = TextSecondary,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                        )
+                    }
                 }
             }
         }

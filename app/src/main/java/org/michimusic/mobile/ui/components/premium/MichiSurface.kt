@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -66,6 +67,27 @@ fun MichiSurface(
             .clip(shape)
             .background(material.fill)
             .then(if (effectiveBorder != null) Modifier.border(effectiveBorder, shape) else Modifier),
+        content = content,
+    )
+}
+
+/**
+ * Standardized floating modal surface component for dialogs and sheets.
+ * Directly integrates with semantic [AeroSurfaceRole.Floating] and [LocalVisualPreferences].
+ */
+@Composable
+fun AeroFloatingSurface(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(20.dp),
+    content: @Composable () -> Unit,
+) {
+    val material = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
+    Surface(
+        shape = shape,
+        color = material.fill,
+        border = if (material.borderWidth > 0.dp) BorderStroke(material.borderWidth, material.outline) else null,
+        shadowElevation = material.elevation,
+        modifier = modifier,
         content = content,
     )
 }

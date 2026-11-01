@@ -1105,14 +1105,17 @@ class AirCatContractTest {
         val sourceId = "peer_conflict"
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
-        // Seed library repository with an existing identity for trk_conflict with hash_OLD
+        val hashOld = "0".repeat(64)
+        val hashNew = "1".repeat(64)
+
+        // Seed library repository with an existing identity for trk_conflict with hashOld
         coEvery { libraryRepo.getTrackIdentity("trk_conflict") } returns org.michimusic.core.models.TrackIdentity(
             id = "trk_conflict",
             title = "Existing Track",
             artist = "Artist",
             album = "Album",
             durationMs = 1000L,
-            contentHash = "hash_OLD_123",
+            contentHash = hashOld,
         )
 
         val intent = TransferIntent(
@@ -1129,7 +1132,7 @@ class AirCatContractTest {
             totalTracks = 1,
             totalBytes = 1000L,
             items = listOf(
-                AirCatManifestItem("trk_conflict", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, "hash_NEW_456")
+                AirCatManifestItem("trk_conflict", "rem_1", "Song", "Artist", "Album", "mp3", 1000L, hashNew)
             )
         )
 
@@ -1200,13 +1203,16 @@ class AirCatContractTest {
             lastUrl = "http://192.168.1.100:8400",
         )
 
+        val hashOriginal = "a".repeat(64)
+        val hashIncoming = "b".repeat(64)
+
         coEvery { libraryRepo.getTrackIdentity("trk_registered") } returns TrackIdentity(
             id = "trk_registered",
             title = "Existing Song",
             artist = "Artist",
             album = "Album",
             durationMs = 120000L,
-            contentHash = "hash_ORIGINAL_LOCAL",
+            contentHash = hashOriginal,
         )
         // Simulate existing file is a registered location
         coEvery { libraryRepo.getLocationsForTrack("trk_registered") } returns listOf(
@@ -1233,7 +1239,7 @@ class AirCatContractTest {
             totalTracks = 1,
             totalBytes = 1000L,
             items = listOf(
-                AirCatManifestItem("trk_registered", "rem_1", "Song", "Artist", "Album", "flac", 1000L, "hash_DIFFERENT_INCOMING")
+                AirCatManifestItem("trk_registered", "rem_1", "Song", "Artist", "Album", "flac", 1000L, hashIncoming)
             )
         )
 
@@ -1249,5 +1255,360 @@ class AirCatContractTest {
         // Decisive check: existing valid local file MUST NOT be deleted
         assertTrue("Registered local file must remain intact and non-deleted", existingFile.exists())
     }
+
+    @Test
+    fun manifestTrackCountMismatch_itemsEmptyButTotalTracksPositive_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_mismatch"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_mismatch_1",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_mismatch_1",
+            sourceDeviceId = sourceId,
+            totalTracks = 5,
+            totalBytes = 5000L,
+            items = emptyList() // 0 items vs 5 declared tracks!
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun manifestLegitimateZeroTracks_completesWithoutClaimingVerified() = runBlocking {
+        val sourceId = "peer_empty"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_empty_ok",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_empty_ok",
+            sourceDeviceId = sourceId,
+            totalTracks = 0,
+            totalBytes = 0L,
+            items = emptyList()
+        )
+
+        val updates = mutableListOf<AirCatProgressEvent>()
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+            onProgress = { updates.add(it) }
+        )
+
+        assertTrue("Empty manifest transfer should succeed legitimately", result.isSuccess)
+        val finalStatus = updates.lastOrNull()
+        assertNotNull("Should emit progress", finalStatus)
+        assertEquals(AirCatTransferState.COMPLETED, finalStatus!!.state)
+        assertFalse("0 tracks must not claim checksumVerified = true", finalStatus.checksumVerified)
+        assertFalse("0 tracks must not claim libraryCommitted = true", finalStatus.libraryCommitted)
+    }
+
+    @Test
+    fun manifestTrackWithMalformedSha256_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_bad_sha"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_bad_sha",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_bad_sha",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 100L,
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Title", "Artist", "Album", "mp3", 100L, "NOT_A_VALID_SHA256_HASH_STRING")
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun manifestWithDuplicateTrackIds_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_dup"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val hashA = "a".repeat(64)
+        val hashB = "b".repeat(64)
+
+        val intent = TransferIntent(
+            transferId = "xfer_dup",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_dup",
+            sourceDeviceId = sourceId,
+            totalTracks = 2,
+            totalBytes = 200L,
+            items = listOf(
+                AirCatManifestItem("trk_dup", "rem_1", "Title 1", "Artist", "Album", "mp3", 100L, hashA),
+                AirCatManifestItem("trk_dup", "rem_2", "Title 2", "Artist", "Album", "mp3", 100L, hashB)
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun transferWithEmptySha256OnItem_completesAsUnverifiedChecksum() = runBlocking {
+        val sourceId = "peer_empty_sha"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val content = "Unhashed audio bytes".toByteArray()
+        val peer = FakeAirCatPeer(sourceId)
+        peer.setupTrackStreaming("trk_no_sha", content)
+
+        val intent = TransferIntent(
+            transferId = "xfer_no_sha",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_no_sha",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = content.size.toLong(),
+            items = listOf(
+                AirCatManifestItem("trk_no_sha", "rem_1", "Title", "Artist", "Album", "mp3", content.size.toLong(), "")
+            )
+        )
+
+        val updates = mutableListOf<AirCatProgressEvent>()
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = peer.mockClient,
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+            onProgress = { updates.add(it) }
+        )
+
+        assertTrue("Transfer with unhashed item should complete", result.isSuccess)
+        val finalStatus = updates.lastOrNull()
+        assertNotNull(finalStatus)
+        assertEquals(AirCatTransferState.COMPLETED, finalStatus!!.state)
+        assertFalse("Unchecked item must report checksumVerified = false", finalStatus.checksumVerified)
+        assertTrue("Library committed should be true", finalStatus.libraryCommitted)
+    }
+
+    @Test
+    fun manifestWithOverflowRequiredBytes_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_overflow"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val hugeBytes = Long.MAX_VALUE - 1000L
+        val intent = TransferIntent(
+            transferId = "xfer_overflow",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_overflow",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = hugeBytes,
+            items = listOf(
+                AirCatManifestItem("trk_huge", "rem_huge", "Title", "Artist", "Album", "mp3", hugeBytes, "a".repeat(64))
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = Long.MAX_VALUE,
+        )
+
+        assertTrue("Manifest requiring overflow bytes must fail", result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun manifestWithZeroTotalBytesAndNonEmptyItems_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_zero_total"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_zero_total",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_zero_total",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = 0L, // Claims 0 bytes despite having a 500-byte track!
+            items = listOf(
+                AirCatManifestItem("trk_1", "rem_1", "Title", "Artist", "Album", "mp3", 500L, "a".repeat(64))
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun manifestEmptyItemsWithNonZeroTotalBytes_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_empty_nonzero"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_empty_nonzero",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_empty_nonzero",
+            sourceDeviceId = sourceId,
+            totalTracks = 0,
+            totalBytes = 500L, // Claims 500 bytes with 0 items!
+            items = emptyList()
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun manifestWithNegativeTrackSize_rejectedWithInvalidManifestStructure() = runBlocking {
+        val sourceId = "peer_neg_size"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_neg_size",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_neg_size",
+            sourceDeviceId = sourceId,
+            totalTracks = 1,
+            totalBytes = -100L,
+            items = listOf(
+                AirCatManifestItem("trk_neg", "rem_neg", "Title", "Artist", "Album", "mp3", -100L, "a".repeat(64))
+            )
+        )
+
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024 * 1024 * 1024,
+        )
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+    }
+
+    @Test
+    fun manifestWithZeroTracksAndZeroBytes_succeedsEvenWithLowStorage() = runBlocking {
+        val sourceId = "peer_empty_zero"
+        every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
+
+        val intent = TransferIntent(
+            transferId = "xfer_empty_zero",
+            sourceMichiId = sourceId,
+            destinationMichiId = "client_id",
+            sourceLibraryId = "lib_src",
+            destinationLibraryId = "lib_dst",
+        )
+        val manifest = AirCatManifest(
+            manifestVersion = 1,
+            transferId = "xfer_empty_zero",
+            sourceDeviceId = sourceId,
+            totalTracks = 0,
+            totalBytes = 0L,
+            items = emptyList()
+        )
+
+        // Only 10 KB free storage (far less than the 100 MB safetyMargin!)
+        val result = aircatClient.executeTransfer(
+            intent = intent,
+            manifest = manifest,
+            linkClient = mockk(relaxed = true),
+            availableStorageBytes = 10L * 1024,
+        )
+
+        assertTrue("Legitimate 0 tracks / 0 bytes transfer must succeed without demanding 100MB margin (K49B-06)", result.isSuccess)
+        assertEquals(0, result.getOrThrow().size)
+    }
 }
+
 

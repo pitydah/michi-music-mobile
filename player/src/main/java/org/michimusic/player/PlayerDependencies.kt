@@ -48,6 +48,9 @@ object PlayerDependencies {
     var mockPcmFormatForTesting: PcmFormat? = null
 
     @JvmStatic
+    var mockResumePcmStreamingResultForTesting: Boolean? = null
+
+    @JvmStatic
     val pcmFormatFlow: Flow<PcmFormat?>
         get() = mockPcmFormatFlow ?: rtpPcmAudioTap?.currentFormat ?: emptyFlow()
 
@@ -59,6 +62,7 @@ object PlayerDependencies {
         stopPcmStreaming() // test lifecycle must not leak a worker thread or muted output
         mockPcmFormatFlow = null
         mockPcmFormatForTesting = null
+        mockResumePcmStreamingResultForTesting = null
         signalTruthTracker = null
         audioModeManager = null
         rtpPcmAudioTap = null
@@ -117,6 +121,7 @@ object PlayerDependencies {
 
     @JvmStatic
     fun resumePcmStreaming(format: org.michimusic.core.models.PcmFormat, sessionToken: String? = null): Boolean {
+        mockResumePcmStreamingResultForTesting?.let { return it }
         val tap = rtpPcmAudioTap ?: return false
         if (tap.hasDeliveryFault) return false
         if (tap.isRenegotiating) {
