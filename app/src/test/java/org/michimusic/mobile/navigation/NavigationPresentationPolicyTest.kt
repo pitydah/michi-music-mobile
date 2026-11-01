@@ -23,9 +23,9 @@ class NavigationPresentationPolicyTest {
    assertEquals("devices",navigationPresentationFor(route).selectedPrimaryTab)
   }
  }
- @Test fun settingsAndDiagnosticsRemainUnderHome(){
-  assertEquals("home",navigationPresentationFor("settings").selectedPrimaryTab)
-  assertEquals("home",navigationPresentationFor("diagnostics").selectedPrimaryTab)
+ @Test fun settingsAndDiagnosticsDoNotClaimHomeTab(){
+  assertEquals(null,navigationPresentationFor("settings").selectedPrimaryTab)
+  assertEquals(null,navigationPresentationFor("diagnostics").selectedPrimaryTab)
  }
  @Test fun nowPlayingIsImmersiveWithoutDuplicatedMini(){
   val p=navigationPresentationFor("nowplaying")

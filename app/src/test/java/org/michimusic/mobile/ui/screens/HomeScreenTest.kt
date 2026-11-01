@@ -2,10 +2,12 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,8 +144,9 @@ class HomeScreenTest {
         composeTestRule.onNodeWithText("Recent Song").assertIsDisplayed()
         
         // Playlist tiles
+        composeTestRule.onNodeWithTag("home_scroll_list").performScrollToNode(hasText("Favoritos"))
         composeTestRule.onNodeWithText("Favoritos").assertIsDisplayed()
-        composeTestRule.onNodeWithText("1 temas").assertIsDisplayed()
+        composeTestRule.onNodeWithText("1 pistas").assertIsDisplayed()
         
         // Top tracks (shown in Quick Picks if we populate allTracks)
         // composeTestRule.onNodeWithText("Pistas Sugeridas").performScrollTo().assertIsDisplayed()

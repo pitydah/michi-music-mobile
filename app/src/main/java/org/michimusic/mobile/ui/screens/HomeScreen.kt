@@ -74,6 +74,8 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroEditorialHero
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -142,6 +144,7 @@ fun HomeScreen(
             .fillMaxSize()
             .background(SurfaceObsidian),
     ) {
+        AeroPremiumBackdrop(accent = PrimaryPinkContainer)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -189,30 +192,35 @@ fun HomeScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                // 1. Continue Listening (Hero section based on real active session)
+                // M52: editorial collection hero; the current local track already lives
+                // in the MiniPlayer and must not occupy a second redundant hero.
                 item {
-                    if (currentTrack != null) {
-                        ContinueListeningCard(
-                            track = currentTrack,
-                            endpoint = activeEndpoint,
-                            isPlaying = isPlaying,
-                            isRemote = sessionState.isRemoteActive,
-                            onPlayPause = {
-                                sessionManager.playPause()
-                            },
-                            onContinueHere = {
-                                sessionManager.handoffTo(PlaybackEndpoint.LocalPhone) { success, msg ->
-                                    scope.launch { snackbarHostState.showSnackbar(msg) }
-                                }
-                            },
-                        )
-                    } else if (allTracks.isNotEmpty()) {
-                        ActionButtonsSection(
-                            onQuickPlay = { sessionManager.playQueue(allTracks, 0) },
+                    if (allTracks.isNotEmpty()) {
+                        AeroEditorialHero(
+                            trackCount = allTracks.size,
+                            onPlayAll = { sessionManager.playQueue(allTracks, 0) },
                             onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },
                         )
                     } else {
                         EmptyLibraryHomeCard()
+                    }
+                }
+                // Remote playback has distinct handoff semantics and retains a
+                // contextual control card rather than duplicating local controls.
+                if (currentTrack != null && sessionState.isRemoteActive) {
+                    item {
+                        ContinueListeningCard(
+                            track = currentTrack,
+                            endpoint = activeEndpoint,
+                            isPlaying = isPlaying,
+                            isRemote = true,
+                            onPlayPause = { sessionManager.playPause() },
+                            onContinueHere = {
+                                sessionManager.handoffTo(PlaybackEndpoint.LocalPhone) { _, msg ->
+                                    scope.launch { snackbarHostState.showSnackbar(msg) }
+                                }
+                            },
+                        )
                     }
                 }
 

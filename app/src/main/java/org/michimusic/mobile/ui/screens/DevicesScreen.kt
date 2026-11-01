@@ -90,6 +90,8 @@ import org.michimusic.mobile.sync.DeviceActionResolver
 import org.michimusic.mobile.sync.DeviceActionType
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
+import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.isProvisionedMichiStream
 import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
 import org.michimusic.mobile.ui.components.airCatUiPresentation
@@ -262,6 +264,7 @@ fun DevicesScreen(
             .statusBarsPadding()
             .testTag("devices_screen"),
     ) {
+        AeroPremiumBackdrop(accent = TertiaryCyan)
         Column(modifier = Modifier.fillMaxSize()) {
             // Header
             DevicesTopBar(
@@ -378,12 +381,15 @@ fun DevicesScreen(
                     }
                 }
 
-                // Add Device Actions Row
-                item {
-                    AddDeviceShortcutsRow(
-                        onScanQr = { showQrDialog = true },
-                        onManualIp = { showManualDialog = true },
-                    )
+                // One discovery area when the network is empty; avoid repeating
+                // 'manual connection' beside and inside the empty state.
+                if (uiState.unifiedDevices.isNotEmpty()) {
+                    item {
+                        AddDeviceShortcutsRow(
+                            onScanQr = { showQrDialog = true },
+                            onManualIp = { showManualDialog = true },
+                        )
+                    }
                 }
 
                 // Discovered Nodes Section
@@ -1388,55 +1394,33 @@ private fun EmptyDevicesCard(
     onSearchAgain: () -> Unit,
     onManualConnect: () -> Unit,
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
+    AeroEmptyEditorial(
+        eyebrow = "MICHI LINK · RED LOCAL",
+        title = if (isSearching) "Explorando tu red" else "Conecta tu ecosistema",
+        description = if (isSearching)
+            "Buscamos equipos Michi cercanos. Desktop, Micro Server y Stream deben compartir la misma red local."
+        else "No hay otros equipos disponibles. Puedes reintentar la búsqueda o conectarte mediante una dirección IP.",
+        icon = Icons.Filled.WifiTethering,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(MichiSpacing.sm),
+            modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.WifiTethering,
-                contentDescription = null,
-                tint = TextSecondary,
-                modifier = Modifier.size(40.dp),
-            )
-            Text(
-                text = if (isSearching) "Buscando dispositivos en tu red Wi-Fi..." else "No se encontraron otros dispositivos",
-                style = MichiTypography.cardTitle,
-                color = PureWhite,
-            )
-            Text(
-                text = "Asegúrate de que Michi Music Desktop, Micro Server o Stream estén ejecutándose en la misma red local.",
-                style = MichiTypography.metadata,
-                color = TextSecondary,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            Spacer(modifier = Modifier.height(MichiSpacing.xs))
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            Button(
+                onClick = onSearchAgain,
+                enabled = !isSearching,
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
+                shape = MichiShapes.sm,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             ) {
-                OutlinedButton(
-                    onClick = onSearchAgain,
-                    shape = MichiShapes.sm,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) {
-                    Text("Buscar de nuevo", color = PureWhite, fontSize = 12.sp)
-                }
-                Button(
-                    onClick = onManualConnect,
-                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
-                    shape = MichiShapes.sm,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) {
-                    Text("Conexión manual", color = PureWhite, fontSize = 13.sp)
-                }
+                Text(if (isSearching) "Explorando..." else "Buscar dispositivos", fontSize = 13.sp)
+            }
+            OutlinedButton(
+                onClick = onManualConnect,
+                shape = MichiShapes.sm,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) {
+                Text("Conexión manual por IP", color = PureWhite, fontSize = 13.sp)
             }
         }
     }

@@ -76,6 +76,7 @@ import org.michimusic.data.cache.AppDao
 import org.michimusic.mobile.ui.components.AudioRouteDialog
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.shouldStackAudioActions
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -126,6 +127,7 @@ enum class SettingsSection {
 fun SettingsScreen(
     initialSection: SettingsSection = SettingsSection.ROOT,
     onNavigateToDiagnostics: () -> Unit = {},
+    onNavigateBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val appDao: AppDao = koinInject()
@@ -161,12 +163,16 @@ fun SettingsScreen(
     BackHandler(enabled = currentSection != SettingsSection.ROOT) {
         currentSection = SettingsSection.ROOT
     }
+    BackHandler(enabled = currentSection == SettingsSection.ROOT) {
+        onNavigateBack()
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceObsidian),
     ) {
+        AeroPremiumBackdrop(accent = TertiaryCyan)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -185,18 +191,17 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (currentSection != SettingsSection.ROOT) {
-                        MichiIconAction(
-                            icon = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver",
-                            onClick = { currentSection = SettingsSection.ROOT },
+                    MichiIconAction(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Volver",
+                        onClick = { if (currentSection == SettingsSection.ROOT) onNavigateBack()
+                            else currentSection = SettingsSection.ROOT },
                             tint = PureWhite,
                             iconSize = 24.dp,
                             minTargetSize = MichiSpacing.minTouchTarget,
                             testTag = "settings_back_button",
                         )
                         Spacer(Modifier.width(8.dp))
-                    }
                     Column {
                         Text(
                             text = "AJUSTES",
@@ -235,6 +240,20 @@ fun SettingsScreen(
                 when (target) {
                     SettingsSection.ROOT -> {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Text(
+                                "CONTROL DE LA EXPERIENCIA",
+                                color = TertiaryCyan,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp,
+                            )
+                            Text(
+                                "Un lugar para ajustar cómo escuchas, exploras y conectas tu música.",
+                                color = TextSecondary,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.padding(bottom = 8.dp),
+                            )
                             SettingsCategoryNavCard(
                                 icon = Icons.Default.GraphicEq,
                                 title = "Calidad de Audio & DSP",
@@ -717,15 +736,15 @@ private fun SettingsCategoryNavCard(
     onClick: () -> Unit,
 ) {
     GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 86.dp),
+        backgroundColor = GlassFillHigh,
+        borderColor = accent.copy(alpha = 0.20f),
         onClick = onClick,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 18.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -744,8 +763,10 @@ private fun SettingsCategoryNavCard(
                     Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text(subtitle, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+                    Text(title, color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                        lineHeight = 21.sp)
+                    Spacer(Modifier.height(3.dp))
+                    Text(subtitle, color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))

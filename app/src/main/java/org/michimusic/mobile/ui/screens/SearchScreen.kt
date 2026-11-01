@@ -81,6 +81,8 @@ import org.michimusic.mobile.screens.SearchViewModel
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroEmptyEditorial
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
@@ -134,6 +136,7 @@ fun SearchScreen(
             .statusBarsPadding()
             .testTag("search_screen"),
     ) {
+        AeroPremiumBackdrop(accent = TertiaryCyan)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -415,31 +418,13 @@ fun SearchScreen(
 
 @Composable
 private fun SearchEmptyGuidance() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(MichiSpacing.md),
-    ) {
-        Icon(
-            imageVector = Icons.Default.Search,
-            contentDescription = null,
-            tint = TextMuted,
-            modifier = Modifier.size(48.dp),
-        )
-        Text(
-            text = "Busca en tu biblioteca",
-            style = MichiTypography.cardTitle,
-            color = PureWhite,
-        )
-        Text(
-            text = "Escribe para filtrar al instante canciones locales, álbumes sincronizados o artistas.",
-            style = MichiTypography.metadata,
-            color = TextSecondary,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-    }
+    AeroEmptyEditorial(
+        eyebrow = "EXPLORACIÓN PERSONAL",
+        title = "Toda tu música, a una búsqueda.",
+        description = "Encuentra canciones, artistas y álbumes del teléfono y de tu biblioteca sincronizada. Empieza escribiendo arriba.",
+        icon = Icons.Default.Search,
+        modifier = Modifier.padding(top = 20.dp).testTag("search_empty_editorial"),
+    )
 }
 
 @Composable
