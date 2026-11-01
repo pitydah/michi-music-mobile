@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Home
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,31 +36,35 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
-import org.michimusic.mobile.ui.theme.AeroHairline
-import org.michimusic.mobile.ui.theme.GlassBorderLow
-import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TextMuted
 
+private enum class DockGlyph { Home, Library, Search, Devices }
+
+// Preserve the NavTabItem public contract for app navigation and integrations.
 data class NavTabItem(
     val route: String,
     val label: String,
@@ -72,6 +78,116 @@ val defaultNavTabs = listOf(
     NavTabItem("search", "Buscar", Icons.Filled.Search, Icons.Outlined.Search),
     NavTabItem("devices", "Dispositivos", Icons.Filled.Devices, Icons.Outlined.Devices),
 )
+
+@Composable
+private fun MichiDockGlyph(
+    glyph: DockGlyph,
+    tint: Color,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val stroke = if (selected) 1.95.dp else 1.75.dp
+    Canvas(modifier = modifier.size(19.dp)) {
+        val sw = stroke.toPx()
+        when (glyph) {
+            DockGlyph.Home -> {
+                val roof = Path().apply {
+                    moveTo(size.width * 0.18f, size.height * 0.46f)
+                    lineTo(size.width * 0.5f, size.height * 0.18f)
+                    lineTo(size.width * 0.82f, size.height * 0.46f)
+                }
+                drawPath(roof, tint, style = Stroke(width = sw, cap = StrokeCap.Round))
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(size.width * 0.28f, size.height * 0.46f),
+                    size = Size(size.width * 0.44f, size.height * 0.30f),
+                    cornerRadius = CornerRadius(size.width * 0.06f),
+                    style = Stroke(width = sw)
+                )
+            }
+            DockGlyph.Library -> {
+                // Album spine and an unmistakable musical note, not four radiator bars.
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(size.width * .19f, size.height * .14f),
+                    size = Size(size.width * .62f, size.height * .72f),
+                    cornerRadius = CornerRadius(size.width * .08f),
+                    style = Stroke(width = sw),
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * .32f, size.height * .18f),
+                    end = Offset(size.width * .32f, size.height * .82f),
+                    strokeWidth = sw * .8f,
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * .54f, size.height * .36f),
+                    end = Offset(size.width * .67f, size.height * .31f),
+                    strokeWidth = sw * 1.1f,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * .54f, size.height * .36f),
+                    end = Offset(size.width * .54f, size.height * .60f),
+                    strokeWidth = sw * 1.1f,
+                    cap = StrokeCap.Round,
+                )
+                drawCircle(
+                    color = tint,
+                    radius = size.width * .07f,
+                    center = Offset(size.width * .48f, size.height * .62f),
+                )
+            }
+            DockGlyph.Search -> {
+                drawCircle(
+                    color = tint,
+                    radius = size.minDimension * 0.22f,
+                    center = Offset(size.width * 0.44f, size.height * 0.42f),
+                    style = Stroke(width = sw)
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * 0.58f, size.height * 0.57f),
+                    end = Offset(size.width * 0.76f, size.height * 0.75f),
+                    strokeWidth = sw,
+                    cap = StrokeCap.Round,
+                )
+            }
+            DockGlyph.Devices -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(size.width * 0.24f, size.height * 0.18f),
+                    size = Size(size.width * 0.52f, size.height * 0.42f),
+                    cornerRadius = CornerRadius(size.width * 0.06f),
+                    style = Stroke(width = sw)
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * 0.40f, size.height * 0.68f),
+                    end = Offset(size.width * 0.60f, size.height * 0.68f),
+                    strokeWidth = sw,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * 0.50f, size.height * 0.60f),
+                    end = Offset(size.width * 0.50f, size.height * 0.68f),
+                    strokeWidth = sw,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(size.width * 0.32f, size.height * 0.78f),
+                    end = Offset(size.width * 0.68f, size.height * 0.78f),
+                    strokeWidth = sw,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun BottomNavBar(
@@ -90,16 +206,23 @@ fun BottomNavBar(
             .testTag("bottom_nav_bar"),
         contentAlignment = Alignment.Center,
     ) {
-        // Floating Dock
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(dockHeight)
                 .clip(MichiShapes.lg)
-                .background(Brush.verticalGradient(listOf(AeroGraphiteRaised, AeroGraphite)))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0xFF273447),
+                            AeroGraphiteRaised,
+                            AeroGraphite,
+                        ),
+                    ),
+                )
                 .border(
-                    width = 0.75.dp,
-                    color = AeroHairline,
+                    width = 0.85.dp,
+                    color = Color.White.copy(alpha = 0.19f),
                     shape = MichiShapes.lg,
                 )
                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -112,16 +235,12 @@ fun BottomNavBar(
             ) {
                 tabs.forEach { tab ->
                     val isSelected = selectedRoute == tab.route
-
                     val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
                     val itemColor by animateColorAsState(
-                            // Dock is one shared surface; per-tab icon targets stay unpainted.
                         targetValue = if (isSelected) PrimaryPinkContainer else TextMuted,
-                        animationSpec = if (reducedMotion) androidx.compose.animation.core.snap()
-                            else androidx.compose.animation.core.tween(durationMillis = 180),
+                        animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(durationMillis = 180),
                         label = "tab_color",
                     )
-
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -151,20 +270,29 @@ fun BottomNavBar(
                                     .clip(RoundedCornerShape(2.dp))
                                     .background(if (isSelected) PrimaryPinkContainer else Color.Transparent),
                             )
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Icon(
-                                imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = null,
-                                tint = itemColor,
-                                modifier = Modifier.size(20.dp),
-                            )
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val glyph = when (tab.route) {
+                                "home" -> DockGlyph.Home
+                                "library" -> DockGlyph.Library
+                                "search" -> DockGlyph.Search
+                                "devices" -> DockGlyph.Devices
+                                else -> null
+                            }
+                            if (glyph != null) {
+                                MichiDockGlyph(glyph = glyph, tint = itemColor, selected = isSelected)
+                            } else {
+                                Icon(
+                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = null,
+                                    tint = itemColor,
+                                    modifier = Modifier.size(19.dp),
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = tab.label,
                                 color = if (isSelected) PureWhite else TextMuted,
-                                fontSize = 11.sp,
+                                fontSize = if (tab.label.length > 9 && dockHeight <= 64.dp) 10.sp else 11.sp,
                                 letterSpacing = 0.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = if (dockHeight > 64.dp) 2 else 1,

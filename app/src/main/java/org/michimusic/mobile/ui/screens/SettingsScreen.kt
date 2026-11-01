@@ -235,19 +235,23 @@ fun SettingsScreen(
                 when (target) {
                     SettingsSection.ROOT -> {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Text(
-                                "CONTROL DE LA EXPERIENCIA",
-                                color = TertiaryCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.5.sp,
+                            org.michimusic.mobile.ui.components.AeroSectionHeading(
+                                eyebrow = "ATELIER · MICHI MUSIC",
+                                title = "El sonido a tu medida",
                             )
                             Text(
-                                "Un lugar para ajustar cómo escuchas, exploras y conectas tu música.",
+                                "Configura la reproducción, tu biblioteca y el ecosistema desde un solo lugar.",
                                 color = TextSecondary,
                                 fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                                modifier = Modifier.padding(bottom = 8.dp),
+                                lineHeight = 21.sp,
+                                modifier = Modifier.padding(bottom = 14.dp),
+                            )
+                            Text(
+                                "SONIDO Y BIBLIOTECA",
+                                color = TertiaryCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 1.2.sp,
                             )
                             SettingsCategoryNavCard(
                                 icon = Icons.Default.GraphicEq,
@@ -265,6 +269,14 @@ fun SettingsScreen(
                                 onClick = { currentSection = SettingsSection.LIBRARY_STORAGE },
                             )
 
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "EXPERIENCIA Y PRIVACIDAD",
+                                color = TertiaryCyan,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 1.2.sp,
+                            )
                             SettingsCategoryNavCard(
                                 icon = Icons.Default.AccessibilityNew,
                                 title = "Accesibilidad & Visual",
@@ -730,41 +742,40 @@ private fun SettingsCategoryNavCard(
     accent: Color,
     onClick: () -> Unit,
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
-        onClick = onClick,
-    ) {
+    // Editorial index rows, not another set of identically filled glass cards.
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .heightIn(min = 80.dp)
+                .clip(MichiShapes.sm)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+                .padding(horizontal = 6.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(MichiShapes.sm)
+                    .background(accent.copy(alpha = 0.11f)),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(MichiShapes.sm),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(22.dp))
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(title, color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                        lineHeight = 21.sp)
-                    Spacer(Modifier.height(3.dp))
-                    Text(subtitle, color = TextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
-                }
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(23.dp))
             }
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = PureWhite, fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold, lineHeight = 21.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(4.dp))
+                Text(subtitle, color = TextSecondary, fontSize = 13.sp,
+                    lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null,
+                tint = TextSecondary, modifier = Modifier.size(21.dp))
         }
+        Box(modifier = Modifier.fillMaxWidth().height(1.dp)
+            .background(Color.White.copy(alpha = 0.09f)))
     }
 }
 
@@ -778,13 +789,13 @@ private fun SettingsSectionCard(
 ) {
     GlassCard(
         modifier = Modifier.fillMaxWidth(),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
+        backgroundColor = org.michimusic.mobile.ui.theme.AeroGraphite,
+        borderColor = Color.White.copy(alpha = 0.11f),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(19.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

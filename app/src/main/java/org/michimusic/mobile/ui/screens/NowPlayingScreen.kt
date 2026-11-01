@@ -1,29 +1,22 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,20 +29,11 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Headphones
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -68,19 +52,18 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.playback.PlaybackSessionManager
-import org.michimusic.mobile.playback.SignalTruthResolver
 import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GradientProgressBar
 import org.michimusic.mobile.ui.components.shouldScrollNowPlaying
@@ -88,15 +71,8 @@ import org.michimusic.mobile.ui.components.scrollArtworkHeightDp
 import org.michimusic.mobile.ui.components.decodedPcmLabel
 import org.michimusic.mobile.ui.components.QueueDialog
 import org.michimusic.mobile.ui.components.coverStyleFor
-import org.michimusic.mobile.ui.components.formatRemainingTimeSeconds
 import org.michimusic.mobile.ui.components.formatTimeSeconds
-import org.michimusic.mobile.ui.theme.GlassBorderHigh
-import org.michimusic.mobile.ui.theme.GlassBorderLow
-import org.michimusic.mobile.ui.theme.GlassFillHigh
-import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.MichiShapes
-import org.michimusic.mobile.ui.theme.AeroSurfaceRole
-import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -106,6 +82,10 @@ import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.SurfaceContainerLowest
 import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.playback.SignalTruthResolver
 import org.michimusic.player.AudioController
 
 private fun cycleSleepTimer(current: Long): Long = when {
@@ -114,6 +94,7 @@ private fun cycleSleepTimer(current: Long): Long = when {
     current <= 30 * 60_000L -> 60 * 60_000L
     else -> 0L
 }
+
 
 @Composable
 fun NowPlayingScreen(
@@ -148,9 +129,9 @@ fun NowPlayingScreen(
     var showTrackActionMenu by remember { mutableStateOf(false) }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
-    val compactLayout = configuration.screenHeightDp < 730 || configuration.fontScale > 1.15f
-    val scrollablePlayer = shouldScrollNowPlaying(configuration.screenHeightDp, configuration.fontScale)
-    val raised = aeroMaterialStyle(AeroSurfaceRole.Raised, LocalVisualPreferences.current.highContrast)
+    val compactLayout = configuration.screenHeightDp < 730 || configuration.fontScale > 1.15f || configuration.screenWidthDp < 340
+    val scrollablePlayer = shouldScrollNowPlaying(configuration.screenHeightDp, configuration.fontScale) ||
+        configuration.screenWidthDp < 340 || configuration.fontScale >= 1.3f
 
     Box(
         modifier = modifier
@@ -158,15 +139,16 @@ fun NowPlayingScreen(
             .background(SurfaceObsidian)
             .testTag("now_playing_screen"),
     ) {
-        // Solid dark material with a quiet tonal gradient: no oversized painted halos.
+        // Controlled Aero plum surface; this is a stable UI palette, not a claim
+        // that we extracted colors from the album bitmap or verified audio quality.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Brush.verticalGradient(
                     listOf(
-                        TertiaryCyan.copy(alpha = 0.055f),
-                        SurfaceContainerLowest,
-                        SurfaceObsidian,
+                        Color(0xFF432547),
+                        Color(0xFF2B1B35),
+                        Color(0xFF17131E),
                         SurfaceObsidian,
                     ),
                 )),
@@ -177,12 +159,21 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = if (compactLayout) 16.dp else 24.dp, vertical = 8.dp)
+                .padding(horizontal = if (compactLayout) 18.dp else 24.dp, vertical = 10.dp)
                 .then(if (scrollablePlayer) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                .padding(bottom = if (scrollablePlayer) 24.dp else 0.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+                .padding(bottom = if (scrollablePlayer) 22.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compactLayout) 12.dp else 16.dp),
         ) {
-            // Header Bar
+            val decoded = signalObservation.decodedFormat
+            val streamReceiver = sessionState.isRemoteActive && !activeEndpoint.isLocal &&
+                (activeEndpoint.type == EndpointType.STREAM_RECEIVER ||
+                    activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
+            val pcmLabel = if ((!sessionState.isRemoteActive || streamReceiver) &&
+                decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
+                decodedPcmLabel(decoded.sampleRate, decoded.bitDepth)
+            } else null
+            val qualityBadge = org.michimusic.mobile.ui.components.aeroNowPlayingQualityBadge(pcmLabel != null)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -193,91 +184,65 @@ fun NowPlayingScreen(
                     contentDescription = "Colapsar reproductor",
                     onClick = onBack,
                     tint = PureWhite,
-                    iconSize = 28.dp,
+                    iconSize = 24.dp,
                     minTargetSize = MichiSpacing.minTouchTarget,
                     testTag = "now_playing_close_button",
                 )
 
-                Column(
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                Surface(
+                    shape = MichiShapes.pill,
+                    color = Color(0x33FFFFFF),
+                    border = androidx.compose.foundation.BorderStroke(0.75.dp, Color(0x4DFFFFFF)),
+                    modifier = Modifier.testTag("now_playing_quality_badge"),
                 ) {
-                    Text(
-                        text = if (currentTrack == null) "SIN REPRODUCCIÓN" else if (isPlaying) "REPRODUCIENDO" else "EN PAUSA",
-                        style = MichiTypography.screenEyebrow,
-                    )
-                    Text(
-                        text = currentTrack?.album ?: "Michi Music",
-                        style = MichiTypography.metadata,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    val sleepTimerRemaining = playerState.sleepTimerRemainingMs
-                    val sleepActive = sleepTimerRemaining > 0L
-
-                    MichiIconAction(
-                        icon = Icons.Filled.Timer,
-                        contentDescription = if (sleepActive) "Temporizador activo. Cambiar duración" else "Activar temporizador",
-                        onClick = {
-                            val next = cycleSleepTimer(sleepTimerRemaining)
-                            if (next <= 0L) audioController.cancelSleepTimer() else audioController.setSleepTimer(next)
-                        },
-                        tint = if (sleepActive) TertiaryCyan else PureWhite,
-                        iconSize = 22.dp,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                        testTag = "sleep_timer_button",
-                    )
-
-                    MichiIconAction(
-                        icon = Icons.Filled.MoreVert,
-                        contentDescription = if (currentTrack != null) "Más opciones de la canción" else "Sin canción seleccionada",
-                        onClick = { showTrackActionMenu = true },
-                        enabled = currentTrack != null,
-                        tint = if (currentTrack != null) PureWhite else OnSurfaceVariant,
-                        iconSize = 24.dp,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                        testTag = "now_playing_more_button",
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(TertiaryCyan),
+                        )
+                        Text(
+                            text = qualityBadge,
+                            style = MichiTypography.microLabel,
+                            color = PureWhite,
+                        )
+                    }
                 }
             }
 
-            // Artwork respects available vertical space on compact / large-font screens.
-            // A width-only 1:1 image could otherwise overlap transport controls.
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
                         if (scrollablePlayer) Modifier.height(
                             scrollArtworkHeightDp(configuration.screenHeightDp).dp,
-                        ) else Modifier.weight(1f)
+                        ) else Modifier.weight(1f),
                     )
-                    .padding(vertical = if (compactLayout) 6.dp else 12.dp),
+                    .padding(top = if (compactLayout) 2.dp else 6.dp, bottom = if (compactLayout) 2.dp else 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val artSide = org.michimusic.mobile.ui.components.aeroArtworkSideDp(maxWidth.value, maxHeight.value).dp
-                // Fixed, source-faithful artwork. Matte surround is decorative only.
                 Box(
-                    modifier = Modifier.size(artSide)
-                        .background(
-                            Brush.verticalGradient(listOf(
-                                TertiaryCyan.copy(alpha = 0.10f),
-                                PrimaryPinkContainer.copy(alpha = 0.028f),
-                                Color.Transparent,
-                            )), MichiShapes.lg,
-                        ),
+                    modifier = Modifier
+                        .size(artSide)
+                        .shadow(
+                            if (LocalVisualPreferences.current.highContrast) 0.dp else 18.dp,
+                            RoundedCornerShape(26.dp),
+                            clip = false,
+                        )
+                        .background(Color(0xFF17162B), RoundedCornerShape(26.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     org.michimusic.mobile.ui.components.AeroArtworkMat(
                         modifier = Modifier
                             .size((artSide - 8.dp).coerceAtLeast(0.dp))
                             .testTag("now_playing_album_art"),
-                        cornerRadius = 21.dp,
+                        cornerRadius = 20.dp,
                         inset = if (compactLayout) 3.dp else 6.dp,
                     ) {
                         AlbumArtView(
@@ -285,264 +250,215 @@ fun NowPlayingScreen(
                             imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
                             fallbackMediaUri = currentTrack?.filepath,
                             modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 21.dp,
+                            cornerRadius = 20.dp,
                             borderWidth = 0.dp,
                         )
                     }
                 }
             }
 
-            // Track Info & Destination Capsule
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(if (compactLayout) 8.dp else 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(if (compactLayout) 6.dp else 8.dp),
             ) {
-                // Information hierarchy: title + artist row with direct favorite action
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = currentTrack?.title ?: "Sin reproducción activa",
-                                style = if (compactLayout) MichiTypography.screenTitle.copy(fontSize = 23.sp, lineHeight = 28.sp)
-                                    else MichiTypography.screenTitle,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = currentTrack?.artist ?: "Selecciona una canción",
-                                style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
-                                color = OnSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        if (currentTrack != null) {
-                            val isFav = favoriteIds.contains(currentTrack.id)
-                            MichiIconAction(
-                                icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                                contentDescription = if (isFav) "Quitar de favoritos" else "Añadir a favoritos",
-                                onClick = {
-                                    coroutineScope.launch { favoritesRepo.toggleFavorite(currentTrack.id) }
-                                },
-                                tint = if (isFav) PrimaryPinkContainer else OnSurfaceVariant,
-                                iconSize = 24.dp,
-                                minTargetSize = MichiSpacing.minTouchTarget,
-                                testTag = "now_playing_favorite_button",
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        item {
-                            val decoded = signalObservation.decodedFormat
-                            val isStreamReceiver = sessionState.isRemoteActive && !activeEndpoint.isLocal &&
-                                (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
-                            val label = if ((!sessionState.isRemoteActive || isStreamReceiver) && decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
-                                decodedPcmLabel(decoded.sampleRate, decoded.bitDepth)?.let { "PCM decodificado · $it" }
-                                    ?: "Signal Truth"
-                            } else "Signal Truth"
-                            Box(
-                                modifier = Modifier
-                                    .clip(MichiShapes.pill)
-                                    .background(TertiaryCyan.copy(alpha = 0.10f))
-                                    .border(0.65.dp, TertiaryCyan.copy(alpha = 0.24f), MichiShapes.pill)
-                                    .clickable(role = Role.Button) { showSignalTruthDialog = true }
-                                    .heightIn(min = 48.dp)
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                                    .semantics {
-                                        contentDescription = if (label.startsWith("PCM decodificado ·"))
-                                            "${label.replace(" · ", ": ")}. No certifica la salida física. Abrir Signal Truth"
-                                        else "Abrir Signal Truth: información de la cadena de audio"
-                                    }
-                                    .testTag("signal_truth_button"),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(text = label, color = TertiaryCyan,
-                                    style = MichiTypography.metadata, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .clip(MichiShapes.pill)
-                                    .background(raised.fill)
-                                    .border(raised.borderWidth, raised.outline, MichiShapes.pill)
-                                    .clickable(role = Role.Button) { showAudioRouteDialog = true }
-                                    .heightIn(min = 48.dp)
-                                    .widthIn(max = 232.dp)
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                                    .testTag("audio_route_button"),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Icon(Icons.Filled.Headphones, contentDescription = null,
-                                    tint = if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer,
-                                    modifier = Modifier.size(16.dp))
-                                Text(text = presentation.endpointDescription, color = PureWhite,
-                                    style = MichiTypography.metadata, maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis)
-                                Icon(Icons.Filled.ExpandMore, contentDescription = null,
-                                    tint = OnSurfaceVariant, modifier = Modifier.size(14.dp))
-                            }
-                        }
-                    }
-
-                    sessionState.statusMessage?.let { status ->
-                        Spacer(Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(MichiShapes.pill)
-                                .background(if (sessionState.lastSessionError != null) PrimaryPinkContainer.copy(alpha = 0.15f) else TertiaryCyan.copy(alpha = 0.12f))
-                                .border(
-                                    0.75.dp,
-                                    if (sessionState.lastSessionError != null) PrimaryPinkContainer.copy(alpha = 0.35f) else TertiaryCyan.copy(alpha = 0.30f),
-                                    MichiShapes.pill
-                                )
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .testTag("now_playing_status_banner"),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = status,
-                                style = MichiTypography.microLabel,
-                                color = if (sessionState.lastSessionError != null) PrimaryPinkContainer else TertiaryCyan,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            )
-                        }
-                    }
-                }
-
-                // Progress Bar
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    GradientProgressBar(
-                        currentValue = positionSeconds,
-                        maxValue = durationSeconds,
-                        onSeek = { seekSec ->
-                            sessionManager.seekTo((seekSec * 1000).toLong())
-                        },
-                        trackHeight = 5.dp,
-                        showThumb = true,
-                        testTag = "now_playing_seeker",
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = if (durationSeconds > 0f) formatTimeSeconds(positionSeconds) else "—:—",
-                            style = MichiTypography.microLabel,
-                            color = OnSurfaceVariant,
-                        )
-                        Text(
-                            text = if (durationSeconds > 0f) formatRemainingTimeSeconds(positionSeconds, durationSeconds) else "—:—",
-                            style = MichiTypography.microLabel,
-                            color = OnSurfaceVariant,
-                        )
-                    }
-                }
-
-                // Main Playback Controls
-                org.michimusic.mobile.ui.components.premium.MichiPlaybackControls(
-                    state = org.michimusic.mobile.ui.components.premium.PlaybackControlUiState(
-                        isPlaying = isPlaying,
-                        canSkipPrevious = currentTrack != null,
-                        canSkipNext = currentTrack != null,
-                        canPlayPause = currentTrack != null,
-                        isShuffleEnabled = isShuffle,
-                        repeatMode = repeatMode,
-                        isLoading = if (sessionState.isRemoteActive) {
-                            sessionState.lastRemoteCommand?.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
-                        } else {
-                            playerState.playbackStatus is org.michimusic.player.PlaybackStatus.Buffering
-                        },
+                Text(
+                    text = currentTrack?.title ?: "Sin reproducción activa",
+                    style = MichiTypography.screenTitle.copy(
+                        fontSize = if (compactLayout) 24.sp else 29.sp,
+                        lineHeight = if (compactLayout) 29.sp else 34.sp,
+                        fontWeight = FontWeight.SemiBold,
                     ),
-                    onPlayPause = { sessionManager.playPause() },
-                    onSkipPrevious = { sessionManager.skipPrevious() },
-                    onSkipNext = { sessionManager.skipNext() },
-                    onToggleShuffle = { sessionManager.toggleShuffle() },
-                    onCycleRepeat = { sessionManager.cycleRepeatMode() },
-                    playPauseTestTag = "now_playing_play_pause",
-                    prevTestTag = "now_playing_prev",
-                    nextTestTag = "now_playing_next",
-                    shuffleTestTag = "now_playing_shuffle",
-                    repeatTestTag = "now_playing_repeat",
-                    modifier = Modifier.padding(horizontal = 4.dp),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(0.86f),
+                )
+                Text(
+                    text = currentTrack?.artist ?: "Selecciona una canción",
+                    style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
+                    color = Color(0xCCFFFFFF),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(0.86f),
+                )
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                GradientProgressBar(
+                    currentValue = positionSeconds,
+                    maxValue = durationSeconds,
+                    onSeek = { seekSec ->
+                        sessionManager.seekTo((seekSec * 1000).toLong())
+                    },
+                    trackHeight = 4.dp,
+                    showThumb = true,
+                    testTag = "now_playing_seeker",
                 )
 
-                // Bottom Pill Row
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Up Next Capsule Pill
-                    val queue = if (sessionState.isRemoteActive) sessionState.queue else playerState.queue
-                    val currentIndex = currentTrack?.let { cur -> queue.indexOfFirst { it.id == cur.id } } ?: -1
-                    val nextTrack = if (currentIndex in queue.indices && currentIndex + 1 < queue.size) {
-                        queue[currentIndex + 1]
-                    } else null
+                    Text(
+                        text = if (durationSeconds > 0f) formatTimeSeconds(positionSeconds) else "—:—",
+                        style = MichiTypography.microLabel,
+                        color = Color(0xCCFFFFFF),
+                    )
+                    Text(
+                        text = if (durationSeconds > 0f) formatTimeSeconds(durationSeconds) else "—:—",
+                        style = MichiTypography.microLabel,
+                        color = Color(0xCCFFFFFF),
+                    )
+                }
+            }
 
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = raised.fill,
-                        border = androidx.compose.foundation.BorderStroke(raised.borderWidth, raised.outline),
-                        shadowElevation = raised.elevation,
-                        modifier = Modifier
-                            .heightIn(min = MichiSpacing.minTouchTarget)
-                            .weight(1f)
-                            .clickable(role = Role.Button) { showQueueDialog = true },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                                contentDescription = null,
-                                tint = TertiaryCyan,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = if (nextTrack != null) "Siguiente: ${nextTrack.title}" else if (queue.isNotEmpty()) "${queue.size} en cola" else "Cola vacía",
-                                style = MichiTypography.metadata,
-                                color = PureWhite,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
+            org.michimusic.mobile.ui.components.premium.MichiPlaybackControls(
+                state = org.michimusic.mobile.ui.components.premium.PlaybackControlUiState(
+                    isPlaying = isPlaying,
+                    canSkipPrevious = currentTrack != null,
+                    canSkipNext = currentTrack != null,
+                    canPlayPause = currentTrack != null,
+                    isShuffleEnabled = isShuffle,
+                    repeatMode = repeatMode,
+                    isLoading = if (sessionState.isRemoteActive) {
+                        sessionState.lastRemoteCommand?.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
+                    } else {
+                        playerState.playbackStatus is org.michimusic.player.PlaybackStatus.Buffering
+                    },
+                ),
+                onPlayPause = { sessionManager.playPause() },
+                onSkipPrevious = { sessionManager.skipPrevious() },
+                onSkipNext = { sessionManager.skipNext() },
+                onToggleShuffle = { sessionManager.toggleShuffle() },
+                onCycleRepeat = { sessionManager.cycleRepeatMode() },
+                playPauseTestTag = "now_playing_play_pause",
+                prevTestTag = "now_playing_prev",
+                nextTestTag = "now_playing_next",
+                shuffleTestTag = "now_playing_shuffle",
+                repeatTestTag = "now_playing_repeat",
+                modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val isFav = currentTrack?.let { favoriteIds.contains(it.id) } == true
+
+                MichiIconAction(
+                    icon = Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "Abrir cola",
+                    onClick = { showQueueDialog = true },
+                    tint = PureWhite.copy(alpha = 0.82f),
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "now_playing_queue_button",
+                )
+                MichiIconAction(
+                    icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                    contentDescription = if (isFav) "Quitar de favoritos" else "Añadir a favoritos",
+                    onClick = {
+                        currentTrack?.let { track ->
+                            coroutineScope.launch { favoritesRepo.toggleFavorite(track.id) }
                         }
-                    }
+                    },
+                    enabled = currentTrack != null,
+                    tint = if (isFav) PrimaryPinkContainer else PureWhite.copy(alpha = 0.82f),
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "now_playing_favorite_button",
+                )
+                MichiIconAction(
+                    icon = Icons.Filled.Timer,
+                    contentDescription = if (playerState.sleepTimerRemainingMs > 0L)
+                        "Temporizador activo. Cambiar duración" else "Activar temporizador",
+                    onClick = {
+                        val next = cycleSleepTimer(playerState.sleepTimerRemainingMs)
+                        if (next <= 0L) audioController.cancelSleepTimer()
+                        else audioController.setSleepTimer(next)
+                    },
+                    tint = if (playerState.sleepTimerRemainingMs > 0L) TertiaryCyan else PureWhite.copy(alpha = .82f),
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "sleep_timer_button",
+                )
+                MichiIconAction(
+                    icon = Icons.Filled.Equalizer,
+                    contentDescription = "Abrir ecualizador",
+                    onClick = { showEqualizerDialog = true },
+                    tint = PureWhite.copy(alpha = 0.82f),
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "equalizer_button",
+                )
+                MichiIconAction(
+                    icon = Icons.Filled.MoreVert,
+                    contentDescription = if (currentTrack != null) "Más opciones de la canción" else "Sin canción seleccionada",
+                    onClick = { showTrackActionMenu = true },
+                    enabled = currentTrack != null,
+                    tint = if (currentTrack != null) PureWhite.copy(alpha = 0.82f) else OnSurfaceVariant,
+                    iconSize = 22.dp,
+                    minTargetSize = MichiSpacing.minTouchTarget,
+                    testTag = "now_playing_more_button",
+                )
+            }
 
-                    Spacer(Modifier.width(12.dp))
-                    // Equalizer Button
-                    MichiIconAction(
-                        icon = Icons.Filled.Equalizer,
-                        contentDescription = "Abrir ecualizador",
-                        onClick = { showEqualizerDialog = true },
-                        tint = PureWhite,
-                        iconSize = 24.dp,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                        testTag = "equalizer_button",
+            val queue = if (sessionState.isRemoteActive) sessionState.queue else playerState.queue
+            val currentIndex = currentTrack?.let { cur -> queue.indexOfFirst { it.id == cur.id } } ?: -1
+            val nextTrack = if (currentIndex in queue.indices && currentIndex + 1 < queue.size) {
+                queue[currentIndex + 1]
+            } else null
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                nextTrack?.let {
+                    Text(
+                        text = "Siguiente: ${it.title}",
+                        style = MichiTypography.metadata,
+                        color = Color(0xB3FFFFFF),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(0.9f),
+                    )
+                }
+
+                AeroSignalRouteStrip(
+                    signalLabel = pcmLabel ?: "Signal Truth",
+                    signalDescription = if (pcmLabel != null)
+                        "Señal PCM decodificada; la salida física no está certificada."
+                    else "Consulta la señal observada. La salida física no está verificada.",
+                    destination = presentation.endpointDescription,
+                    onSignalClick = { showSignalTruthDialog = true },
+                    onDestinationClick = { showAudioRouteDialog = true },
+                    modifier = Modifier.testTag("m60_now_playing_signal_footer"),
+                )
+
+                sessionState.statusMessage?.let { status ->
+                    Text(
+                        text = status,
+                        style = MichiTypography.microLabel,
+                        color = if (sessionState.lastSessionError != null) PrimaryPinkContainer else Color(0xB3FFFFFF),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(0.9f),
                     )
                 }
             }
         }
-
         // Dialogs
         if (showAudioRouteDialog) {
             org.michimusic.mobile.ui.components.AudioRouteDialog(onDismiss = { showAudioRouteDialog = false })
@@ -724,7 +640,7 @@ private fun SignalTruthDialog(
 
                 HorizontalDivider(color = GlassBorderLow)
 
-                provenanceItems.forEach { item ->
+                for (item in provenanceItems) {
                     val (tagText, tagColor) = when (item.evidenceType) {
                         org.michimusic.core.models.SignalEvidenceType.OBSERVED -> "Observado" to TertiaryCyan
                         org.michimusic.core.models.SignalEvidenceType.DECLARED -> "Declarado" to OnSurfaceVariant

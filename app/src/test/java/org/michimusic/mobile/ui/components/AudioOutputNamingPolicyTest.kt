@@ -14,8 +14,22 @@ class AudioOutputNamingPolicyTest {
     @Test fun multipleSpeakersHaveDistinctHonestLabels() {
         val first = AudioOutputDevice(1, "sdk_gphone64_x86_64", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, isSpeaker = true)
         val second = first.copy(id = 4)
-        assertEquals("Altavoz del teléfono · ruta 1", audioOutputFriendlyName(first))
-        assertEquals("Altavoz del teléfono · ruta 4", audioOutputFriendlyName(second))
+        assertEquals("Altavoz del teléfono", audioOutputFriendlyName(first))
+        assertEquals("Altavoz del teléfono", audioOutputFriendlyName(second))
+    }
+
+    @Test fun collidingLabelsAreDistinctWithoutExposingAndroidRouteIds() {
+        val a = AudioOutputDevice(8, "sdk_gphone64_x86_64", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, isSpeaker = true)
+        val b = a.copy(id = 4)
+        val labels = audioOutputDisambiguatedNames(listOf(a,b))
+        assertEquals("Altavoz del teléfono (1)", labels[4])
+        assertEquals("Altavoz del teléfono (2)", labels[8])
+        assertEquals(2, labels.values.toSet().size)
+    }
+
+    @Test fun uniqueHardwareNameRemainsUnchangedInOutputList() {
+        val device = AudioOutputDevice(9, "FiiO KA17", AudioDeviceInfo.TYPE_USB_DEVICE, isUsbDac = true)
+        assertEquals("FiiO KA17", audioOutputDisambiguatedNames(listOf(device))[device.id])
     }
 
     @Test fun bluetoothPreservesActualDeviceName() {
@@ -23,8 +37,18 @@ class AudioOutputNamingPolicyTest {
         assertEquals("Michi Headset", audioOutputFriendlyName(device))
     }
 
+    @Test fun emulatorIdentifierNeverLeaksIntoConsumerName() {
+        val device = AudioOutputDevice(7, "sdk_gphone64_x86_64", 9999)
+        assertEquals("Otra salida de audio", audioOutputFriendlyName(device))
+    }
+
+    @Test fun realManufacturerNameSurvivesNormalization() {
+        val device = AudioOutputDevice(8, "FiiO KA17", AudioDeviceInfo.TYPE_USB_DEVICE, isUsbDac = true)
+        assertEquals("FiiO KA17", audioOutputFriendlyName(device))
+    }
+
     @Test fun unknownTypeNeverPretendsToBeSpeaker() {
         val device = AudioOutputDevice(5, "", 9999)
-        assertEquals("Salida de audio · ruta 5", audioOutputFriendlyName(device))
+        assertEquals("Otra salida de audio", audioOutputFriendlyName(device))
     }
 }

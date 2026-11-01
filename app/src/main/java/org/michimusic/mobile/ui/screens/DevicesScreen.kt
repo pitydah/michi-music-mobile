@@ -58,6 +58,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -284,12 +285,86 @@ fun DevicesScreen(
                 contentPadding = PaddingValues(bottom = 24.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(MichiSpacing.md),
             ) {
+                // M60: AirCat is a first-class Devices action; reachable before the fold.
+                // Destination eligibility and actual transfer callbacks remain unchanged.
+                item(key = "aircat_sync_shortcut") {
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                // K47-05: Never navigate with empty string or ineligible device
+                                when {
+                                    eligibleAirCatDevices.isEmpty() -> {
+                                        showNoEligibleAirCatNotice = true
+                                    }
+                                    eligibleAirCatDevices.size == 1 -> {
+                                        val target = eligibleAirCatDevices.first()
+                                        viewModel.startAirCatTransfer(targetDeviceId = target.id) { success, msg ->
+                                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
+                                    }
+                                    else -> {
+                                        showAirCatTargetPicker = true
+                                    }
+                                }
+                            }
+                            .testTag("aircat_sync_shortcut"),
+                        backgroundColor = GlassFillLow,
+                        borderColor = GlassBorderLow,
+                        shape = MichiShapes.md,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(TertiaryCyan.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AddLink,
+                                    contentDescription = null,
+                                    tint = TertiaryCyan,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "AirCat · sincronización",
+                                    style = MichiTypography.cardTitle.copy(fontSize = 15.sp),
+                                    color = PureWhite,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = when {
+                                        uiState.airCatProgress != null -> "Transferencia en curso"
+                                        eligibleAirCatDevices.isEmpty() -> "Sin receptores disponibles · toca para ver cómo conectar"
+                                        eligibleAirCatDevices.size == 1 -> "1 receptor listo para sincronizar"
+                                        else -> "${eligibleAirCatDevices.size} receptores disponibles"
+                                    },
+                                    color = TextSecondary,
+                                    style = MichiTypography.metadata,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+
+
                 // Michi Link summary derives all values from real discovered and active states.
-                item(key = "michi_link_overview") {
+                if (uiState.unifiedDevices.isNotEmpty()) item(key = "michi_link_overview") {
                     AeroInfoPanel(
                         overline = "Michi Link · red local",
                         title = when {
-                            isSearching -> "Explorando tu red"
+                            isSearching -> "Actualizando equipos"
                             uiState.unifiedDevices.isEmpty() -> "Tus equipos Michi"
                             else -> "Ecosistema disponible"
                         },
@@ -394,8 +469,9 @@ fun DevicesScreen(
                     }
                 }
 
-                // Discovered Nodes Section
-                item {
+                // One empty state handles discovery when no devices exist.
+                // Do not repeat "Explorando tu red" in section header and empty card.
+                if (uiState.unifiedDevices.isNotEmpty()) item {
                     Spacer(modifier = Modifier.height(MichiSpacing.xs))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -457,64 +533,6 @@ fun DevicesScreen(
                                 device = device, isDiscovered = false,
                             )
                             DeviceNodeCard(item, { onPerformDeviceAction(device, it) }, { selectedDeviceForDetails = item })
-                        }
-                    }
-                }
-
-                // Dedicated AirCat card per V13_05_DEVICES_REMOTE.png
-                item(key = "aircat_sync_shortcut") {
-                    GlassCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                // K47-05: Never navigate with empty string or ineligible device
-                                when {
-                                    eligibleAirCatDevices.isEmpty() -> {
-                                        showNoEligibleAirCatNotice = true
-                                    }
-                                    eligibleAirCatDevices.size == 1 -> {
-                                        val target = eligibleAirCatDevices.first()
-                                        viewModel.startAirCatTransfer(targetDeviceId = target.id) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
-                                    }
-                                    else -> {
-                                        showAirCatTargetPicker = true
-                                    }
-                                }
-                            }
-                            .testTag("aircat_sync_shortcut"),
-                        backgroundColor = GlassFillLow,
-                        borderColor = GlassBorderLow,
-                        shape = MichiShapes.md,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(TertiaryCyan.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AddLink,
-                                    contentDescription = null,
-                                    tint = TertiaryCyan,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-                            Text(
-                                text = "Sincronizar con AirCat",
-                                style = MichiTypography.cardTitle.copy(fontSize = 15.sp),
-                                color = PureWhite,
-                                fontWeight = FontWeight.SemiBold,
-                            )
                         }
                     }
                 }
@@ -791,10 +809,12 @@ private fun DevicesTopBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Dispositivos",
-                    style = MichiTypography.screenTitle.copy(fontSize = 28.sp),
+                    style = MichiTypography.screenTitle.copy(fontSize = if (compactHeader) 25.sp else 28.sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.Bold,
                     color = PureWhite,
                 )
@@ -887,14 +907,7 @@ private fun DevicesTopBar(
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        Text(
-            text = "Tus dispositivos",
-            style = MichiTypography.sectionTitle.copy(fontSize = 18.sp),
-            fontWeight = FontWeight.Bold,
-            color = PureWhite,
-            modifier = Modifier.padding(start = 2.dp),
-        )
+
     }
 }
 

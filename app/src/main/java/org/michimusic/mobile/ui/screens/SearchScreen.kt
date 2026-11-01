@@ -149,13 +149,9 @@ fun SearchScreen(
             Spacer(Modifier.height(MichiSpacing.md))
 
             // Header
-            Text(
-                text = "EXPLORADOR",
-                style = MichiTypography.screenEyebrow,
-            )
-            Text(
-                text = "Busca tu música",
-                style = MichiTypography.screenTitle,
+            org.michimusic.mobile.ui.components.AeroSectionHeading(
+                eyebrow = "CATÁLOGO LOCAL Y SINCRONIZADO",
+                title = "Encontrar música",
             )
 
             Spacer(Modifier.height(MichiSpacing.md))
@@ -232,7 +228,11 @@ fun SearchScreen(
             Spacer(Modifier.height(MichiSpacing.md))
 
             // M55: shared selection policy, contrast and responsive targets.
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(end = 24.dp),
+                modifier = Modifier.testTag("m60_search_filter_rail"),
+            ) {
                 items(SearchFilter.entries) { filter ->
                     AeroSegmentedChoice(
                         label = filter.displayName,
@@ -242,6 +242,15 @@ fun SearchScreen(
                         testTag = "search_filter_${filter.name.lowercase()}",
                     )
                 }
+            }
+
+            if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 390 && SearchFilter.entries.size > 3) {
+                Text(
+                    text = "Desliza para explorar más filtros",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 5.dp).testTag("search_filter_scroll_hint"),
+                )
             }
 
             Spacer(Modifier.height(MichiSpacing.md))

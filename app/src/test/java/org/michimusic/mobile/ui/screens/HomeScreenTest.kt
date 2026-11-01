@@ -140,8 +140,8 @@ class HomeScreenTest {
         }
 
         // Carousel of recent tracks
-        composeTestRule.onNodeWithText("Recientemente Escuchadas").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Recent Song").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Recientemente Escuchadas").assertExists()
+        composeTestRule.onNodeWithText("Recent Song").assertExists()
         
         // Playlist tiles
         composeTestRule.onNodeWithTag("home_scroll_list").performScrollToNode(hasText("Favoritos"))

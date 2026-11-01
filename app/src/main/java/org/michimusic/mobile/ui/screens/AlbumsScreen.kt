@@ -288,7 +288,7 @@ fun AlbumsScreen(
             }
 
             // Library Scope Selector (Todas / Este teléfono / etc.)
-            LazyRow(
+            if (shouldShowLibraryScopeSelector(availableLibraries.size, activeScope is org.michimusic.core.models.LibraryScope.All)) LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 4.dp),
@@ -345,7 +345,8 @@ fun AlbumsScreen(
                 }
             }
 
-            // M55: cohesive inset rail for content type; one treatment for library filters.
+            // M60: content type is the dominant library navigation level.
+            // Collection scope above is omitted if there is no scope choice.
             AeroSegmentRail(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
             ) {
@@ -1033,3 +1034,7 @@ fun AlbumsScreen(
         }
     }
 }
+
+/** Scope chooser is useful only with multiple libraries or for orphan-scope recovery. */
+internal fun shouldShowLibraryScopeSelector(availableCount: Int, allSelected: Boolean): Boolean =
+    availableCount > 1 || !allSelected

@@ -74,7 +74,8 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
-import org.michimusic.mobile.ui.components.AeroEditorialHero
+import org.michimusic.mobile.ui.components.AeroLibraryFeature
+import org.michimusic.mobile.ui.components.AeroSectionHeading
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -184,7 +185,7 @@ fun HomeScreen(
                 return@Column
             }
 
-            // Scrollable Content
+            // Editorial music-first composition; only content scrolls, dock stays global.
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -196,8 +197,17 @@ fun HomeScreen(
                 // in the MiniPlayer and must not occupy a second redundant hero.
                 item {
                     if (allTracks.isNotEmpty()) {
-                        AeroEditorialHero(
+                        val featured = visibleRecent.firstOrNull { recent -> allTracks.any { it.id == recent.id } }
+                            ?: allTracks.firstOrNull { it.id != currentTrack?.id }
+                            ?: allTracks.first()
+                        AeroLibraryFeature(
+                            featuredTrack = featured,
                             trackCount = allTracks.size,
+                            onFeatured = {
+                                val index = allTracks.indexOfFirst { it.id == featured.id }
+                                if (index >= 0) sessionManager.playQueue(allTracks, index)
+                                else scope.launch { snackbarHostState.showSnackbar("La pista ya no está disponible") }
+                            },
                             onPlayAll = { sessionManager.playQueue(allTracks, 0) },
                             onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },
                         )
@@ -353,7 +363,7 @@ private fun HomeTopBar(
                 style = MichiTypography.screenEyebrow,
             )
             Text(
-                text = "Inicio",
+                text = "Tu música",
                 style = MichiTypography.screenTitle,
             )
         }
@@ -591,9 +601,9 @@ private fun RecentlyPlayedSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                style = MichiTypography.sectionTitle,
+            AeroSectionHeading(
+                title = title,
+                eyebrow = "VOLVER A ESCUCHAR",
                 modifier = Modifier.testTag("recently_played_title"),
             )
         }
@@ -704,9 +714,9 @@ private fun YourPlaylistsSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "Tu Colección",
-                style = MichiTypography.sectionTitle,
+            AeroSectionHeading(
+                title = "Colecciones",
+                eyebrow = "TUS LISTAS",
             )
             MichiIconAction(
                 icon = Icons.Filled.Add,
@@ -836,9 +846,9 @@ private fun QuickPicksSection(
     onTrackClick: (Track) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Explora tu biblioteca",
-            style = MichiTypography.sectionTitle,
+        AeroSectionHeading(
+            title = "Explora tu biblioteca",
+            eyebrow = "OTRAS PISTAS DISPONIBLES",
         )
 
         Spacer(modifier = Modifier.height(12.dp))

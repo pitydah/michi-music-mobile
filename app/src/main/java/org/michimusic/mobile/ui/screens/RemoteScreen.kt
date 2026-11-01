@@ -56,9 +56,10 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.remote.RemoteConnectionState
 import org.michimusic.mobile.remote.RemoteUiState
 import org.michimusic.mobile.remote.RemoteViewModel
-import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
+import org.michimusic.mobile.ui.components.AeroActionButton
+import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.GradientProgressBar
-import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatRemainingTimeSeconds
 import org.michimusic.mobile.ui.components.formatTimeSeconds
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
@@ -86,33 +87,13 @@ fun RemoteScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var handoffMessage by remember { mutableStateOf<String?>(null) }
-    var previewConnected by remember { mutableStateOf(false) }
-
-    val effectiveState = if (previewConnected) {
-        RemoteUiState(
-            mode = RemoteSourceMode.REMOTE,
-            connState = RemoteConnectionState.CONNECTED,
-            connected = true,
-            sourceName = "Michi Studio Mac",
-            playerState = PlaybackStateDto(
-                state = "playing",
-                positionMs = 74000L,
-                durationMs = 245000L,
-                trackId = "remote_trk_1",
-                title = "Resonance Echoes",
-                artist = "Aero Sonic Lab",
-                album = "Vapor Drift 2026",
-                volume = 80,
-            ),
-        )
-    } else state
 
     LaunchedEffect(Unit) {
         viewModel.connectIfNeeded()
     }
 
     RemoteScreenContent(
-        state = effectiveState,
+        state = state,
         onNavigateToSync = onNavigateToSync,
         onBack = onBack,
         onPlayPause = { viewModel.togglePlayPause() },
@@ -125,7 +106,6 @@ fun RemoteScreen(
             }
         },
         handoffMessage = handoffMessage,
-        onTogglePreview = { previewConnected = !previewConnected },
         modifier = modifier,
     )
 }
@@ -142,7 +122,6 @@ fun RemoteScreenContent(
     onHandoff: () -> Unit,
     handoffMessage: String?,
     modifier: Modifier = Modifier,
-    onTogglePreview: () -> Unit = {},
 ) {
     val isConnected = state.connState == RemoteConnectionState.CONNECTED
     val playerState = state.playerState
@@ -158,6 +137,8 @@ fun RemoteScreenContent(
             .fillMaxSize()
             .background(SurfaceObsidian),
     ) {
+        // M60: same surface language as Now Playing, without artificial connected states.
+        AeroPremiumBackdrop(accent = TertiaryCyan)
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -326,9 +307,7 @@ fun RemoteScreenContent(
                             imageVector = Icons.Filled.SettingsRemote,
                             contentDescription = null,
                             tint = TextMuted,
-                            modifier = Modifier
-                                .size(64.dp)
-                                .clickable { onTogglePreview() },
+                            modifier = Modifier.size(48.dp),
                         )
                         Text(
                             text = emptyTitle,
@@ -343,32 +322,13 @@ fun RemoteScreenContent(
                             textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.height(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(PrimaryPinkContainer)
-                                .clickable { onNavigateToSync() }
-                                .padding(horizontal = 24.dp, vertical = 14.dp)
-                                .testTag("remote_connect_button"),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.WifiTethering,
-                                    contentDescription = null,
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Text(
-                                    text = ctaText,
-                                    color = PureWhite,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                        }
+                        AeroActionButton(
+                            label = ctaText,
+                            onClick = onNavigateToSync,
+                            modifier = Modifier.fillMaxWidth().testTag("remote_connect_button"),
+                            icon = Icons.Filled.WifiTethering,
+                            kind = AeroActionKind.Primary,
+                        )
                     }
                 }
             } else {
@@ -447,29 +407,44 @@ fun RemoteScreenContent(
                         }
                     }
 
-                    // Hero Cover Art
-                    item {
+                    // Remote artwork is not delivered by the current protocol.
+                    // Render an honest listening-state sculpture, never a synthetic album cover.
+                    item(key = "remote_artwork_unavailable") {
                         Box(
                             modifier = Modifier
-                                .size(260.dp)
-                                .clip(RoundedCornerShape(28.dp))
+                                .size(240.dp)
+                                .clip(RoundedCornerShape(24.dp))
                                 .background(AeroGraphiteRaised)
-                                .border(0.75.dp, AeroHairline, RoundedCornerShape(28.dp)),
+                                .border(0.75.dp, AeroHairline, RoundedCornerShape(24.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            AlbumArtView(
-                                coverStyle = coverStyleFor(currentTitle),
-                                imageModel = null, // Remote endpoint does not expose trusted artwork in this model.
-                                modifier = Modifier.fillMaxSize(),
-                                cornerRadius = 28.dp,
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.padding(20.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Speaker,
+                                    contentDescription = null,
+                                    tint = TertiaryCyan,
+                                    modifier = Modifier.size(44.dp),
+                                )
+                                Text(
+                                    text = "MICHI REMOTE",
+                                    color = PureWhite,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.5.sp,
+                                )
+                                Text(
+                                    text = "Carátula no disponible desde este receptor",
+                                    color = TextMuted,
+                                    fontSize = 12.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 3,
+                                )
+                            }
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Carátula no disponible desde el servidor",
-                            color = TextMuted,
-                            fontSize = 12.sp,
-                        )
                     }
 
                     // Track Info

@@ -1185,6 +1185,7 @@ fun AudioRouteDialog(
         org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>()
     }.getOrNull()
     val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+    val friendlyOutputNames = remember(outputDevices) { audioOutputDisambiguatedNames(outputDevices) }
     val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
     val selectedId by (usbDacManager?.selectedDeviceId?.collectAsState() ?: remember { mutableStateOf(null) })
     val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice) })
@@ -1423,7 +1424,7 @@ fun AudioRouteDialog(
                             }
                         }
 
-                        items(outputDevices) { device ->
+                        items(outputDevices, key = { "audio_output_${it.id}" }) { device ->
                             val isCurrentSelected = (selectedId == device.id) || (selectedId == null && device.isSelected)
                             val icon = when {
                                 device.isUsbDac -> Icons.Filled.Usb
@@ -1473,7 +1474,7 @@ fun AudioRouteDialog(
 
                                         Column {
                                             Text(
-                                                text = audioOutputFriendlyName(device),
+                                                text = friendlyOutputNames[device.id] ?: audioOutputFriendlyName(device),
                                                 color = if (isCurrentSelected) TertiaryCyan else PureWhite,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.SemiBold,
@@ -1481,7 +1482,7 @@ fun AudioRouteDialog(
                                             Text(
                                                 text = if (device.isUsbDac) "Audio Digital USB" else if (device.isBluetooth) "Bluetooth" else if (device.isWired) "Auriculares" else "Altavoz Integrado",
                                                 color = TextMuted,
-                                                fontSize = 10.sp,
+                                                fontSize = 12.sp,
                                             )
                                         }
                                     }
