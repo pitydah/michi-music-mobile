@@ -736,11 +736,45 @@ class PlaybackSessionManager(
                         return@launch
                     }
 
+                    val resolvedTracks = q.mapIndexed { i, t -> t.copy(id = resolvedTrackIds[i]) }
+                    val remoteSt = client.getPlaybackState().getOrNull()
+                    val remoteQ = client.getQueue().getOrNull()
+                    val remoteSize = remoteQ?.tracks?.size ?: 0
+                    val remotePlaying = remoteSt?.playing == true
+
+                    // K52-01: Preflight evaluation before destructive queue transfer during handoff
+                    val preflight = RemoteQueuePreflightPolicy.evaluate(
+                        destinationId = target.id,
+                        destinationName = target.name,
+                        remoteQueueSize = remoteSize,
+                        remoteActiveTrackTitle = remoteQ?.tracks?.getOrNull(remoteSt?.queueIndex ?: -1)?.title ?: remoteSt?.trackId,
+                        remotePlaying = remotePlaying,
+                        proposedTracks = resolvedTracks,
+                        proposedStartIndex = idx.coerceAtLeast(0),
+                        sessionEpoch = _sessionEpoch.get(),
+                        snapshotFingerprint = remoteQ?.tracks?.joinToString(",") { it.trackId }
+                    )
+
+                    if (preflight is RemoteQueuePreflightDecision.ConfirmationRequired) {
+                        _issuedTickets.values.removeIf { it.endpointId == target.id }
+                        _issuedTickets[preflight.ticket.ticketId] = preflight.ticket
+                        _pendingQueueConfirmation.value = preflight
+
+                        isRemoteSelected = true
+                        _sessionState.value = _sessionState.value.copy(
+                            activeEndpoint = target,
+                            isRemoteActive = true
+                        )
+                        onResult(true, "Confirmación requerida para transferir cola a ${target.name}")
+                        return@launch
+                    }
+
                     val req = org.michimusic.link.dto.QueueTransferRequest(
                         trackIds = resolvedTrackIds,
                         currentIndex = idx.coerceAtLeast(0),
                         positionMs = pos,
-                        source = "local"
+                        source = "local",
+                        queueId = remoteQ?.queueId?.ifBlank { null }
                     )
                     client.transferQueue(req).onSuccess {
                         audioController?.pause()
@@ -1273,6 +1307,8 @@ class PlaybackSessionManager(
                     snapshotFingerprint = remoteFingerprint,
                 )
                 if (preflightDecision is RemoteQueuePreflightDecision.ConfirmationRequired) {
+                    // K52-03: Invalidate prior unconsumed tickets for this endpoint to prevent ticket accumulation
+                    _issuedTickets.values.removeIf { it.endpointId == activeEp.id }
                     // K50-02: Register issued ticket in authoritative manager registry
                     _issuedTickets[preflightDecision.ticket.ticketId] = preflightDecision.ticket
                     _pendingQueueConfirmation.value = preflightDecision
@@ -1310,6 +1346,22 @@ class PlaybackSessionManager(
                 if (confirmedTicket.sessionEpoch != opEpoch || confirmedTicket.endpointId != activeEp.id) {
                     return QueuePlaybackOutcome.Obsolete(opId, activeEp.id, tracks.size, validIndex, opEpoch,
                         "El destino o la sesión cambiaron durante la confirmación")
+                }
+                // K52-03: Contextual binding validation - ticket must match proposed tracks fingerprint and start index
+                val requestedFingerprint = tracks.joinToString(",") { it.id }
+                if (confirmedTicket.proposedTracksFingerprint != null &&
+                    confirmedTicket.proposedTracksFingerprint != requestedFingerprint) {
+                    return QueuePlaybackOutcome.Rejected(
+                        opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "Las pistas solicitadas no coinciden con la autorización previa del ticket"
+                    )
+                }
+                if (confirmedTicket.proposedStartIndex != null &&
+                    confirmedTicket.proposedStartIndex != validIndex) {
+                    return QueuePlaybackOutcome.Rejected(
+                        opId, activeEp.id, tracks.size, validIndex, opEpoch,
+                        "El índice de reproducción no coincide con la autorización previa del ticket"
+                    )
                 }
             }
 

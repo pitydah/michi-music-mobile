@@ -551,4 +551,202 @@ class RemoteQueueAuthorizationTest {
             outcome is QueuePlaybackOutcome.PendingConfirmation)
         assertNotNull(manager.pendingQueueConfirmation.value)
     }
+
+    @Test
+    fun requestQueuePlayback_whenTracksFingerprintMismatchesTicket_rejectsWithRejected() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val trackA = Track("srv_A", "Song A", "Artist", filepath = "http://srv/A", source = TrackSource.STREAMING)
+        val trackB = Track("srv_B", "Song B", "Artist", filepath = "http://srv/B", source = TrackSource.STREAMING)
+
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto())
+        coEvery { linkClient.getQueue() } returns Result.success(QueueDto())
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry,
+        )
+        val targetEp = PlaybackEndpoint("remote_1", "Host", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        // Ticket authorized for trackA
+        val ticket = RemoteQueueAuthorizationTicket(
+            endpointId = "remote_1",
+            sessionEpoch = manager.currentSessionEpoch,
+            snapshotTrackCount = 1,
+            proposedTracksFingerprint = "srv_A",
+            proposedStartIndex = 0,
+        )
+        manager.registerTicketForTesting(ticket)
+
+        // Attempting to execute with trackB (substitution attack, K52-03)
+        val outcome = manager.requestQueuePlayback(
+            tracks = listOf(trackB),
+            startIndex = 0,
+            confirmedAction = RemoteQueueAction.REPLACE,
+            confirmedTicket = ticket
+        )
+        advanceUntilIdle()
+
+        assertTrue("Substituted track payload must be rejected (K52-03)", outcome is QueuePlaybackOutcome.Rejected)
+        assertTrue((outcome as QueuePlaybackOutcome.Rejected).reason.contains("no coinciden con la autorización"))
+    }
+
+    @Test
+    fun requestQueuePlayback_whenStartIndexMismatchesTicket_rejectsWithRejected() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val track1 = Track("srv_A", "Song A", "Artist", filepath = "http://srv/A", source = TrackSource.STREAMING)
+        val track2 = Track("srv_B", "Song B", "Artist", filepath = "http://srv/B", source = TrackSource.STREAMING)
+
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto())
+        coEvery { linkClient.getQueue() } returns Result.success(QueueDto())
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        every { audioController.state } returns MutableStateFlow(PlayerState())
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry,
+        )
+        val targetEp = PlaybackEndpoint("remote_1", "Host", EndpointType.DESKTOP_PLAYER, isLocal = false, capabilities = setOf("PLAYBACK", "REMOTE_CONTROL"))
+        manager.attachRemote(targetEp) { _, _ -> }
+
+        // Ticket authorized for tracks A & B starting at index 0
+        val ticket = RemoteQueueAuthorizationTicket(
+            endpointId = "remote_1",
+            sessionEpoch = manager.currentSessionEpoch,
+            snapshotTrackCount = 1,
+            proposedTracksFingerprint = "srv_A,srv_B",
+            proposedStartIndex = 0,
+        )
+        manager.registerTicketForTesting(ticket)
+
+        // Attempting to execute with index 1 (index substitution, K52-03)
+        val outcome = manager.requestQueuePlayback(
+            tracks = listOf(track1, track2),
+            startIndex = 1,
+            confirmedAction = RemoteQueueAction.REPLACE,
+            confirmedTicket = ticket
+        )
+        advanceUntilIdle()
+
+        assertTrue("Substituted start index must be rejected (K52-03)", outcome is QueuePlaybackOutcome.Rejected)
+        assertTrue((outcome as QueuePlaybackOutcome.Rejected).reason.contains("índice de reproducción no coincide"))
+    }
+
+    @Test
+    fun handoffTo_whenRemoteHostHasActiveQueue_haltsAndRequiresConfirmation() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        val occupiedTrack = QueueTrackDto(trackId = "srv_remote", title = "Remote Playing Track", artist = "Artist")
+        val occupiedQueue = QueueDto(tracks = listOf(occupiedTrack), currentIndex = 0)
+
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = true, title = "Remote Playing Track"))
+        coEvery { linkClient.getQueue() } returns Result.success(occupiedQueue)
+        coEvery { linkClient.search(any()) } returns Result.success(listOf(org.michimusic.link.dto.TrackResponseDto(id = "srv_local", title = "Local Track")))
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyPlayerState = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyPlayerState
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry,
+        )
+        val localTrack = Track("local_1", "Local Track", "Artist", source = TrackSource.LOCAL)
+        dummyPlayerState.value = dummyPlayerState.value.copy(queue = listOf(localTrack), queueIndex = 0)
+        manager.selectLocalEndpoint()
+
+        val targetEndpoint = PlaybackEndpoint("remote_1", "Remote Server", EndpointType.SERVER, isLocal = false)
+
+        var handoffReportedSuccess: Boolean? = null
+        manager.handoffTo(targetEndpoint) { success, _ ->
+            handoffReportedSuccess = success
+        }
+        advanceUntilIdle()
+
+        // K52-01: Must NOT perform blind destructive transferQueue!
+        coVerify(exactly = 0) { linkClient.transferQueue(any()) }
+
+        // Must emit pendingQueueConfirmation dialog prompt
+        assertNotNull("handoffTo must emit pending confirmation when target has active queue (K52-01)",
+            manager.pendingQueueConfirmation.value)
+        assertEquals("remote_1", manager.pendingQueueConfirmation.value?.destinationId)
+    }
+
+    @Test
+    fun handoffTo_whenRemoteHostIdleAndEmpty_proceedsDirectly() = runTest {
+        val linkClient = mockk<LinkClient>(relaxed = true)
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = false))
+        coEvery { linkClient.getQueue() } returns Result.success(QueueDto(tracks = emptyList(), currentIndex = -1))
+        coEvery { linkClient.search(any()) } returns Result.success(listOf(org.michimusic.link.dto.TrackResponseDto(id = "srv_local", title = "Local Track")))
+        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true))
+
+        val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null
+        }
+        connectionManager.updateState("remote_1", SyncConnectionState.CONNECTED)
+        val audioController = mockk<AudioController>(relaxed = true)
+        val dummyPlayerState = MutableStateFlow(PlayerState())
+        every { audioController.state } returns dummyPlayerState
+        val linkDiscovery = mockk<LinkDiscovery>(relaxed = true)
+        every { linkDiscovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+
+        val manager = PlaybackSessionManager(
+            audioController = audioController,
+            connectionManager = connectionManager,
+            linkDiscovery = linkDiscovery,
+            registry = registry,
+        )
+        val localTrack = Track("local_1", "Local Track", "Artist", source = TrackSource.LOCAL)
+        dummyPlayerState.value = dummyPlayerState.value.copy(queue = listOf(localTrack), queueIndex = 0)
+        manager.selectLocalEndpoint()
+
+        val targetEndpoint = PlaybackEndpoint("remote_1", "Remote Server", EndpointType.SERVER, isLocal = false)
+
+        var handoffReportedSuccess = false
+        manager.handoffTo(targetEndpoint) { success, _ ->
+            handoffReportedSuccess = success
+        }
+        advanceUntilIdle()
+
+        // Clean remote host: proceeds directly
+        coVerify(exactly = 1) { linkClient.transferQueue(any()) }
+        assertTrue("handoffTo must succeed directly on empty idle host", handoffReportedSuccess)
+        assertEquals(targetEndpoint, manager.sessionState.value.activeEndpoint)
+    }
 }
+

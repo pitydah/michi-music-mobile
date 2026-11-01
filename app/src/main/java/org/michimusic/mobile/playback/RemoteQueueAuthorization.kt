@@ -21,6 +21,8 @@ data class RemoteQueueAuthorizationTicket(
     val sessionEpoch: Long,
     val snapshotTrackCount: Int,
     val snapshotTrackFingerprint: String? = null,
+    val proposedTracksFingerprint: String? = null,
+    val proposedStartIndex: Int? = null,
     val createdAtMs: Long = System.currentTimeMillis(),
     val validDurationMs: Long = 60_000L,
 ) {
@@ -83,11 +85,14 @@ object RemoteQueuePreflightPolicy {
         // If the target host has an active queue (> 0 tracks) or is actively playing,
         // an unprompted REPLACE would destroy existing listening state. Require explicit confirmation!
         if (remoteQueueSize > 0 || remotePlaying) {
+            val safeIndex = proposedStartIndex.coerceIn(0, proposedTracks.lastIndex)
             val ticket = RemoteQueueAuthorizationTicket(
                 endpointId = destinationId,
                 sessionEpoch = sessionEpoch,
                 snapshotTrackCount = remoteQueueSize,
                 snapshotTrackFingerprint = snapshotFingerprint ?: remoteActiveTrackTitle,
+                proposedTracksFingerprint = proposedTracks.joinToString(",") { it.id },
+                proposedStartIndex = safeIndex,
             )
             return RemoteQueuePreflightDecision.ConfirmationRequired(
                 destinationId = destinationId,
@@ -95,7 +100,7 @@ object RemoteQueuePreflightPolicy {
                 remoteActiveTrackTitle = remoteActiveTrackTitle,
                 remoteQueueSize = remoteQueueSize,
                 proposedTracks = proposedTracks,
-                proposedStartIndex = proposedStartIndex.coerceIn(0, proposedTracks.lastIndex),
+                proposedStartIndex = safeIndex,
                 ticket = ticket,
             )
         }

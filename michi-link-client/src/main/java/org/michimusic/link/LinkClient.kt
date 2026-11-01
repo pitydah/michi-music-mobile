@@ -757,12 +757,14 @@ class LinkClient(
             response.status.checkError()?.let { return@withContext Result.failure(it) }
             val raw = response.body<String>()
             val parsed = json.decodeFromString<QueueDto>(raw)
-            // If empty and server uses items/currentIndex, try alternate parsing
+            // If empty and server uses items/current_index, try alternate parsing
             if (parsed.tracks.isEmpty() && raw.contains("items")) {
                 val alt = json.decodeFromString<AltQueueDto>(raw)
                 Result.success(QueueDto(
                     tracks = alt.items,
-                    currentIndex = alt.currentIndex,
+                    currentIndex = alt.effectiveIndex,
+                    queueId = alt.effectiveQueueId,
+                    totalDuration = alt.effectiveTotalDuration,
                 ))
             } else {
                 Result.success(parsed)
@@ -1191,10 +1193,19 @@ class LinkClient(
 }
 
 @kotlinx.serialization.Serializable
-private data class AltQueueDto(
+internal data class AltQueueDto(
     val items: List<org.michimusic.link.dto.QueueTrackDto> = emptyList(),
-    @kotlinx.serialization.SerialName("currentIndex") val currentIndex: Int = -1,
-)
+    @kotlinx.serialization.SerialName("currentIndex") val camelCurrentIndex: Int? = null,
+    @kotlinx.serialization.SerialName("current_index") val snakeCurrentIndex: Int? = null,
+    @kotlinx.serialization.SerialName("queueId") val camelQueueId: String? = null,
+    @kotlinx.serialization.SerialName("queue_id") val snakeQueueId: String? = null,
+    @kotlinx.serialization.SerialName("totalDuration") val camelTotalDuration: Long? = null,
+    @kotlinx.serialization.SerialName("total_duration") val snakeTotalDuration: Long? = null,
+) {
+    val effectiveIndex: Int get() = snakeCurrentIndex ?: camelCurrentIndex ?: -1
+    val effectiveQueueId: String get() = snakeQueueId ?: camelQueueId ?: ""
+    val effectiveTotalDuration: Long get() = snakeTotalDuration ?: camelTotalDuration ?: 0L
+}
 
 data class StreamRangeResult(
     val bytesRead: Long,

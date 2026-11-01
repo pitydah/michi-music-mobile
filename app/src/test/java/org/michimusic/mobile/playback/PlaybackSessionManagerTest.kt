@@ -89,6 +89,8 @@ class PlaybackSessionManagerTest {
         val registry = mockk<PairedDeviceRegistry>(relaxed = true)
         every { registry.getAllDevices() } returns emptyList()
         
+        coEvery { linkClient.getPlaybackState() } returns Result.success(PlaybackStateDto(playing = false))
+        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
         coEvery { linkClient.search(any()) } returns Result.success(listOf(TrackResponseDto(id = "srv_t1", title = "Test")))
         coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true, sessionId = "s1"))
 

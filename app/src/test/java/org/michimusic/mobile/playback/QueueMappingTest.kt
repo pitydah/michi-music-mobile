@@ -44,6 +44,8 @@ class QueueMappingTest {
             QueueTransferResponse(success = true, sessionId = "s_1")
         )
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false))
+        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
@@ -113,6 +115,8 @@ class QueueMappingTest {
             QueueTransferResponse(success = true, sessionId = "s_1")
         )
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false))
+        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
@@ -175,6 +179,8 @@ class QueueMappingTest {
             QueueTransferResponse(success = true, sessionId = "s_1")
         )
         coEvery { linkClient.sendPlaybackCommand(any()) } returns Result.success("ok")
+        coEvery { linkClient.getPlaybackState() } returns Result.success(org.michimusic.link.dto.PlaybackStateDto(playing = false))
+        coEvery { linkClient.getQueue() } returns Result.success(org.michimusic.link.dto.QueueDto(tracks = emptyList(), currentIndex = -1))
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "server_1") linkClient else null
