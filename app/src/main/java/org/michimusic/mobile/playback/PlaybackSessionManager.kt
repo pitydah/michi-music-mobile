@@ -1393,7 +1393,8 @@ class PlaybackSessionManager(
                 trackIds = trackIds,
                 currentIndex = finalIndex,
                 positionMs = finalPos,
-                source = transferSource
+                source = transferSource,
+                queueId = liveQ.queueId.ifBlank { null }
             )
 
             // Operation check before transferQueue

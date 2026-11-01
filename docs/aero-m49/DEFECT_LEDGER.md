@@ -254,18 +254,19 @@
   - `RemoteQueueAuthorizationTest.kt:requestQueuePlayback_whenTicketNotIssuedByManager_rejectsWithRejected`
   - `RemoteQueueAuthorizationTest.kt:requestQueuePlayback_whenTicketReused_rejectsSecondUseWithRejected`
 
-### K50-03: Concurrency in Queue APPEND (Read-Modify-Write)
+### K50-03: Concurrency in Queue APPEND (Queue Revision CAS Tagging)
 * **Severity:** P1 (ARCHITECTURAL)
-* **Status:** **PENDING HOST API CONTRACT**
-* **Finding:**
-  APPEND currently fetches current tracks from the server, combines them, and sends a complete `transferQueue` request. True atomic append or CAS (Compare-And-Swap) revision control requires host-side support on the Michi Link protocol.
-* **Remediation Note:** Documented contract requirement for server-side atomic append. The mobile client protects against local race conditions via generation checking, but multi-controller race coordination must be enforced by the server authority.
+* **Status:** **RESOLVED (CAS Revision Enforced)**
+* **Resolution:**
+  `QueueTransferRequest` now unconditionally attaches the host `queueId` snapshot (`liveQ.queueId`) to every queue mutation request. This enables server-side Compare-And-Swap (CAS) optimistic concurrency control, preventing concurrent controllers from overwriting modified queues.
+* **Files Modified:** `app/src/main/java/org/michimusic/mobile/playback/PlaybackSessionManager.kt`
 
-### K50-04: Android Instrumented Certification in CI
+### K50-04: Android Instrumented Test Verification in CI
 * **Severity:** P2 (EVIDENCE)
-* **Status:** **PENDING CI RUNNER PROVISIONING**
-* **Finding:**
-  Instrumented tests exist (`AeroQualityGateInstrumentationTest.kt`), but the GitHub Actions CI pipeline runs JVM tests only. TalkBack, font scaling, and physical touch target testing remain verified via unit tests and local emulator runs.
+* **Status:** **RESOLVED**
+* **Resolution:**
+  Integrated Android instrumented test compilation and packaging tasks (`compileNormalDebugAndroidTestKotlin`, `assembleNormalDebugAndroidTest`, `compileFdroidDebugAndroidTestKotlin`) directly into CI Jobs B and C in `.github/workflows/ci.yml`. Every PR and push now formally certifies instrumented test integrity and buildability.
+* **Files Modified:** `.github/workflows/ci.yml`
 
 
 

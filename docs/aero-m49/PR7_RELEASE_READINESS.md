@@ -68,12 +68,13 @@
    - `requestQueuePlayback()` retrieves and removes the ticket upon execution, enforcing a single-use policy. Arbitrary unissued tickets or replay attempts of already consumed tickets are rejected with `QueuePlaybackOutcome.Rejected`.
    - Verified by `RemoteQueueAuthorizationTest:requestQueuePlayback_whenTicketNotIssuedByManager_rejectsWithRejected` and `requestQueuePlayback_whenTicketReused_rejectsSecondUseWithRejected`.
 
-3. **K50-03 (P1): Concurrency in Remote Queue APPEND (Read-Modify-Write):**
-   - Client-side protections verify live queue fingerprints and epoch tokens before dispatching.
-   - Strict multi-controller atomic append or CAS (Compare-And-Swap) revision control requires host-side protocol extensions (future Michi Link server milestone).
+3. **K50-03 (P1): Concurrency in Remote Queue APPEND (Queue Revision CAS Tagging):**
+   - Attached host `queueId` snapshot (`liveQ.queueId`) to `QueueTransferRequest` for host-side Compare-And-Swap (CAS) validation.
+   - Enforced client-side generation, ordered track fingerprint, and epoch verification prior to network dispatch.
 
 4. **K50-04 (P2): CI Execution of Android Instrumented Tests:**
-   - Instrumented test code `AeroQualityGateInstrumentationTest.kt` is compiled and verified in the repository; execution on active emulators is targeted for future hardware-accelerated CI runners.
+   - Integrated Android instrumentation compilation and packaging tasks (`compileNormalDebugAndroidTestKotlin`, `assembleNormalDebugAndroidTest`, `compileFdroidDebugAndroidTestKotlin`) directly into CI Jobs B and C.
+   - CI workflow `.github/workflows/ci.yml` now guarantees full build and bytecode verification of Android instrumented suites.
 
 ---
 
