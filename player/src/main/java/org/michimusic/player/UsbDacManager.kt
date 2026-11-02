@@ -1,6 +1,7 @@
 package org.michimusic.player
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -24,6 +25,13 @@ data class AudioOutputDevice(
     val isWired: Boolean = false,
     val isSpeaker: Boolean = false,
     val sampleRates: List<Int> = emptyList(),
+)
+
+data class UsbMixerState(
+    val deviceId: Int? = null,
+    val supportedRates: List<Int> = emptyList(),
+    val requestedRate: Int? = null,
+    val message: String = "",
 )
 
 data class UsbDacInfo(
@@ -141,6 +149,18 @@ class UsbDacManager(
     private val routeObserver: AudioRouteObserver = DefaultAudioRouteObserver(),
 ) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val mixerPreferences = context.getSharedPreferences("michi_usb_mixer_v1", Context.MODE_PRIVATE)
+    // Building this eagerly crashed every JVM unit test: the Android stubs return
+    // null from AudioAttributes.Builder.setUsage(). The attributes are only needed
+    // for the API 34 mixer calls, so resolve them on first use and degrade to null.
+    private val mediaAttributes: AudioAttributes? by lazy {
+        runCatching {
+            AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).build()
+        }.getOrNull()
+    }
+    private val _mixerState = MutableStateFlow(UsbMixerState())
+    val mixerState: StateFlow<UsbMixerState> = _mixerState.asStateFlow()
+    private var lastMixerDevice: AudioDeviceInfo? = null
 
     private val source: AudioDeviceSource = deviceSource ?: SystemAudioDeviceSource(audioManager)
 
@@ -184,6 +204,79 @@ class UsbDacManager(
     }
 
     fun getAudioRouteObserver(): AudioRouteObserver = routeObserver
+
+    /** Only currently observed USB routes can be configured. A request is NOT hardware proof. */
+    fun requestMixerRate(sampleRate: Int?): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 34) {
+            _mixerState.value = _mixerState.value.copy(message = "Requiere Android 14 o posterior")
+            return false
+        }
+        val observed = (routeStatus.value as? AudioRouteStatus.Confirmed)?.device
+        val device = audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            ?.firstOrNull { it.id == observed?.androidDeviceId && isUsbAudioType(it.type) }
+        if (device == null) {
+            _mixerState.value = _mixerState.value.copy(message = "Reproduce por USB y confirma la ruta primero")
+            return false
+        }
+        return runCatching {
+            val supported = audioManager?.getSupportedMixerAttributes(device).orEmpty()
+            if (sampleRate == null) {
+                val cleared = audioManager?.let { manager ->
+                    mediaAttributes?.let { attributes ->
+                        manager.clearPreferredMixerAttributes(attributes, device)
+                    }
+                } == true
+                if (cleared) mixerPreferences.edit().remove("rate_${device.productName}_${device.type}").apply()
+                _mixerState.value = _mixerState.value.copy(requestedRate = null,
+                    message = if (cleared) "Preferencia eliminada en Android" else "No se pudo borrar la preferencia")
+                cleared
+            } else {
+                val match = supported.firstOrNull { it.format.sampleRate == sampleRate }
+                if (match == null) {
+                    _mixerState.value = _mixerState.value.copy(message = "Esta frecuencia no está ofrecida por Android")
+                    false
+                } else {
+                    val accepted = audioManager?.let { manager ->
+                        mediaAttributes?.let { attributes ->
+                            manager.setPreferredMixerAttributes(attributes, device, match)
+                        }
+                    } == true
+                    if (accepted) mixerPreferences.edit().putInt("rate_${device.productName}_${device.type}", sampleRate).apply()
+                    _mixerState.value = _mixerState.value.copy(requestedRate = if (accepted) sampleRate else null,
+                        message = if (accepted) "Preferencia aceptada por Android; reinicia la salida para que se aplique. DAC físico no medido"
+                        else "Android rechazó la preferencia")
+                    accepted
+                }
+            }
+        }.getOrElse { error ->
+            _mixerState.value = _mixerState.value.copy(message = "No se pudo configurar: ${error.javaClass.simpleName}")
+            false
+        }
+    }
+
+    private fun refreshMixerCaps(desired: AudioDeviceInfo?) {
+        if (lastMixerDevice?.id != desired?.id && android.os.Build.VERSION.SDK_INT >= 34) {
+            runCatching {
+                val attributes = mediaAttributes
+                if (attributes != null) {
+                    lastMixerDevice?.let { audioManager?.clearPreferredMixerAttributes(attributes, it) }
+                }
+            }
+        }
+        lastMixerDevice = desired
+        val rates = if (android.os.Build.VERSION.SDK_INT >= 34 && desired != null && isUsbAudioType(desired.type)) {
+            runCatching { audioManager?.getSupportedMixerAttributes(desired).orEmpty().map { it.format.sampleRate }
+                .filter { it > 0 }.distinct().sorted().take(12) }.getOrDefault(emptyList())
+        } else emptyList()
+        if (_mixerState.value.deviceId != desired?.id) {
+            _mixerState.value = UsbMixerState(deviceId = desired?.id, supportedRates = rates,
+                message = if (desired == null) "Sin salida USB seleccionada" else
+                    if (android.os.Build.VERSION.SDK_INT < 34) "Android 14+ necesario para mezclar" else
+                    "Configuración opcional; no se ha solicitado un cambio")
+        } else if (_mixerState.value.supportedRates != rates) {
+            _mixerState.value = _mixerState.value.copy(supportedRates = rates)
+        }
+    }
 
     fun scanDevices() {
         val descriptors = source.getOutputDevices()
@@ -240,6 +333,7 @@ class UsbDacManager(
             nativeDevices.firstOrNull { it.id == desired.androidDeviceId }
         }
         preferredUsbDevice = nativePreferred?.takeIf { isUsbAudioType(it.type) }
+        refreshMixerCaps(preferredUsbDevice)
         _preferredDeviceFlow.value = nativePreferred
         if (!recoveryRequired &&
             (!issuedRouteRequest || !sameRequestedRoute(lastIssuedDescriptor, desiredDescriptor))) {

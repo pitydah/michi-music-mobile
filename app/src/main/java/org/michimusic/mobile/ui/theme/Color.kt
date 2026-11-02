@@ -47,6 +47,12 @@ val TertiaryCyan = Color(0xFF7DF4FF)
 val TertiaryCyanContainer = Color(0xFF00DBE9)
 val TertiaryCyanDeep = Color(0xFF00A0AA)
 val OnTertiaryFixed = Color(0xFF002022)
+
+// Michi Aurora: shared desktop/mobile progress identity (not a signal-quality claim).
+val MichiAuroraBlue = Color(0xFF4AA6FD)
+val MichiAuroraCyan = Color(0xFF23D2E7)
+val MichiAuroraLavender = Color(0xFFB7A8FF)
+val MichiAuroraThumb = Color(0xFFF1F3FF)
 val AccentBlue = Color(0xFF7DF4FF)
 
 val ErrorColor = Color(0xFFFFB4AB)

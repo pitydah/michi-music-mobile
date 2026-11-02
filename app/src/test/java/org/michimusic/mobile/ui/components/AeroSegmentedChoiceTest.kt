@@ -41,4 +41,16 @@ class AeroSegmentedChoiceTest {
         assertEquals(56, aeroSegmentMinHeightDp(1.4f))
         assertEquals(64, aeroSegmentMinHeightDp(2f))
     }
+
+    @Test fun aNarrowDialogStacksInsteadOfEllipsizingItsLabels() {
+        // 3 equal thirds of a 320 dp dialog cannot hold "Personalizado".
+        assertEquals(true, aeroSegmentStacking(availableWidthDp = 288f, fontScale = 1f))
+        assertEquals(true, aeroSegmentStacking(availableWidthDp = 300f, fontScale = 1f))
+        assertEquals(true, aeroSegmentStacking(availableWidthDp = 400f, fontScale = 1.3f))
+    }
+
+    @Test fun aWideDialogKeepsTheHorizontalRail() {
+        assertEquals(false, aeroSegmentStacking(availableWidthDp = 400f, fontScale = 1f))
+        assertEquals(false, aeroSegmentStacking(availableWidthDp = 411f, fontScale = 1.2f))
+    }
 }

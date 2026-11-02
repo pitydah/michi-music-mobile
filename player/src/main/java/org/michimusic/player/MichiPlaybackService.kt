@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.michimusic.data.cache.ReplayGainDao
+import org.michimusic.data.cache.toTrack
 
 @OptIn(UnstableApi::class)
 class MichiPlaybackService : MediaLibraryService() {
@@ -47,7 +48,15 @@ class MichiPlaybackService : MediaLibraryService() {
             val preAmp = ReplayGainConfig.getPreAmp()
             replayGainProcessor.configure(mode, preAmp)
 
+            // Explicit source peak-independent ceiling: never boost pre-RTP/PEQ above unity.
+            replayGainProcessor.setUpstreamUnityProtection(true)
             val replayGainDao = PlayerDependencies.replayGainDao
+            val headphoneStore = PlayerDependencies.headphoneProfileStore ?: HeadphoneProfileStore(this).also {
+                PlayerDependencies.headphoneProfileStore = it
+            }
+            val headphonePeq = PlayerDependencies.headphonePeqProcessor ?: HeadphonePeqAudioProcessor().also {
+                PlayerDependencies.headphonePeqProcessor = it
+            }
             val audioEffects = PlayerDependencies.audioEffects
             val usbDacManager = PlayerDependencies.usbDacManager
             val rtpTap = RtpPcmAudioTap()
@@ -65,23 +74,51 @@ class MichiPlaybackService : MediaLibraryService() {
                 audioEffects = audioEffects,
                 replayGainProcessor = replayGainProcessor,
                 usbDacManager = usbDacManager,
+                headphonePeq = headphonePeq,
             ).also { PlayerDependencies.signalTruthTracker = it }
 
             truthTracker.clearPlayback(resetInstrumentation = true)
             modeManager.applyMode(modeManager.currentMode.value)
+            // The route guard executes at every PCM buffer and revokes processing even if a
+            // StateFlow collector has not yet processed a hotplug or controller handoff.
+            val routeGate = HeadphonePeqAudioProcessor.RouteGate {
+                val authority = PlayerDependencies.outputAuthority.value
+                val state = headphoneStore.state.value
+                authority.isLocal && authority.endpointId == "local_phone" &&
+                    !rtpTap.isEnabled && headphonePeqEligible(
+                        state, usbDacManager?.routeStatus?.value, modeManager.currentMode.value,
+                    )
+            }
+            fun reconcileHeadphones() {
+                val config = headphoneStore.state.value
+                val allowed = routeGate.isAllowed()
+                // Never stack the Android session EQ/BassBoost with the personal PCM PEQ.
+                // The user preference survives; only the effective Android session is bypassed.
+                audioEffects?.isBypassedByHeadphoneProfile = allowed
+                headphonePeq.setProfile(if (allowed) config.bands else emptyList(), allowed, routeGate)
+                truthTracker.recompute()
+            }
+            reconcileHeadphones()
+            serviceScope.launch { headphoneStore.state.collect { reconcileHeadphones() } }
+            serviceScope.launch { PlayerDependencies.outputAuthority.collect { reconcileHeadphones() } }
 
             // These collectors belong to the service lifetime, not a UI screen.
             serviceScope.launch {
                 usbDacManager?.routeStatus?.collect {
                     modeManager.applyMode(modeManager.currentMode.value)
-                    truthTracker.recompute()
+                    reconcileHeadphones()
                 }
             }
             serviceScope.launch {
-                modeManager.currentMode.collect { truthTracker.recompute() }
+                modeManager.currentMode.collect { reconcileHeadphones() }
             }
             serviceScope.launch {
-                audioEffects?.effectsState?.collect { truthTracker.recompute() }
+                audioEffects?.effectsState?.collect { state ->
+                    // The DSP Studio preamp must affect the actual PCM path (also RTP),
+                    // not merely its saved slider value. Transparent/AUTO bypass wins.
+                    replayGainProcessor.setDspPreampDb(if (state.isEnabled) state.preampGainDb else 0f)
+                    truthTracker.recompute()
+                }
             }
 
             serviceScope.launch {
@@ -92,7 +129,8 @@ class MichiPlaybackService : MediaLibraryService() {
 
             val controller = PlayerController(
                 this,
-                listOf(replayGainProcessor, rtpTap),
+                // ReplayGain -> RTP capture -> headphone PEQ local only -> AudioTrack.
+                listOf(replayGainProcessor, rtpTap, headphonePeq),
                 replayGainDao,
                 audioEffects,
                 usbDacManager,
@@ -101,6 +139,12 @@ class MichiPlaybackService : MediaLibraryService() {
             val exoPlayer = controller.getExoPlayer()
             playerController = controller
             player = exoPlayer
+            serviceScope.launch {
+                while (serviceScopeJob.isActive) {
+                    delay(1200L)
+                    if (exoPlayer.isPlaying) truthTracker.recompute()
+                }
+            }
 
             val libraryProvider = LibraryProvider(this, controller.getRepository())
             val callback = MichiMediaLibrarySessionCallback(libraryProvider, stateStore, saveScope)
@@ -133,13 +177,16 @@ class MichiPlaybackService : MediaLibraryService() {
                     truthTracker.recompute()
                     if (songId != null) {
                         saveScope.launch {
-                            val track = controller.getRepository().loadTracks()
-                                .firstOrNull { it.id == songId }
+                            val track = PlayerDependencies.trackDao?.getTrackById(songId)?.toTrack()
+                                ?: controller.getRepository().loadTracks().firstOrNull { it.id == songId }
+                            // Read the ORIGINAL file on IO, never derive source quality from PCM.
+                            val fileFacts = track?.let { CurrentSourceMetadata.read(this@MichiPlaybackService, it) }
                             withContext(Dispatchers.Main) {
                                 // An older asynchronous lookup must never label the next song.
                                 if (transitionEpoch.isCurrent(generation) &&
                                     exoPlayer.currentMediaItem?.mediaId == mediaItem?.mediaId) {
                                     replayGainProcessor.onSongChanged(track)
+                                    if (track != null) truthTracker.onTrackFileMetadata(track, fileFacts)
                                     truthTracker.recompute()
                                 }
                             }
@@ -237,6 +284,7 @@ class MichiPlaybackService : MediaLibraryService() {
         playerController?.release()
         playerController = null
         player = null
+        PlayerDependencies.audioEffects?.isBypassedByHeadphoneProfile = false
         PlayerDependencies.stopPcmStreaming()
         PlayerDependencies.rtpPcmAudioTap = null
         PlayerDependencies.signalTruthTracker?.clearPlayback(resetInstrumentation = true)

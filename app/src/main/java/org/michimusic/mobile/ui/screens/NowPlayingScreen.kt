@@ -67,6 +67,8 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GradientProgressBar
+import org.michimusic.mobile.ui.components.ProgressAppearance
+import org.michimusic.mobile.ui.components.MichiControlBadge
 import org.michimusic.mobile.ui.components.shouldScrollNowPlaying
 import org.michimusic.mobile.ui.components.scrollArtworkHeightDp
 import org.michimusic.mobile.ui.components.decodedPcmLabel
@@ -104,6 +106,7 @@ fun NowPlayingScreen(
 ) {
     val sessionManager: PlaybackSessionManager = koinInject()
     val sessionState by sessionManager.sessionState.collectAsState()
+    val controlPreviews by sessionManager.controlPreviews.collectAsState()
     val audioController: AudioController = koinInject()
     val favoritesRepo: FavoritesRepository = koinInject()
     val coroutineScope = rememberCoroutineScope()
@@ -133,6 +136,8 @@ fun NowPlayingScreen(
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showAudioRouteDialog by remember { mutableStateOf(false) }
     var showSignalTruthDialog by remember { mutableStateOf(false) }
+    var showMichiControlMenu by remember { mutableStateOf(false) }
+    var michiControlError by remember { mutableStateOf<String?>(null) }
     var showTrackActionMenu by remember { mutableStateOf(false) }
     var showAddToPlaylistDialog by remember { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
@@ -174,8 +179,10 @@ fun NowPlayingScreen(
                 decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
                 decodedPcmLabel(decoded.sampleRate, decoded.bitDepth)
             } else null
-            val qualityBadge = org.michimusic.mobile.ui.components.aeroNowPlayingQualityBadge(pcmLabel != null)
-
+            val fileSummary = org.michimusic.mobile.playback.SignalSourcePresentation.describe(
+                if (sessionState.isRemoteActive && !streamReceiver) null else signalObservation.sourceFormat,
+                currentTrack,
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -191,30 +198,35 @@ fun NowPlayingScreen(
                     testTag = "now_playing_close_button",
                 )
 
-                Surface(
-                    shape = MichiShapes.pill,
-                    color = Color(0x33FFFFFF),
-                    border = androidx.compose.foundation.BorderStroke(0.75.dp, Color(0x4DFFFFFF)),
-                    modifier = Modifier.testTag("now_playing_quality_badge"),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(TertiaryCyan),
-                        )
-                        Text(
-                            text = qualityBadge,
-                            style = MichiTypography.microLabel,
-                            color = PureWhite,
-                        )
-                    }
-                }
+                MichiControlBadge(
+                    activeEndpoint = sessionState.activeEndpoint,
+                    endpoints = sessionState.availableEndpoints,
+                    currentTrackTitle = currentTrack?.title,
+                    isPlaying = isPlaying,
+                    expanded = showMichiControlMenu,
+                    errorMessage = michiControlError,
+                    previews = controlPreviews,
+                    onToggle = {
+                        michiControlError = null
+                        showMichiControlMenu = !showMichiControlMenu
+                        if (showMichiControlMenu) sessionManager.refreshControlPreviews()
+                    },
+                    onDismiss = { showMichiControlMenu = false },
+                    onSelect = { endpoint ->
+                        michiControlError = null
+                        if (endpoint.isLocal) {
+                            // Control selection, NOT an implicit transfer of the remote queue.
+                            sessionManager.attachLocalControl()
+                            showMichiControlMenu = false
+                        } else {
+                            // attachRemote does not send a handoff/play command.
+                            sessionManager.attachRemote(endpoint) { success, message ->
+                                if (success) showMichiControlMenu = false
+                                else michiControlError = message
+                            }
+                        }
+                    },
+                )
             }
 
             BoxWithConstraints(
@@ -298,6 +310,7 @@ fun NowPlayingScreen(
                     trackHeight = 4.dp,
                     showThumb = true,
                     testTag = "now_playing_seeker",
+                    appearance = ProgressAppearance.MICHI_AURORA,
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -439,10 +452,10 @@ fun NowPlayingScreen(
                 }
 
                 AeroSignalRouteStrip(
-                    signalLabel = pcmLabel ?: "Signal Truth",
+                    signalLabel = fileSummary ?: "Formato original no verificado",
                     signalDescription = if (pcmLabel != null)
-                        "Señal PCM decodificada; la salida física no está certificada."
-                    else "Consulta la señal observada. La salida física no está verificada.",
+                        "Decodificación interna: PCM $pcmLabel. No determina la calidad del archivo ni del DAC."
+                    else "PCM interno no observado; la salida física no está verificada.",
                     destination = presentation.endpointDescription,
                     onSignalClick = { showSignalTruthDialog = true },
                     onDestinationClick = { showAudioRouteDialog = true },
@@ -656,15 +669,24 @@ private fun SignalTruthDialog(
                         tagColor = tagColor,
                         value = item.value,
                     )
+                    // Provenance notes are part of Signal Truth, not hidden model data.
+                    item.confidenceNote?.takeIf { it.isNotBlank() }?.let { note ->
+                        Text(text = note, color = OnSurfaceVariant,
+                            style = MichiTypography.microLabel)
+                    }
                 }
 
                 Spacer(Modifier.height(4.dp))
 
-                Text(
-                    text = "Los metadatos no certifican la salida física.",
-                    color = OnSurfaceVariant,
-                    style = MichiTypography.microLabel,
-                )
+                // The physical-device card already carries this note as its confidenceNote.
+                // Printing it a second time here duplicated the same sentence in the sheet.
+                if (provenanceItems.none { it.layer == org.michimusic.core.models.SignalLayer.PHYSICAL_DEVICE }) {
+                    Text(
+                        text = "Los metadatos no certifican la salida física.",
+                        color = OnSurfaceVariant,
+                        style = MichiTypography.microLabel,
+                    )
+                }
 
                 if (isRemote) {
                     val isStream = !activeEndpoint.isLocal &&

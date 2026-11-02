@@ -47,3 +47,21 @@ fun audioRouteEvidence(status: AudioRouteStatus): AudioRouteEvidence = when (sta
         "Puedes consultar los dispositivos disponibles, pero no deben confundirse con la ruta de audio activa.", false,
     )
 }
+
+/** Observation identity is authoritative; selection and enumeration are not. */
+fun isObservedOutputInUse(status: AudioRouteStatus, deviceId: Int): Boolean = when (status) {
+    is AudioRouteStatus.Confirmed -> status.device.androidDeviceId == deviceId
+    is AudioRouteStatus.RoutedElsewhere -> status.actual.androidDeviceId == deviceId
+    else -> false
+}
+
+/** Never apply the global route's CONFIRMED label to another connected dongle. */
+fun usbDacRouteLabel(status: AudioRouteStatus, deviceId: Int): String = when {
+    isObservedOutputInUse(status, deviceId) -> "EN USO"
+    status is AudioRouteStatus.Requested && status.device.androidDeviceId == deviceId -> "SOLICITADO"
+    status is AudioRouteStatus.Detected && status.device.androidDeviceId == deviceId -> "DETECTADO"
+    status is AudioRouteStatus.RoutedElsewhere && status.requested.androidDeviceId == deviceId -> "RUTA DIFERENTE"
+    status is AudioRouteStatus.LastObserved && status.device.androidDeviceId == deviceId -> "ÚLTIMA OBSERVACIÓN"
+    status is AudioRouteStatus.Failed && status.deviceId == deviceId -> "ERROR DE RUTA"
+    else -> "DISPONIBLE"
+}

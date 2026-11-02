@@ -41,7 +41,9 @@ class SearchLosslessFilterTest {
     @Test
     fun losslessFilter_includesFlacAndWav_excludesLossy48kMp3AndAac() = runTest(testDispatcher) {
         val flacTrack = Track(id = "flac_1", title = "Beethoven Symphony", artist = "Orchestra", format = "flac", sampleRate = 44100)
-        val wavTrack = Track(id = "wav_1", title = "Studio Master", artist = "Band", format = "wav", sampleRate = 96000)
+        // R15: a bare "wav" is a container, not proof of linear PCM (it can carry ADPCM).
+        // Only a format that declares the codec counts as lossless, so the fixture states it.
+        val wavTrack = Track(id = "wav_1", title = "Studio Master", artist = "Band", format = "wav; codec=pcm", sampleRate = 96000)
         val mp3Track48k = Track(id = "mp3_1", title = "Podcast Episode", artist = "Host", format = "mp3", sampleRate = 48000)
         val aacTrack48k = Track(id = "aac_1", title = "Radio Stream", artist = "DJ", format = "aac", sampleRate = 48000)
 

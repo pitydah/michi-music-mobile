@@ -30,12 +30,18 @@ object SignalTruthResolver {
             (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
         val endpointId = activeEndpoint.id
         val observationFreshness = observation.observedAtMs
+        val sourceFreshness = observation.sourceObservedAtMs
+        // A layer that has no timestamp of its own still inherits the freshness of the
+        // observation that proved it exists: zero here would tell the UI the evidence is
+        // stale, which is exactly the invented state this resolver must never report.
+        val decodedFreshness = observation.decodedObservedAtMs.takeIf { it > 0 } ?: observation.observedAtMs
+        val outputFreshness = observation.outputObservedAtMs.takeIf { it > 0 } ?: observation.observedAtMs
 
         // 1. FUENTE
         // K47-02: Remote playback MUST NEVER inherit observation.sourceFormat from local tracker.
         // It must solely reflect currentTrack declared metadata or UNKNOWN ("No declarado").
         val sourceItem = if (isRemote && !isStream) {
-            val formatStr = formatTrackSourceDescriptor(currentTrack)
+            val formatStr = SignalSourcePresentation.describe(null, currentTrack)
             if (formatStr != null) {
                 SignalProvenanceItem(
                     layer = SignalLayer.SOURCE,
@@ -58,7 +64,7 @@ object SignalTruthResolver {
                 )
             }
         } else {
-            val formatStr = formatSourceDescriptor(observation.sourceFormat, currentTrack)
+            val formatStr = SignalSourcePresentation.describe(observation.sourceFormat, currentTrack)
             if (formatStr != null) {
                 SignalProvenanceItem(
                     layer = SignalLayer.SOURCE,
@@ -66,7 +72,7 @@ object SignalTruthResolver {
                     value = formatStr,
                     evidenceType = SignalEvidenceType.DECLARED,
                     originEndpointId = if (isStream) "local_phone" else endpointId,
-                    freshnessMs = observationFreshness,
+                    freshnessMs = sourceFreshness,
                 )
             } else {
                 SignalProvenanceItem(
@@ -107,7 +113,7 @@ object SignalTruthResolver {
                     value = "PCM $bitStr/$rateKhz",
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
-                    freshnessMs = observationFreshness,
+                    freshnessMs = decodedFreshness,
                     confidenceNote = if (isStream) "Decodificado en teléfono para transmisión RTP" else null,
                 )
             }
@@ -139,14 +145,21 @@ object SignalTruthResolver {
             }
             else -> {
                 val dsp = observation.dspStatus
-                val hasEq = dsp.isEqActive
+                // Android AudioEffect is bound AFTER AudioTrack, not to the RTP tap.
+                // Only PCM processors ahead of the split may be attributed to Stream.
+                val hasEq = !isStream && dsp.isEqActive
                 val hasRg = dsp.isReplayGainActive
-                val value = when {
-                    hasEq && hasRg -> "EQ activo · ReplayGain (${String.format(java.util.Locale.US, "%.1f", dsp.replayGainAppliedDb)} dB)"
-                    hasEq -> "EQ activo"
-                    hasRg -> "ReplayGain activo (${String.format(java.util.Locale.US, "%.1f", dsp.replayGainAppliedDb)} dB)"
-                    else -> "Sin EQ activo"
-                }
+                val preampDb = dsp.preampAppliedDb.takeIf { it.isFinite() } ?: 0f
+                val hasPreamp = kotlin.math.abs(preampDb) > 0.001f
+                val processing = mutableListOf<String>()
+                if (hasEq) processing += "EQ activo"
+                if (hasRg) processing += "ReplayGain activo (${String.format(java.util.Locale.US, "%.1f", dsp.replayGainAppliedDb)} dB)"
+                if (hasPreamp) processing += "Preamp DSP (${String.format(java.util.Locale.US, "%+.1f", preampDb)} dB)"
+                if (dsp.upstreamSafetyReductionDb < -0.01f)
+                    processing += "Protección de ganancia pre-RTP (${String.format(java.util.Locale.US, "%.1f", dsp.upstreamSafetyReductionDb)} dB)"
+                if (!isStream && dsp.headphonePeqActive)
+                    processing += "PEQ auriculares (headroom −${String.format(java.util.Locale.US, "%.1f", dsp.headphoneHeadroomDb)} dB)"
+                val value = processing.joinToString(" · ").ifEmpty { "Sin EQ activo" }
                 SignalProvenanceItem(
                     layer = SignalLayer.PROCESSING,
                     label = "Procesamiento",
@@ -154,6 +167,15 @@ object SignalTruthResolver {
                     evidenceType = SignalEvidenceType.CONFIGURED,
                     originEndpointId = "local_phone",
                     freshnessMs = observationFreshness,
+                    confidenceNote = when {
+                        dsp.upstreamPcmClipSamples > 0L ->
+                            "Recortes PCM antes de la salida PEQ: ${dsp.upstreamPcmClipSamples} muestras; bajar headroom después no los recupera"
+                        dsp.headphoneClipSamples > 0L && !isStream ->
+                            "Recortes en PEQ local: ${dsp.headphoneClipSamples} muestras; revisa ganancias y perfil"
+                        isStream && dsp.isEqActive ->
+                            "El EQ de sesión Android no forma parte del PCM enviado por RTP"
+                        else -> null
+                    },
                 )
             }
         }
@@ -178,7 +200,7 @@ object SignalTruthResolver {
                     value = "RTP Stream (altavoz local silenciado)",
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
-                    freshnessMs = observationFreshness,
+                    freshnessMs = decodedFreshness,
                 )
             }
             observation.outputConfig != null -> {
@@ -188,7 +210,7 @@ object SignalTruthResolver {
                     value = "AudioTrack",
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
-                    freshnessMs = observationFreshness,
+                    freshnessMs = outputFreshness,
                 )
             }
             else -> {
@@ -217,34 +239,4 @@ object SignalTruthResolver {
         return listOf(sourceItem, decodingItem, processingItem, outputItem, physicalItem)
     }
 
-    private fun formatTrackSourceDescriptor(track: Track?): String? {
-        if (track != null && track.format.isNotBlank()) {
-            val codec = track.format.uppercase()
-            val rateStr = if (track.sampleRate > 0) {
-                val khz = if (track.sampleRate % 1000 == 0) "${track.sampleRate / 1000}"
-                else String.format(java.util.Locale.US, "%.1f", track.sampleRate / 1000f)
-                " / $khz kHz"
-            } else ""
-            val bitStr = if (track.bitrate > 0) " · ${track.bitrate} kbps" else ""
-            return "$codec$bitStr$rateStr"
-        }
-        return null
-    }
-
-    private fun formatSourceDescriptor(
-        signalFormat: org.michimusic.core.models.SignalFormat?,
-        track: Track?,
-    ): String? {
-        if (signalFormat != null) {
-            val codec = signalFormat.codec.uppercase()
-            val bitStr = if (signalFormat.bitDepth > 0) " · ${signalFormat.bitDepth} bit" else ""
-            val rateStr = if (signalFormat.sampleRate > 0) {
-                val khz = if (signalFormat.sampleRate % 1000 == 0) "${signalFormat.sampleRate / 1000}"
-                else String.format(java.util.Locale.US, "%.1f", signalFormat.sampleRate / 1000f)
-                " / $khz kHz"
-            } else ""
-            return "$codec$bitStr$rateStr"
-        }
-        return formatTrackSourceDescriptor(track)
-    }
 }

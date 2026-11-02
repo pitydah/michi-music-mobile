@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -26,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +50,15 @@ fun aeroSegmentMinHeightDp(fontScale: Float): Int = when {
     else -> 48
 }
 
+/**
+ * Three options assigned equal thirds of a narrow dialog cannot hold a word such
+ * as "Personalizado", so the group stacks instead of ellipsizing its labels.
+ * Same thresholds as the editorial cards: below 330 dp or from 1.3 font scale the
+ * horizontal rail stops fitting.
+ */
+fun aeroSegmentStacking(availableWidthDp: Float, fontScale: Float): Boolean =
+    availableWidthDp < 330f || fontScale >= 1.3f
+
 /** A bounded material rail; only the selected segment receives the luminous inset. */
 @Composable
 fun AeroSegmentRail(
@@ -63,6 +76,26 @@ fun AeroSegmentRail(
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
+}
+
+/** Vertical counterpart of the rail for narrow widths or large font scales. */
+@Composable
+fun AeroSegmentStack(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val shape = RoundedCornerShape(17.dp)
+    Column(
+        modifier = modifier.fillMaxWidth()
+            .clip(shape)
+            .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
+            .border(0.8.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.13f), shape)
+            .selectableGroup()
+            .padding(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         content = content,
     )
 }
@@ -108,15 +141,27 @@ fun AeroSegmentedChoice(
             .padding(horizontal = if (treatment == AeroSegmentTreatment.Filter) 15.dp else 8.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
+        // A single-word label such as "Personalizado" cannot wrap, so a fixed 13.sp
+        // broke it mid-word on a 320 dp screen. One line without soft wrap lets
+        // auto-size shrink it by at most 3.sp; multi-word labels keep two lines so
+        // they still wrap naturally before any shrinking happens.
+        val singleWord = label.none { it.isWhitespace() }
+        val maxLines = if (singleWord) 1 else 2
+        val softWrap = !singleWord
+        val autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 13.sp, stepSize = 0.5.sp)
+        BasicText(
             text = label,
-            color = ink,
-            fontFamily = InterFontFamily,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            fontSize = 13.sp,
-            lineHeight = 19.sp,
-            maxLines = 2,
+            maxLines = maxLines,
+            softWrap = softWrap,
             overflow = TextOverflow.Ellipsis,
+            autoSize = autoSize,
+            style = TextStyle(
+                color = ink,
+                fontFamily = InterFontFamily,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                fontSize = 13.sp,
+                lineHeight = 19.sp,
+            ),
         )
     }
 }

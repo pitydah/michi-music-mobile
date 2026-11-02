@@ -22,6 +22,14 @@ import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.dto.PlaybackStateDto
 import org.michimusic.player.AudioController
 
+/** Endpoint-scoped status, never inferred from the active phone queue. */
+data class RemoteEndpointPreview(
+    val endpointId: String,
+    val title: String?,
+    val state: String,
+    val fetchedAtMs: Long,
+)
+
 class PlaybackSessionManager(
     private val audioController: AudioController? = null,
     private val connectionManager: ConnectionManager,
@@ -31,6 +39,38 @@ class PlaybackSessionManager(
 ) {
     private val _sessionState = MutableStateFlow(PlaybackSessionState())
     val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
+
+    private val _controlPreviews = MutableStateFlow<Map<String, RemoteEndpointPreview>>(emptyMap())
+    val controlPreviews: StateFlow<Map<String, RemoteEndpointPreview>> = _controlPreviews.asStateFlow()
+    private val controlPreviewEpoch = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Explicit refresh on opening Michi Control. Bounded, not repeated by recomposition. */
+    fun refreshControlPreviews() {
+        val epoch = controlPreviewEpoch.incrementAndGet()
+        _controlPreviews.value = emptyMap()
+        _sessionState.value.availableEndpoints.asSequence()
+            .filter { !it.isLocal && it.isConnected &&
+                it.type != EndpointType.STREAM_RECEIVER &&
+                "AUDIO_OUTPUT" !in it.capabilities && "REMOTE_CONTROL" in it.capabilities }
+            .distinctBy { it.id }.take(8).forEach { endpoint ->
+                val client = connectionManager.getClient(endpoint.id) ?: return@forEach
+                scope.launch(Dispatchers.IO) {
+                    val state = runCatching { client.getPlaybackState() }.getOrNull()?.getOrNull()
+                    withContext(Dispatchers.Main) {
+                        if (epoch != controlPreviewEpoch.get()) return@withContext
+                        if (_sessionState.value.availableEndpoints.none {
+                            it.id == endpoint.id && it.isConnected }) return@withContext
+                        val preview = RemoteEndpointPreview(
+                            endpointId = endpoint.id,
+                            title = state?.effectiveTitle?.takeIf { it.isNotBlank() },
+                            state = state?.effectiveState ?: "unavailable",
+                            fetchedAtMs = if (state != null) System.currentTimeMillis() else 0L,
+                        )
+                        _controlPreviews.value = _controlPreviews.value + (endpoint.id to preview)
+                    }
+                }
+            }
+    }
 
     private val _pendingQueueConfirmation = MutableStateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?>(null)
     val pendingQueueConfirmation: StateFlow<RemoteQueuePreflightDecision.ConfirmationRequired?> = _pendingQueueConfirmation.asStateFlow()
@@ -72,6 +112,13 @@ class PlaybackSessionManager(
     private var formatObserverJob: Job? = null
 
     init {
+        scope.launch {
+            sessionState.collect { state ->
+                org.michimusic.player.PlayerDependencies.publishOutputAuthority(
+                    state.activeEndpoint.id, state.activeEndpoint.isLocal && !state.isRemoteActive
+                )
+            }
+        }
         rtpAudioSender.onError = { ex ->
             val (reason, intent) = when {
                 ex is IllegalStateException && ex.message?.contains("Sustained RTP buffer overflow", ignoreCase = true) == true ->
@@ -122,7 +169,12 @@ class PlaybackSessionManager(
                 if (!activeEndpoint.isLocal && states[activeEndpoint.id] != SyncConnectionState.CONNECTED) {
                     stopRemoteSync()
                     if (isRemoteSelected) {
-                        selectLocalEndpoint()
+                        if (activeEndpoint.type == EndpointType.STREAM_RECEIVER ||
+                            "AUDIO_OUTPUT" in activeEndpoint.capabilities) {
+                            selectLocalEndpoint() // terminates receiver RTP safely
+                        } else {
+                            attachLocalControl() // controller-only fallback: do not pause local audio
+                        }
                     }
                 } else if (!activeEndpoint.isLocal) {
                     val peer = linkDiscovery.peers.value.values.find { it.deviceId == activeEndpoint.id }
@@ -220,9 +272,17 @@ class PlaybackSessionManager(
         )
     }
 
-    private fun startRemoteSync(peer: DiscoveredPeer, deviceId: String) {
+    private fun startRemoteSync(peer: DiscoveredPeer?, deviceId: String) {
         stopRemoteSync()
         val client = connectionManager.getClient(deviceId) ?: return
+        if (peer == null) {
+            // A paired host without live mDNS still supports an initial read.
+            // Do not install an endless polling job tied to a nonexistent peer.
+            scope.launch(Dispatchers.IO) {
+                runCatching { refreshRemotePlayback(client, null, deviceId) }
+            }
+            return
+        }
 
         // 1. Events-first SSE sync
         val token = client.deviceToken.ifEmpty { client.sessionToken }
@@ -256,7 +316,7 @@ class PlaybackSessionManager(
         }
     }
 
-    private suspend fun refreshRemotePlayback(client: LinkClient, peer: DiscoveredPeer, deviceId: String) {
+    private suspend fun refreshRemotePlayback(client: LinkClient, peer: DiscoveredPeer?, deviceId: String) {
         val opEpoch = _sessionEpoch.get()
         client.getPlaybackState().onSuccess { stateDto ->
             if (isRemoteSelected && opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
@@ -277,7 +337,7 @@ class PlaybackSessionManager(
         }
     }
 
-    private suspend fun refreshRemoteQueue(client: LinkClient, peer: DiscoveredPeer, deviceId: String) {
+    private suspend fun refreshRemoteQueue(client: LinkClient, peer: DiscoveredPeer?, deviceId: String) {
         val opEpoch = _sessionEpoch.get()
         client.getQueue().onSuccess { queueDto ->
             if (isRemoteSelected && opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
@@ -304,8 +364,11 @@ class PlaybackSessionManager(
         receiverHeartbeatJob = null
     }
 
-    private fun applyRemoteState(peer: DiscoveredPeer, dto: PlaybackStateDto, queueDto: org.michimusic.link.dto.QueueDto?, deviceId: String) {
-        val endpoint = mapPeerToEndpoint(peer, isConnected = true).copy(id = deviceId)
+    private fun applyRemoteState(peer: DiscoveredPeer?, dto: PlaybackStateDto, queueDto: org.michimusic.link.dto.QueueDto?, deviceId: String) {
+        // Never apply an old host's response after a controller switch.
+        if (!isRemoteSelected || _sessionState.value.activeEndpoint.id != deviceId) return
+        val endpoint = peer?.let { mapPeerToEndpoint(it, isConnected = true).copy(id = deviceId) }
+            ?: _sessionState.value.activeEndpoint
         val remoteTrack = if (dto.effectiveTitle.isNotEmpty()) {
             Track(
                 id = dto.trackId.ifEmpty { "remote_${dto.effectiveTitle}" },
@@ -334,12 +397,17 @@ class PlaybackSessionManager(
         if (isRemoteSelected) {
             _sessionState.value = _sessionState.value.copy(
                 activeEndpoint = endpoint,
+                // attachRemote already cleared the previous host's track, and the guard
+                // above pins this read to the host we are controlling. A status payload
+                // without a title therefore cannot borrow another host's song, but it
+                // must not erase the track this same host just confirmed either.
                 currentTrack = remoteTrack ?: _sessionState.value.currentTrack,
                 isPlaying = dto.effectiveState == "playing",
                 position = dto.effectivePosition,
                 duration = dto.effectiveDuration,
                 remoteVolume = dto.effectiveVolume,
-                queue = if (qTracks.isNotEmpty()) qTracks else _sessionState.value.queue,
+                // An explicitly empty remote queue must clear the previous host's queue.
+                queue = if (queueDto != null) qTracks else _sessionState.value.queue,
                 queueIndex = queueDto?.currentIndex ?: _sessionState.value.queueIndex,
                 repeatMode = when (dto.repeat) { "one" -> 1; "all" -> 2; else -> 0 },
                 shuffleMode = if (dto.shuffle) 1 else 0,
@@ -428,10 +496,63 @@ class PlaybackSessionManager(
         }
     }
 
+    /** Switch UI authority back without transferring a queue or pausing the local sink. */
+    fun attachLocalControl() {
+        val old = _sessionState.value.activeEndpoint
+        if (old.isLocal) return
+        if (old.type == EndpointType.STREAM_RECEIVER || "AUDIO_OUTPUT" in old.capabilities) {
+            selectLocalEndpoint() // receiver RTP requires the full safe transition
+            return
+        }
+        nextSessionEpoch()
+        _activeQueuePlaybackOp.set(null)
+        _pendingQueueConfirmation.value = null
+        stopRemoteSync()
+        isRemoteSelected = false
+        val local = audioController?.state?.value
+        _sessionState.value = _sessionState.value.copy(
+            activeEndpoint = PlaybackEndpoint.LocalPhone,
+            currentTrack = local?.currentTrack,
+            isPlaying = local?.isPlaying ?: false,
+            position = local?.position ?: 0L,
+            duration = local?.duration ?: 0L,
+            queue = local?.queue ?: emptyList(),
+            queueIndex = local?.queueIndex ?: -1,
+            repeatMode = local?.repeatMode ?: 0,
+            shuffleMode = if (local?.shuffleMode == true) 1 else 0,
+            isRemoteActive = false,
+            statusMessage = null,
+            lastSessionError = null,
+        )
+    }
+
     fun attachRemote(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
         if (target.isLocal) {
-            selectLocalEndpoint(intent = PlaybackTransitionIntent.USER_SWITCH_OUTPUT)
-            onResult(true, "Conectado al reproductor local")
+            val current = _sessionState.value.activeEndpoint
+            if (!current.isLocal && (current.type == EndpointType.STREAM_RECEIVER ||
+                "AUDIO_OUTPUT" in current.capabilities)) {
+                onResult(false, "Detén primero la sesión Michi Stream desde Salida de audio")
+                return
+            }
+            attachLocalControl()
+            onResult(true, "Controlando este teléfono")
+            return
+        }
+        // Preserve existing callers that already resolved an authenticated LinkClient:
+        // the UI filters capability/connection; the service forbids receiver-only attaches.
+        if (target.type == EndpointType.STREAM_RECEIVER ||
+            "AUDIO_OUTPUT" in target.capabilities) {
+            onResult(false, "Este dispositivo no admite control remoto de reproducción")
+            return
+        }
+        if (_sessionState.value.activeEndpoint.id == target.id && isRemoteSelected) {
+            onResult(true, "Ya estás controlando ${target.name}")
+            return
+        }
+        val currentEndpoint = _sessionState.value.activeEndpoint
+        if (isRemoteSelected && (currentEndpoint.type == EndpointType.STREAM_RECEIVER ||
+            "AUDIO_OUTPUT" in currentEndpoint.capabilities)) {
+            onResult(false, "Primero detén la salida Michi Stream desde Salida de audio")
             return
         }
 
@@ -444,6 +565,8 @@ class PlaybackSessionManager(
         nextSessionEpoch()
         _activeQueuePlaybackOp.set(null)
         _pendingQueueConfirmation.value = null
+        org.michimusic.player.PlayerDependencies.publishOutputAuthority(target.id, false)
+        stopRemoteSync() // Never leave the previous host's SSE/poll active.
         isRemoteSelected = true
         _sessionState.value = _sessionState.value.copy(
             activeEndpoint = target,
@@ -455,6 +578,8 @@ class PlaybackSessionManager(
             position = 0L,
             duration = 0L,
         )
+        // Connected paired hosts work even when multicast discovery is currently silent.
+        startRemoteSync(linkDiscovery.peers.value.values.firstOrNull { it.deviceId == target.id }, target.id)
         onResult(true, "Controlando ${target.name}")
     }
 

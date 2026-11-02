@@ -35,6 +35,8 @@ class MichiApp : Application() {
             PlayerDependencies.audioEffects = koin.getOrNull()
             PlayerDependencies.usbDacManager = koin.getOrNull()
             PlayerDependencies.replayGainProcessor = koin.getOrNull()
+            PlayerDependencies.headphoneProfileStore = koin.getOrNull()
+            PlayerDependencies.headphonePeqProcessor = koin.getOrNull()
             PlayerDependencies.audioModeManager = koin.getOrNull()
             PlayerDependencies.signalTruthTracker = koin.getOrNull()
         } catch (e: Exception) {

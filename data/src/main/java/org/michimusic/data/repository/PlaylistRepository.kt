@@ -4,9 +4,9 @@ import java.util.UUID
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.CachedPlaylist
-import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
+import org.michimusic.data.cache.toTrack
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -182,19 +182,5 @@ open class PlaylistRepository(
         raw.split(",").map { it.trim() }.filter { it.isNotBlank() }
 }
 
-private fun CachedTrack.toTrack(): Track = Track(
-    id = id,
-    title = title,
-    artist = artist,
-    album = album,
-    duration = duration,
-    size = size,
-    format = format,
-    bitrate = bitrate,
-    sampleRate = sampleRate,
-    channels = channels,
-    coverId = coverId,
-    trackNumber = trackNumber,
-    year = year,
-    filepath = filepath,
-)
+// The CachedTrack projection now lives in org.michimusic.data.cache so the player
+// module can read the same fields without duplicating the mapping.

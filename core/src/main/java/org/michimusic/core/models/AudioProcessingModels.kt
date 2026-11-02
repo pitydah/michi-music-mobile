@@ -42,6 +42,10 @@ data class SignalFormat(
     val bitDepth: Int,
     val sampleRate: Int,
     val channels: Int,
+    /** Compressed/source stream bitrate in bits/second, NEVER decoded PCM throughput. */
+    val bitrateBps: Int = 0,
+    /** FILE_AVG / AVERAGE / PEAK / UNKNOWN: avoid reporting peak as average. */
+    val bitrateKind: String = "UNKNOWN",
 )
 
 /**
@@ -54,6 +58,16 @@ data class DspPipelineStatus(
     val replayGainAppliedDb: Float = 0f,
     val bassBoostActive: Boolean = false,
     val virtualizerActive: Boolean = false,
+    /** Effective gain in Michi's PCM path; separate from ReplayGain. */
+    val preampAppliedDb: Float = 0f,
+    val headphonePeqActive: Boolean = false,
+    val headphoneHeadroomDb: Float = 0f,
+    /** Counters belong to local PCM processor, not physical DAC telemetry. */
+    val headphoneFramesProcessed: Long = 0L,
+    val headphoneClipSamples: Long = 0L,
+    val upstreamPcmClipSamples: Long = 0L,
+    /** Applied gain reduction before RTP capture / PEQ (negative dB). */
+    val upstreamSafetyReductionDb: Float = 0f,
 )
 
 /**
@@ -69,6 +83,13 @@ data class AudioSignalObservation(
     val outputConfig: SignalFormat? = null,
     val bitPerfect: BitPerfectStatus = BitPerfectStatus.UNVERIFIABLE,
     val observedAtMs: Long = 0L,
+    val sourceObservedAtMs: Long = 0L,
+    val decodedObservedAtMs: Long = 0L,
+    val outputObservedAtMs: Long = 0L,
+    val routeObservedAtMs: Long = 0L,
+    val trackGeneration: Long = 0L,
+    val audioTrackGeneration: Long = 0L,
+    val routeGeneration: Long = 0L,
 )
 
 @Serializable

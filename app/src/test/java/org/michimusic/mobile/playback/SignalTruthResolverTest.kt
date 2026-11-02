@@ -352,4 +352,27 @@ class SignalTruthResolverTest {
         val physical = items.first { it.layer == SignalLayer.PHYSICAL_DEVICE }
         assertEquals(0L, physical.freshnessMs)
     }
+
+    @Test
+    fun `stream cannot inherit android session EQ but retains PCM preamp and ReplayGain`() {
+        val observation = AudioSignalObservation(
+            dspStatus = DspPipelineStatus(
+                isEqActive = true,
+                isReplayGainActive = true,
+                replayGainAppliedDb = -3f,
+                preampAppliedDb = 2f,
+            ),
+        )
+        val items = SignalTruthResolver.resolveProvenance(
+            observation = observation,
+            activeEndpoint = streamEndpoint,
+            currentTrack = testTrack,
+            isRemote = true,
+        )
+        val processing = items.first { it.layer == SignalLayer.PROCESSING }
+        assertFalse(processing.value.contains("EQ activo"))
+        assertTrue(processing.value.contains("ReplayGain"))
+        assertTrue(processing.value.contains("Preamp DSP"))
+        assertTrue(processing.confidenceNote.orEmpty().contains("no forma parte"))
+    }
 }

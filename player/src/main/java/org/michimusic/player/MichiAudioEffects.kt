@@ -48,6 +48,13 @@ class MichiAudioEffects(
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var currentSessionId: Int = 0
+    /** Runtime-only bypass while personal PCM PEQ owns the local output. */
+    @Volatile var isBypassedByHeadphoneProfile: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            applyBypassState()
+        }
 
     @Volatile
     var isBypassedByMode: Boolean = false
@@ -65,7 +72,8 @@ class MichiAudioEffects(
     }
 
     private fun applyBypassState() {
-        val effectiveEnabled = !isBypassedByMode && prefs.getBoolean(KEY_EQ_ENABLED, true)
+        val effectiveEnabled = !isBypassedByMode && !isBypassedByHeadphoneProfile &&
+            prefs.getBoolean(KEY_EQ_ENABLED, true)
         listOf<() -> Unit>(
             { equalizer?.enabled = effectiveEnabled },
             { bassBoost?.enabled = effectiveEnabled },
@@ -84,7 +92,8 @@ class MichiAudioEffects(
         releaseEffects()
         currentSessionId = sessionId
 
-        val isMasterEnabled = !isBypassedByMode && prefs.getBoolean(KEY_EQ_ENABLED, true)
+        val isMasterEnabled = !isBypassedByMode && !isBypassedByHeadphoneProfile &&
+            prefs.getBoolean(KEY_EQ_ENABLED, true)
 
         try {
             equalizer = Equalizer(0, sessionId).apply {

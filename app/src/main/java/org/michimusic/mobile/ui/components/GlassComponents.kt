@@ -65,6 +65,10 @@ import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.MichiAuroraBlue
+import org.michimusic.mobile.ui.theme.MichiAuroraCyan
+import org.michimusic.mobile.ui.theme.MichiAuroraLavender
+import org.michimusic.mobile.ui.theme.MichiAuroraThumb
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TertiaryCyanContainer
@@ -307,6 +311,9 @@ fun EqualizerWaveBars(
     }
 }
 
+/** Only Now Playing opts into Aurora; legacy consumers retain their existing accent. */
+enum class ProgressAppearance { STANDARD, MICHI_AURORA }
+
 @Composable
 fun GradientProgressBar(
     modifier: Modifier = Modifier,
@@ -316,6 +323,7 @@ fun GradientProgressBar(
     trackHeight: Dp = 5.dp,
     showThumb: Boolean = true,
     testTag: String = "progress_bar",
+    appearance: ProgressAppearance = ProgressAppearance.STANDARD,
 ) {
     val fraction = seekProgressFraction(currentValue, maxValue)
     val progress = fraction ?: 0f
@@ -382,21 +390,30 @@ fun GradientProgressBar(
                 .background(AeroTrack),
         )
 
-        // Elapsed Progress Gradient
+        // Elapsed progress: Aurora is anchored to the FULL track, not rescaled on
+        // every seek, so the blue > cyan > lavender positions remain stable.
         Box(
             modifier = Modifier
                 .width(totalWidth * progress)
                 .height(animatedTrackHeight)
                 .clip(CircleShape)
                 .drawBehind {
-                    drawRect(
-                        brush = Brush.horizontalGradient(
+                    val progressBrush = if (appearance == ProgressAppearance.MICHI_AURORA) {
+                        Brush.horizontalGradient(
+                            0f to MichiAuroraBlue,
+                            0.56f to MichiAuroraCyan,
+                            1f to MichiAuroraLavender,
+                            endX = size.width.coerceAtLeast(1f) / progress.coerceAtLeast(0.001f),
+                        )
+                    } else {
+                        Brush.horizontalGradient(
                             colors = listOf(
                                 PrimaryPinkContainer.copy(alpha = 0.78f),
                                 PrimaryPinkContainer,
                             ),
-                        ),
-                    )
+                        )
+                    }
+                    drawRect(brush = progressBrush)
                 },
         )
 
@@ -410,10 +427,11 @@ fun GradientProgressBar(
                     .size(animatedThumbSize)
                     .shadow(elevation = if (isDragging) 6.dp else 2.dp, shape = CircleShape)
                     .clip(CircleShape)
-                    .background(PureWhite)
+                    .background(if (appearance == ProgressAppearance.MICHI_AURORA) MichiAuroraThumb else PureWhite)
                     .border(
                         if (isDragging) 2.5.dp else 2.dp,
-                        if (isDragging) PrimaryPinkContainer else AeroGraphite,
+                        if (appearance == ProgressAppearance.MICHI_AURORA) MichiAuroraLavender
+                        else if (isDragging) PrimaryPinkContainer else AeroGraphite,
                         CircleShape,
                     ),
             )

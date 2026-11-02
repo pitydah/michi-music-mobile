@@ -23,6 +23,7 @@ class SignalTruthTracker(
     private val audioEffects: MichiAudioEffects? = null,
     private val replayGainProcessor: ReplayGainAudioProcessor? = null,
     private val usbDacManager: UsbDacManager? = null,
+    private val headphonePeq: HeadphonePeqAudioProcessor? = null,
 ) {
     private val _observation = MutableStateFlow(AudioSignalObservation())
     val observation: StateFlow<AudioSignalObservation> = _observation.asStateFlow()
@@ -30,6 +31,15 @@ class SignalTruthTracker(
     private var currentSourceFormat: SignalFormat? = null
     private var currentDecodedFormat: SignalFormat? = null
     private var currentOutputConfig: SignalFormat? = null
+    private var currentFileFacts: SourceAudioFileFacts? = null
+    private var currentMetadataTrack: Track? = null
+    private var sourceObservedAtMs = 0L
+    private var decodedObservedAtMs = 0L
+    private var outputObservedAtMs = 0L
+    private var routeObservedAtMs = 0L
+    private var trackGeneration = 0L
+    private var routeGeneration = 0L
+    private var lastRouteFingerprint: String? = null
     private var instrumentationAvailable = true
     // A configured effect may still exist while paused/stopped: do not label it
     // as actively processing samples unless Media3 reports actual playback.
@@ -47,6 +57,16 @@ class SignalTruthTracker(
         currentSourceFormat = null
         currentDecodedFormat = null
         currentOutputConfig = null
+        currentFileFacts = null
+        currentMetadataTrack = null
+        sourceObservedAtMs = 0L
+        decodedObservedAtMs = 0L
+        outputObservedAtMs = 0L
+        routeObservedAtMs = 0L
+        // Keep the route fingerprint during a track reset: a cached route is not
+        // new hardware evidence and must not gain a fresh observation timestamp.
+        // A real route callback changes the fingerprint and renews route time.
+        trackGeneration++
         if (resetInstrumentation) instrumentationAvailable = true
         recompute()
     }
@@ -61,6 +81,8 @@ class SignalTruthTracker(
         instrumentationAvailable = false
         currentDecodedFormat = null
         currentOutputConfig = null
+        decodedObservedAtMs = 0L
+        outputObservedAtMs = 0L
         recompute()
     }
 
@@ -74,44 +96,90 @@ class SignalTruthTracker(
         // Continuous playback: invalidate only source format awaiting MediaCodec event for new track.
         // Preserves currentOutputConfig and valid decodedFormat across gapless/same-sink transitions.
         currentSourceFormat = null
+        currentFileFacts = null
+        currentMetadataTrack = null
+        sourceObservedAtMs = 0L
+        trackGeneration++
         recompute()
     }
 
+    @OptIn(UnstableApi::class)
     fun onDecoderInputFormat(format: Format) {
         val sampleRate = if (format.sampleRate != Format.NO_VALUE) format.sampleRate else 0
         val channels = if (format.channelCount != Format.NO_VALUE) format.channelCount else 0
         val codec = format.sampleMimeType?.substringAfter('/')?.uppercase() ?: "Desconocido"
 
-        currentSourceFormat = SignalFormat(
-            codec = codec,
-            bitDepth = 0,
-            sampleRate = sampleRate,
-            channels = channels,
-        )
+        val actualMime = format.sampleMimeType ?: ""
+        val facts = currentFileFacts
+        val avg = format.averageBitrate.takeIf { it in 8_000..50_000_000 }
+        val peak = format.peakBitrate.takeIf { it in 8_000..50_000_000 }
+        val bitrate = facts?.bitrateBps?.takeIf { it > 0 } ?: avg ?: peak ?: 0
+        val kind = when { (facts?.bitrateBps ?: 0) > 0 -> "FILE_AVG"; avg != null -> "AVERAGE"; peak != null -> "PEAK"; else -> "UNKNOWN" }
+        val lossless = sourceHasRealDepth(actualMime, currentMetadataTrack?.format)
+        val next = SignalFormat(codec = actualMime.ifBlank { codec },
+            bitDepth = if (lossless) facts?.bitsPerSample ?: 0 else 0,
+            sampleRate = sampleRate.takeIf { it > 0 } ?: facts?.sampleRateHz ?: 0,
+            channels = channels, bitrateBps = bitrate, bitrateKind = kind)
+        if (currentSourceFormat != next) sourceObservedAtMs = System.currentTimeMillis()
+        currentSourceFormat = next
         recompute()
+    }
+
+    /** File-only metadata is delivered asynchronously and guarded by the service transition epoch. */
+    fun onTrackFileMetadata(track: Track, facts: SourceAudioFileFacts?) {
+        currentMetadataTrack = track
+        currentFileFacts = facts
+        val previous = currentSourceFormat
+        val codec = previous?.codec?.takeUnless { it.isBlank() || it == "Desconocido" }
+            ?: facts?.mimeType ?: track.format
+        val rate = previous?.sampleRate?.takeIf { it > 0 } ?: facts?.sampleRateHz?.takeIf { it > 0 }
+            ?: track.sampleRate.takeIf { it > 0 } ?: 0
+        val fileBps = facts?.bitrateBps?.takeIf { it > 0 }
+        val declaredBps = track.bitrate.let { when (it) {
+            in 8..8000 -> it * 1000
+            in 8001..50_000_000 -> it
+            else -> 0
+        } }
+        val next = SignalFormat(codec = codec, bitDepth =
+            if (sourceHasRealDepth(codec, track.format)) facts?.bitsPerSample ?: 0 else 0,
+            sampleRate = rate, channels = previous?.channels ?: track.channels,
+            bitrateBps = fileBps ?: previous?.bitrateBps?.takeIf { it > 0 } ?: declaredBps,
+            bitrateKind = when {
+                fileBps != null -> "FILE_AVG"
+                previous != null && previous.bitrateBps > 0 -> previous.bitrateKind
+                else -> "UNKNOWN"
+            })
+        if (next != previous) sourceObservedAtMs = System.currentTimeMillis()
+        currentSourceFormat = next
+        recompute()
+    }
+
+    private fun sourceHasRealDepth(codec: String?, trackFormat: String?): Boolean {
+        val declared = "${codec.orEmpty()} ${trackFormat.orEmpty()}".lowercase()
+        // WAV/AIFF/MP4/Ogg containers alone do not prove original PCM bit depth.
+        // WavPack hybrid may be lossy without a validated correction file.
+        if (listOf("adpcm", "mpeg", "mp3", "aac", "opus", "vorbis", "wma", "ogg", "wavpack")
+                .any { it in declared }) return false
+        return listOf("flac", "alac", "lpcm", "audio/raw", "audio/pcm", "pcm_s", "pcm_u")
+            .any { it in declared }
     }
 
     fun onPcmFormatDecoded(pcmFormat: PcmFormat?) {
         if (!instrumentationAvailable) return
-        if (pcmFormat == null) {
-            currentDecodedFormat = null
-        } else {
-            currentDecodedFormat = SignalFormat(
-                codec = pcmFormat.codec,
-                bitDepth = pcmFormat.bitDepth,
-                sampleRate = pcmFormat.sampleRate,
-                channels = pcmFormat.channels,
-            )
+        val next = pcmFormat?.let {
+            SignalFormat(codec = it.codec, bitDepth = it.bitDepth, sampleRate = it.sampleRate, channels = it.channels)
         }
+        if (currentDecodedFormat != next) decodedObservedAtMs = if (next != null) System.currentTimeMillis() else 0L
+        currentDecodedFormat = next
         recompute()
     }
 
     @OptIn(UnstableApi::class)
     fun onAudioTrackInitialized(sampleRate: Int, channelCount: Int, encoding: Int, generation: Long = 0L) {
         if (!instrumentationAvailable) return
-        if (generation > 0L) {
-            currentAudioTrackGeneration = generation
-        }
+        if (generation > 0L && generation < currentAudioTrackGeneration) return
+        val newAudioTrack = generation > currentAudioTrackGeneration
+        if (generation > 0L) currentAudioTrackGeneration = generation
         val bits = when (encoding) {
             androidx.media3.common.C.ENCODING_PCM_16BIT -> 16
             androidx.media3.common.C.ENCODING_PCM_24BIT -> 24
@@ -119,12 +187,10 @@ class SignalTruthTracker(
             androidx.media3.common.C.ENCODING_PCM_FLOAT -> 32
             else -> 0 // unsupported/unknown encoding must not be reported as 16-bit
         }
-        currentOutputConfig = SignalFormat(
-            codec = "AudioTrack_PCM",
-            bitDepth = bits,
-            sampleRate = sampleRate,
-            channels = channelCount,
-        )
+        val next = SignalFormat(codec = "AudioTrack_PCM", bitDepth = bits, sampleRate = sampleRate, channels = channelCount)
+        if (newAudioTrack || currentOutputConfig != next) outputObservedAtMs =
+            if (bits > 0 && sampleRate > 0 && channelCount > 0) System.currentTimeMillis() else 0L
+        currentOutputConfig = next
         recompute()
     }
 
@@ -135,6 +201,7 @@ class SignalTruthTracker(
             return
         }
         currentOutputConfig = null
+        outputObservedAtMs = 0L
         recompute()
     }
 
@@ -142,8 +209,11 @@ class SignalTruthTracker(
         val eqActive = playbackActive && audioEffects?.effectsState?.value?.isEnabled == true &&
             audioEffects?.hasActiveAudioSession == true
         val rgActive = playbackActive && instrumentationAvailable && replayGainProcessor?.isGainActive == true
-        val rgVol = replayGainProcessor?.currentVolume ?: 1f
+        val rgVol = replayGainProcessor?.currentReplayGainVolume ?: 1f
         val rgDb = if (rgVol > 0f) (20f * kotlin.math.log10(rgVol)) else 0f
+        val preampDb = if (playbackActive && instrumentationAvailable) {
+            replayGainProcessor?.currentDspPreampDb ?: 0f
+        } else 0f
         val bbActive = eqActive && audioEffects?.isBassBoostEffective == true &&
             ((audioEffects?.effectsState?.value?.bassBoostStrength ?: 0) > 0)
         val virtActive = eqActive && audioEffects?.isVirtualizerEffective == true &&
@@ -155,6 +225,13 @@ class SignalTruthTracker(
             replayGainAppliedDb = if (rgActive) rgDb else 0f,
             bassBoostActive = bbActive,
             virtualizerActive = virtActive,
+            preampAppliedDb = preampDb,
+            headphonePeqActive = playbackActive && headphonePeq?.isApplied == true,
+            headphoneHeadroomDb = if (playbackActive && headphonePeq?.isApplied == true) headphonePeq.appliedHeadroomDb else 0f,
+            headphoneFramesProcessed = if (playbackActive) headphonePeq?.framesProcessed ?: 0L else 0L,
+            headphoneClipSamples = if (playbackActive) headphonePeq?.clippedSamples ?: 0L else 0L,
+            upstreamPcmClipSamples = if (playbackActive) replayGainProcessor?.pcmClipSamples ?: 0L else 0L,
+            upstreamSafetyReductionDb = if (playbackActive) replayGainProcessor?.safetyReductionDb ?: 0f else 0f,
         )
 
         val routeStatusStr = when (val s = usbDacManager?.routeStatus?.value as? AudioRouteStatus) {
@@ -169,6 +246,15 @@ class SignalTruthTracker(
             null -> "SIN OBSERVADOR"
         }
 
+        val newFingerprint = usbDacManager?.routeStatus?.value.toString()
+        if (newFingerprint != lastRouteFingerprint) {
+            lastRouteFingerprint = newFingerprint
+            routeGeneration++
+            routeObservedAtMs = when (usbDacManager?.routeStatus?.value) {
+                is AudioRouteStatus.Confirmed, is AudioRouteStatus.RoutedElsewhere -> System.currentTimeMillis()
+                else -> 0L
+            }
+        }
         // Conforme a D-03 del Plan Maestro V5, Mobile no ofrece ni infiere certificación bit-perfect
         val bitPerfectStatus = BitPerfectStatus.UNVERIFIABLE
 
@@ -179,7 +265,14 @@ class SignalTruthTracker(
             routeStatus = routeStatusStr,
             outputConfig = currentOutputConfig.takeIf { instrumentationAvailable },
             bitPerfect = bitPerfectStatus,
-            observedAtMs = System.currentTimeMillis(),
+            observedAtMs = maxOf(sourceObservedAtMs, decodedObservedAtMs, outputObservedAtMs, routeObservedAtMs),
+            sourceObservedAtMs = sourceObservedAtMs,
+            decodedObservedAtMs = decodedObservedAtMs,
+            outputObservedAtMs = outputObservedAtMs,
+            routeObservedAtMs = routeObservedAtMs,
+            trackGeneration = trackGeneration,
+            audioTrackGeneration = currentAudioTrackGeneration,
+            routeGeneration = routeGeneration,
         )
     }
 }

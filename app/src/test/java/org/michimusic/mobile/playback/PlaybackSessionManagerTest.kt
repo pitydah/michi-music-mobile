@@ -165,6 +165,33 @@ class PlaybackSessionManagerTest {
     }
 
     @Test
+    fun switchingRemoteControlBackToPhonePreservesLocalPlayback() {
+        val client = mockk<LinkClient>(relaxed = true)
+        val connections = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
+            override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_2") client else null
+        }
+        connections.updateState("remote_2", SyncConnectionState.CONNECTED)
+        val controller = mockk<AudioController>(relaxed = true)
+        every { controller.state } returns MutableStateFlow(PlayerState(isPlaying = true))
+        val discovery = mockk<LinkDiscovery>(relaxed = true)
+        every { discovery.peers } returns MutableStateFlow(emptyMap())
+        val registry = mockk<PairedDeviceRegistry>(relaxed = true)
+        every { registry.getAllDevices() } returns emptyList()
+        val manager = PlaybackSessionManager(controller, connections, discovery, registry)
+        testDispatcher.scheduler.advanceUntilIdle()
+        val host = PlaybackEndpoint("remote_2", "Remote", EndpointType.SERVER,
+            isConnected = true, capabilities = setOf("REMOTE_CONTROL"))
+        var attached = false
+        manager.attachRemote(host) { ok, _ -> attached = ok }
+        assertTrue(attached)
+        manager.attachLocalControl()
+        assertEquals(PlaybackEndpoint.LocalPhone, manager.sessionState.value.activeEndpoint)
+        assertTrue(manager.sessionState.value.isPlaying)
+        verify(exactly = 0) { controller.pause() }
+        coVerify(exactly = 0) { client.transferQueue(any()) }
+    }
+
+    @Test
     fun handoffToReceiver_abortsWhenFormatIsUnknown() {
         val linkClient = mockk<LinkClient>(relaxed = true)
         every { linkClient.baseUrl } returns "http://192.168.1.50:8400"

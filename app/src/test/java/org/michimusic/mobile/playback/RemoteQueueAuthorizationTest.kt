@@ -239,10 +239,18 @@ class RemoteQueueAuthorizationTest {
         val queueDtoBefore = QueueDto(tracks = listOf(trackDtoOld), currentIndex = 0)
         val queueDtoAfter = QueueDto(tracks = listOf(trackDtoOld, trackDtoNew), currentIndex = 0)
 
-        coEvery { linkClient.transferQueue(any()) } returns Result.success(QueueTransferResponse(success = true))
+        // Attaching a remote host now performs one initial status read, so the queue
+        // snapshot must stay stable for every read before the transfer instead of
+        // relying on a fixed call index.
+        var queueTransferred = false
+        coEvery { linkClient.transferQueue(any()) } coAnswers {
+            queueTransferred = true
+            Result.success(QueueTransferResponse(success = true))
+        }
         coEvery { linkClient.getPlaybackState() } returns Result.success(playStateDto)
-        coEvery { linkClient.getQueue() } returns Result.success(queueDtoBefore) andThen
-            Result.success(queueDtoBefore) andThen Result.success(queueDtoAfter)
+        coEvery { linkClient.getQueue() } coAnswers {
+            Result.success(if (queueTransferred) queueDtoAfter else queueDtoBefore)
+        }
 
         val connectionManager = object : ConnectionManager(mockk(relaxed = true), mockk(relaxed = true)) {
             override fun getClient(deviceId: String): LinkClient? = if (deviceId == "remote_1") linkClient else null

@@ -22,9 +22,9 @@ class LibraryLosslessClassifierTest {
 
     @Test
     fun wavAndAlacTracksAreLossless() {
-        val wav = Track(id = "3", title = "WAV Audio", format = "audio/wav", sampleRate = 48000)
+        val wav = Track(id = "3", title = "WAV Audio", format = "audio/wav; codec=pcm", sampleRate = 48000)
         val alac = Track(id = "4", title = "Apple Lossless", format = "alac", sampleRate = 44100)
-        val aiff = Track(id = "5", title = "AIFF Audio", format = "aiff", sampleRate = 44100)
+        val aiff = Track(id = "5", title = "AIFF Audio", format = "aiff; codec=pcm", sampleRate = 44100)
 
         assertTrue(wav.isLossless)
         assertEquals(CodecClassification.LOSSLESS, wav.codecClassification)

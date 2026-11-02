@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      UsbDacManager drives the API 34 preferred-mixer attributes
+      (setPreferredMixerAttributes / clearPreferredMixerAttributes), and those
+      calls require MODIFY_AUDIO_SETTINGS. Declaring it in this module keeps the
+      library lint-clean when it is analysed on its own; the app manifest already
+      merges the same permission, so the final APK is unchanged.
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+</manifest>

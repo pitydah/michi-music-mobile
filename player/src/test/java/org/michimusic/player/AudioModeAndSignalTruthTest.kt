@@ -192,7 +192,11 @@ class AudioModeAndSignalTruthTest {
 
         tracker.onDecoderInputFormat(format)
         val obs1 = tracker.observation.value
-        assertEquals("FLAC", obs1.sourceFormat?.codec)
+        // R15: the model keeps the technical MIME the Michi Link receiver negotiates
+        // with (PlaybackSessionManager compares it against the effective remote codec).
+        // The readable label ("FLAC · 96 kHz") is produced by SignalSourcePresentation
+        // in :app and covered by SignalSourcePresentationTest.
+        assertEquals(MimeTypes.AUDIO_FLAC, obs1.sourceFormat?.codec)
         assertEquals(96000, obs1.sourceFormat?.sampleRate)
         assertEquals(2, obs1.sourceFormat?.channels)
 

@@ -43,4 +43,15 @@ class AudioRouteEvidenceTest {
         assertFalse(output.hasCurrentEvidence)
         assertFalse(output.deviceLabel.contains("Altavoz"))
     }
+
+    @Test fun connectedDacCannotInheritOtherOutputConfirmation() {
+        val dacA = OutputDescriptor(7, "DAC A", 11)
+        val phone = OutputDescriptor(8, "Phone", 2)
+        assertEquals("DISPONIBLE", usbDacRouteLabel(AudioRouteStatus.Confirmed(phone, 50), dacA.androidDeviceId))
+        assertEquals("EN USO", usbDacRouteLabel(AudioRouteStatus.Confirmed(dacA, 50), dacA.androidDeviceId))
+        assertEquals("SOLICITADO", usbDacRouteLabel(AudioRouteStatus.Requested(dacA), dacA.androidDeviceId))
+        assertEquals("RUTA DIFERENTE", usbDacRouteLabel(AudioRouteStatus.RoutedElsewhere(dacA, phone, 50), dacA.androidDeviceId))
+        assertTrue(isObservedOutputInUse(AudioRouteStatus.RoutedElsewhere(dacA, phone, 50), phone.androidDeviceId))
+        assertFalse(isObservedOutputInUse(AudioRouteStatus.Requested(dacA), dacA.androidDeviceId))
+    }
 }

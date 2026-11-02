@@ -22,6 +22,20 @@ object PlayerDependencies {
     var rtpPcmAudioTap: RtpPcmAudioTap? = null
     @JvmStatic
     var replayGainProcessor: ReplayGainAudioProcessor? = null
+    @JvmStatic
+    var headphoneProfileStore: HeadphoneProfileStore? = null
+    @JvmStatic
+    var headphonePeqProcessor: HeadphonePeqAudioProcessor? = null
+    /** Playback-owner boundary. A new controller endpoint revokes local PEQ immediately. */
+    data class OutputAuthority(val endpointId: String, val isLocal: Boolean, val revision: Long)
+    private val authorityState = MutableStateFlow(OutputAuthority("local_phone", true, 0L))
+    val outputAuthority: kotlinx.coroutines.flow.StateFlow<OutputAuthority> = authorityState
+    @JvmStatic fun publishOutputAuthority(endpointId: String, isLocal: Boolean) {
+        val old = authorityState.value
+        if (old.endpointId != endpointId || old.isLocal != isLocal) {
+            authorityState.value = OutputAuthority(endpointId, isLocal, old.revision + 1L)
+        }
+    }
 
     @JvmStatic
     val replayGainMode: ReplayGainMode
@@ -60,6 +74,7 @@ object PlayerDependencies {
     @JvmStatic
     fun resetTestingOverrides() {
         stopPcmStreaming() // test lifecycle must not leak a worker thread or muted output
+        publishOutputAuthority("local_phone", true)
         mockPcmFormatFlow = null
         mockPcmFormatForTesting = null
         mockResumePcmStreamingResultForTesting = null

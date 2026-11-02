@@ -12,10 +12,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,8 +40,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.core.models.Track
+import org.michimusic.mobile.playback.PlaybackEndpoint
+import org.michimusic.mobile.playback.RemoteEndpointPreview
+import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -194,12 +205,12 @@ fun AeroSignalRouteStrip(
                 Column(
                     modifier = cellModifier.clip(RoundedCornerShape(9.dp))
                         .clickable(role = Role.Button, onClick = onSignalClick)
-                        .semantics { contentDescription = "$signalLabel. Señal decodificada, no salida física certificada. Abrir Signal Truth" }
+                        .semantics { contentDescription = "$signalLabel. Formato del archivo original; consulta independiente del PCM y de la salida física. Abrir Signal Truth" }
                         .heightIn(min = 48.dp)
                         .testTag("signal_truth_button"),
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Text("SEÑAL DECODIFICADA", color = TextSecondary,
+                    Text("ARCHIVO ORIGINAL", color = TextSecondary,
                         fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Text(signalLabel, color = TertiaryCyan,
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
@@ -233,6 +244,127 @@ fun AeroSignalRouteStrip(
             }
             Text(signalDescription, color = TextSecondary, fontSize = 12.sp,
                 lineHeight = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Control is distinct from handoff: a stream-only receiver cannot be attached as a host. */
+fun isMichiControlTargetAvailable(endpoint: PlaybackEndpoint): Boolean = endpoint.isLocal ||
+    (endpoint.isConnected && endpoint.type != EndpointType.STREAM_RECEIVER &&
+        "AUDIO_OUTPUT" !in endpoint.capabilities && "REMOTE_CONTROL" in endpoint.capabilities)
+
+/** Only the active endpoint has a track observation in PlaybackSessionState. */
+fun michiControlEndpointSubtitle(
+    endpoint: PlaybackEndpoint,
+    activeEndpointId: String,
+    currentTrackTitle: String?,
+    isPlaying: Boolean,
+    preview: RemoteEndpointPreview? = null,
+): String = when {
+    !endpoint.isLocal && !endpoint.isConnected -> "Sin conexión"
+    endpoint.id == activeEndpointId -> {
+        val state = if (isPlaying) "Reproduciendo" else "Pausado"
+        currentTrackTitle?.takeIf { it.isNotBlank() }?.let { "$state · $it" }
+            ?: "Estado del reproductor activo · sin pista informada"
+    }
+    endpoint.type == EndpointType.STREAM_RECEIVER -> "Receptor de audio · cambiar desde Salida"
+    preview != null && preview.fetchedAtMs > 0L -> {
+        val state = when (preview.state.lowercase()) {
+            "playing" -> "Reproduciendo"
+            "paused" -> "Pausado"
+            "stopped" -> "Detenido"
+            else -> "Estado desconocido"
+        }
+        preview.title?.let { "$state · $it" } ?: "$state · sin pista informada"
+    }
+    preview != null -> "No se pudo consultar reproducción"
+    else -> "Disponible · consultando reproducción"
+}
+
+/** Fast control selector; never claims simultaneous now-playing telemetry for all peers. */
+@Composable
+fun MichiControlBadge(
+    activeEndpoint: PlaybackEndpoint,
+    endpoints: List<PlaybackEndpoint>,
+    currentTrackTitle: String?,
+    isPlaying: Boolean,
+    expanded: Boolean,
+    errorMessage: String?,
+    previews: Map<String, RemoteEndpointPreview>,
+    onToggle: () -> Unit,
+    onDismiss: () -> Unit,
+    onSelect: (PlaybackEndpoint) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val entries = (listOf(PlaybackEndpoint.LocalPhone) + endpoints + activeEndpoint).distinctBy { it.id }
+    Box(modifier = modifier) {
+        Surface(
+            shape = MichiShapes.pill,
+            color = AeroGraphiteRaised,
+            border = androidx.compose.foundation.BorderStroke(0.75.dp, Color.White.copy(alpha = 0.28f)),
+        ) {
+            Row(
+                modifier = Modifier.clip(MichiShapes.pill)
+                    .testTag("michi_control_badge")
+                    .clickable(role = Role.Button, onClick = onToggle)
+                    .semantics {
+                        contentDescription = "Michi Control: ${activeEndpoint.name}. Abrir reproductores disponibles"
+                    }
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Box(Modifier.size(6.dp).background(
+                    if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan
+                    else Color(0xFF647181), CircleShape))
+                Text(activeEndpoint.name, color = PureWhite, fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 154.dp))
+                Icon(Icons.Filled.ExpandMore, contentDescription = null,
+                    tint = TextSecondary, modifier = Modifier.size(16.dp))
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismiss,
+            modifier = Modifier.widthIn(min = 240.dp, max = 320.dp)
+                .background(AeroGraphiteRaised)
+                .testTag("michi_control_menu"),
+        ) {
+            Text("MICHI CONTROL", color = TertiaryCyan, fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp))
+            Text("Elegir controlador · no transfiere la cola", color = TextSecondary,
+                fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            entries.forEach { endpoint ->
+                val isActive = endpoint.id == activeEndpoint.id
+                DropdownMenuItem(
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(endpoint.name, color = if (isActive) TertiaryCyan else PureWhite,
+                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(michiControlEndpointSubtitle(endpoint, activeEndpoint.id,
+                                currentTrackTitle, isPlaying, previews[endpoint.id]), color = TextSecondary,
+                                fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    },
+                    onClick = { if (isActive) onDismiss() else onSelect(endpoint) },
+                    enabled = isActive || isMichiControlTargetAvailable(endpoint),
+                    leadingIcon = {
+                        Box(Modifier.size(7.dp).background(
+                            if (isActive) TertiaryCyan
+                            else if (endpoint.isConnected) Color(0xFF96A8BC)
+                            else Color(0xFF647181), CircleShape))
+                    },
+                    modifier = Modifier.testTag("michi_control_endpoint_${endpoint.id}"),
+                )
+            }
+            if (errorMessage != null) {
+                Text(errorMessage, color = Color(0xFFFFB4AB), fontSize = 11.sp,
+                    modifier = Modifier.padding(12.dp))
+            }
         }
     }
 }

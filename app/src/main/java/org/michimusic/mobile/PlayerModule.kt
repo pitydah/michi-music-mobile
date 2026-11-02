@@ -17,6 +17,8 @@ val playerModule = module {
     // Playback and UI resolve one processor; only the service owns its Media3 graph.
     single { org.michimusic.player.ReplayGainAudioProcessor() }
     single { org.michimusic.player.UsbDacManager(androidContext()) }
+    single { org.michimusic.player.HeadphoneProfileStore(androidContext()) }
+    single { org.michimusic.player.HeadphonePeqAudioProcessor() }
     single {
         org.michimusic.player.AudioModeManager(
             context = androidContext(),
@@ -31,6 +33,7 @@ val playerModule = module {
             audioEffects = get(),
             replayGainProcessor = get(),
             usbDacManager = get(),
+            headphonePeq = get(),
         )
     }
     single {

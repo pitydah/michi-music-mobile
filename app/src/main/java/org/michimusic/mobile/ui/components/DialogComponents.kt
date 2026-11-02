@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -367,38 +369,42 @@ fun EqualizerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Mode Selector Bar (DSP / TRANSPARENT / AUTO)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(GlassFillLow)
-                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
+                // Mode Selector Bar (DSP / TRANSPARENT / AUTO). Three equal thirds of a
+                // narrow dialog ellipsized "Personalizado", so the group stacks once the
+                // rail stops fitting instead of cutting the label.
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val stacked = aeroSegmentStacking(
+                        availableWidthDp = maxWidth.value,
+                        fontScale = LocalDensity.current.fontScale,
+                    )
                     val modes = listOf(
                         org.michimusic.core.models.AudioProcessingMode.DSP to "Personalizado",
                         org.michimusic.core.models.AudioProcessingMode.TRANSPARENT to "Sin efectos",
                         org.michimusic.core.models.AudioProcessingMode.AUTO to "Automático",
                     )
-                    modes.forEach { (m, label) ->
-                        val isSelected = currentMode == m
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) TertiaryCyan.copy(alpha = 0.25f) else Color.Transparent)
-                                .clickable { audioModeManager?.setMode(m) }
-                                .padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (isSelected) TertiaryCyan else TextSecondary,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            )
+                    if (stacked) {
+                        AeroSegmentStack {
+                            modes.forEach { (m, label) ->
+                                AeroSegmentedChoice(
+                                    label = label,
+                                    selected = currentMode == m,
+                                    onClick = { audioModeManager?.setMode(m) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    testTag = "audio_mode_${m.name.lowercase()}",
+                                )
+                            }
+                        }
+                    } else {
+                        AeroSegmentRail {
+                            modes.forEach { (m, label) ->
+                                AeroSegmentedChoice(
+                                    label = label,
+                                    selected = currentMode == m,
+                                    onClick = { audioModeManager?.setMode(m) },
+                                    modifier = Modifier.weight(1f),
+                                    testTag = "audio_mode_${m.name.lowercase()}",
+                                )
+                            }
                         }
                     }
                 }
@@ -413,6 +419,8 @@ fun EqualizerDialog(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+                HeadphoneStudioSection()
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // High-End Frequency Response Curve Visualizer
@@ -1380,16 +1388,7 @@ fun AudioRouteDialog(
 
                         if (dacInfo.isConnected) {
                             item {
-                                val statusLabel = when (routeStatus) {
-                                    is org.michimusic.player.AudioRouteStatus.Confirmed -> "CONFIRMADO"
-                                    is org.michimusic.player.AudioRouteStatus.Requested -> "SOLICITADO"
-                                    is org.michimusic.player.AudioRouteStatus.Detected -> "DETECTADO"
-                                    is org.michimusic.player.AudioRouteStatus.RoutedElsewhere -> "EN OTRA SALIDA"
-                                    is org.michimusic.player.AudioRouteStatus.LastObserved -> "ÚLTIMA OBSERVADA"
-                                    is org.michimusic.player.AudioRouteStatus.Failed -> "ERROR DE RUTA"
-                                    is org.michimusic.player.AudioRouteStatus.Unknown -> "NO VERIFICABLE"
-                                    org.michimusic.player.AudioRouteStatus.NoDevice -> "DESCONECTADO"
-                                }
+                                val statusLabel = usbDacRouteLabel(routeStatus, dacInfo.deviceId)
                                 val ratesStr = if (dacInfo.sampleRates.isNotEmpty()) {
                                     "Frecuencias declaradas: " + dacInfo.sampleRates.joinToString(", ") { "${it / 1000.0} kHz" }
                                 } else {
@@ -1432,8 +1431,12 @@ fun AudioRouteDialog(
                             }
                         }
 
+                        if (dacInfo.isConnected) {
+                            item { UsbMixerStudioSection() }
+                        }
                         items(outputDevices, key = { "audio_output_${it.id}" }) { device ->
                             val isCurrentSelected = (selectedId == device.id) || (selectedId == null && device.isSelected)
+                            val isObservedActive = isObservedOutputInUse(routeStatus, device.id)
                             val icon = when {
                                 device.isUsbDac -> Icons.Filled.Usb
                                 device.isUsbHeadset -> Icons.Filled.Headphones
@@ -1483,30 +1486,30 @@ fun AudioRouteDialog(
                                         Column {
                                             Text(
                                                 text = friendlyOutputNames[device.id] ?: audioOutputFriendlyName(device),
-                                                color = if (isCurrentSelected) TertiaryCyan else PureWhite,
+                                                color = if (isCurrentSelected || isObservedActive) TertiaryCyan else PureWhite,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                             )
                                             Text(
-                                                text = if (device.isUsbDac) "Audio Digital USB" else if (device.isBluetooth) "Bluetooth" else if (device.isWired) "Auriculares" else "Altavoz Integrado",
+                                                text = if (isObservedActive) "En uso · AudioTrack" else if (isCurrentSelected) "Solicitado · pendiente" else "Disponible · no activo",
                                                 color = TextMuted,
                                                 fontSize = 12.sp,
                                             )
                                         }
                                     }
 
-                                    if (isCurrentSelected) {
+                                    if (isObservedActive || isCurrentSelected) {
                                         Box(
                                             modifier = Modifier
                                                 .size(24.dp)
                                                 .clip(CircleShape)
-                                                .background(TertiaryCyan),
+                                                .background(if (isObservedActive) TertiaryCyan else GlassFillHigh),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Filled.Check,
-                                                contentDescription = "Activo",
-                                                tint = SurfaceObsidian,
+                                                contentDescription = if (isObservedActive) "En uso confirmado" else "Salida solicitada",
+                                                tint = if (isObservedActive) SurfaceObsidian else TertiaryCyan,
                                                 modifier = Modifier.size(16.dp),
                                             )
                                         }

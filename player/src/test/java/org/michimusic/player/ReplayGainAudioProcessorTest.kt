@@ -101,6 +101,71 @@ class ReplayGainAudioProcessorTest {
         assertEquals(12000.toShort(), sample)
     }
 
+    @Test
+    fun dspPreampChangesActualPcmWhenReplayGainIsOff() {
+        val p = processor()
+        p.configure(ReplayGainMode.OFF, ReplayGainPreAmp())
+        p.onSongChanged(track())
+        p.setDspPreampDb(6f)
+        assertEquals(6f, p.currentDspPreampDb, 0.001f)
+        assertEquals(1f, p.currentReplayGainVolume, 0.001f)
+        assertTrue(!p.isGainActive) // preamp is NOT ReplayGain
+        val expected = (10000 * 10f.pow(6f / 20f)).toInt().toShort()
+        assertEquals(expected, processSingleSample(p, 10000.toShort()))
+
+        p.isBypassed = true
+        assertEquals(0f, p.currentDspPreampDb, 0.001f)
+        assertEquals(10000.toShort(), processSingleSample(p, 10000.toShort()))
+    }
+
+    @Test
+    fun nonFiniteDspPreampFailsClosed() {
+        val p = processor()
+        p.configure(ReplayGainMode.OFF, ReplayGainPreAmp())
+        p.onSongChanged(track())
+        p.setDspPreampDb(Float.NaN)
+        assertEquals(0f, p.currentDspPreampDb, 0.001f)
+        assertEquals(10000.toShort(), processSingleSample(p, 10000.toShort()))
+    }
+
+    @Test
+    fun dspPreampClippingIsCountedUpstreamAndResetAtTrackChange() {
+        val p = processor()
+        p.configure(ReplayGainMode.OFF, ReplayGainPreAmp())
+        p.onSongChanged(track())
+        p.setDspPreampDb(12f)
+        processSingleSample(p, 20000.toShort())
+        assertTrue(p.pcmClipSamples > 0L)
+        p.onSongChanged(track())
+        assertEquals(0L, p.pcmClipSamples)
+    }
+
+    @Test
+    fun upstreamProtectionCapsSummedGainBeforeRtpAndPeq() {
+        val p = processor()
+        p.setUpstreamUnityProtection(true)
+        p.configure(ReplayGainMode.TRACK, ReplayGainPreAmp(with = 6f))
+        p.onSongChanged(track(trackGain = 4f))
+        p.setDspPreampDb(10f)
+        assertEquals(1f, p.currentVolume, 0.0001f)
+        assertTrue(p.safetyReductionDb <= -19.9f)
+        assertEquals(30000.toShort(), processSingleSample(p, 30000.toShort()))
+        assertEquals(0L, p.pcmClipSamples)
+    }
+
+    @Test
+    fun upstreamProtectionKeepsAttenuationAndTransparentBypass() {
+        val p = processor()
+        p.setUpstreamUnityProtection(true)
+        p.configure(ReplayGainMode.TRACK, ReplayGainPreAmp())
+        p.onSongChanged(track(trackGain = -9f))
+        assertEquals(0f, p.safetyReductionDb, 0.001f)
+        assertTrue(p.currentVolume < 1f)
+        p.isBypassed = true
+        assertEquals(0f, p.safetyReductionDb, 0.001f)
+        assertEquals(20000.toShort(), processSingleSample(p, 20000.toShort()))
+    }
+
     private fun processSingleSample(p: ReplayGainAudioProcessor, input: Short): Short {
         p.configure(AudioProcessor.AudioFormat(44100, 1, C.ENCODING_PCM_16BIT))
         p.flush()

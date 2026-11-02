@@ -47,6 +47,12 @@ data class Track(
                 return CodecClassification.UNKNOWN
             }
 
+            // WavPack hybrid may be lossy without its .wvc correction stream.
+            // Mobile cannot certify that companion file; report UNKNOWN.
+            if (fmt.contains("wavpack") || fmt == "wv") {
+                return CodecClassification.UNKNOWN
+            }
+
             // ADPCM is compressed lossy audio, never linear PCM
             if (fmt.contains("adpcm")) {
                 return CodecClassification.LOSSY
@@ -57,6 +63,10 @@ data class Track(
                 return CodecClassification.UNKNOWN
             }
 
+            // WAV/AIFF are containers, not proof of uncompressed PCM.
+            if (fmt in setOf("wav", "audio/wav", "audio/x-wav", "aiff", "aif", "audio/aiff"))
+                return CodecClassification.UNKNOWN
+
             // Explicit lossless codecs / linear PCM formats
             if (fmt.contains("flac") || fmt.contains("alac") || fmt.contains("aiff") ||
                 fmt.contains("wav") || fmt.contains("lpcm") || fmt.contains("pcm")
@@ -65,7 +75,8 @@ data class Track(
             }
 
             // Explicit lossy codecs
-            if (fmt.contains("mp3") || fmt.contains("aac") || fmt.contains("ogg") ||
+            if (fmt.contains("mp3") || fmt == "mpeg" || fmt == "audio/mpeg" ||
+                fmt.contains("aac") || fmt.contains("ogg") ||
                 fmt.contains("vorbis") || fmt.contains("opus") || fmt.contains("wma")
             ) {
                 return CodecClassification.LOSSY
