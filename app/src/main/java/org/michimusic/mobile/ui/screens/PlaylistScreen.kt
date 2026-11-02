@@ -187,11 +187,12 @@ fun PlaylistScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
-                                AlbumArtView(
+                                org.michimusic.mobile.ui.components.PlaylistCoverMosaic(
+                                    coverIds = playlist.coverIds,
                                     coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
-                                    modifier = Modifier
-                                        .size(52.dp)
-                                        .clip(RoundedCornerShape(12.dp)),
+                                    modifier = Modifier.size(52.dp),
+                                    size = 52.dp,
+                                    cornerRadius = 12.dp,
                                 )
 
                                 Column(modifier = Modifier.weight(1f)) {

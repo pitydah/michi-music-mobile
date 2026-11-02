@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.MoveDirection
@@ -20,6 +21,10 @@ data class PlaylistItem(
     val trackCount: Int,
     val tracks: List<Track> = emptyList(),
     val trackIds: List<String> = emptyList(),
+    // Up to four distinct cover ids taken from the list's own tracks. The list
+    // row paints them as a mosaic instead of a name-derived gradient, which
+    // read as a missing image for every playlist.
+    val coverIds: List<String> = emptyList(),
 )
 
 sealed interface PlaylistDetailUiState {
@@ -98,10 +103,33 @@ class PlaylistsViewModel(
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             repo.observePlaylists().collect { cachedList ->
-                _playlists.value = cachedList.map { PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount) }
+                _playlists.value = cachedList.map { playlistItem(it) }
                 _isLoading.value = false
             }
         }
+    }
+
+    // Resolves the covers for one list on the caller's IO dispatcher. A single
+    // failing playlist must not blank the whole collection, so it degrades to the
+    // placeholder for that row only.
+    private suspend fun playlistItem(playlist: Playlist): PlaylistItem {
+        val covers = try {
+            repo.getTracksForPlaylist(playlist)
+                .asSequence()
+                .map { it.coverId.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .take(4)
+                .toList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return PlaylistItem(
+            id = playlist.id,
+            name = playlist.name,
+            trackCount = playlist.trackCount,
+            coverIds = covers,
+        )
     }
 
     // Retained for compatibility; can be removed later
@@ -110,7 +138,7 @@ class PlaylistsViewModel(
             _isLoading.value = true
             try {
                 val items = repo.getAllPlaylists()
-                _playlists.value = items.map { PlaylistItem(id = it.id, name = it.name, trackCount = it.trackCount) }
+                _playlists.value = items.map { playlistItem(it) }
             } catch (_: Exception) {
                 _playlists.value = emptyList()
             } finally {
