@@ -801,6 +801,11 @@ fun QrScannerDialog(
     onDismiss: () -> Unit,
 ) {
     var manualCode by remember { mutableStateOf("") }
+    val trimmedCode = manualCode.trim()
+    // QrPairingParser only accepts the michi://pair URI emitted by the node that
+    // wants to be paired (Michi Music Player or a server). A short "MLINK-1234"
+    // token is not a pairing payload, so the dialog must not suggest one.
+    val looksLikePairingLink = trimmedCode.startsWith("michi://pair")
 
     Dialog(onDismissRequest = onDismiss) {
         AeroFloatingSurface(
@@ -838,10 +843,13 @@ fun QrScannerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    // Truthful affordance: this build has no camera capture, so it
-                    // must not promise one. CameraX + ZXing is tracked as its own
-                    // feature instead of faking a viewfinder.
-                    text = "Ingresá el código de vinculación que muestra Michi Link en la pantalla de dispositivos.",
+                    // Truthful affordance: the pairing payload is the michi://pair
+                    // link that the target node displays. This build has no camera
+                    // capture, so it must not promise a viewfinder. CameraX + ZXing
+                    // is tracked as its own feature instead of faking one.
+                    text = "El dispositivo que querés vincular (por ejemplo Michi Music Player) " +
+                        "muestra un enlace de emparejamiento. Copialo y pegalo acá: " +
+                        "esta versión todavía no incluye escáner de cámara.",
                     color = OnSurfaceVariant,
                     fontSize = 13.sp,
                 )
@@ -853,31 +861,42 @@ fun QrScannerDialog(
                     onValueChange = {
                         manualCode = it
                     },
-                    label = { Text("Código de vinculación / Token") },
-                    placeholder = { Text("Ej. MLINK-9281 / JSON", color = OnSurfaceVariant) },
+                    label = { Text("Enlace de emparejamiento") },
+                    placeholder = { Text("michi://pair?format=michi-link-pairing&…", color = OnSurfaceVariant) },
                     singleLine = true,
+                    isError = trimmedCode.isNotEmpty() && !looksLikePairingLink,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = PureWhite,
                         unfocusedTextColor = PureWhite,
                         focusedBorderColor = TertiaryCyan,
                         unfocusedBorderColor = GlassBorderLow,
                     ),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("pairing_link_field"),
                 )
+
+                if (trimmedCode.isNotEmpty() && !looksLikePairingLink) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "El enlace de Michi Link empieza con michi://pair",
+                        color = ErrorColor,
+                        fontSize = 12.sp,
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
-                    // The code must exist before the action is offered: a disabled
+                    // The payload must exist before the action is offered: a disabled
                     // button states the requirement instead of failing on tap.
-                    enabled = manualCode.isNotBlank(),
+                    enabled = looksLikePairingLink,
                     onClick = {
-                        onScanSuccess(manualCode.trim())
+                        onScanSuccess(trimmedCode)
                         onDismiss()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(48.dp)
+                        .testTag("pairing_link_confirm"),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
