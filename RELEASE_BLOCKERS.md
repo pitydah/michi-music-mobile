@@ -1,12 +1,16 @@
 # Michi Music Mobile — Release Blockers
 
-## Open P0 / P1 Blockers
+## Open release verification gates — updated 2026-10-25 (M22 Sprint 2)
 
-**Total Open Blockers: 0**
+**Release gate: NOT CERTIFIED.** The previous count of 0 P0/P1 blockers applied to the pre-M22 revision; it cannot be carried forward as current certification. Code corrections were written directly to Drive, but the changed version has no full Android/USB hardware test results.
 
-| ID | Severity | Component | Summary | Current Status |
+| ID | Severity | Component | Requirement | Current Status |
 | :--- | :--- | :--- | :--- | :--- |
-| - | - | - | *No open P0 or P1 release blockers remaining.* | **CLEARED** |
+| M22-G1 | P0 release gate | Compile / runtime | Build app, test and lint current M22 code on Android toolchain | **PENDING_VALIDATION** |
+| M22-G2 | P0 release gate | DAC routing | Certify selected-vs-observed route and unplug behavior on actual phone/DAC | **PENDING_HARDWARE** |
+| M22-G3 | P1 release gate | Observability / UI | Run Android instrumented tests and confirm Signal Truth tracks session/engine lifecycle | **PENDING_VALIDATION** |
+
+**Engineering estimation for M22: 86% of its scoped maturity** (not app-wide maturity, not a test pass rate). See `M22_SPRINT2_REPORT.md`. No claim of release certification follows from this estimate.
 
 ---
 
@@ -36,8 +40,8 @@
 
 ---
 
-## Verdict for Release Readiness
-The software architecture on branch `master` satisfies strict criteria for **Comprehensive Engineering Beta (86% Global Maturity)**.
+## Historic verdict from the pre-M22 release audit (not a current M22 certification)
+The software architecture on branch `master` was previously reported as **Comprehensive Engineering Beta (86% Global Maturity)**.
 Software layers (Media3 authority with dynamic queue, Multi-Library persistence with physical checks, cryptographically verified AirCat/Sync, ReplayGain runtime, and sanitized diagnostics) are fully verified with 0 lint errors and 100% passing automated regression suites across all modules and flavors.
 Hardware-dependent capabilities (`PENDING_HARDWARE`, `BLOCKED_UPSTREAM`) are explicitly segregated and tracked without false bit-perfect or unverified peripheral claims.
 

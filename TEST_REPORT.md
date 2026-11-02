@@ -1,5 +1,8 @@
 # Michi Music Mobile — Test & Verification Report
 
+> **M22 Sprint 2, 25 October 2026:** The below build/test logs belong to the prior repository revision (21 October 2026). They were **not rerun** after the M22 code modifications. New evidence: 10/10 isolated Kotlin route and transition checks passed; full Gradle, Android instrumentation and physical DAC verification remain pending. The previous "ALL GATES PASS" statement must not be interpreted as certification of the current code. See `M22_SPRINT2_REPORT.md`.
+
+
 ## Environment Details
 * **OS**: Linux x86_64
 * **JDK**: OpenJDK 21 (JetBrains Runtime)
@@ -63,4 +66,4 @@
 ---
 
 ## Final Stability Verdict
-**ALL GATES PASS (100%)** — Application is stable, verified, and certified for Release Candidate packaging.
+**HISTORICAL RESULT ONLY (prior revision): ALL GATES PASS (100%)** — This report predates M22. Current M22 release certification is **PENDING**, subject to recompilation and hardware regression testing.
