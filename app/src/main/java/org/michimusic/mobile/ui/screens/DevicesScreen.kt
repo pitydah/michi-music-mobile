@@ -788,7 +788,7 @@ fun DevicesScreen(
                     }
                 },
                 // Smoked obsidian surface, not the platform's default opaque dialog.
-                containerColor = Color(0xFF20212B),
+                containerColor = org.michimusic.mobile.ui.theme.MichiSurfaces.baseSolid,
                 titleContentColor = PureWhite,
                 textContentColor = PureWhite,
                 tonalElevation = 0.dp,

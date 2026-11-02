@@ -152,12 +152,7 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Brush.verticalGradient(
-                    listOf(
-                        Color(0xFF342638),
-                        Color(0xFF261F2D),
-                        Color(0xFF18171F),
-                        SurfaceObsidian,
-                    ),
+                    org.michimusic.mobile.ui.theme.MichiSurfaces.heroFade,
                 )),
         )
 
@@ -234,34 +229,32 @@ fun NowPlayingScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 val artSide = org.michimusic.mobile.ui.components.aeroArtworkSideDp(maxWidth.value, maxHeight.value).dp
+                // One frame only: the cover container owns the shadow (6.dp), the
+                // fill and the hairline. AeroArtworkMat used to add a second shadow,
+                // a four-color metal rim and an inset on top of this, so the hero art
+                // carried 2 shadows, 3 backgrounds and 3 borders in the same square.
                 Box(
                     modifier = Modifier
                         .size(artSide)
                         .shadow(
-                            if (LocalVisualPreferences.current.highContrast) 0.dp else 12.dp,
+                            if (LocalVisualPreferences.current.highContrast) 0.dp else 6.dp,
                             RoundedCornerShape(22.dp),
                             clip = false,
                         )
                         .background(Color(0xFF1D1A27), RoundedCornerShape(22.dp))
-                        .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp)),
+                        .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
+                        .padding(4.dp)
+                        .clip(RoundedCornerShape(20.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    org.michimusic.mobile.ui.components.AeroArtworkMat(
-                        modifier = Modifier
-                            .size((artSide - 8.dp).coerceAtLeast(0.dp))
-                            .testTag("now_playing_album_art"),
+                    AlbumArtView(
+                        coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
+                        imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
+                        fallbackMediaUri = currentTrack?.filepath,
+                        modifier = Modifier.fillMaxSize().testTag("now_playing_album_art"),
                         cornerRadius = 20.dp,
-                        inset = if (compactLayout) 3.dp else 6.dp,
-                    ) {
-                        AlbumArtView(
-                            coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
-                            imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
-                            fallbackMediaUri = currentTrack?.filepath,
-                            modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 20.dp,
-                            borderWidth = 0.dp,
-                        )
-                    }
+                        borderWidth = 0.dp,
+                    )
                 }
             }
 

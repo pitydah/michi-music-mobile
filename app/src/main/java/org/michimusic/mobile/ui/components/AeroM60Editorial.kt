@@ -83,7 +83,7 @@ fun AeroLibraryFeature(
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
-            .background(Brush.verticalGradient(listOf(Color(0xFF303A47), AeroGraphiteRaised, AeroGraphite)))
+            .background(Brush.verticalGradient(org.michimusic.mobile.ui.theme.MichiSurfaces.hero))
             .border(if (highContrast) 1.4.dp else 0.75.dp,
                 if (highContrast) Color.White.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.20f), shape)
             .testTag("m60_library_feature"),
@@ -140,9 +140,13 @@ fun AeroLibraryFeature(
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    AeroActionButton("Escuchar", onFeatured, Modifier.weight(1.3f),
+                    // An even three-way split, not 1.3 / 0.85 / 1.0: the narrowest
+                    // button used to leave ~57dp for "Mezclar" and could only break
+                    // the word or ellipsize it to "Mezc...". Equal weights give the
+                    // longest label the room it needs at full 14.sp.
+                    AeroActionButton("Escuchar", onFeatured, Modifier.weight(1f),
                         Icons.Filled.PlayArrow, AeroActionKind.Primary, testTag = "m60_feature_play")
-                    AeroActionButton("Todo", onPlayAll, Modifier.weight(0.85f),
+                    AeroActionButton("Todo", onPlayAll, Modifier.weight(1f),
                         kind = AeroActionKind.Secondary, testTag = "quick_play_button")
                     AeroActionButton("Mezclar", onShuffle, Modifier.weight(1f),
                         Icons.Filled.Shuffle, AeroActionKind.Quiet, testTag = "shuffle_button")
@@ -180,7 +184,7 @@ fun AeroSignalRouteStrip(
         val stacked = aeroM60StackSignal(maxWidth.value, fontScale)
         Column(
             modifier = Modifier.fillMaxWidth().clip(shape)
-                .background(if (highContrast) Color(0xFF161D27) else Color(0xFF211A30))
+                .background(if (highContrast) Color(0xFF161D27) else org.michimusic.mobile.ui.theme.MichiSurfaces.baseSolid)
                 .border(if (highContrast) 1.2.dp else 0.7.dp,
                     Color.White.copy(alpha = if (highContrast) 0.85f else 0.17f), shape)
                 .padding(horizontal = 14.dp, vertical = 11.dp),

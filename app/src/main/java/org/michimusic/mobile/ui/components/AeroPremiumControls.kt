@@ -108,13 +108,15 @@ fun AeroActionButton(
                 onClick = onClick,
             )
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            // 10dp, not 14dp: in a three-action row every dp of inner padding
+            // competed with the longest label and forced it to ellipsize.
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             if (icon != null) {
                 Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(19.dp))
-                Spacer(Modifier.size(7.dp))
+                Spacer(Modifier.size(5.dp))
             }
             // An action label is one text unit. With maxLines = 2 a single word
             // ("Mezclar") broke mid-word into "Mezcl"/"ar" as soon as the row
