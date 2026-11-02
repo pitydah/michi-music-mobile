@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -62,7 +63,21 @@ import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 
-private enum class DockGlyph { Home, Library, Search, Devices }
+internal enum class DockGlyph { Home, Library, Search, Devices }
+
+/**
+ * Single source of truth for the route-to-glyph mapping. The dock draws a
+ * hand-built glyph for these routes and only falls back to the NavTabItem
+ * ImageVectors for additional routes, so the mapping must not be duplicated
+ * inline in the render pass.
+ */
+internal fun dockGlyphFor(route: String): DockGlyph? = when (route) {
+    "home" -> DockGlyph.Home
+    "library" -> DockGlyph.Library
+    "search" -> DockGlyph.Search
+    "devices" -> DockGlyph.Devices
+    else -> null
+}
 
 // Preserve the NavTabItem public contract for app navigation and integrations.
 data class NavTabItem(
@@ -83,74 +98,75 @@ val defaultNavTabs = listOf(
 private fun MichiDockGlyph(
     glyph: DockGlyph,
     tint: Color,
-    selected: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val stroke = if (selected) 2.05.dp else 1.85.dp
+    // Optical grid: every glyph occupies the same 0.20..0.80 box and uses one
+    // stroke weight with round caps and joins. The previous pass drew Library
+    // at 72% of the canvas and Devices at 52%, with three stroke weights inside
+    // the Library glyph alone, so the four icons never looked like one family.
     Canvas(modifier = modifier.size(22.dp)) {
-        val sw = stroke.toPx()
+        val sw = 2.dp.toPx()
+        val stroke = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val w = size.width
+        val h = size.height
         when (glyph) {
             DockGlyph.Home -> {
                 val roof = Path().apply {
-                    moveTo(size.width * 0.18f, size.height * 0.46f)
-                    lineTo(size.width * 0.5f, size.height * 0.18f)
-                    lineTo(size.width * 0.82f, size.height * 0.46f)
+                    moveTo(w * 0.20f, h * 0.47f)
+                    lineTo(w * 0.50f, h * 0.20f)
+                    lineTo(w * 0.80f, h * 0.47f)
                 }
-                drawPath(roof, tint, style = Stroke(width = sw, cap = StrokeCap.Round))
+                drawPath(roof, tint, style = stroke)
                 drawRoundRect(
                     color = tint,
-                    topLeft = Offset(size.width * 0.28f, size.height * 0.46f),
-                    size = Size(size.width * 0.44f, size.height * 0.30f),
-                    cornerRadius = CornerRadius(size.width * 0.06f),
-                    style = Stroke(width = sw)
+                    topLeft = Offset(w * 0.30f, h * 0.47f),
+                    size = Size(w * 0.40f, h * 0.33f),
+                    cornerRadius = CornerRadius(w * 0.05f),
+                    style = stroke,
                 )
             }
             DockGlyph.Library -> {
-                // Album spine and an unmistakable musical note, not four radiator bars.
                 drawRoundRect(
                     color = tint,
-                    topLeft = Offset(size.width * .19f, size.height * .14f),
-                    size = Size(size.width * .62f, size.height * .72f),
-                    cornerRadius = CornerRadius(size.width * .08f),
-                    style = Stroke(width = sw),
+                    topLeft = Offset(w * 0.28f, h * 0.20f),
+                    size = Size(w * 0.44f, h * 0.60f),
+                    cornerRadius = CornerRadius(w * 0.06f),
+                    style = stroke,
                 )
                 drawLine(
                     color = tint,
-                    start = Offset(size.width * .32f, size.height * .18f),
-                    end = Offset(size.width * .32f, size.height * .82f),
-                    strokeWidth = sw * .8f,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * .54f, size.height * .36f),
-                    end = Offset(size.width * .67f, size.height * .31f),
-                    strokeWidth = sw * 1.1f,
+                    start = Offset(w * 0.38f, h * 0.24f),
+                    end = Offset(w * 0.38f, h * 0.76f),
+                    strokeWidth = sw,
                     cap = StrokeCap.Round,
                 )
                 drawLine(
                     color = tint,
-                    start = Offset(size.width * .54f, size.height * .36f),
-                    end = Offset(size.width * .54f, size.height * .60f),
-                    strokeWidth = sw * 1.1f,
+                    start = Offset(w * 0.52f, h * 0.41f),
+                    end = Offset(w * 0.64f, h * 0.36f),
+                    strokeWidth = sw,
                     cap = StrokeCap.Round,
                 )
-                drawCircle(
+                drawLine(
                     color = tint,
-                    radius = size.width * .07f,
-                    center = Offset(size.width * .48f, size.height * .62f),
+                    start = Offset(w * 0.52f, h * 0.41f),
+                    end = Offset(w * 0.52f, h * 0.62f),
+                    strokeWidth = sw,
+                    cap = StrokeCap.Round,
                 )
+                drawCircle(color = tint, radius = w * 0.065f, center = Offset(w * 0.46f, h * 0.64f))
             }
             DockGlyph.Search -> {
                 drawCircle(
                     color = tint,
-                    radius = size.minDimension * 0.22f,
-                    center = Offset(size.width * 0.44f, size.height * 0.42f),
-                    style = Stroke(width = sw)
+                    radius = size.minDimension * 0.21f,
+                    center = Offset(w * 0.46f, h * 0.44f),
+                    style = stroke,
                 )
                 drawLine(
                     color = tint,
-                    start = Offset(size.width * 0.58f, size.height * 0.57f),
-                    end = Offset(size.width * 0.76f, size.height * 0.75f),
+                    start = Offset(w * 0.60f, h * 0.58f),
+                    end = Offset(w * 0.78f, h * 0.76f),
                     strokeWidth = sw,
                     cap = StrokeCap.Round,
                 )
@@ -158,29 +174,22 @@ private fun MichiDockGlyph(
             DockGlyph.Devices -> {
                 drawRoundRect(
                     color = tint,
-                    topLeft = Offset(size.width * 0.24f, size.height * 0.18f),
-                    size = Size(size.width * 0.52f, size.height * 0.42f),
-                    cornerRadius = CornerRadius(size.width * 0.06f),
-                    style = Stroke(width = sw)
+                    topLeft = Offset(w * 0.20f, h * 0.22f),
+                    size = Size(w * 0.60f, h * 0.36f),
+                    cornerRadius = CornerRadius(w * 0.05f),
+                    style = stroke,
                 )
                 drawLine(
                     color = tint,
-                    start = Offset(size.width * 0.40f, size.height * 0.68f),
-                    end = Offset(size.width * 0.60f, size.height * 0.68f),
+                    start = Offset(w * 0.50f, h * 0.58f),
+                    end = Offset(w * 0.50f, h * 0.70f),
                     strokeWidth = sw,
                     cap = StrokeCap.Round,
                 )
                 drawLine(
                     color = tint,
-                    start = Offset(size.width * 0.50f, size.height * 0.60f),
-                    end = Offset(size.width * 0.50f, size.height * 0.68f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(size.width * 0.32f, size.height * 0.78f),
-                    end = Offset(size.width * 0.68f, size.height * 0.78f),
+                    start = Offset(w * 0.32f, h * 0.78f),
+                    end = Offset(w * 0.68f, h * 0.78f),
                     strokeWidth = sw,
                     cap = StrokeCap.Round,
                 )
@@ -295,15 +304,9 @@ fun BottomNavBar(
                                     .background(if (isSelected) itemColor else Color.Transparent),
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            val glyph = when (tab.route) {
-                                "home" -> DockGlyph.Home
-                                "library" -> DockGlyph.Library
-                                "search" -> DockGlyph.Search
-                                "devices" -> DockGlyph.Devices
-                                else -> null
-                            }
+                            val glyph = dockGlyphFor(tab.route)
                             if (glyph != null) {
-                                MichiDockGlyph(glyph = glyph, tint = itemColor, selected = isSelected)
+                                MichiDockGlyph(glyph = glyph, tint = itemColor)
                             } else {
                                 Icon(
                                     imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
