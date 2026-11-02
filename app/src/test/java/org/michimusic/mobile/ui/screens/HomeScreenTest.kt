@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -111,8 +113,45 @@ class HomeScreenTest {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
         }
 
-        // "Error de carga" won't be displayed because HomeScreen doesn't show an error message UI!
-        // We will just let it pass by not asserting the non-existent text.
+        composeTestRule.onNodeWithTag("error_message").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Error de carga").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_retry_loading_button").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("home_retry_loading_button").performClick()
+        composeTestRule.waitForIdle()
+        // No second launch while the ViewModel has not yet emitted a loading state.
+        composeTestRule.onNodeWithTag("home_retry_loading_button").assertIsNotEnabled()
+        io.mockk.verify(exactly = 2) { mockViewModel.loadMedia() }
+    }
+
+    @Test
+    fun `retry re-enables after observable loading and a new failure`() {
+        val loading = MutableStateFlow(false)
+        val error = MutableStateFlow<String?>("Error inicial")
+        val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
+        every { mockViewModel.isLoading } returns loading
+        every { mockViewModel.error } returns error
+        every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
+        val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
+        val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
+
+        composeTestRule.setContent {
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+        }
+        composeTestRule.onNodeWithTag("home_retry_loading_button").performClick()
+        composeTestRule.onNodeWithTag("home_retry_loading_button").assertIsNotEnabled()
+        loading.value = true
+        error.value = null
+        composeTestRule.waitForIdle()
+        loading.value = false
+        error.value = "Nuevo fallo"
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("home_retry_loading_button").assertIsEnabled()
     }
 
     @Test
@@ -140,7 +179,9 @@ class HomeScreenTest {
         }
 
         // Carousel of recent tracks
-        composeTestRule.onNodeWithText("Recientemente Escuchadas").assertExists()
+        composeTestRule.onNodeWithTag("home_scroll_list")
+            .performScrollToNode(hasText("Recientemente Escuchadas"))
+        composeTestRule.onNodeWithText("Recientemente Escuchadas").assertIsDisplayed()
         composeTestRule.onNodeWithText("Recent Song").assertExists()
         
         // Playlist tiles

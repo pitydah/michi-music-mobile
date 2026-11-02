@@ -1,6 +1,7 @@
 package org.michimusic.mobile.screens
 
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -11,6 +12,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.Album
@@ -148,5 +152,29 @@ class SearchViewModelTest {
         val structured = viewModel.structuredResults.value
         assertEquals(1, structured.tracks.size)
         assertEquals("Downloaded MediaStore", structured.tracks[0].track.title)
+    }
+
+    @Test
+    fun `a retry during an in-flight catalog scan does not restart the scan`() = runTest(testDispatcher) {
+        coEvery { localRepo.loadAlbums() } coAnswers {
+            kotlinx.coroutines.delay(500)
+            emptyList<LocalMediaRepository.LocalAlbum>()
+        }
+        coEvery { syncedRepo.getAllSynced() } returns flowOf(emptyList())
+
+        viewModel.loadLocalTracks()
+        testScheduler.runCurrent()
+        assertTrue(viewModel.isSearching.value)
+
+        // A retry arrives while the first catalog scan is still running.
+        viewModel.loadLocalTracks()
+        testScheduler.runCurrent()
+        // The in-flight scan keeps ownership instead of being cancelled and restarted.
+        assertTrue(viewModel.isSearching.value)
+
+        testScheduler.advanceUntilIdle()
+        assertFalse(viewModel.isSearching.value)
+        assertNull(viewModel.error.value)
+        coVerify(exactly = 1) { localRepo.loadAlbums() }
     }
 }

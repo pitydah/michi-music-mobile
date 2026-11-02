@@ -80,6 +80,7 @@ import org.michimusic.mobile.screens.SearchArtistResult
 import org.michimusic.mobile.screens.SearchFilter
 import org.michimusic.mobile.screens.SearchTrackResult
 import org.michimusic.mobile.screens.SearchViewModel
+import org.michimusic.mobile.screens.StructuredSearchResults
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
@@ -115,21 +116,88 @@ fun SearchScreen(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
     val structuredResults by viewModel.structuredResults.collectAsStateWithLifecycle()
+    // Use StateFlow.value inside click handlers. rememberUpdatedState still lags
+    // until recomposition and can replay a stale queue between two emissions.
+    // The ViewModel stamps each emission with its query, filter and generation.
+    // Text matching alone cannot reject an older response when users type A->B->A.
+    fun currentResults(): StructuredSearchResults = viewModel.structuredResults.value.let { snapshot ->
+        if (searchSnapshotCurrent(
+                snapshot.requestQuery, snapshot.requestFilter.name, snapshot.requestGeneration,
+                viewModel.query.value, viewModel.selectedFilter.value.name, viewModel.currentSearchGeneration,
+            )) snapshot
+        else StructuredSearchResults()
+    }
+    fun actionAllowed(kind: String, label: String): Boolean =
+        currentResults().requestGeneration >= 0L && searchActionPermitted(
+            viewModel.query.value, viewModel.selectedFilter.value.name, kind, label,
+        )
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
+    val searchError by viewModel.error.collectAsStateWithLifecycle()
+    // A retry must not restart the catalog scan twice: the second request cancels
+    // the first one and would briefly clear the loading state it still owns.
+    var retryPending by remember { mutableStateOf(false) }
+    LaunchedEffect(isSearching, searchError) {
+        if (isSearching || searchError == null) retryPending = false
+    }
     val keyboardController = LocalSoftwareKeyboardController.current
     val audioController: AudioController = koinInject()
     val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val playerState by audioController.state.collectAsStateWithLifecycle()
     val presentation = resolvePlaybackPresentation(sessionState, playerState)
 
+    // SearchViewModel debounces input: its previous results can remain visible
+    // for 250 ms after query/filter changes. Never render or activate rows that
+    // no longer satisfy the LIVE query/filter, even before its next emission.
+    // Use the observed snapshot for rendering; the same generation guard governs
+    // the click path. Avoid caching against a non-observable generation field.
+    val displayResults = structuredResults.takeIf { snapshot ->
+        searchSnapshotCurrent(
+            snapshot.requestQuery, snapshot.requestFilter.name, snapshot.requestGeneration,
+            query, selectedFilter.name, viewModel.currentSearchGeneration,
+        )
+    } ?: StructuredSearchResults()
+    val visibleArtists = displayResults.artists.filter {
+        searchActionPermitted(query, selectedFilter.name, "ARTIST", it.artist)
+    }
+    val visibleAlbums = displayResults.albums.filter {
+        searchActionPermitted(query, selectedFilter.name, "ALBUM", it.album)
+    }
+    val visibleTracks = displayResults.tracks.filter { item ->
+        // File system checks belong on the ViewModel IO dispatcher; the result
+        // list has already passed DOWNLOADED filtering before it is emitted.
+        searchActionPermitted(query, selectedFilter.name, "TRACK", item.track.title) &&
+            (selectedFilter != SearchFilter.LOSSLESS || item.track.isLossless)
+    }
+
     fun playQueueSafe(tracks: List<Track>, index: Int) {
+        val validIndex = safeSearchQueueIndex(index, tracks.size) ?: return
+        sessionManager.playQueue(tracks, validIndex)
+    }
+
+    fun playCurrentTrackById(tracks: List<Track>, trackId: String) {
+        val index = safeSearchQueueTrackIdIndex(tracks.map { it.id }, trackId) ?: return
         sessionManager.playQueue(tracks, index)
     }
 
     var selectedArtistForDetail by remember { mutableStateOf<SearchArtistResult?>(null) }
     var selectedAlbumForDetail by remember { mutableStateOf<SearchAlbumResult?>(null) }
 
-    LaunchedEffect(Unit) {
+    // A hidden stale snapshot must not reopen when a future search happens to match.
+    LaunchedEffect(query, selectedFilter, structuredResults, selectedArtistForDetail?.artist,
+        selectedAlbumForDetail?.artist, selectedAlbumForDetail?.album) {
+        selectedArtistForDetail?.let { snapshot ->
+            if (!actionAllowed("ARTIST", snapshot.artist) ||
+                currentResults().artists.none { it.artist == snapshot.artist }) selectedArtistForDetail = null
+        }
+        selectedAlbumForDetail?.let { snapshot ->
+            if (!actionAllowed("ALBUM", snapshot.album) ||
+                currentResults().albums.none { it.artist == snapshot.artist && it.album == snapshot.album }) {
+                selectedAlbumForDetail = null
+            }
+        }
+    }
+
+    LaunchedEffect(viewModel) {
         viewModel.loadLocalTracks()
     }
 
@@ -162,10 +230,10 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
                     .clip(MichiShapes.md)
-                    .background(Brush.verticalGradient(listOf(Color(0xFF232B35), Color(0xFF171D26))))
+                    .background(Brush.verticalGradient(listOf(Color(0xFF29262F), Color(0xFF191A23))))
                     .border(
                         width = 0.65.dp,
-                        color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.48f) else GlassBorderLow,
+                        color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.62f) else GlassBorderLow,
                         shape = MichiShapes.md,
                     )
                     .padding(horizontal = 16.dp),
@@ -178,7 +246,7 @@ fun SearchScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Buscar",
+                        contentDescription = null, // Text field provides the actual accessible label.
                         tint = if (query.isNotEmpty()) PrimaryPinkContainer else TextMuted,
                         modifier = Modifier.size(20.dp),
                     )
@@ -256,7 +324,47 @@ fun SearchScreen(
             Spacer(Modifier.height(MichiSpacing.md))
 
             // Results State
-            if (isSearching) {
+            if (searchError != null && !isSearching) {
+                Box(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 24.dp), contentAlignment = Alignment.TopCenter) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MichiShapes.lg)
+                            .background(Brush.verticalGradient(listOf(Color(0xFF24242F), Color(0xFF171820))))
+                            .border(0.8.dp, PrimaryPinkContainer.copy(alpha = 0.32f), MichiShapes.lg)
+                            .padding(horizontal = 20.dp, vertical = 22.dp)
+                            .testTag("search_error_panel"),
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text("TU BIBLIOTECA", color = PrimaryPinkContainer,
+                            fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
+                        Text("No se pudo completar la búsqueda", color = PureWhite,
+                            style = MichiTypography.cardTitle, fontWeight = FontWeight.SemiBold)
+                        Text(searchError.orEmpty(), style = MichiTypography.metadata,
+                            color = PureWhite.copy(alpha = 0.84f))
+                        Button(
+                            onClick = {
+                                if (!isSearching && !retryPending) {
+                                    retryPending = true
+                                    viewModel.loadLocalTracks()
+                                }
+                            },
+                            enabled = !isSearching && !retryPending,
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("search_retry_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PrimaryPinkContainer,
+                                contentColor = SurfaceObsidian,
+                                disabledContainerColor = PrimaryPinkContainer.copy(alpha = 0.32f),
+                                disabledContentColor = SurfaceObsidian.copy(alpha = 0.6f),
+                            ),
+                            shape = MichiShapes.md,
+                        ) {
+                            Text("Volver a cargar la biblioteca", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            } else if (isSearching || (query.length >= 2 && currentResults().requestGeneration < 0L)) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -267,9 +375,9 @@ fun SearchScreen(
                         strokeWidth = 2.dp,
                     )
                 }
-            } else if (query.isEmpty()) {
+            } else if (query.length < 2) {
                 SearchEmptyGuidance()
-            } else if (structuredResults.artists.isEmpty() && structuredResults.albums.isEmpty() && structuredResults.tracks.isEmpty()) {
+            } else if (visibleArtists.isEmpty() && visibleAlbums.isEmpty() && visibleTracks.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -301,50 +409,50 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(MichiSpacing.lg),
                 ) {
                     // 1. Artistas
-                    if (structuredResults.artists.isNotEmpty()) {
+                    if (visibleArtists.isNotEmpty()) {
                         item {
                             Text(
                                 text = "Artistas",
                                 style = MichiTypography.sectionTitle,
                             )
                         }
-                        items(structuredResults.artists) { artist ->
+                        items(visibleArtists) { artist ->
                             ArtistSearchRow(
                                 artist = artist,
                                 onClick = {
-                                    selectedArtistForDetail = artist
+                                    if (actionAllowed("ARTIST", artist.artist)) selectedArtistForDetail = artist
                                 },
                             )
                         }
                     }
 
                     // 2. Álbumes
-                    if (structuredResults.albums.isNotEmpty()) {
+                    if (visibleAlbums.isNotEmpty()) {
                         item {
                             Text(
                                 text = "Álbumes",
                                 style = MichiTypography.sectionTitle,
                             )
                         }
-                        items(structuredResults.albums) { album ->
+                        items(visibleAlbums) { album ->
                             AlbumSearchRow(
                                 album = album,
                                 onClick = {
-                                    selectedAlbumForDetail = album
+                                    if (actionAllowed("ALBUM", album.album)) selectedAlbumForDetail = album
                                 },
                             )
                         }
                     }
 
                     // 3. Canciones
-                    if (structuredResults.tracks.isNotEmpty()) {
+                    if (visibleTracks.isNotEmpty()) {
                         item {
                             Text(
                                 text = "Canciones",
                                 style = MichiTypography.sectionTitle,
                             )
                         }
-                        items(structuredResults.tracks) { item ->
+                        items(visibleTracks) { item ->
                             val activeTrack = presentation.currentTrack
                             val isAudioPlaying = presentation.isPlaying
                             val isPlayingThis = activeTrack?.id == item.track.id
@@ -354,9 +462,16 @@ fun SearchScreen(
                                 isPlayingThis = isPlayingThis,
                                 isAudioPlaying = isAudioPlaying,
                                 onClick = {
-                                    val allTracks = structuredResults.tracks.map { it.track }
-                                    val idx = allTracks.indexOfFirst { it.id == item.track.id }.coerceAtLeast(0)
-                                    playQueueSafe(allTracks, idx)
+                                    // Live query and filter can change during the 250ms debounce.
+                                    // Recheck against the current StateFlow before playing.
+                                    val currentTracks = currentResults().tracks.map { it.track }
+                                    val selected = currentTracks.singleOrNull { it.id == item.track.id }
+                                    if (selected != null && actionAllowed("TRACK", selected.title) &&
+                                        (viewModel.selectedFilter.value != SearchFilter.LOSSLESS || selected.isLossless)) {
+                                        // No synchronous disk I/O on the Compose click thread.
+                                        // DOWNLOADED membership was checked in SearchViewModel.
+                                        playCurrentTrackById(currentTracks, selected.id)
+                                    }
                                 },
                             )
                         }
@@ -366,51 +481,55 @@ fun SearchScreen(
         }
 
         // Artist Detail Dialog
-        selectedArtistForDetail?.let { artistResult ->
-            ArtistDetailDialog(
-                artist = artistResult,
-                onDismiss = { selectedArtistForDetail = null },
-                onPlayAll = {
-                    if (artistResult.tracks.isNotEmpty()) {
-                        playQueueSafe(artistResult.tracks, 0)
+        selectedArtistForDetail?.let { snapshot ->
+            // Never queue captured artist tracks after a search refresh/removal.
+            currentResults().artists.firstOrNull { it.artist == snapshot.artist }?.let { artistResult ->
+                ArtistDetailDialog(
+                    artist = artistResult,
+                    onDismiss = { selectedArtistForDetail = null },
+                    onPlayAll = {
+                        if (actionAllowed("ARTIST", snapshot.artist)) currentResults().artists.firstOrNull { it.artist == snapshot.artist }
+                            ?.tracks?.takeIf { it.isNotEmpty() }?.let { playQueueSafe(it, 0) }
                         selectedArtistForDetail = null
-                    }
-                },
-                onShuffle = {
-                    if (artistResult.tracks.isNotEmpty()) {
-                        playQueueSafe(artistResult.tracks.shuffled(), 0)
+                    },
+                    onShuffle = {
+                        if (actionAllowed("ARTIST", snapshot.artist)) currentResults().artists.firstOrNull { it.artist == snapshot.artist }
+                            ?.tracks?.takeIf { it.isNotEmpty() }?.shuffled()?.let { playQueueSafe(it, 0) }
                         selectedArtistForDetail = null
-                    }
-                },
-                onTrackClick = { track ->
-                    val idx = artistResult.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    playQueueSafe(artistResult.tracks, idx)
-                },
-            )
+                    },
+                    onTrackClick = { track ->
+                        if (!actionAllowed("ARTIST", snapshot.artist)) return@ArtistDetailDialog
+                        val currentTracks = currentResults().artists.firstOrNull { it.artist == snapshot.artist }?.tracks.orEmpty()
+                        playCurrentTrackById(currentTracks, track.id)
+                    },
+                )
+            }
         }
 
-        // Album Detail Dialog
-        selectedAlbumForDetail?.let { albumResult ->
-            AlbumDetailDialog(
-                album = albumResult,
-                onDismiss = { selectedAlbumForDetail = null },
-                onPlayAll = {
-                    if (albumResult.tracks.isNotEmpty()) {
-                        playQueueSafe(albumResult.tracks, 0)
+        // Album Detail Dialog: both artist and album identify the visible collection.
+        selectedAlbumForDetail?.let { snapshot ->
+            currentResults().albums.firstOrNull { it.artist == snapshot.artist && it.album == snapshot.album }?.let { albumResult ->
+                AlbumDetailDialog(
+                    album = albumResult,
+                    onDismiss = { selectedAlbumForDetail = null },
+                    onPlayAll = {
+                        if (actionAllowed("ALBUM", snapshot.album)) currentResults().albums.firstOrNull { it.artist == snapshot.artist && it.album == snapshot.album }
+                            ?.tracks?.takeIf { it.isNotEmpty() }?.let { playQueueSafe(it, 0) }
                         selectedAlbumForDetail = null
-                    }
-                },
-                onShuffle = {
-                    if (albumResult.tracks.isNotEmpty()) {
-                        playQueueSafe(albumResult.tracks.shuffled(), 0)
+                    },
+                    onShuffle = {
+                        if (actionAllowed("ALBUM", snapshot.album)) currentResults().albums.firstOrNull { it.artist == snapshot.artist && it.album == snapshot.album }
+                            ?.tracks?.takeIf { it.isNotEmpty() }?.shuffled()?.let { playQueueSafe(it, 0) }
                         selectedAlbumForDetail = null
-                    }
-                },
-                onTrackClick = { track ->
-                    val idx = albumResult.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    playQueueSafe(albumResult.tracks, idx)
-                },
-            )
+                    },
+                    onTrackClick = { track ->
+                        if (!actionAllowed("ALBUM", snapshot.album)) return@AlbumDetailDialog
+                        val currentTracks = currentResults().albums.firstOrNull { it.artist == snapshot.artist && it.album == snapshot.album }
+                            ?.tracks.orEmpty()
+                        playCurrentTrackById(currentTracks, track.id)
+                    },
+                )
+            }
         }
     }
 }

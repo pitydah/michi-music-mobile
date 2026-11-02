@@ -131,12 +131,16 @@ fun HomeScreen(
 
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.error.collectAsState()
+    var retryPending by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading, errorMessage) {
+        if (isLoading || errorMessage == null) retryPending = false
+    }
 
     var showCreatePlaylist by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(viewModel) {
         viewModel.loadMedia()
     }
 
@@ -161,12 +165,50 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.12f))
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .clip(MichiShapes.md)
+                        .background(org.michimusic.mobile.ui.theme.GlassFillHigh)
+                        .border(
+                            1.dp,
+                            org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.62f),
+                            MichiShapes.md,
+                        )
                         .testTag("error_message")
-                        .padding(8.dp)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
-                    Text(text = errMsg, color = org.michimusic.mobile.ui.theme.ErrorColor,
-                        style = MichiTypography.metadata)
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "No se pudo cargar tu biblioteca",
+                            color = PureWhite,
+                            fontWeight = FontWeight.SemiBold,
+                            style = MichiTypography.cardTitle,
+                        )
+                        Text(
+                            text = errMsg,
+                            color = PureWhite.copy(alpha = 0.84f),
+                            style = MichiTypography.metadata,
+                        )
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                if (!isLoading && !retryPending) {
+                                    retryPending = true
+                                    viewModel.loadMedia()
+                                }
+                            },
+                            enabled = !isLoading && !retryPending,
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(MichiShapes.sm)
+                                .background(PrimaryPinkContainer.copy(alpha = 0.10f))
+                                .border(0.75.dp, PrimaryPinkContainer.copy(alpha = 0.42f), MichiShapes.sm)
+                                .testTag("home_retry_loading_button"),
+                        ) {
+                            Text(
+                                "Reintentar carga",
+                                color = if (!isLoading && !retryPending) PureWhite else PureWhite.copy(alpha = 0.64f),
+                            )
+                        }
+                    }
                 }
             }
 

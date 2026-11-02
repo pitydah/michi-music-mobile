@@ -96,7 +96,11 @@ class SyncViewModel(
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
     private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
 ) : ViewModel() {
-
+    // Same-process authority is shared by every SyncViewModel instance. A file lock
+    // below provides cross-process exclusion for this transfer entry point.
+    private companion object {
+        val airCatSingleFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    }
 
     private val _wizardUiState = MutableStateFlow(WizardUiState())
     val wizardUiState: StateFlow<WizardUiState> = _wizardUiState.asStateFlow()
@@ -1169,6 +1173,29 @@ class SyncViewModel(
     }
 
 
+    /**
+     * Shared VM/process gate + OS advisory lock; no truncation of the lock file.
+     * Only APIs using this entry gate participate in its transaction policy.
+     */
+    private suspend fun acquireAirCatLease(): Pair<java.nio.channels.FileChannel, java.nio.channels.FileLock>? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
+            val channel = java.io.RandomAccessFile(
+                java.io.File(context.filesDir, "michi_aircat_transfer.lock"), "rw",
+            ).channel
+            val lock = try {
+                channel.tryLock()
+            } catch (_: java.nio.channels.OverlappingFileLockException) {
+                null
+            } catch (e: Exception) {
+                channel.close()
+                throw e
+            }
+            if (lock == null) {
+                channel.close()
+                null
+            } else channel to lock
+        }
+
     fun recoverIncompleteAirCatTransfers(targetDeviceId: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
         val client = currentClient
         val airCat = airCatClient
@@ -1181,8 +1208,18 @@ class SyncViewModel(
             onResult(false, "Dispositivo no encontrado o revocado")
             return
         }
-        viewModelScope.launch {
+        if (!airCatSingleFlight.compareAndSet(false, true)) {
+            onResult(false, "AirCat está ocupado; no se puede recuperar ahora")
+            return
+        }
+        viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            var diskLease: Pair<java.nio.channels.FileChannel, java.nio.channels.FileLock>? = null
             try {
+                diskLease = acquireAirCatLease()
+                if (diskLease == null) {
+                    onResult(false, "Otra instancia de Michi está usando AirCat")
+                    return@launch
+                }
                 val effectiveClient = connectionManager.getClient(targetDeviceId)
                     ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
                         client
@@ -1202,8 +1239,15 @@ class SyncViewModel(
                 } else {
                     onResult(false, "Fallo en recuperación: ${recoveryResult.exceptionOrNull()?.message}")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                onResult(false, "Recuperación AirCat cancelada")
+                throw e
             } catch (e: Exception) {
                 onResult(false, "Error durante recuperación: ${e.message}")
+            } finally {
+                runCatching { diskLease?.second?.release() }
+                runCatching { diskLease?.first?.close() }
+                airCatSingleFlight.set(false)
             }
         }
     }
@@ -1224,9 +1268,18 @@ class SyncViewModel(
             return
         }
 
-
-        viewModelScope.launch {
+        if (!airCatSingleFlight.compareAndSet(false, true)) {
+            onResult(false, "Ya existe una transferencia AirCat en curso")
+            return
+        }
+        viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            var diskLease: Pair<java.nio.channels.FileChannel, java.nio.channels.FileLock>? = null
             try {
+                diskLease = acquireAirCatLease()
+                if (diskLease == null) {
+                    onResult(false, "Otra instancia de Michi está transfiriendo por AirCat")
+                    return@launch
+                }
                 if (device.deviceToken.isEmpty() || device.lastUrl.isEmpty()) {
                     onResult(false, "El dispositivo $targetDeviceId no posee credenciales o URL válidas")
                     return@launch
@@ -1365,8 +1418,15 @@ class SyncViewModel(
                 } else {
                     onResult(false, "Transferencia AirCat falló: ${result.exceptionOrNull()?.message}")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                onResult(false, "Transferencia AirCat cancelada")
+                throw e
             } catch (e: Exception) {
                 onResult(false, "Error en AirCat: ${e.message}")
+            } finally {
+                runCatching { diskLease?.second?.release() }
+                runCatching { diskLease?.first?.close() }
+                airCatSingleFlight.set(false)
             }
         }
     }

@@ -72,6 +72,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -151,6 +153,7 @@ fun DevicesScreen(
     var pendingPeerForPassword by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var selectedDeviceForDetails by remember { mutableStateOf<org.michimusic.mobile.ui.screens.devices.DeviceUiItem?>(null) }
     var showAirCatTargetPicker by remember { mutableStateOf(false) }
+    var airCatPickerForRecovery by remember { mutableStateOf(false) }
     var showNoEligibleAirCatNotice by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -177,6 +180,45 @@ fun DevicesScreen(
 
     // K48-04: Filter strictly eligible AirCat destinations using AirCatEligibilityPolicy
     val eligibleAirCatDevices = AirCatEligibilityPolicy.filterEligibleDevices(activeDevices)
+
+    // A screen-local remember flag disappears when navigation recreates this screen.
+    // Keep the UI flight gate with the *same* ViewModel across composition recreation,
+    // and acquire it atomically for the card, picker and per-device actions.
+    // Authoritative cross-ViewModel/multi-process locking still belongs in AirCat.
+    val airCatGate = remember(viewModel) { AirCatUiGateStore.forViewModel(viewModel) }
+    val airCatStartPending = airCatGate.pending
+    val eligibleAirCatIds = eligibleAirCatDevices.mapTo(mutableSetOf()) { it.id }
+    val performAirCatSafely: (String, Boolean) -> Unit = { targetId, recovery ->
+        // A FAILED progress record may remain visible while recovery starts; a
+        // running/paused transfer may not be bypassed by the retry affordance.
+        val failedProgress = uiState.airCatProgress?.state ==
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED
+        val activeTransfer = uiState.airCatProgress != null && !(recovery && failedProgress)
+        val allowed = (!recovery || failedProgress) &&
+            allowAirCatUiStart(activeTransfer, airCatGate.pending, eligibleAirCatIds, targetId)
+        val flightToken = if (allowed) airCatGate.tryAcquire() else null
+        if (flightToken == null) {
+            if (activeTransfer || airCatGate.pending) {
+                scope.launch { snackbarHostState.showSnackbar("Revisa la transferencia AirCat existente antes de iniciar otra") }
+            } else {
+                showNoEligibleAirCatNotice = true
+            }
+        } else {
+            try {
+                val completion: (Boolean, String) -> Unit = { _, message ->
+                    airCatGate.release(flightToken)
+                    scope.launch { snackbarHostState.showSnackbar(message) }
+                }
+                if (recovery) viewModel.recoverIncompleteAirCatTransfers(targetId, completion)
+                else viewModel.startAirCatTransfer(targetDeviceId = targetId, onResult = completion)
+            } catch (_: Exception) {
+                airCatGate.release(flightToken)
+                scope.launch { snackbarHostState.showSnackbar("No se pudo iniciar la transferencia AirCat") }
+            }
+        }
+    }
+    val startAirCatSafely: (String) -> Unit = { performAirCatSafely(it, false) }
+    val recoverAirCatSafely: (String) -> Unit = { performAirCatSafely(it, true) }
 
     val onPerformDeviceAction: (UnifiedDevice, DeviceAction) -> Unit = { device, action ->
         when (action.type) {
@@ -217,9 +259,7 @@ fun DevicesScreen(
                 onNavigateToSyncWizard(device.id)
             }
             org.michimusic.mobile.sync.DeviceActionType.AIRCAT_TRANSFER -> {
-                viewModel.startAirCatTransfer(targetDeviceId = device.id) { success, msg ->
-                    scope.launch { snackbarHostState.showSnackbar(msg) }
-                }
+                startAirCatSafely(device.id)
             }
             org.michimusic.mobile.sync.DeviceActionType.BROWSE_LIBRARY -> onNavigateToSynced()
             org.michimusic.mobile.sync.DeviceActionType.CONTROL_PLAYBACK -> {
@@ -291,17 +331,25 @@ fun DevicesScreen(
                     GlassCard(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
+                            .semantics(mergeDescendants = true) {
+                                stateDescription = when {
+                                    uiState.airCatProgress != null || airCatStartPending -> "Transferencia en curso"
+                                    eligibleAirCatDevices.isEmpty() -> "Sin receptores disponibles"
+                                    else -> "Disponible para sincronizar"
+                                }
+                            }
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button) {
                                 // K47-05: Never navigate with empty string or ineligible device
                                 when {
+                                    uiState.airCatProgress != null || airCatStartPending -> {
+                                        scope.launch { snackbarHostState.showSnackbar("Revisa la transferencia AirCat existente antes de iniciar otra") }
+                                    }
                                     eligibleAirCatDevices.isEmpty() -> {
                                         showNoEligibleAirCatNotice = true
                                     }
                                     eligibleAirCatDevices.size == 1 -> {
                                         val target = eligibleAirCatDevices.first()
-                                        viewModel.startAirCatTransfer(targetDeviceId = target.id) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
+                                        startAirCatSafely(target.id)
                                     }
                                     else -> {
                                         showAirCatTargetPicker = true
@@ -343,7 +391,7 @@ fun DevicesScreen(
                                 )
                                 Text(
                                     text = when {
-                                        uiState.airCatProgress != null -> "Transferencia en curso"
+                                        uiState.airCatProgress != null || airCatStartPending -> "Consulta el estado de transferencia a continuación"
                                         eligibleAirCatDevices.isEmpty() -> "Sin receptores disponibles · toca para ver cómo conectar"
                                         eligibleAirCatDevices.size == 1 -> "1 receptor listo para sincronizar"
                                         else -> "${eligibleAirCatDevices.size} receptores disponibles"
@@ -397,7 +445,14 @@ fun DevicesScreen(
                             onCancel = { viewModel.cancelAirCatTransfer(progress.transferId) },
                             onRetry = {
                                 if (progress.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED) {
-                                    viewModel.recoverIncompleteAirCatTransfers(progress.transferId)
+                                    // transferId is NOT a device ID; require explicit
+                                    // source selection because progress stores no source ID.
+                                    if (eligibleAirCatDevices.isEmpty()) {
+                                        showNoEligibleAirCatNotice = true
+                                    } else {
+                                        airCatPickerForRecovery = true
+                                        showAirCatTargetPicker = true
+                                    }
                                 } else {
                                     viewModel.resumeAirCatTransfer(progress.transferId)
                                 }
@@ -657,15 +712,22 @@ fun DevicesScreen(
 
         if (showAirCatTargetPicker) {
             androidx.compose.material3.AlertDialog(
-                onDismissRequest = { showAirCatTargetPicker = false },
-                title = { androidx.compose.material3.Text("Seleccionar destino AirCat") },
+                onDismissRequest = {
+                    showAirCatTargetPicker = false
+                    airCatPickerForRecovery = false
+                },
+                title = { androidx.compose.material3.Text(
+                    if (airCatPickerForRecovery) "Recuperar transferencia AirCat" else "Seleccionar destino AirCat"
+                ) },
                 text = {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         androidx.compose.material3.Text(
-                            text = "Selecciona el nodo con el que deseas sincronizar:",
+                            text = if (airCatPickerForRecovery)
+                                "Selecciona el equipo de origen para recuperar la transferencia fallida."
+                            else "Selecciona el nodo con el que deseas sincronizar:",
                             style = MichiTypography.metadata,
                             color = TextMuted,
                         )
@@ -676,12 +738,14 @@ fun DevicesScreen(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(GlassFillLow)
-                                    .border(0.75.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                                    .clickable {
+                                    .border(0.85.dp, GlassBorderHigh.copy(alpha = 0.68f), RoundedCornerShape(12.dp))
+                                    .heightIn(min = 56.dp)
+                                    .clickable(role = androidx.compose.ui.semantics.Role.Button) {
                                         showAirCatTargetPicker = false
-                                        viewModel.startAirCatTransfer(targetDeviceId = dev.id) { success, msg ->
-                                            scope.launch { snackbarHostState.showSnackbar(msg) }
-                                        }
+                                        val recovery = airCatPickerForRecovery
+                                        airCatPickerForRecovery = false
+                                        if (recovery) recoverAirCatSafely(dev.id)
+                                        else startAirCatSafely(dev.id)
                                     }
                                     .padding(horizontal = 14.dp, vertical = 12.dp)
                                     .testTag("aircat_target_${dev.id}"),
@@ -716,10 +780,19 @@ fun DevicesScreen(
                 },
                 confirmButton = {},
                 dismissButton = {
-                    androidx.compose.material3.TextButton(onClick = { showAirCatTargetPicker = false }) {
-                        androidx.compose.material3.Text("Cancelar")
+                    androidx.compose.material3.TextButton(onClick = {
+                        showAirCatTargetPicker = false
+                        airCatPickerForRecovery = false
+                    }) {
+                        androidx.compose.material3.Text("Cancelar", color = PureWhite)
                     }
                 },
+                // Smoked obsidian surface, not the platform's default opaque dialog.
+                containerColor = Color(0xFF20212B),
+                titleContentColor = PureWhite,
+                textContentColor = PureWhite,
+                tonalElevation = 0.dp,
+                shape = MichiShapes.lg,
             )
         }
 
@@ -1413,4 +1486,45 @@ private fun formatDeviceTypeLabel(deviceType: String): String {
         "phone" -> "Teléfono"
         else -> "Michi Link"
     }
+}
+
+/** Does not trust stale UI destinations or allow a concurrent AirCat start. */
+internal fun allowAirCatUiStart(
+    activeTransfer: Boolean,
+    startPending: Boolean,
+    eligibleDeviceIds: Set<String>,
+    targetId: String,
+): Boolean = !activeTransfer && !startPending && targetId.isNotBlank() && targetId in eligibleDeviceIds
+
+
+/**
+ * Single-flight gate retained by the owning ViewModel. Tokens prevent an old
+ * callback (or a duplicate callback) from unlocking a later transfer (ABA).
+ * This is still not a cross-ViewModel or cross-process AirCat transaction lock.
+ */
+internal class AirCatUiStartGate {
+    var pending by mutableStateOf(false)
+        private set
+    private var generation = 0L
+
+    @Synchronized
+    fun tryAcquire(): Long? {
+        if (pending) return null
+        generation += 1
+        pending = true
+        return generation
+    }
+
+    @Synchronized
+    fun release(token: Long) {
+        if (pending && generation == token) pending = false
+    }
+}
+
+private object AirCatUiGateStore {
+    // The value never references its key: destroyed ViewModels can be collected.
+    private val gates = java.util.WeakHashMap<SyncViewModel, AirCatUiStartGate>()
+
+    fun forViewModel(viewModel: SyncViewModel): AirCatUiStartGate =
+        synchronized(gates) { gates.getOrPut(viewModel) { AirCatUiStartGate() } }
 }

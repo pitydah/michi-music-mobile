@@ -56,11 +56,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.AeroGraphite
-import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.TextMuted
 
 private enum class DockGlyph { Home, Library, Search, Devices }
 
@@ -86,8 +84,8 @@ private fun MichiDockGlyph(
     selected: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val stroke = if (selected) 1.95.dp else 1.75.dp
-    Canvas(modifier = modifier.size(19.dp)) {
+    val stroke = if (selected) 2.05.dp else 1.85.dp
+    Canvas(modifier = modifier.size(22.dp)) {
         val sw = stroke.toPx()
         when (glyph) {
             DockGlyph.Home -> {
@@ -197,12 +195,20 @@ fun BottomNavBar(
     tabs: List<NavTabItem> = defaultNavTabs,
     selectedRoute: String? = currentRoute,
 ) {
-    val dockHeight = aeroDockHeightDp(LocalConfiguration.current.fontScale).dp
+    val configuration = LocalConfiguration.current
+    // At 200% font scale, the two-line "Dispositivos" label needs real layout
+    // height; scaling text into a fixed 88dp dock silently clips the second line.
+    val dockHeight = (aeroDockHeightDp(configuration.fontScale) +
+        if (configuration.fontScale >= 1.7f) 20 else 0).dp
+    val highContrast = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.highContrast
+    // Native Compose equivalent of a fixed, responsive bottom glass navigation.
+    // This is not a WebView: HTML/CSS cannot style the Android navigation surface.
+    val outerPadding = if (configuration.screenWidthDp <= 340) 10.dp else 16.dp
     Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = outerPadding, vertical = 6.dp)
             .testTag("bottom_nav_bar"),
         contentAlignment = Alignment.Center,
     ) {
@@ -214,18 +220,18 @@ fun BottomNavBar(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0xFF273447),
-                            AeroGraphiteRaised,
+                            Color(0xFF25252F),
+                            Color(0xFF1D1E27),
                             AeroGraphite,
                         ),
                     ),
                 )
                 .border(
                     width = 0.85.dp,
-                    color = Color.White.copy(alpha = 0.19f),
+                    color = Color.White.copy(alpha = if (highContrast) 0.86f else 0.21f),
                     shape = MichiShapes.lg,
                 )
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = if (configuration.screenWidthDp <= 340) 4.dp else 8.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
             Row(
@@ -237,7 +243,12 @@ fun BottomNavBar(
                     val isSelected = selectedRoute == tab.route
                     val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
                     val itemColor by animateColorAsState(
-                        targetValue = if (isSelected) PrimaryPinkContainer else TextMuted,
+                        targetValue = when {
+                            isSelected && highContrast -> PureWhite
+                            isSelected -> PrimaryPinkContainer
+                            highContrast -> PureWhite
+                            else -> PureWhite.copy(alpha = 0.82f)
+                        },
                         animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(durationMillis = 180),
                         label = "tab_color",
                     )
@@ -246,6 +257,17 @@ fun BottomNavBar(
                             .weight(1f)
                             .height(dockHeight - 16.dp)
                             .clip(MichiShapes.md)
+                            // Selected section remains legible without animation or color alone.
+                            .background(
+                                if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.22f else 0.10f)
+                                else Color.Transparent,
+                            )
+                            .border(
+                                width = if (highContrast) 1.dp else 0.65.dp,
+                                color = if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.9f else 0.32f)
+                                    else Color.Transparent,
+                                shape = MichiShapes.md,
+                            )
                             .semantics(mergeDescendants = true) {
                                 selected = isSelected
                                 stateDescription = if (isSelected) "Sección actual" else "Otra sección"
@@ -255,7 +277,7 @@ fun BottomNavBar(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(bounded = true, color = PrimaryPinkContainer),
                                 role = Role.Tab,
-                                onClick = { if (currentRoute != tab.route) onTabSelected(tab.route) },
+                                onClick = { if (selectedRoute != tab.route) onTabSelected(tab.route) },
                             )
                             .testTag("nav_tab_${tab.route}"),
                         contentAlignment = Alignment.Center,
@@ -268,7 +290,7 @@ fun BottomNavBar(
                                 Modifier
                                     .size(width = 24.dp, height = 2.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(if (isSelected) PrimaryPinkContainer else Color.Transparent),
+                                    .background(if (isSelected) itemColor else Color.Transparent),
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             val glyph = when (tab.route) {
@@ -285,17 +307,18 @@ fun BottomNavBar(
                                     imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
                                     contentDescription = null,
                                     tint = itemColor,
-                                    modifier = Modifier.size(19.dp),
+                                    modifier = Modifier.size(22.dp),
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = tab.label,
-                                color = if (isSelected) PureWhite else TextMuted,
-                                fontSize = if (tab.label.length > 9 && dockHeight <= 64.dp) 10.sp else 11.sp,
+                                color = if (isSelected || highContrast) PureWhite else PureWhite.copy(alpha = 0.82f),
+                                fontSize = 11.sp,
                                 letterSpacing = 0.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = if (dockHeight > 64.dp) 2 else 1,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }

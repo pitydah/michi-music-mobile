@@ -55,6 +55,9 @@ data class StructuredSearchResults(
     val artists: List<SearchArtistResult> = emptyList(),
     val albums: List<SearchAlbumResult> = emptyList(),
     val tracks: List<SearchTrackResult> = emptyList(),
+    val requestQuery: String = "",
+    val requestFilter: SearchFilter = SearchFilter.ALL,
+    val requestGeneration: Long = -1L,
 )
 
 class SearchViewModel(
@@ -85,9 +88,15 @@ class SearchViewModel(
     private var syncedTracks: List<org.michimusic.data.cache.CachedTrack> = emptyList()
     private var searchJob: Job? = null
     private var loadJob: Job? = null
+    private val searchGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    val currentSearchGeneration: Long get() = searchGeneration.get()
 
     fun loadLocalTracks() {
-        loadJob?.cancel()
+        // A retry that arrives while a catalog scan is still running would cancel
+        // that scan and restart it, leaving the first request's cancellation to
+        // settle state owned by the second one. The in-flight scan already reads
+        // the live catalog, so keep the first request authoritative.
+        if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch(ioDispatcher) {
             _isSearching.value = true
             _error.value = null
@@ -100,41 +109,50 @@ class SearchViewModel(
             } catch (e: Exception) {
                 _error.value = e.message ?: "Error al cargar canciones"
             } finally {
-                _isSearching.value = false
+                // Refresh results when an asynchronous library load changes the catalog.
+                // Cancelled loads must not publish stale data.
+                if (kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive == true &&
+                    _error.value == null && _query.value.length >= 2) setQuery(_query.value)
+                else if (_error.value != null || searchJob?.isActive != true) _isSearching.value = false
             }
         }
     }
 
     fun setFilter(filter: SearchFilter) {
+        if (_selectedFilter.value == filter) return
         _selectedFilter.value = filter
-        if (_query.value.length >= 2) {
-            searchJob?.cancel()
-            searchJob = viewModelScope.launch(ioDispatcher) {
-                try {
-                    executeSearch(_query.value)
-                } catch (_: kotlinx.coroutines.CancellationException) {
-                    // Expected when query changes
-                }
-            }
-        }
+        scheduleSearch(_query.value, debounce = false)
     }
 
     fun setQuery(q: String) {
         _query.value = q
-        if (q.length < 2) {
-            _results.value = emptyList()
-            _structuredResults.value = StructuredSearchResults()
-            searchJob?.cancel()
+        scheduleSearch(q, debounce = true)
+    }
+
+    private fun scheduleSearch(q: String, debounce: Boolean) {
+        val generation = searchGeneration.incrementAndGet()
+        searchJob?.cancel()
+        _structuredResults.value = StructuredSearchResults()
+        _results.value = emptyList()
+        _error.value = null
+        if (q.length < 2 || q.isBlank()) {
+            _isSearching.value = false
             searchJob = null
             return
         }
-        searchJob?.cancel()
+        _isSearching.value = true
+        val filter = _selectedFilter.value
         searchJob = viewModelScope.launch(ioDispatcher) {
             try {
-                delay(250)
-                executeSearch(q)
-            } catch (_: kotlinx.coroutines.CancellationException) {
-                // Expected when search query changes
+                if (debounce) delay(250)
+                executeSearch(q, filter, generation)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation == searchGeneration.get()) {
+                    _error.value = e.message ?: "Error al buscar música"
+                    _isSearching.value = false
+                }
             }
         }
     }
@@ -168,10 +186,9 @@ class SearchViewModel(
         }
     }
 
-    private fun executeSearch(q: String) {
-        _isSearching.value = true
+    private fun executeSearch(q: String, filter: SearchFilter, generation: Long) {
+        if (generation != searchGeneration.get() || q != _query.value || filter != _selectedFilter.value) return
         val lower = q.lowercase()
-        val filter = _selectedFilter.value
 
         val allCombinedTracks = getCombinedDeduplicatedTracks()
 
@@ -230,10 +247,13 @@ class SearchViewModel(
             )
         }.take(30)
 
-        _structuredResults.value = StructuredSearchResults(
+        val newStructuredResults = StructuredSearchResults(
             artists = artistMatches,
             albums = albumMatches,
             tracks = trackMatches,
+            requestQuery = q,
+            requestFilter = filter,
+            requestGeneration = generation,
         )
 
         // Compatibility list
@@ -258,18 +278,23 @@ class SearchViewModel(
             SearchResult(track, if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local")
         }.take(50)
 
-        _results.value = legacyList
-        _isSearching.value = false
+        // Synchronous CPU work may finish after cancel(); the epoch prevents
+        // obsolete A->B->A searches from publishing into a newer request.
+        if (generation == searchGeneration.get() && q == _query.value && filter == _selectedFilter.value) {
+            _structuredResults.value = newStructuredResults
+            _results.value = legacyList
+            _isSearching.value = false
+        }
     }
 
     fun clearSearch() {
+        searchGeneration.incrementAndGet()
         searchJob?.cancel()
         searchJob = null
-        loadJob?.cancel()
-        loadJob = null
         _query.value = ""
         _results.value = emptyList()
         _structuredResults.value = StructuredSearchResults()
+        _isSearching.value = false
         _error.value = null
     }
 

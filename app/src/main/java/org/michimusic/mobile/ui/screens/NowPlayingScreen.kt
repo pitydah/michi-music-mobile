@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -115,6 +116,12 @@ fun NowPlayingScreen(
     val isPlaying = presentation.isPlaying
     val positionSeconds = (presentation.position / 1000f).coerceAtLeast(0f)
     val durationSeconds = (presentation.duration / 1000f).coerceAtLeast(0f)
+    // Unknown duration/position must not reach slider geometry or time labels.
+    val seekableDuration = durationSeconds.isFinite() && durationSeconds > 0f &&
+        durationSeconds.toDouble() * 1000.0 < Long.MAX_VALUE.toDouble() && currentTrack != null
+    val safeDurationSeconds = if (seekableDuration) durationSeconds else 0f
+    val safePositionSeconds = if (seekableDuration && positionSeconds.isFinite())
+        positionSeconds.coerceIn(0f, safeDurationSeconds) else 0f
 
     val isShuffle = presentation.shuffleMode == 1
     val repeatMode = presentation.repeatMode
@@ -146,9 +153,9 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .background(Brush.verticalGradient(
                     listOf(
-                        Color(0xFF432547),
-                        Color(0xFF2B1B35),
-                        Color(0xFF17131E),
+                        Color(0xFF342638),
+                        Color(0xFF261F2D),
+                        Color(0xFF18171F),
                         SurfaceObsidian,
                     ),
                 )),
@@ -231,11 +238,12 @@ fun NowPlayingScreen(
                     modifier = Modifier
                         .size(artSide)
                         .shadow(
-                            if (LocalVisualPreferences.current.highContrast) 0.dp else 18.dp,
-                            RoundedCornerShape(26.dp),
+                            if (LocalVisualPreferences.current.highContrast) 0.dp else 12.dp,
+                            RoundedCornerShape(22.dp),
                             clip = false,
                         )
-                        .background(Color(0xFF17162B), RoundedCornerShape(26.dp)),
+                        .background(Color(0xFF1D1A27), RoundedCornerShape(22.dp))
+                        .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     org.michimusic.mobile.ui.components.AeroArtworkMat(
@@ -287,10 +295,12 @@ fun NowPlayingScreen(
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 GradientProgressBar(
-                    currentValue = positionSeconds,
-                    maxValue = durationSeconds,
+                    currentValue = safePositionSeconds,
+                    maxValue = safeDurationSeconds,
                     onSeek = { seekSec ->
-                        sessionManager.seekTo((seekSec * 1000).toLong())
+                        safeNowPlayingSeekMillis(seekSec, safeDurationSeconds, seekableDuration)?.let {
+                            sessionManager.seekTo(it)
+                        }
                     },
                     trackHeight = 4.dp,
                     showThumb = true,
@@ -304,12 +314,12 @@ fun NowPlayingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = if (durationSeconds > 0f) formatTimeSeconds(positionSeconds) else "—:—",
+                        text = if (seekableDuration) formatTimeSeconds(safePositionSeconds) else "—:—",
                         style = MichiTypography.microLabel,
                         color = Color(0xCCFFFFFF),
                     )
                     Text(
-                        text = if (durationSeconds > 0f) formatTimeSeconds(durationSeconds) else "—:—",
+                        text = if (seekableDuration) formatTimeSeconds(safeDurationSeconds) else "—:—",
                         style = MichiTypography.microLabel,
                         color = Color(0xCCFFFFFF),
                     )

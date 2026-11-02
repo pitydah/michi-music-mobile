@@ -3,6 +3,8 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.onNodeWithText
 import io.mockk.every
 import io.mockk.mockk
@@ -44,7 +46,9 @@ class HomeRecentIntegrityTest {
         }
 
         // Must display honest title "De tu biblioteca" rather than falsely claiming "Recientemente Escuchadas"
-        composeTestRule.onNodeWithText("De tu biblioteca").assertExists()
+        composeTestRule.onNodeWithTag("home_scroll_list")
+            .performScrollToNode(hasText("De tu biblioteca"))
+        composeTestRule.onNodeWithText("De tu biblioteca").assertIsDisplayed()
         composeTestRule.onNodeWithText("Recientemente Escuchadas").assertDoesNotExist()
     }
 
@@ -69,7 +73,9 @@ class HomeRecentIntegrityTest {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
         }
 
-        composeTestRule.onNodeWithText("Recientemente Escuchadas").assertExists()
+        composeTestRule.onNodeWithTag("home_scroll_list")
+            .performScrollToNode(hasText("Recientemente Escuchadas"))
+        composeTestRule.onNodeWithText("Recientemente Escuchadas").assertIsDisplayed()
         composeTestRule.onNodeWithTag("recent_track_t1").assertExists()
     }
 }
