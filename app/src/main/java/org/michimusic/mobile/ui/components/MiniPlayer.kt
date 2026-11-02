@@ -28,8 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -47,11 +45,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.koin.compose.koinInject
+import org.michimusic.mobile.playback.ActivePlaybackPresentation
 import org.michimusic.mobile.playback.PlaybackSessionManager
+import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
-import org.michimusic.mobile.ui.theme.GlassBorderLow
-import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -59,10 +57,14 @@ import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import androidx.compose.ui.graphics.Brush
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.player.AudioController
 
+/**
+ * Wiring owner: resolves the playback authorities and forwards intents.
+ * Every visual decision belongs to [MiniPlayerContent], which can be rendered
+ * from a fixed state without a dependency-injection graph.
+ */
 @Composable
 fun MiniPlayer(
     modifier: Modifier = Modifier,
@@ -74,7 +76,30 @@ fun MiniPlayer(
     val audioController: AudioController = koinInject()
     val localState by audioController.state.collectAsState()
 
-    val presentation = org.michimusic.mobile.playback.resolvePlaybackPresentation(sessionState, localState)
+    MiniPlayerContent(
+        presentation = resolvePlaybackPresentation(sessionState, localState),
+        modifier = modifier,
+        visible = visible,
+        onClick = onClick,
+        onPlayPause = { sessionManager.playPause() },
+        onNext = { sessionManager.skipNext() },
+    )
+}
+
+/**
+ * Plain, caller-drivable mini player: immutable presentation plus intents, so
+ * its labels, accessibility descriptions and callbacks are testable without
+ * Koin, services or a running playback engine.
+ */
+@Composable
+fun MiniPlayerContent(
+    presentation: ActivePlaybackPresentation,
+    modifier: Modifier = Modifier,
+    visible: Boolean = true,
+    onClick: () -> Unit = {},
+    onPlayPause: () -> Unit = {},
+    onNext: () -> Unit = {},
+) {
     val currentTrack = presentation.currentTrack
     val activeEndpoint = presentation.endpoint
     val isPlaying = presentation.isPlaying
@@ -196,7 +221,7 @@ fun MiniPlayer(
                         MichiIconAction(
                             icon = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (isPlaying) "Pausar" else "Reproducir",
-                            onClick = { sessionManager.playPause() },
+                            onClick = onPlayPause,
                             tint = PureWhite,
                             iconSize = 26.dp,
                             minTargetSize = MichiSpacing.minTouchTarget,
@@ -207,7 +232,7 @@ fun MiniPlayer(
                         MichiIconAction(
                             icon = Icons.Filled.SkipNext,
                             contentDescription = "Siguiente Canción",
-                            onClick = { sessionManager.skipNext() },
+                            onClick = onNext,
                             tint = PureWhite,
                             iconSize = 22.dp,
                             minTargetSize = MichiSpacing.minTouchTarget,
