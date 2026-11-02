@@ -1,10 +1,6 @@
 package org.michimusic.mobile.ui.components
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,7 +33,6 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LaptopMac
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.SurroundSound
@@ -805,19 +800,7 @@ fun QrScannerDialog(
     onScanSuccess: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val transition = rememberInfiniteTransition(label = "scanner_laser")
-    val laserY by transition.animateFloat(
-        initialValue = 0.1f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "laser_pos",
-    )
-
     var manualCode by remember { mutableStateOf("") }
-    var scanError by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
         AeroFloatingSurface(
@@ -855,42 +838,13 @@ fun QrScannerDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Apunta la cámara al código QR de Michi Link o ingresa el código de vinculación.",
+                    // Truthful affordance: this build has no camera capture, so it
+                    // must not promise one. CameraX + ZXing is tracked as its own
+                    // feature instead of faking a viewfinder.
+                    text = "Ingresá el código de vinculación que muestra Michi Link en la pantalla de dispositivos.",
                     color = OnSurfaceVariant,
                     fontSize = 13.sp,
                 )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Box(
-                    modifier = Modifier
-                        .size(180.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(SurfaceObsidian)
-                        .border(1.5.dp, TertiaryCyan, RoundedCornerShape(16.dp))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.QrCodeScanner,
-                        contentDescription = null,
-                        tint = Color(0x337DF4FF),
-                        modifier = Modifier.size(90.dp),
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.dp)
-                            .align(Alignment.TopCenter)
-                            .padding(top = (140 * laserY).dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(Color.Transparent, TertiaryCyan, Color.Transparent),
-                                ),
-                            ),
-                    )
-                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -898,7 +852,6 @@ fun QrScannerDialog(
                     value = manualCode,
                     onValueChange = {
                         manualCode = it
-                        scanError = null
                     },
                     label = { Text("Código de vinculación / Token") },
                     placeholder = { Text("Ej. MLINK-9281 / JSON", color = OnSurfaceVariant) },
@@ -912,26 +865,15 @@ fun QrScannerDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                if (scanError != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = scanError!!,
-                        color = ErrorColor,
-                        fontSize = 12.sp,
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
+                    // The code must exist before the action is offered: a disabled
+                    // button states the requirement instead of failing on tap.
+                    enabled = manualCode.isNotBlank(),
                     onClick = {
-                        val trimmed = manualCode.trim()
-                        if (trimmed.isNotEmpty()) {
-                            onScanSuccess(trimmed)
-                            onDismiss()
-                        } else {
-                            scanError = "Por favor ingresa un código o token válido"
-                        }
+                        onScanSuccess(manualCode.trim())
+                        onDismiss()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
