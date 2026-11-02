@@ -33,7 +33,9 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -187,22 +189,32 @@ fun MiniPlayerContent(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // A truncated artist already ends in an ellipsis, so
+                                    // keeping the separator dot next to it reads as a
+                                    // stray ".. •". The dot only separates two complete
+                                    // values; drop it as soon as the artist is clipped.
+                                    var artistTruncated by remember { mutableStateOf(false) }
                                     Text(
                                         text = currentTrack.artist,
                                         color = OnSurfaceVariant,
                                         style = MichiTypography.metadata,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        onTextLayout = { artistTruncated = it.hasVisualOverflow },
                                         modifier = Modifier.weight(1f, fill = false),
                                     )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .size(5.dp)
-                                            .clip(CircleShape)
-                                            .background(if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer),
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
+                                    if (!artistTruncated) {
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(5.dp)
+                                                .clip(CircleShape)
+                                                .background(if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer),
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                    } else {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                    }
                                     Text(
                                         text = activeEndpoint.name,
                                         color = OnSurfaceVariant,
