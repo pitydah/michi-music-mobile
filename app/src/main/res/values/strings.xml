@@ -1,4 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Michi Music</string>
+
+    <!-- Library counters. Quantity strings keep "1 pista" from reading "1 pistas". -->
+    <plurals name="track_count">
+        <item quantity="one">%d pista</item>
+        <item quantity="other">%d pistas</item>
+    </plurals>
+    <plurals name="album_count">
+        <item quantity="one">%d álbum</item>
+        <item quantity="other">%d álbumes</item>
+    </plurals>
+    <plurals name="song_count">
+        <item quantity="one">%d canción</item>
+        <item quantity="other">%d canciones</item>
+    </plurals>
+    <plurals name="select_playlist_for_album">
+        <item quantity="one">Selecciona una playlist para «%1$s» (%2$d pista)</item>
+        <item quantity="other">Selecciona una playlist para «%1$s» (%2$d pistas)</item>
+    </plurals>
+    <plurals name="aircat_recovered_tracks">
+        <item quantity="one">%d pista restaurada</item>
+        <item quantity="other">%d pistas restauradas</item>
+    </plurals>
+    <plurals name="aircat_transferred_tracks">
+        <item quantity="one">%d pista</item>
+        <item quantity="other">%d pistas</item>
+    </plurals>
+    <plurals name="songs_in_library">
+        <item quantity="one">%d canción en tu biblioteca</item>
+        <item quantity="other">%d canciones en tu biblioteca</item>
+    </plurals>
+    <plurals name="themes_count">
+        <item quantity="one">%d tema</item>
+        <item quantity="other">%d temas</item>
+    </plurals>
+    <plurals name="themes_in_library">
+        <item quantity="one">%d tema en biblioteca</item>
+        <item quantity="other">%d temas en biblioteca</item>
+    </plurals>
 </resources>

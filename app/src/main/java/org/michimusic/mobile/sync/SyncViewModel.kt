@@ -1235,7 +1235,11 @@ class SyncViewModel(
                 val recoveryResult = airCat.recoverIncompleteTransfers(targetDeviceId, effectiveClient)
                 if (recoveryResult.isSuccess) {
                     val count = recoveryResult.getOrThrow().size
-                    onResult(true, "Recuperación completada ($count pistas restauradas)")
+                    onResult(true, "Recuperación completada (" +
+                            context.resources.getQuantityString(
+                                org.michimusic.mobile.R.plurals.aircat_recovered_tracks, count, count,
+                            ) + ")",
+                        )
                 } else {
                     onResult(false, "Fallo en recuperación: ${recoveryResult.exceptionOrNull()?.message}")
                 }
@@ -1414,7 +1418,12 @@ class SyncViewModel(
 
 
                 if (result.isSuccess) {
-                    onResult(true, "Transferencia AirCat completada (${result.getOrThrow().size} pistas)")
+                    val transferred = result.getOrThrow().size
+                    onResult(true, "Transferencia AirCat completada (" +
+                        context.resources.getQuantityString(
+                            org.michimusic.mobile.R.plurals.aircat_transferred_tracks, transferred, transferred,
+                        ) + ")"
+                    )
                 } else {
                     onResult(false, "Transferencia AirCat falló: ${result.exceptionOrNull()?.message}")
                 }

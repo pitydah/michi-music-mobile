@@ -65,6 +65,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.pluralStringResource
+import org.michimusic.mobile.R
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -236,7 +238,9 @@ fun AlbumsScreen(
                     )
                     if (!isLoading && allTracks.isNotEmpty()) {
                         Text(
-                            text = "${allTracks.size} pistas  ·  ${albums.size} álbumes",
+                            text = pluralStringResource(R.plurals.track_count, allTracks.size, allTracks.size) +
+                                "  ·  " +
+                                pluralStringResource(R.plurals.album_count, albums.size, albums.size),
                             style = MichiTypography.microLabel,
                             color = TextSecondary,
                             maxLines = 1,
@@ -736,7 +740,8 @@ fun AlbumsScreen(
                                                     overflow = TextOverflow.Ellipsis,
                                                 )
                                                 Text(
-                                                    text = "${localAlbum.album.artist} • ${localAlbum.tracks.size} pistas",
+                                                    text = localAlbum.album.artist + " • " +
+                                                        pluralStringResource(R.plurals.track_count, localAlbum.tracks.size, localAlbum.tracks.size),
                                                     fontSize = 12.sp,
                                                     color = TextSecondary,
                                                 )
@@ -829,7 +834,9 @@ fun AlbumsScreen(
                                                 overflow = TextOverflow.Ellipsis,
                                             )
                                             Text(
-                                                text = "${artistAlbums.size} álbumes • ${artistTracks.size} canciones",
+                                                text = pluralStringResource(R.plurals.album_count, artistAlbums.size, artistAlbums.size) +
+                                                    " • " +
+                                                    pluralStringResource(R.plurals.song_count, artistTracks.size, artistTracks.size),
                                                 fontSize = 12.sp,
                                                 color = TextSecondary,
                                             )
@@ -893,7 +900,12 @@ fun AlbumsScreen(
                             color = PureWhite,
                         )
                         Text(
-                            text = "Selecciona una playlist para «${targetAlbum.album.title}» (${targetAlbum.tracks.size} pistas)",
+                            text = pluralStringResource(
+                                R.plurals.select_playlist_for_album,
+                                targetAlbum.tracks.size,
+                                targetAlbum.album.title,
+                                targetAlbum.tracks.size,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                         )

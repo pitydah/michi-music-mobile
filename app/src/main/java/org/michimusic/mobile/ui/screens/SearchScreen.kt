@@ -59,6 +59,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import org.michimusic.mobile.R
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -230,7 +232,7 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
                     .clip(MichiShapes.md)
-                    .background(Brush.verticalGradient(listOf(Color(0xFF29262F), Color(0xFF191A23))))
+                    .background(Brush.verticalGradient(org.michimusic.mobile.ui.theme.MichiSurfaces.raised))
                     .border(
                         width = 0.65.dp,
                         color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.62f) else GlassBorderLow,
@@ -330,7 +332,7 @@ fun SearchScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MichiShapes.lg)
-                            .background(Brush.verticalGradient(listOf(Color(0xFF24242F), Color(0xFF171820))))
+                            .background(Brush.verticalGradient(org.michimusic.mobile.ui.theme.MichiSurfaces.base))
                             .border(0.8.dp, PrimaryPinkContainer.copy(alpha = 0.32f), MichiShapes.lg)
                             .padding(horizontal = 20.dp, vertical = 22.dp)
                             .testTag("search_error_panel"),
@@ -587,7 +589,7 @@ private fun ArtistSearchRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${artist.trackCount} canciones en tu biblioteca",
+                    text = pluralStringResource(R.plurals.songs_in_library, artist.trackCount, artist.trackCount),
                     style = MichiTypography.metadata,
                 )
             }
@@ -631,7 +633,9 @@ private fun AlbumSearchRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${album.artist} · ${album.trackCount} temas",
+                    text = album.artist + " · " + pluralStringResource(
+                        R.plurals.themes_count, album.trackCount, album.trackCount,
+                    ),
                     style = MichiTypography.metadata,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -742,7 +746,7 @@ private fun ArtistDetailDialog(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = "${artist.trackCount} temas en biblioteca",
+                            text = pluralStringResource(R.plurals.themes_in_library, artist.trackCount, artist.trackCount),
                             color = TextSecondary,
                             fontSize = 12.sp,
                         )
@@ -887,7 +891,9 @@ private fun AlbumDetailDialog(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = "${album.artist} · ${album.trackCount} temas",
+                                text = album.artist + " · " + pluralStringResource(
+                        R.plurals.themes_count, album.trackCount, album.trackCount,
+                    ),
                                 color = TextSecondary,
                                 fontSize = 12.sp,
                             )
