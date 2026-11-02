@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +29,6 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -52,6 +53,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -311,15 +313,27 @@ fun BottomNavBar(
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
+                            // DOCK-01: at large font scales a single-word label such as
+                            // "Dispositivos" cannot wrap, so a fixed 11.sp size ellipsized it
+                            // inside 73.dp-wide tabs. Auto-size keeps the whole label by
+                            // shrinking only as much as the available width requires, instead of
+                            // truncating it for the users who explicitly asked for bigger text.
+                            BasicText(
                                 text = tab.label,
-                                color = if (isSelected || highContrast) PureWhite else PureWhite.copy(alpha = 0.82f),
-                                fontSize = 11.sp,
-                                letterSpacing = 0.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = if (dockHeight > 64.dp) 2 else 1,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 overflow = TextOverflow.Ellipsis,
+                                autoSize = TextAutoSize.StepBased(
+                                    minFontSize = 9.sp,
+                                    maxFontSize = 11.sp,
+                                    stepSize = 0.5.sp,
+                                ),
+                                style = TextStyle(
+                                    color = if (isSelected || highContrast) PureWhite else PureWhite.copy(alpha = 0.82f),
+                                    fontSize = 11.sp,
+                                    letterSpacing = 0.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                ),
                             )
                         }
                     }
