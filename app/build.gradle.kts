@@ -179,5 +179,9 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
     androidTestImplementation(libs.compose.ui.test.junit4)
+    // Espresso 3.6.x calls the hidden InputManager.getInstance(), which no longer
+    // exists on API 36, so every onIdle() failed on the API 36 emulator. Pin a
+    // newer Espresso that uses the public input APIs instead.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     debugImplementation(libs.compose.ui.test.manifest)
 }
