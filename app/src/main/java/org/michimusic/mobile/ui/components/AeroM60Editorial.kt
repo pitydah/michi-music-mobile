@@ -23,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -88,7 +88,7 @@ fun AeroLibraryFeature(
                 if (highContrast) Color.White.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.20f), shape)
             .testTag("m60_library_feature"),
     ) {
-        val compact = aeroM60StackActions(maxWidth.value, LocalConfiguration.current.fontScale)
+        val compact = aeroM60StackActions(maxWidth.value, LocalDensity.current.fontScale)
         Column(
             modifier = Modifier.fillMaxWidth().padding(if (compact) 18.dp else 21.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp),
@@ -178,7 +178,7 @@ fun AeroSignalRouteStrip(
     modifier: Modifier = Modifier,
 ) {
     val highContrast = LocalVisualPreferences.current.highContrast
-    val fontScale = LocalConfiguration.current.fontScale
+    val fontScale = LocalDensity.current.fontScale
     val shape = RoundedCornerShape(18.dp)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val stacked = aeroM60StackSignal(maxWidth.value, fontScale)
