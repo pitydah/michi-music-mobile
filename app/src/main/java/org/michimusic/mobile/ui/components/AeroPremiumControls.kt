@@ -6,6 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -114,9 +116,27 @@ fun AeroActionButton(
                 Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(19.dp))
                 Spacer(Modifier.size(7.dp))
             }
-            Text(label, fontFamily = InterFontFamily, color = ink,
-                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            // An action label is one text unit. With maxLines = 2 a single word
+            // ("Mezclar") broke mid-word into "Mezcl"/"ar" as soon as the row
+            // squeezed it. Auto-size keeps the whole word by shrinking at most
+            // 2.sp instead of splitting it or ellipsizing it away.
+            BasicText(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                autoSize = TextAutoSize.StepBased(
+                    minFontSize = 12.sp,
+                    maxFontSize = 14.sp,
+                    stepSize = 0.5.sp,
+                ),
+                style = TextStyle(
+                    fontFamily = InterFontFamily,
+                    color = ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 18.sp,
+                ),
+            )
         }
     }
 }
