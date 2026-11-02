@@ -269,15 +269,35 @@ fun AlbumsScreen(
                         )
                     }
 
-                    MichiIconAction(
-                        icon = Icons.Filled.LibraryMusic,
-                        contentDescription = "Playlists",
-                        onClick = onNavigateToPlaylists,
-                        tint = PureWhite,
-                        iconSize = 22.dp,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                        testTag = "library_playlists_button",
-                    )
+                    // The playlists entry point carries its own label: an icon-only
+                    // action in the header left the whole feature discoverable only by
+                    // guessing what a music-note glyph opened.
+                    Row(
+                        modifier = Modifier
+                            .heightIn(min = MichiSpacing.minTouchTarget)
+                            .clip(MichiShapes.sm)
+                            .background(GlassFillLow)
+                            .border(0.65.dp, GlassBorderLow, MichiShapes.sm)
+                            .clickable(role = Role.Button, onClick = onNavigateToPlaylists)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .testTag("library_playlists_button"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.LibraryMusic,
+                            contentDescription = null,
+                            tint = PureWhite,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "Listas",
+                            color = PureWhite,
+                            style = MichiTypography.metadata,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
 
                     MichiIconAction(
                         icon = Icons.Filled.Add,
