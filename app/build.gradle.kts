@@ -118,6 +118,18 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.navigation.compose)
 
+    // QR pairing: CameraX for the viewfinder and ZXing core for decoding. Both are
+    // FLOSS and ship without Google Play Services, so the F-Droid flavor keeps working.
+    // CameraX exposes ListenableFuture in its public API (ProcessCameraProvider
+    // .getInstance returns one), so the app module needs Guava on its own compile
+    // classpath. Reuse the same coordinate as :player to avoid a second copy.
+    implementation(libs.guava)
+    implementation(libs.camerax.core)
+    implementation(libs.camerax.camera2)
+    implementation(libs.camerax.lifecycle)
+    implementation(libs.camerax.view)
+    implementation(libs.zxing.core)
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)

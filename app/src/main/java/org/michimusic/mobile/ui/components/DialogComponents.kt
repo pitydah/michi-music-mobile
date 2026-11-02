@@ -1,5 +1,7 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,6 +54,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -806,6 +810,17 @@ fun QrScannerDialog(
     // wants to be paired (Michi Music Player or a server). A short "MLINK-1234"
     // token is not a pairing payload, so the dialog must not suggest one.
     val looksLikePairingLink = trimmedCode.startsWith("michi://pair")
+    // Camera capture is optional: a tablet without a sensor, a denied permission or
+    // an emulator without a virtual scene must still be able to paste the link.
+    val context = LocalContext.current
+    var cameraGranted by remember { mutableStateOf(canUseQrScanner(context)) }
+    var cameraActive by remember { mutableStateOf(false) }
+    val cameraPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        cameraGranted = granted
+        cameraActive = granted
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         AeroFloatingSurface(
@@ -848,11 +863,43 @@ fun QrScannerDialog(
                     // capture, so it must not promise a viewfinder. CameraX + ZXing
                     // is tracked as its own feature instead of faking one.
                     text = "El dispositivo que querés vincular (por ejemplo Michi Music Player) " +
-                        "muestra un enlace de emparejamiento. Copialo y pegalo acá: " +
-                        "esta versión todavía no incluye escáner de cámara.",
+                        "muestra un código QR con un enlace de emparejamiento. Escanealo con " +
+                        "la cámara o pegá el enlace manualmente.",
                     color = OnSurfaceVariant,
                     fontSize = 13.sp,
                 )
+
+                TextButton(
+                    onClick = {
+                        if (cameraGranted) cameraActive = !cameraActive
+                        else cameraPermission.launch(android.Manifest.permission.CAMERA)
+                    },
+                ) {
+                    Text(
+                        text = if (cameraActive) "Ocultar cámara" else "Escanear con la cámara",
+                        color = PrimaryPinkContainer,
+                        fontSize = 13.sp,
+                    )
+                }
+
+                if (cameraActive && cameraGranted) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .border(0.65.dp, GlassBorderHigh, RoundedCornerShape(16.dp)),
+                    ) {
+                        QrCameraScanner(
+                            onQrDetected = { payload ->
+                                manualCode = payload
+                                cameraActive = false
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

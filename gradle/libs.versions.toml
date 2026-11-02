@@ -24,6 +24,8 @@ paging = "3.3.6"
 security-crypto = "1.1.0-alpha06"
 junit = "4.13.2"
 bouncycastle = "1.77"
+camerax = "1.4.2"
+zxing = "3.5.3"
 
 
 [libraries]
@@ -87,6 +89,11 @@ androidx-room-paging = { group = "androidx.room", name = "room-paging", version.
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "security-crypto" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
