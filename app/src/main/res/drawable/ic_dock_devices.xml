@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phosphor Wi-Fi, MIT. The dot (circle r=12) is filled, the three arcs are
+     stroked; both keep the owner-supplied geometry. The dock tints the whole
+     vector, so the dot follows the selection color without a separate node. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="256"
+    android:viewportHeight="256">
+    <path
+        android:pathData="M128,192A12,12 0 1,0 128,216A12,12 0 1,0 128,192Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M232,93.19a164,164,0,0,0,-208,0"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="16"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M200,129a116,116,0,0,0,-144,0"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="16"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M168,165a68,68,0,0,0,-80,0"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="16"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

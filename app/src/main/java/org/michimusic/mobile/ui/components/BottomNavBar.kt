@@ -18,18 +18,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.Canvas
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Devices
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.LibraryMusic
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,15 +26,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -62,141 +44,32 @@ import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-
-internal enum class DockGlyph { Home, Library, Search, Devices }
+import androidx.annotation.DrawableRes
+import androidx.compose.ui.res.painterResource
+import org.michimusic.mobile.R
 
 /**
- * Single source of truth for the route-to-glyph mapping. The dock draws a
- * hand-built glyph for these routes and only falls back to the NavTabItem
- * ImageVectors for additional routes, so the mapping must not be duplicated
- * inline in the render pass.
+ * A dock destination. The icon is a single vector resource: the selected and
+ * unselected states are expressed by tint and label weight, so a second
+ * "filled" variant would only duplicate the same geometry.
  */
-internal fun dockGlyphFor(route: String): DockGlyph? = when (route) {
-    "home" -> DockGlyph.Home
-    "library" -> DockGlyph.Library
-    "search" -> DockGlyph.Search
-    "devices" -> DockGlyph.Devices
-    else -> null
-}
-
-// Preserve the NavTabItem public contract for app navigation and integrations.
 data class NavTabItem(
     val route: String,
     val label: String,
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
+    @DrawableRes val iconRes: Int,
 )
 
+/**
+ * Phosphor Icons (MIT) for the four dock destinations. Geometry comes straight
+ * from phosphoricons.com at the 256 viewport: no hand-drawn Canvas glyph remains
+ * and the Wi-Fi mark identifies Devices without tracking signal strength.
+ */
 val defaultNavTabs = listOf(
-    NavTabItem("home", "Inicio", Icons.Filled.Home, Icons.Outlined.Home),
-    NavTabItem("library", "Biblioteca", Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic),
-    NavTabItem("search", "Buscar", Icons.Filled.Search, Icons.Outlined.Search),
-    NavTabItem("devices", "Dispositivos", Icons.Filled.Devices, Icons.Outlined.Devices),
+    NavTabItem("home", "Inicio", R.drawable.ic_dock_home),
+    NavTabItem("library", "Biblioteca", R.drawable.ic_dock_library),
+    NavTabItem("search", "Buscar", R.drawable.ic_dock_search),
+    NavTabItem("devices", "Dispositivos", R.drawable.ic_dock_devices),
 )
-
-@Composable
-private fun MichiDockGlyph(
-    glyph: DockGlyph,
-    tint: Color,
-    modifier: Modifier = Modifier,
-) {
-    // Optical grid: every glyph occupies the same 0.20..0.80 box and uses one
-    // stroke weight with round caps and joins. The previous pass drew Library
-    // at 72% of the canvas and Devices at 52%, with three stroke weights inside
-    // the Library glyph alone, so the four icons never looked like one family.
-    Canvas(modifier = modifier.size(22.dp)) {
-        val sw = 2.dp.toPx()
-        val stroke = Stroke(width = sw, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        val w = size.width
-        val h = size.height
-        when (glyph) {
-            DockGlyph.Home -> {
-                val roof = Path().apply {
-                    moveTo(w * 0.20f, h * 0.47f)
-                    lineTo(w * 0.50f, h * 0.20f)
-                    lineTo(w * 0.80f, h * 0.47f)
-                }
-                drawPath(roof, tint, style = stroke)
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.30f, h * 0.47f),
-                    size = Size(w * 0.40f, h * 0.33f),
-                    cornerRadius = CornerRadius(w * 0.05f),
-                    style = stroke,
-                )
-            }
-            DockGlyph.Library -> {
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.28f, h * 0.20f),
-                    size = Size(w * 0.44f, h * 0.60f),
-                    cornerRadius = CornerRadius(w * 0.06f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.38f, h * 0.24f),
-                    end = Offset(w * 0.38f, h * 0.76f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.52f, h * 0.41f),
-                    end = Offset(w * 0.64f, h * 0.36f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.52f, h * 0.41f),
-                    end = Offset(w * 0.52f, h * 0.62f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-                drawCircle(color = tint, radius = w * 0.065f, center = Offset(w * 0.46f, h * 0.64f))
-            }
-            DockGlyph.Search -> {
-                drawCircle(
-                    color = tint,
-                    radius = size.minDimension * 0.21f,
-                    center = Offset(w * 0.46f, h * 0.44f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.60f, h * 0.58f),
-                    end = Offset(w * 0.78f, h * 0.76f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-            }
-            DockGlyph.Devices -> {
-                drawRoundRect(
-                    color = tint,
-                    topLeft = Offset(w * 0.20f, h * 0.22f),
-                    size = Size(w * 0.60f, h * 0.36f),
-                    cornerRadius = CornerRadius(w * 0.05f),
-                    style = stroke,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.50f, h * 0.58f),
-                    end = Offset(w * 0.50f, h * 0.70f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = tint,
-                    start = Offset(w * 0.32f, h * 0.78f),
-                    end = Offset(w * 0.68f, h * 0.78f),
-                    strokeWidth = sw,
-                    cap = StrokeCap.Round,
-                )
-            }
-        }
-    }
-}
 
 @Composable
 fun BottomNavBar(
@@ -230,11 +103,7 @@ fun BottomNavBar(
                 .clip(MichiShapes.lg)
                 .background(
                     Brush.verticalGradient(
-                        listOf(
-                            Color(0xFF25252F),
-                            Color(0xFF1D1E27),
-                            AeroGraphite,
-                        ),
+                        org.michimusic.mobile.ui.theme.MichiSurfaces.raised,
                     ),
                 )
                 .border(
@@ -304,17 +173,12 @@ fun BottomNavBar(
                                     .background(if (isSelected) itemColor else Color.Transparent),
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            val glyph = dockGlyphFor(tab.route)
-                            if (glyph != null) {
-                                MichiDockGlyph(glyph = glyph, tint = itemColor)
-                            } else {
-                                Icon(
-                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = null,
-                                    tint = itemColor,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
+                            Icon(
+                                painter = painterResource(tab.iconRes),
+                                contentDescription = null,
+                                tint = itemColor,
+                                modifier = Modifier.size(24.dp),
+                            )
                             Spacer(modifier = Modifier.height(4.dp))
                             // DOCK-01: at large font scales a single-word label such as
                             // "Dispositivos" cannot wrap, so a fixed 11.sp size ellipsized it
