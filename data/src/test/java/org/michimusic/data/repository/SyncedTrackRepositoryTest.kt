@@ -54,14 +54,12 @@ class SyncedTrackRepositoryTest {
             })
         }
 
-        // Verify t2 was deleted because it's not downloaded and not in the new list
-        coVerify { 
-            mockTrackDao.delete(match<CachedTrack> { it.id == "t2" })
-        }
+        // Legacy table is global; a manifest from server A cannot delete server B's row.
+        coVerify(exactly = 0) { mockTrackDao.delete(any()) }
     }
 
     @Test
-    fun `saveManifestPlaylists replaces all playlists`() = runTest {
+    fun `saveManifestPlaylists preserves unrelated playlists`() = runTest {
         val playlists = listOf(
             ManifestPlaylist(playlistId = "p1", name = "Playlist 1", trackIds = listOf("t1", "t2")),
             ManifestPlaylist(playlistId = "p2", name = "Playlist 2", trackIds = listOf("t3"))
@@ -69,7 +67,7 @@ class SyncedTrackRepositoryTest {
 
         repository.saveManifestPlaylists(playlists)
 
-        coVerify { mockPlaylistDao.deleteAll() }
+        coVerify(exactly = 0) { mockPlaylistDao.deleteAll() }
         coVerify {
             mockPlaylistDao.insertAll(match<List<CachedPlaylist>> { list ->
                 list.size == 2 && 

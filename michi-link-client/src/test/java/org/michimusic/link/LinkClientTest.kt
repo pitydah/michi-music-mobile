@@ -50,7 +50,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:8400",
+            baseUrl = "http://127.0.0.1:8400",
             httpClient = jsonClient(engine),
         )
 
@@ -85,7 +85,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:8400",
+            baseUrl = "http://127.0.0.1:8400",
             httpClient = jsonClient(engine),
         )
 
@@ -116,7 +116,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318/",
+            baseUrl = "http://127.0.0.1:53318/",
             sessionToken = "session-token",
             deviceToken = "device-token",
             clientDeviceId = "phone-1",
@@ -126,7 +126,7 @@ class LinkClientTest {
         val result = client.fetchSyncManifest("phone 1")
 
         assertTrue(result.isSuccess)
-        assertEquals("http://host:53318/api/v1/sync/manifest?device_id=phone+1", requestedUrl)
+        assertEquals("http://127.0.0.1:53318/api/v1/sync/manifest?device_id=phone+1", requestedUrl)
         assertEquals("Bearer device-token", authHeader)
         assertEquals("phone-1", deviceHeader)
         assertEquals("t1", result.getOrThrow().tracks.single().trackId)
@@ -152,7 +152,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             httpClient = jsonClient(engine),
         )
 
@@ -184,7 +184,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             httpClient = jsonClient(engine),
         )
 
@@ -212,7 +212,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             deviceToken = "device-token",
             clientDeviceId = "phone-1",
             httpClient = jsonClient(engine),
@@ -235,7 +235,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             deviceToken = "device-token",
             clientDeviceId = "phone-1",
             httpClient = jsonClient(engine),
@@ -272,7 +272,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             deviceToken = "device-token",
             clientDeviceId = "phone-1",
             httpClient = jsonClient(engine),
@@ -280,7 +280,7 @@ class LinkClientTest {
 
         val delta = client.fetchSyncManifestDelta("phone 1", "m1").getOrThrow()
 
-        assertEquals("http://host:53318/api/v1/sync/manifest/delta?device_id=phone+1&cursor=m1", requestedUrl)
+        assertEquals("http://127.0.0.1:53318/api/v1/sync/manifest/delta?device_id=phone+1&cursor=m1", requestedUrl)
         assertEquals(listOf("new-1", "mod-1"), delta.effectiveTracks.map { it.trackId })
         assertEquals(listOf("old-1"), delta.effectiveRemoved)
         assertEquals(1, delta.totalModified)
@@ -296,7 +296,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             clientDeviceId = "phone-1",
             httpClient = jsonClient(engine),
         )
@@ -318,7 +318,7 @@ class LinkClientTest {
             )
         }
         val client = LinkClient.createForTest(
-            baseUrl = "http://host:53318",
+            baseUrl = "http://127.0.0.1:53318",
             deviceToken = "device-token",
             httpClient = jsonClient(engine),
         )
@@ -339,7 +339,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val albums = client.fetchAlbums().getOrThrow()
         assertEquals(1, albums.total)
         assertEquals("Abbey Road", albums.items.single().title)
@@ -354,7 +354,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val detail = client.fetchAlbum("a1").getOrThrow()
         assertEquals("Abbey Road", detail.album.title)
         assertEquals("t1", detail.tracks.single().trackId)
@@ -369,7 +369,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val artists = client.fetchArtists().getOrThrow()
         assertEquals(1, artists.total)
         assertEquals("The Beatles", artists.items.single().name)
@@ -394,7 +394,7 @@ class LinkClientTest {
                 )
             }
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val createdPlaylist = client.createPlaylist(PlaylistCreateRequest("Favorites")).getOrThrow()
         assertEquals("pl1", createdPlaylist.id)
         val fetchedPlaylist = client.fetchPlaylist("pl1").getOrThrow()
@@ -410,7 +410,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val star = client.starTrack("t1").getOrThrow()
         assertTrue(star.starred)
     }
@@ -424,7 +424,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val receivers = client.fetchReceivers().getOrThrow()
         assertEquals("Living Room", receivers.single().name)
         assertEquals(70, receivers.single().volume)
@@ -439,7 +439,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val state = client.getPlaybackState().getOrThrow()
         assertEquals("playing", state.effectiveState)
         assertEquals("Song1", state.effectiveTitle)
@@ -455,7 +455,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val queue = client.getQueue().getOrThrow()
         assertEquals("q1", queue.queueId)
         assertEquals("t1", queue.tracks.single().trackId)
@@ -470,7 +470,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         val history = client.fetchHistory().getOrThrow()
         assertEquals(1, history.total)
         assertEquals("t1", history.items.single().trackId)
@@ -487,7 +487,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         client.reorderQueue(QueueReorderRequest(fromIndex = 2, toIndex = 0)).getOrThrow()
         assertTrue(requestBody.contains("from_index"))
         assertTrue(requestBody.contains("to_index"))
@@ -504,7 +504,7 @@ class LinkClientTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
             )
         }
-        val client = LinkClient.createForTest("http://host:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
         client.fetchServerDiagnostics().getOrThrow()
         assertTrue(requestedUrl.contains("/api/v1/diagnostics"))
     }

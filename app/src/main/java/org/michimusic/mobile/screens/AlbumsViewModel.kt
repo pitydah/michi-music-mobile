@@ -56,13 +56,17 @@ class AlbumsViewModel(
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private var loadJob: Job? = null
+    private val loadEpoch = java.util.concurrent.atomic.AtomicLong()
 
     fun cancelLoading() {
+        loadEpoch.incrementAndGet()
         loadJob?.cancel()
         loadJob = null
+        _isLoading.value = false
     }
 
     fun loadMedia() {
+        val epoch = loadEpoch.incrementAndGet()
         loadJob?.cancel()
         loadJob = viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
@@ -70,6 +74,8 @@ class AlbumsViewModel(
             try {
                 val result = try {
                     repo.loadAlbums()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     _error.value = e.message ?: "Error al cargar la biblioteca"
                     emptyList()
@@ -83,20 +89,27 @@ class AlbumsViewModel(
                         .distinctBy { it.id }
                         .take(12)
                     top to recent
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     emptyList<Track>() to emptyList<Track>()
                 }
                 val loadedPlaylists = try {
                     playlistRepo.getAllPlaylists()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     emptyList()
                 }
 
                 val favIds: Set<String> = try {
                     favoritesRepo?.observeFavoriteTrackIds()?.firstOrNull() ?: emptySet()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (_: Exception) {
                     emptySet()
                 }
+                if (epoch != loadEpoch.get()) return@launch
                 _favoriteTrackIds.value = favIds
                 _favoriteTracks.value = tracks.filter { it.id in favIds }
 
@@ -110,7 +123,10 @@ class AlbumsViewModel(
                 _topTracks.value = smartLists.first
                 _recentTracks.value = smartLists.second
                 _playlists.value = loadedPlaylists
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (epoch != loadEpoch.get()) return@launch
                 _albums.value = emptyList()
                 _allTracks.value = emptyList()
                 _topTracks.value = emptyList()
@@ -121,7 +137,7 @@ class AlbumsViewModel(
                 _downloadedTrackIds.value = emptySet()
                 _error.value = e.message ?: "Error al cargar la biblioteca"
             } finally {
-                _isLoading.value = false
+                if (epoch == loadEpoch.get()) _isLoading.value = false
             }
         }
     }

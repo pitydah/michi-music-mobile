@@ -178,12 +178,10 @@ class SearchViewModel(
             )
         }
 
-        // Deduplicate tracks preserving distinct masters (different sampleRate/bitDepth/format)
+        // Metadata are not a content identity: two different masters can share
+        // title/artist/album/format/sample rate. Never hide a distinct source here.
         val combined = localTracks + convertedSynced
-        return combined.distinctBy { track ->
-            val key = "${track.title.trim().lowercase()}___${track.artist.trim().lowercase()}___${track.album.trim().lowercase()}___${track.sampleRate ?: 0}___${track.format.lowercase()}"
-            if (key.length > 8) key else track.id
-        }
+        return combined.distinctBy { track -> Triple(track.source, track.id, track.filepath) }
     }
 
     private fun executeSearch(q: String, filter: SearchFilter, generation: Long) {

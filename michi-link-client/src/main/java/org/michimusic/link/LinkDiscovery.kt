@@ -60,6 +60,7 @@ open class LinkDiscovery(
     }
 
     override fun onStop(owner: LifecycleOwner) {
+        isRunning = false
         releaseMulticastLock()
         closeSocket()
     }
@@ -101,8 +102,17 @@ open class LinkDiscovery(
                 processAnnounce(msg, host)
             } catch (_: java.net.SocketTimeoutException) {
                 cleanStalePeers()
+            } catch (error: Exception) {
+                // A malformed/untrusted UDP advertisement must not kill discovery.
+                // A closed socket during stop is a legitimate lifecycle transition.
+                if (!isRunning || !isActive) break
+                // Do not log remote datagram contents, tokens or identifiers.
             }
         }
+        // Release even if a peer sends invalid data or the socket closes unexpectedly.
+        isRunning = false
+        closeSocket()
+        releaseMulticastLock()
     }
 
     fun processAnnounce(
@@ -110,8 +120,12 @@ open class LinkDiscovery(
         hostAddress: String,
         now: Long = System.currentTimeMillis()
     ) {
+        if (msg.port !in 1..65535) return
         val key = if (msg.deviceId.isNotBlank()) msg.deviceId else "$hostAddress:${msg.port}"
         if (msg.type == "goodbye") {
+            // Anonymous discovery is not authenticated; at minimum avoid a
+            // different source address evicting an already announced peer.
+            if (_peers.value[key]?.ip?.let { it != hostAddress } == true) return
             val peerAlias = _peers.value[key]?.alias ?: msg.alias.takeIf { it.isNotBlank() }
             _peers.value = _peers.value - key
             peerLastSeen.remove(key)

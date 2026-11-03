@@ -77,10 +77,13 @@ class FederatedSearchTest {
             filepath = "content://media/external/audio/100",
         )
 
+        // The very same file indexed twice: same source, id and path.
+        val master1IndexedAgain = master1.copy()
+
         coEvery { localRepo.loadAlbums() } returns listOf(
             LocalMediaRepository.LocalAlbum(
                 album = org.michimusic.core.models.Album(id = "a1", title = "Hotel California", artist = "Eagles", year = 1976),
-                tracks = listOf(master1, master2, master1Duplicate),
+                tracks = listOf(master1, master2, master1Duplicate, master1IndexedAgain),
             )
         )
         coEvery { syncedRepo.getAllSynced() } returns flowOf(emptyList())
@@ -93,8 +96,10 @@ class FederatedSearchTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         val results = viewModel.structuredResults.value.tracks
-        // Must preserve the two distinct masters (44.1kHz vs 96kHz) while dropping the duplicate 44.1kHz track
-        assertEquals(2, results.size)
+        // R16: identity is (source, id, filepath), not metadata. Two files that only
+        // share title/artist/album/format/sample rate are distinct masters and must
+        // stay visible; only the same file indexed twice collapses.
+        assertEquals(3, results.size)
         assertTrue(results.any { it.track.sampleRate == 44100 })
         assertTrue(results.any { it.track.sampleRate == 96000 })
         assertTrue(results.all { it.availableLocations.isNotEmpty() })

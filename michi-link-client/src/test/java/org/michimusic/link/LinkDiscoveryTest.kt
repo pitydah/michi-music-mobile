@@ -65,6 +65,16 @@ class LinkDiscoveryTest {
     }
 
     @Test
+    fun `spoofed goodbye from different host cannot evict an existing device`() = runTest {
+        val discovery = LinkDiscovery()
+        val original = AnnounceMessage(alias = "Node", port = 8400, device = "player",
+            deviceId = "trusted", version = "1.0", authRequired = false)
+        discovery.processAnnounce(original, "192.168.1.20")
+        discovery.processAnnounce(original.copy(type = "goodbye"), "192.168.1.99")
+        assertEquals("192.168.1.20", discovery.peers.value["trusted"]?.ip)
+    }
+
+    @Test
     fun `alias change on same device updates existing entry without duplicate`() = runTest {
         val discovery = LinkDiscovery()
         val initial = AnnounceMessage(

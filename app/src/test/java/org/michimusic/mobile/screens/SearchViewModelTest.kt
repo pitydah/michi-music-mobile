@@ -79,8 +79,8 @@ class SearchViewModelTest {
 
         val structured = viewModel.structuredResults.value
         
-        // Should have deduplicated 'My Track'
-        assertEquals(2, structured.tracks.size)
+        // Distinct local and synced representations must remain selectable.
+        assertEquals(3, structured.tracks.size)
         val titles = structured.tracks.map { it.track.title }
         assertEquals(true, titles.contains("My Track"))
         assertEquals(true, titles.contains("My Another Track"))

@@ -44,6 +44,21 @@ class ResumableTransferTest {
         tempDir.deleteRecursively()
     }
 
+    @Test
+    fun unverifiedLegacyDownloadCannotReclaimAnExistingFileWithoutStreaming() = runBlocking {
+        val item = DownloadItem(trackId = "track", title = "Track", format = "flac",
+            checksum = "", size = 5, remoteDeviceId = "remote_A", destinationLibraryId = "library_A")
+        val (target, _) = org.michimusic.core.models.TransferFileIdentity.resolveFiles(
+            musicDir = transferManager.musicDir, remoteDeviceId = item.remoteDeviceId,
+            destinationLibraryId = item.destinationLibraryId, trackId = item.trackId,
+            format = item.format, planId = item.planId, representationId = item.representationId)
+        target.parentFile?.mkdirs()
+        target.writeText("ORIGINAL")
+        val result = transferManager.downloadTrack(mockk<LinkClient>(), item)
+        assertTrue(result.isFailure)
+        assertEquals("ORIGINAL", target.readText())
+    }
+
     private fun sha256(data: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(data).joinToString("") { "%02x".format(it) }
@@ -653,7 +668,10 @@ class ResumableTransferTest {
             title = "Byte Separation",
             format = "mp3",
             size = totalSize,
-            checksum = "dummy",
+            // A valid SHA-256 is required before any byte is requested: the manager
+            // rejects malformed checksums up front, so this fixture keeps the download
+            // reachable and lets the mid-stream failure stay the subject of the test.
+            checksum = "0".repeat(64),
             transferKey = trackId,
         )
 

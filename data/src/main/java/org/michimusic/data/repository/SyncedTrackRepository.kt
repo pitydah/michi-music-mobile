@@ -23,15 +23,20 @@ open class SyncedTrackRepository(
         }
         val existingMap = existing.associateBy { it.id }
 
+        // R16 safety fence: the legacy cache is global and contains no source/library ID.
+        // Never reconcile a single peer's manifest by deleting rows from that global table.
+        // A truly scoped reconciliation requires the versioned Room schema migration.
+        require(tracks.map { it.id }.distinct().size == tracks.size) {
+            "El manifiesto recibido repite identificadores de pista"
+        }
+        // Same-ID collisions across peers remain possible until the schema
+        // includes a composite (sourceId, libraryId, trackId) identity.
         val entities = tracks.map { dto ->
             val old = existingMap[dto.id]
             dto.toCachedTrackPreserving(old)
         }
         td.insertAll(entities)
-
-        val newIds = tracks.map { it.id }.toSet()
-        val removed = existing.filter { it.id !in newIds && !it.downloaded }
-        removed.forEach { td.delete(it) }
+        // No global delete: preserve other peers and locally authored records.
     }
 
     open suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {
@@ -43,9 +48,19 @@ open class SyncedTrackRepository(
                 trackCount = mp.trackIds.size,
             )
         }
-        playlistDao?.let {
-            it.deleteAll()
-            it.insertAll(entities)
+        playlistDao?.let { dao ->
+            // R16 safety fence: do not delete local/other-peer playlists. Refuse
+            // ambiguous shared IDs instead of overwriting a differently owned record.
+            require(entities.map { p -> p.id }.distinct().size == entities.size) {
+                "Duplicated playlist IDs in incoming manifest"
+            }
+            val existing = dao.getAllPlaylists().associateBy { p -> p.id }
+            require(entities.none { incoming ->
+                existing[incoming.id]?.let { prior ->
+                    prior.name != incoming.name || prior.trackIds != incoming.trackIds
+                } == true
+            }) { "La lista heredada usa un identificador que ya pertenece a otro origen; no se puede atribuir" }
+            dao.insertAll(entities)
         }
     }
 

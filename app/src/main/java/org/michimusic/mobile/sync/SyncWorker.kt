@@ -730,25 +730,30 @@ class SyncWorker(
             Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         } catch (e: Exception) {
             client.close()
+            val retryable = SyncRetryPolicy.shouldRetryUnhandled(e, runAttemptCount)
+            val targetState = if (retryable)
+                org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING
+                else org.michimusic.core.models.TransferLifecycleState.FAILED
             try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
                 val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
                     planId = planId,
                     expectedState = org.michimusic.core.models.TransferLifecycleState.TRANSFERRING,
-                    nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                    nextState = targetState,
                     errorMessage = e.message,
                 ) ?: false
                 if (!transitioned) {
                     org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
                         planId = planId,
                         expectedState = org.michimusic.core.models.TransferLifecycleState.QUEUED,
-                        nextState = org.michimusic.core.models.TransferLifecycleState.FAILED,
+                        nextState = targetState,
                         errorMessage = e.message,
                     )
                 }
             }
-            Result.retry()
+            if (retryable) Result.retry()
+            else Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
     }
 

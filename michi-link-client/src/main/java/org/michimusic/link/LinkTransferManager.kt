@@ -55,10 +55,18 @@ class LinkTransferManager(
             representationId = item.representationId,
         )
 
-        // 1. If file already exists and is intact, return immediately
+        // A cached file is never accredited by size or filename alone.
+        // Hashless legacy AirCat downloads remain allowed but UNVERIFIED, without cached reuse.
+        val checksum = item.checksum.trim()
+        if (checksum.isNotEmpty() && !TransferIntegrityPolicy.validSha256(checksum)) {
+            return@withContext Result.failure(
+                IllegalArgumentException("INVALID_CHECKSUM: SHA-256 must be 64 hexadecimal characters")
+            )
+        }
+        // 1. Reuse only if hash is provided AND the expected size matches (when known).
         if (file.exists() && file.length() > 0) {
             val len = file.length()
-            if (item.checksum.isEmpty() || verifyChecksum(file, item.checksum)) {
+            if (TransferIntegrityPolicy.mayReuse(len, item.size, checksum) && verifyChecksum(file, checksum)) {
                 _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Completed(len))
                 updateCheckpoint(item.effectiveTransferKey) {
                     TransferCheckpoint(
@@ -301,13 +309,13 @@ class LinkTransferManager(
                 return@withContext Result.failure(err)
             }
 
-            // SHA-256 Checksum check
-            if (item.checksum.isNotEmpty()) {
+            // SHA-256 Checksum check: absent hash is an explicit UNVERIFIED legacy case.
+            if (checksum.isNotEmpty()) {
                 val actualHex = calculateSha256(tempFile)
-                val matches = actualHex.equals(item.checksum, ignoreCase = true)
+                val matches = actualHex.equals(checksum, ignoreCase = true)
                 if (!matches) {
                     tempFile.delete()
-                    val err = TransferChecksumMismatchException(item.trackId, item.checksum, actualHex)
+                    val err = TransferChecksumMismatchException(item.trackId, checksum, actualHex)
                     _downloads.value = _downloads.value + (item.trackId to DownloadProgress.Failed("Checksum mismatch"))
                     updateCheckpoint(transferKey) { it?.copy(state = TransferState.FAILED) }
                     return@withContext Result.failure(err)

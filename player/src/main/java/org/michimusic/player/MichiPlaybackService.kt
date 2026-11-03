@@ -170,8 +170,10 @@ class MichiPlaybackService : MediaLibraryService() {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     val generation = transitionEpoch.advance()
                     val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
-                    // Only the transition invalidates measurements; metadata lookup must not.
-                    truthTracker.onTrackChanged(null)
+                    // A gapless transition may retain the same AudioTrack. Never carry
+                    // previous source/decoder evidence, but preserve a still-active sink.
+                    if (mediaItem != null) truthTracker.onMediaItemTransitionPending()
+                    else truthTracker.onTrackChanged(null)
                     truthTracker.setPlaybackActive(exoPlayer.isPlaying)
                     replayGainProcessor.onSongChanged(null)
                     truthTracker.recompute()
@@ -179,15 +181,28 @@ class MichiPlaybackService : MediaLibraryService() {
                         saveScope.launch {
                             val track = PlayerDependencies.trackDao?.getTrackById(songId)?.toTrack()
                                 ?: controller.getRepository().loadTracks().firstOrNull { it.id == songId }
-                            // Read the ORIGINAL file on IO, never derive source quality from PCM.
-                            val fileFacts = track?.let { CurrentSourceMetadata.read(this@MichiPlaybackService, it) }
+                            // Apply track gain as soon as the lightweight DAO lookup finishes.
+                            // Never wait for MediaMetadataRetriever to open/read the media file.
                             withContext(Dispatchers.Main) {
-                                // An older asynchronous lookup must never label the next song.
                                 if (transitionEpoch.isCurrent(generation) &&
                                     exoPlayer.currentMediaItem?.mediaId == mediaItem?.mediaId) {
                                     replayGainProcessor.onSongChanged(track)
-                                    if (track != null) truthTracker.onTrackFileMetadata(track, fileFacts)
+                                    if (track != null) truthTracker.onTrackFileMetadata(track, null)
                                     truthTracker.recompute()
+                                }
+                            }
+                            // Only technical file metadata belongs to the slower IO pass.
+                            // Capturing the resolved track keeps both facts and identity non-null
+                            // without a redundant second null check on the same value.
+                            val resolvedTrack = track
+                            if (resolvedTrack != null) {
+                                val fileFacts = CurrentSourceMetadata.read(this@MichiPlaybackService, resolvedTrack)
+                                if (fileFacts != null) withContext(Dispatchers.Main) {
+                                    if (transitionEpoch.isCurrent(generation) &&
+                                        exoPlayer.currentMediaItem?.mediaId == mediaItem?.mediaId) {
+                                        truthTracker.onTrackFileMetadata(resolvedTrack, fileFacts)
+                                        truthTracker.recompute()
+                                    }
                                 }
                             }
                         }

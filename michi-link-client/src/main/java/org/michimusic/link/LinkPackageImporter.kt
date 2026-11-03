@@ -32,10 +32,25 @@ class LinkPackageImporter(private val context: Context) {
     }
 
     fun importTrack(source: File, trackId: String, format: String): File? {
-        val ext = format.lowercase().takeIf { it.isNotEmpty() } ?: "mp3"
+        if (!source.isFile || !source.canRead()) return null
         val destDir = File(context.filesDir, "synced_music").also { it.mkdirs() }
-        val dest = File(destDir, "${trackId}.$ext")
-        source.copyTo(dest, overwrite = true)
-        return dest.takeIf { it.exists() }
+        val dest = validatedImportDestination(destDir, trackId, format) ?: return null
+        // CREATE_NEW is atomic: an attacker or concurrent import cannot insert a file
+        // between destination validation and FileOutputStream creation.
+        var created = false
+        return try {
+            java.nio.file.Files.newOutputStream(
+                dest.toPath(),
+                java.nio.file.StandardOpenOption.CREATE_NEW,
+                java.nio.file.StandardOpenOption.WRITE,
+            ).use { out ->
+                created = true
+                source.inputStream().use { input -> input.copyTo(out) }
+            }
+            dest
+        } catch (_: Exception) {
+            if (created) runCatching { java.nio.file.Files.deleteIfExists(dest.toPath()) }
+            null
+        }
     }
 }

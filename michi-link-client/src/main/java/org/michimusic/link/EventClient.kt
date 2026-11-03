@@ -107,6 +107,13 @@ class EventClient(
                 header("Authorization", "Bearer $token")
                 if (clientDeviceId.isNotEmpty()) header("X-Michi-Device-Id", clientDeviceId)
             }.execute { response ->
+                // HTTP 401/403/404/500 is not a connected SSE stream.
+                // A non-SSE Content-Type is also a protocol failure, not success.
+                val contentType = response.headers[io.ktor.http.HttpHeaders.ContentType]
+                if (!SseHandshakePolicy.accepts(response.status.value, contentType)) {
+                    _connectionState.value = EventConnectionState.ERROR
+                    return@execute
+                }
                 onConnected()
                 val channel = response.bodyAsChannel()
                 while (isActive && !channel.isClosedForRead) {

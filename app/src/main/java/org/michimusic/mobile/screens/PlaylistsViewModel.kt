@@ -71,6 +71,9 @@ class PlaylistsViewModel(
     private val _selectedPlaylistState =
         MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
     val selectedPlaylistState: StateFlow<PlaylistDetailUiState> = _selectedPlaylistState.asStateFlow()
+    // The latest requested detail owns the UI, including asynchronous mutation refreshes.
+    private val detailEpoch = java.util.concurrent.atomic.AtomicLong(0L)
+    private val requestedDetailId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
     // Tracks available on this device to be picked from AddTracksDialog. Loaded on demand
     // when the dialog opens, not filtered here - the screen filters out tracks already
@@ -184,8 +187,12 @@ class PlaylistsViewModel(
     // Loads a single playlist by id directly from the repository, independent of
     // whether the reactive `playlists` list has finished loading yet.
     fun loadPlaylistDetail(id: String) {
+        // Increment synchronously, before coroutine dispatch, to reject stale completions.
+        requestedDetailId.set(id)
+        val epoch = detailEpoch.incrementAndGet()
+        _selectedPlaylistState.value = PlaylistDetailUiState.Loading
         viewModelScope.launch(ioDispatcher) {
-            refreshPlaylistDetail(id)
+            refreshPlaylistDetail(id, epoch)
         }
     }
     /**
@@ -445,9 +452,14 @@ class PlaylistsViewModel(
         }
     }
 
-    private suspend fun refreshPlaylistDetail(id: String) {
+    private suspend fun refreshPlaylistDetail(
+        id: String,
+        epoch: Long = detailEpoch.get(),
+    ) {
+        if (epoch != detailEpoch.get() ||
+            requestedDetailId.get()?.let { it != id } == true) return
         _selectedPlaylistState.value = PlaylistDetailUiState.Loading
-        _selectedPlaylistState.value = try {
+        val nextState = try {
             val playlist = repo.getById(id)
             if (playlist != null) {
                 val tracks = repo.getTracksForPlaylist(playlist)
@@ -463,8 +475,12 @@ class PlaylistsViewModel(
             } else {
                 PlaylistDetailUiState.NotFound
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             PlaylistDetailUiState.Error(e.message ?: "No se pudo cargar la playlist")
         }
+        if (epoch == detailEpoch.get() &&
+            requestedDetailId.get()?.let { it != id } != true) _selectedPlaylistState.value = nextState
     }
 }

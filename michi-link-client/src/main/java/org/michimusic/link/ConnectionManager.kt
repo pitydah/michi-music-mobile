@@ -2,13 +2,17 @@ package org.michimusic.link
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.link.identity.MichiIdentity
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 open class ConnectionManager(
     private val registry: PairedDeviceRegistry,
@@ -21,12 +25,18 @@ open class ConnectionManager(
 
     protected val clients = ConcurrentHashMap<String, LinkClient>()
     private val scope = CoroutineScope(coroutineContext)
+    private val epochs = ConcurrentHashMap<String, AtomicLong>()
+    private val connectionJobs = ConcurrentHashMap<String, Job>()
+    private fun nextEpoch(id: String) = epochs.computeIfAbsent(id) { AtomicLong() }.incrementAndGet()
+    private fun current(id: String, epoch: Long) = epochs[id]?.get() == epoch
 
     open fun getClient(deviceId: String): LinkClient? {
         return clients[deviceId]
     }
 
     fun connect(deviceId: String) {
+        val epoch = nextEpoch(deviceId)
+        connectionJobs.remove(deviceId)?.cancel()
         val device = registry.getDevice(deviceId) ?: return
         if (device.lastUrl.isEmpty()) {
             updateState(deviceId, SyncConnectionState.OFFLINE)
@@ -35,19 +45,27 @@ open class ConnectionManager(
 
         updateState(deviceId, SyncConnectionState.CONNECTING)
 
-        val client = clients[deviceId] ?: LinkClient(
-            baseUrl = device.lastUrl,
-            deviceToken = device.deviceToken,
-            sessionToken = device.deviceToken,
-            clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
-            pairedClientDeviceId = device.pairedClientDeviceId,
-        ).also { 
-            it.tokenRefreshSupported = device.tokenRefreshSupported
-            clients[deviceId] = it 
+        val existing = clients[deviceId]
+        val client = if (existing != null &&
+            existing.baseUrl == LinkClientConfig.normalizeBaseUrl(device.lastUrl) &&
+            existing.deviceToken == device.deviceToken &&
+            existing.pairedClientDeviceId == device.pairedClientDeviceId) existing else {
+            existing?.close()
+            LinkClient(
+                baseUrl = device.lastUrl,
+                deviceToken = device.deviceToken,
+                sessionToken = device.deviceToken,
+                clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
+                pairedClientDeviceId = device.pairedClientDeviceId,
+            ).also {
+                it.tokenRefreshSupported = device.tokenRefreshSupported
+                clients[deviceId] = it
+            }
         }
 
-        scope.launch {
+        connectionJobs[deviceId] = scope.launch {
             val result = client.getServerInfo()
+            if (!isActive || !current(deviceId, epoch)) return@launch
             if (result.isSuccess) {
                 val info = result.getOrNull()
                 // Validate pinned identity on reconnect
@@ -92,8 +110,10 @@ open class ConnectionManager(
                         features = info.effectiveFeatures.ifEmpty { device.features },
                         roles = info.roles.ifEmpty { device.roles },
                     )
+                    if (!isActive || !current(deviceId, epoch)) return@launch
                     registry.saveDevice(updated)
                 }
+                if (!isActive || !current(deviceId, epoch)) return@launch
                 updateState(deviceId, SyncConnectionState.CONNECTED)
             } else {
                 val errorMsg = result.exceptionOrNull()?.message ?: ""
@@ -108,14 +128,13 @@ open class ConnectionManager(
     }
 
     fun updateState(deviceId: String, state: SyncConnectionState) {
-        val map = _connectionStates.value.toMutableMap()
-        map[deviceId] = state
-        _connectionStates.value = map
+        _connectionStates.update { it + (deviceId to state) }
     }
 
     fun disconnect(deviceId: String) {
-        clients[deviceId]?.close()
-        clients.remove(deviceId)
+        nextEpoch(deviceId)
+        connectionJobs.remove(deviceId)?.cancel()
+        clients.remove(deviceId)?.close()
         updateState(deviceId, SyncConnectionState.DISCONNECTED)
     }
 
@@ -124,6 +143,9 @@ open class ConnectionManager(
     }
 
     fun disconnectAll() {
+        epochs.values.forEach { it.incrementAndGet() }
+        connectionJobs.values.forEach { it.cancel() }
+        connectionJobs.clear()
         clients.values.forEach { it.close() }
         clients.clear()
         _connectionStates.value = emptyMap()

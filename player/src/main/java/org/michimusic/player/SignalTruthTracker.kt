@@ -88,6 +88,19 @@ class SignalTruthTracker(
 
     private var currentAudioTrackGeneration: Long = 0L
 
+    /** Media3 may reuse AudioTrack across gapless tracks. Preserve only the actual sink
+     * and route observation; old source and decoder facts must expire immediately. */
+    fun onMediaItemTransitionPending() {
+        currentSourceFormat = null
+        currentFileFacts = null
+        currentMetadataTrack = null
+        currentDecodedFormat = null
+        sourceObservedAtMs = 0L
+        decodedObservedAtMs = 0L
+        trackGeneration++
+        recompute()
+    }
+
     fun onTrackChanged(track: Track?) {
         if (track == null) {
             clearPlayback()

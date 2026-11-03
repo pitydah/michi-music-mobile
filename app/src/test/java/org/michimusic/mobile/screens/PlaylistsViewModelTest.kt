@@ -176,6 +176,55 @@ class PlaylistsViewModelTest {
         assertEquals("Recently Added", (state as PlaylistDetailUiState.Found).playlist.name)
     }
 
+    @Test
+    fun loadPlaylistDetail_latestRequestWinsEvenIfOlderRequestCompletesLast() = runTest(testDispatcher) {
+        val first = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val second = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val slowRepo = object : FakePlaylistRepo() {
+            override suspend fun getById(id: String): Playlist? {
+                if (id == "pl1") first.await() else second.await()
+                return Playlist(id = id, name = id, trackCount = 0)
+            }
+            override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = emptyList()
+        }
+        val vm = PlaylistsViewModel(slowRepo, LocalMediaRepository(), testDispatcher)
+        vm.loadPlaylistDetail("pl1")
+        testScheduler.runCurrent()
+        vm.loadPlaylistDetail("pl2")
+        testScheduler.runCurrent()
+        second.complete(Unit)
+        testScheduler.runCurrent()
+        assertEquals("pl2", (vm.selectedPlaylistState.value as PlaylistDetailUiState.Found).playlist.id)
+        first.complete(Unit)
+        testScheduler.advanceUntilIdle()
+        assertEquals("pl2", (vm.selectedPlaylistState.value as PlaylistDetailUiState.Found).playlist.id)
+    }
+
+    @Test
+    fun staleMutationRefreshDoesNotInvalidateASelectedDifferentPlaylist() = runTest(testDispatcher) {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val repo = object : PlaylistRepository(
+            trackDao = mockk<TrackDao>(relaxed = true),
+            localMediaRepository = LocalMediaRepository(),
+        ) {
+            override fun observePlaylists() = kotlinx.coroutines.flow.flowOf(emptyList<Playlist>())
+            override suspend fun getById(id: String): Playlist? {
+                if (id == "plB") gate.await()
+                return Playlist(id = id, name = id)
+            }
+            override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = emptyList()
+            override suspend fun renamePlaylist(id: String, newName: String) = Unit
+        }
+        val vm = PlaylistsViewModel(repo, LocalMediaRepository(), testDispatcher)
+        vm.loadPlaylistDetail("plB")
+        testScheduler.runCurrent()
+        vm.renamePlaylist("plA", "Renamed")
+        testScheduler.runCurrent()
+        gate.complete(Unit)
+        testScheduler.advanceUntilIdle()
+        assertEquals("plB", (vm.selectedPlaylistState.value as PlaylistDetailUiState.Found).playlist.id)
+    }
+
     // --- 3B: adding tracks ---
 
     @Test

@@ -29,7 +29,7 @@ class LinkClientIntegrationTest {
             }
         }
         return LinkClient.createForTest(
-            baseUrl = "http://test-server:53318",
+            baseUrl = "http://127.0.0.1:53318",
             sessionToken = "test_session_token",
             deviceToken = "test_device_token",
             clientDeviceId = "test_device_id",

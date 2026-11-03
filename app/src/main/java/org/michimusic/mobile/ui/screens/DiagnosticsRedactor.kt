@@ -21,13 +21,14 @@ object DiagnosticsRedactor {
 
     fun redactReport(report: DiagnosticReport): DiagnosticReport {
         return report.copy(
-            device = report.device,
-            server = report.server,
+            device = redactString(report.device),
+            server = redactString(report.server),
             baseUrl = redactBaseUrl(report.baseUrl),
-            authStrategy = report.authStrategy,
+            authStrategy = redactString(report.authStrategy),
             tokenRefreshSupported = report.tokenRefreshSupported,
             tests = report.tests.map { test ->
                 test.copy(
+                    name = redactString(test.name),
                     message = redactString(test.message)
                 )
             },
