@@ -188,7 +188,11 @@ class EndToEndSyncFlowTest {
             linkDiscovery = linkDiscovery,
             registry = registry,
             connectionManager = connectionManager,
-            identity = identity,
+            identityAuthority = org.michimusic.link.identity.MichiIdentityAuthority(
+                context,
+                factory = { identity },
+                initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
+            ),
             trackRepository = trackRepository,
             checkpointRepository = checkpointRepo,
         )
@@ -319,7 +323,11 @@ class EndToEndSyncFlowTest {
             linkDiscovery = linkDiscovery,
             registry = registry,
             connectionManager = connectionManager,
-            identity = identity,
+            identityAuthority = org.michimusic.link.identity.MichiIdentityAuthority(
+                context,
+                factory = { identity },
+                initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
+            ),
             trackRepository = trackRepository,
             checkpointRepository = checkpointRepo,
         )

@@ -14,6 +14,15 @@ import org.michimusic.link.identity.MichiIdentity
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ConnectionManagerR16Test {
+
+    private fun readyAuthority(identity: MichiIdentity): org.michimusic.link.identity.MichiIdentityAuthority =
+        org.michimusic.link.identity.MichiIdentityAuthority(
+            context = io.mockk.mockk(relaxed = true),
+            ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined,
+            factory = { identity },
+            initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
+        )
+
     @Test fun disconnectInvalidatesLateConnectionResponse() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val registry = mockk<PairedDeviceRegistry>()
@@ -29,7 +38,7 @@ class ConnectionManagerR16Test {
             delay(100)
             Result.failure(IllegalStateException("offline"))
         }
-        val manager = object : ConnectionManager(registry, identity, dispatcher) {
+        val manager = object : ConnectionManager(registry, readyAuthority(identity), dispatcher) {
             init { clients["dev"] = client }
         }
         manager.connect("dev")

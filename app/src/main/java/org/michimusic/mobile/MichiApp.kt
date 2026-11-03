@@ -60,6 +60,7 @@ class MichiApp : Application() {
         configureImageLoader()
         configureStrictMode()
         startVisualPreferencesLoad()
+        startIdentityResolution()
     }
 
     /**
@@ -67,6 +68,21 @@ class MichiApp : Application() {
      * read off the main thread; [org.michimusic.mobile.ui.theme.VisualPreferencesRepository.ready]
      * holds the first frame until it lands so the app never flashes the default theme.
      */
+    /**
+     * Resolves the device identity on IO before the user can reach pairing.
+     * Resolving it used to happen inside the Koin graph while the first frame was
+     * composed, which opened the Keystore on the main thread.
+     */
+    private fun startIdentityResolution() {
+        try {
+            org.koin.core.context.GlobalContext.get()
+                .get<org.michimusic.link.identity.MichiIdentityAuthority>()
+                .start(applicationScope)
+        } catch (e: Exception) {
+            Log.w("MichiApp", "No se pudo resolver la identidad del dispositivo: ${e.message}")
+        }
+    }
+
     private fun startVisualPreferencesLoad() {
         try {
             org.koin.core.context.GlobalContext.get()

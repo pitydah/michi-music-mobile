@@ -5,6 +5,9 @@ import io.ktor.serialization.kotlinx.json.json
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -27,6 +30,15 @@ class ConnectionManagerTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var connectionManager: ConnectionManager
     private lateinit var registry: PairedDeviceRegistry
+
+    private fun readyAuthority(identity: MichiIdentity): org.michimusic.link.identity.MichiIdentityAuthority =
+        org.michimusic.link.identity.MichiIdentityAuthority(
+            context = io.mockk.mockk(relaxed = true),
+            ioDispatcher = kotlinx.coroutines.Dispatchers.Unconfined,
+            factory = { identity },
+            initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
+        )
+
     private lateinit var identity: MichiIdentity
 
     @Before
@@ -35,7 +47,7 @@ class ConnectionManagerTest {
         registry = mockk(relaxed = true)
         identity = mockk(relaxed = true)
         every { identity.michiId } returns "test_client_id"
-        connectionManager = ConnectionManager(registry, identity)
+        connectionManager = ConnectionManager(registry, readyAuthority(identity), testDispatcher)
     }
 
     @After
@@ -75,6 +87,9 @@ class ConnectionManagerTest {
         every { registry.getDevice("dev_3") } returns device
         
         connectionManager.connect("dev_3")
+        // connect() resolves the identity off the calling thread and builds the client inside
+        // its own coroutine, so the caller must let the scheduler run before reading it.
+        testScheduler.advanceUntilIdle()
         assertNotNull(connectionManager.getClient("dev_3"))
         
         connectionManager.disconnect("dev_3")
@@ -89,6 +104,9 @@ class ConnectionManagerTest {
         every { registry.getDevice("dev_5") } returns device
         
         connectionManager.connect("dev_5")
+        // connect() resolves the identity off the calling thread and builds the client inside
+        // its own coroutine, so the caller must let the scheduler run before reading it.
+        testScheduler.advanceUntilIdle()
         assertNotNull(connectionManager.getClient("dev_5"))
         
         connectionManager.disconnectDevice("dev_5")
@@ -103,6 +121,9 @@ class ConnectionManagerTest {
         every { registry.getDevice("dev_4") } returns device
         
         connectionManager.connect("dev_4")
+        // connect() resolves the identity off the calling thread and builds the client inside
+        // its own coroutine, so the caller must let the scheduler run before reading it.
+        testScheduler.advanceUntilIdle()
         assertNotNull(connectionManager.getClient("dev_4"))
         
         connectionManager.disconnectAll()
@@ -112,7 +133,7 @@ class ConnectionManagerTest {
     }
 
     @Test
-    fun `identity pinning rejects reconnection on Michi ID mismatch`() = runTest(testDispatcher) {
+    fun `identity pinning rejects reconnection on Michi ID mismatch`() = runBlocking {
         val mockEngine = io.ktor.client.engine.mock.MockEngine {
             respond(
                 content = """{"server_id":"srv_id_1","michi_id":"srv_michi_DIFFERENT","public_key":"pk_original","service":"music_server"}""",
@@ -142,7 +163,7 @@ class ConnectionManagerTest {
         )
         every { registry.getDevice("dev_pinned") } returns device
 
-        val cm = object : ConnectionManager(registry, identity) {
+        val cm = object : ConnectionManager(registry, readyAuthority(identity), Dispatchers.Default) {
             init {
                 clients["dev_pinned"] = mockClient
             }
@@ -150,17 +171,17 @@ class ConnectionManagerTest {
 
         cm.connect("dev_pinned")
 
-        var attempts = 0
-        while (attempts < 50 && cm.connectionStates.value["dev_pinned"] != SyncConnectionState.UNAUTHORIZED) {
-            Thread.sleep(50)
-            attempts++
+        // connect() resolves the identity and queries the server on its own coroutine, so the
+        // test waits on the observable state instead of sleeping on the calling thread.
+        withTimeout(5_000) {
+            while (cm.connectionStates.value["dev_pinned"] != SyncConnectionState.UNAUTHORIZED) delay(25)
         }
 
         assertEquals(SyncConnectionState.UNAUTHORIZED, cm.connectionStates.value["dev_pinned"])
     }
 
     @Test
-    fun `identity pinning rejects reconnection on Server ID mismatch`() = runTest(testDispatcher) {
+    fun `identity pinning rejects reconnection on Server ID mismatch`() = runBlocking {
         val mockEngine = io.ktor.client.engine.mock.MockEngine {
             respond(
                 content = """{"server_id":"srv_id_DIFFERENT","michi_id":"srv_michi_1","public_key":"pk_original","service":"music_server"}""",
@@ -190,7 +211,7 @@ class ConnectionManagerTest {
         )
         every { registry.getDevice("dev_pinned_server") } returns device
 
-        val cm = object : ConnectionManager(registry, identity) {
+        val cm = object : ConnectionManager(registry, readyAuthority(identity), Dispatchers.Default) {
             init {
                 clients["dev_pinned_server"] = mockClient
             }
@@ -198,10 +219,10 @@ class ConnectionManagerTest {
 
         cm.connect("dev_pinned_server")
 
-        var attempts = 0
-        while (attempts < 50 && cm.connectionStates.value["dev_pinned_server"] != SyncConnectionState.UNAUTHORIZED) {
-            Thread.sleep(50)
-            attempts++
+        // connect() resolves the identity and queries the server on its own coroutine, so the
+        // test waits on the observable state instead of sleeping on the calling thread.
+        withTimeout(5_000) {
+            while (cm.connectionStates.value["dev_pinned_server"] != SyncConnectionState.UNAUTHORIZED) delay(25)
         }
 
         assertEquals(SyncConnectionState.UNAUTHORIZED, cm.connectionStates.value["dev_pinned_server"])
@@ -226,6 +247,7 @@ class ConnectionManagerTest {
 
         connectionManager.connect("dev_A")
         connectionManager.connect("dev_B")
+        testScheduler.advanceUntilIdle()
 
         val clientA = connectionManager.getClient("dev_A")
         val clientB = connectionManager.getClient("dev_B")

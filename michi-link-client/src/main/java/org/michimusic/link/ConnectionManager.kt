@@ -10,13 +10,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.SyncConnectionState
-import org.michimusic.link.identity.MichiIdentity
+import org.michimusic.link.identity.MichiIdentityAuthority
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 open class ConnectionManager(
     private val registry: PairedDeviceRegistry,
-    private val identity: MichiIdentity,
+    private val identityAuthority: MichiIdentityAuthority,
     coroutineContext: kotlin.coroutines.CoroutineContext = Dispatchers.IO
 ) {
 
@@ -45,25 +45,35 @@ open class ConnectionManager(
 
         updateState(deviceId, SyncConnectionState.CONNECTING)
 
-        val existing = clients[deviceId]
-        val client = if (existing != null &&
-            existing.baseUrl == LinkClientConfig.normalizeBaseUrl(device.lastUrl) &&
-            existing.deviceToken == device.deviceToken &&
-            existing.pairedClientDeviceId == device.pairedClientDeviceId) existing else {
-            existing?.close()
-            LinkClient(
-                baseUrl = device.lastUrl,
-                deviceToken = device.deviceToken,
-                sessionToken = device.deviceToken,
-                clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
-                pairedClientDeviceId = device.pairedClientDeviceId,
-            ).also {
-                it.tokenRefreshSupported = device.tokenRefreshSupported
-                clients[deviceId] = it
-            }
-        }
-
         connectionJobs[deviceId] = scope.launch {
+            // Resolving the identity opens the Keystore, so it happens here on the IO
+            // scope instead of blocking the caller of connect() on the main thread.
+            // Without a ready identity there is nothing to authenticate with.
+            val identity = identityAuthority.await()
+            if (identity == null) {
+                updateState(deviceId, SyncConnectionState.UNAUTHORIZED)
+                return@launch
+            }
+            if (!isActive || !current(deviceId, epoch)) return@launch
+
+            val existing = clients[deviceId]
+            val client = if (existing != null &&
+                existing.baseUrl == LinkClientConfig.normalizeBaseUrl(device.lastUrl) &&
+                existing.deviceToken == device.deviceToken &&
+                existing.pairedClientDeviceId == device.pairedClientDeviceId) existing else {
+                existing?.close()
+                LinkClient(
+                    baseUrl = device.lastUrl,
+                    deviceToken = device.deviceToken,
+                    sessionToken = device.deviceToken,
+                    clientDeviceId = device.pairedClientDeviceId.ifEmpty { identity.michiId },
+                    pairedClientDeviceId = device.pairedClientDeviceId,
+                ).also {
+                    it.tokenRefreshSupported = device.tokenRefreshSupported
+                    clients[deviceId] = it
+                }
+            }
+
             val result = client.getServerInfo()
             if (!isActive || !current(deviceId, epoch)) return@launch
             if (result.isSuccess) {

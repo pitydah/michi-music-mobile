@@ -92,7 +92,7 @@ class SyncViewModel(
     private val linkDiscovery: LinkDiscovery,
     private val registry: PairedDeviceRegistry,
     private val connectionManager: ConnectionManager,
-    private val identity: org.michimusic.link.identity.MichiIdentity,
+    private val identityAuthority: org.michimusic.link.identity.MichiIdentityAuthority,
     private val trackRepository: SyncedTrackRepository,
     private val airCatClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? = null,
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
@@ -248,19 +248,16 @@ class SyncViewModel(
 
 
     init {
-        clientId = identity.michiId.ifEmpty {
-            try {
-                "android_${android.provider.Settings.Secure.getString(
-                    context.contentResolver,
-                    android.provider.Settings.Secure.ANDROID_ID,
-                )?.takeLast(6) ?: "000000"}"
-            } catch (_: Exception) {
-                "android_000000"
-            }
+        // The identity lives behind a Keystore read, so it is resolved off the main
+        // thread. Until it lands, clientId falls back to the Android id; pairing and
+        // signing wait for the real identity instead of using this placeholder.
+        viewModelScope.launch {
+            val resolved = identityAuthority.await()?.michiId.orEmpty()
+            clientId = resolved.ifEmpty { androidIdFallback() }
         }
 
 
-        // Restore active sync state after process death (both per-device and per-plan)
+    // Restore active sync state after process death (both per-device and per-plan)
         viewModelScope.launch {
             try {
                 WorkManager.getInstance(context)
@@ -429,21 +426,39 @@ class SyncViewModel(
     }
 
 
+
+    private fun androidIdFallback(): String = try {
+        "android_${android.provider.Settings.Secure.getString(
+            context.contentResolver,
+            android.provider.Settings.Secure.ANDROID_ID,
+        )?.takeLast(6) ?: "000000"}"
+    } catch (_: Exception) {
+        "android_000000"
+    }
+
     fun preparePairing(peer: DiscoveredPeer, onStrategyResolved: (PairingStrategy, String) -> Unit) {
         _error.value = null
         stopDiscovery()
         _connectionState.value = SyncConnectionState.CONNECTING
         pairingTargetIsMichiStream = isProvisionedMichiStream(peer.deviceType) ||
             peer.deviceType.equals("stream", ignoreCase = true)
-        val client = LinkClient(
-            baseUrl = "http://${peer.ip}:${peer.port}",
-            clientDeviceId = identity.michiId,
-        )
-        currentClient = client
         _connectedPeer.value = peer
 
 
         viewModelScope.launch {
+            // Pairing signs every request, so it must wait for the real identity
+            // instead of blocking the main thread on the Keystore read.
+            val identity = identityAuthority.await()
+            if (identity == null) {
+                _connectionState.value = SyncConnectionState.ERROR
+                _error.value = "La identidad del dispositivo no está disponible. Reintentá en un momento."
+                return@launch
+            }
+            val client = LinkClient(
+                baseUrl = "http://${peer.ip}:${peer.port}",
+                clientDeviceId = identity.michiId,
+            )
+            currentClient = client
             val serverInfo = client.getServerInfo().getOrNull()
             val resolvedDeviceId = resolveServerDeviceId(client, peer)
             pairingTargetIsMichiStream = pairingTargetIsMichiStream ||
@@ -611,6 +626,12 @@ class SyncViewModel(
         peer: DiscoveredPeer?
     ) {
         viewModelScope.launch {
+            val identity = identityAuthority.await()
+            if (identity == null) {
+                _connectionState.value = SyncConnectionState.ERROR
+                _error.value = "La identidad del dispositivo no está disponible. Reintentá en un momento."
+                return@launch
+            }
             val nonce = identity.generateNonce()
             val sig = identity.signChallenge(nonce)
             val request = org.michimusic.link.dto.PairStartRequestDto(
@@ -687,6 +708,12 @@ class SyncViewModel(
 
     private fun startCodePairing(client: LinkClient, pin: String) {
         viewModelScope.launch {
+            val identity = identityAuthority.await()
+            if (identity == null) {
+                _connectionState.value = SyncConnectionState.ERROR
+                _error.value = "La identidad del dispositivo no está disponible. Reintentá en un momento."
+                return@launch
+            }
             val nonce = identity.generateNonce()
             val sig = identity.signChallenge(nonce)
             val request = org.michimusic.link.dto.PairStartRequestDto(
@@ -888,8 +915,14 @@ class SyncViewModel(
             ?: (if (connectedPeer != null) "http://${connectedPeer.ip}:${connectedPeer.port}" else return)
 
 
-        // Cryptographic separation: local phone identity vs remote target vs paired client device ID
-        val localMichiId = identity.michiId
+        // Cryptographic separation: local phone identity vs remote target vs paired client device ID.
+        // Sync signs with the local identity, so it must already be resolved; the app
+        // pre-resolves it at startup and this only rejects while the Keystore loads.
+        val localMichiId = identityAuthority.peek()?.michiId ?: clientId
+        if (localMichiId.isEmpty()) {
+            _error.value = "La identidad del dispositivo no está disponible. Reintentá en un momento."
+            return
+        }
         val pairedClientDeviceId = pairedDevice?.effectiveClientDeviceId?.ifEmpty { null }
             ?: currentClient?.pairedClientDeviceId?.ifEmpty { null }
             ?: localMichiId
@@ -1024,6 +1057,15 @@ class SyncViewModel(
     fun loadWizardData(targetDeviceId: String) {
         _wizardUiState.value = WizardUiState(isLoading = true, deviceId = targetDeviceId)
         viewModelScope.launch {
+            val identity = identityAuthority.await()
+            if (identity == null) {
+                _wizardUiState.value = WizardUiState(
+                    isLoading = false,
+                    deviceId = targetDeviceId,
+                    error = "La identidad del dispositivo no está disponible. Reintentá en un momento.",
+                )
+                return@launch
+            }
             try {
                 val filesDir = context.filesDir
                 val isWritable = filesDir != null && filesDir.exists() && filesDir.canWrite()
@@ -1223,6 +1265,13 @@ class SyncViewModel(
                     onResult(false, "Otra instancia de Michi está usando AirCat")
                     return@launch
                 }
+                // The client id must be the real local identity. It is resolved on IO so
+                // the Keystore read never runs on the caller's thread.
+                val identity = identityAuthority.await()
+                if (identity == null) {
+                    onResult(false, "La identidad del dispositivo no está disponible. Reintentá en un momento.")
+                    return@launch
+                }
                 val effectiveClient = connectionManager.getClient(targetDeviceId)
                     ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
                         client
@@ -1293,6 +1342,13 @@ class SyncViewModel(
                 }
 
 
+                // The client id must be the real local identity. It is resolved on IO so
+                // the Keystore read never runs on the caller's thread.
+                val identity = identityAuthority.await()
+                if (identity == null) {
+                    onResult(false, "La identidad del dispositivo no está disponible. Reintentá en un momento.")
+                    return@launch
+                }
                 // Strictly resolve client matching targetDeviceId to avoid cross-device token collision
                 val effectiveClient = connectionManager.getClient(targetDeviceId)
                     ?: if (client != null && client.baseUrl == device.lastUrl && client.deviceToken == device.deviceToken) {
@@ -1445,6 +1501,13 @@ class SyncViewModel(
 
 
     fun pairWithQr(qrData: String, pin: String, onResult: (Boolean, String) -> Unit = { _, _ -> }) {
+        // Validating a pairing link verifies the server signature, so a missing
+        // identity must fail honestly instead of signing with a placeholder.
+        val identity = identityAuthority.peek()
+        if (identity == null) {
+            onResult(false, "La identidad del dispositivo todavía se está cargando. Reintentá en un momento.")
+            return
+        }
         val parser = org.michimusic.link.identity.QrPairingParser(identity)
         val result = parser.parseAndValidate(qrData)
         if (result.isFailure) {

@@ -367,7 +367,11 @@ class FilesystemFailureIntegrationTest {
             linkDiscovery = mockk(relaxed = true),
             registry = mockPairedRegistry,
             connectionManager = mockk(relaxed = true),
-            identity = mockk(relaxed = true),
+            identityAuthority = org.michimusic.link.identity.MichiIdentityAuthority(
+                context,
+                factory = { mockk(relaxed = true) },
+                initialState = org.michimusic.link.identity.IdentityState.Ready(mockk(relaxed = true)),
+            ),
             trackRepository = mockk(relaxed = true),
             approvedPlanRepository = approvedRepo,
         )

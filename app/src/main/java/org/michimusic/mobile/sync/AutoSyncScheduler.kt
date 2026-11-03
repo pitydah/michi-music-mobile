@@ -8,7 +8,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.michimusic.link.PairedDeviceRegistry
-import org.michimusic.link.identity.MichiIdentity
+import org.michimusic.link.identity.MichiIdentityAuthority
 import java.util.concurrent.TimeUnit
 
 /**
@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 class AutoSyncScheduler(
     private val context: Context,
     private val registry: PairedDeviceRegistry,
-    private val identity: MichiIdentity,
+    private val identityAuthority: MichiIdentityAuthority,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val appContext = context.applicationContext
@@ -51,7 +51,7 @@ class AutoSyncScheduler(
         withContext(ioDispatcher) { refreshBlocking() }
     }
 
-    private fun refreshBlocking() {
+    private suspend fun refreshBlocking() {
         val devices = registry.getAllDevices()
         val paired = devices.filter { !it.isRevoked }
         val enabled = appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
@@ -65,6 +65,9 @@ class AutoSyncScheduler(
         val device = paired.first()
         val deviceId = device.effectiveServerId
         val baseUrl = device.lastUrl.ifEmpty { return }
+        // Never schedule a mirror without a real identity: the worker would sign
+        // with an empty client id and fail every twelve hours.
+        val identity = identityAuthority.await() ?: return
         val clientDeviceId = device.effectiveClientDeviceId.ifEmpty { identity.michiId }
         val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_IN_HOURS, TimeUnit.HOURS)
             .setInputData(

@@ -62,7 +62,11 @@ class SyncViewModelTest {
             linkDiscovery = linkDiscovery,
             registry = registry,
             connectionManager = connectionManager,
-            identity = identity,
+            identityAuthority = org.michimusic.link.identity.MichiIdentityAuthority(
+                context,
+                factory = { identity },
+                initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
+            ),
             trackRepository = trackRepository
         )
     }
