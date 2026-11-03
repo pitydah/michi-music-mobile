@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      AIR-02: the AirCat single-flight guard is a FileLock, and a FileLock can only
+      be proven across process boundaries. This provider runs in its own process so
+      an instrumented test can contend for the very same lock file the app uses.
+    -->
+    <application>
+        <provider
+            android:name="org.michimusic.mobile.sync.AirCatLockProbeProvider"
+            android:authorities="${applicationId}.aircatlockprobe"
+            android:exported="true"
+            android:process=":aircatlockprobe" />
+    </application>
+
+</manifest>
