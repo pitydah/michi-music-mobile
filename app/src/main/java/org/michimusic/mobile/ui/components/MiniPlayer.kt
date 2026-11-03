@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,9 +74,9 @@ fun MiniPlayer(
     visible: Boolean = true,
 ) {
     val sessionManager: PlaybackSessionManager = koinInject()
-    val sessionState by sessionManager.sessionState.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val audioController: AudioController = koinInject()
-    val localState by audioController.state.collectAsState()
+    val localState by audioController.state.collectAsStateWithLifecycle()
 
     MiniPlayerContent(
         presentation = resolvePlaybackPresentation(sessionState, localState),

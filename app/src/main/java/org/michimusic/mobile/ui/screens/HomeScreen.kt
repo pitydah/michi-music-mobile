@@ -45,7 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -104,16 +104,16 @@ fun HomeScreen(
     sessionManager: PlaybackSessionManager = koinInject(),
     audioController: AudioController = koinInject(),
 ) {
-    val allTracks by viewModel.allTracks.collectAsState()
-    val recentTracks by viewModel.recentTracks.collectAsState()
-    val topTracks by viewModel.topTracks.collectAsState()
-    val favoriteTracks by viewModel.favoriteTracks.collectAsState()
-    val playlists by viewModel.playlists.collectAsState()
+    val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
+    val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
+    val topTracks by viewModel.topTracks.collectAsStateWithLifecycle()
+    val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
-    val sessionState by sessionManager.sessionState.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val activeEndpoint = sessionState.activeEndpoint
 
-    val playerState by audioController.state.collectAsState()
+    val playerState by audioController.state.collectAsStateWithLifecycle()
     val presentation = resolvePlaybackPresentation(sessionState, playerState)
     val currentTrack = presentation.currentTrack
     val isPlaying = presentation.isPlaying
@@ -129,8 +129,8 @@ fun HomeScreen(
         allTracks.filterNot { it.id in excluded }.distinctBy { it.id }.take(6)
     }
 
-    val isLoading by viewModel.isLoading.collectAsState()
-    val errorMessage by viewModel.error.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.error.collectAsStateWithLifecycle()
     var retryPending by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading, errorMessage) {
         if (isLoading || errorMessage == null) retryPending = false
@@ -366,8 +366,8 @@ fun HomeScreen(
         )
 
         if (showCreatePlaylist) {
-            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsState()
-            val createPlaylistError by viewModel.createPlaylistError.collectAsState()
+            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsStateWithLifecycle()
+            val createPlaylistError by viewModel.createPlaylistError.collectAsStateWithLifecycle()
             CreatePlaylistDialog(
                 isCreating = isCreatingPlaylist,
                 errorMessage = createPlaylistError,

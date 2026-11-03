@@ -31,7 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,14 +70,14 @@ fun AudioRouteScreen() {
     val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching {
         org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>()
     }.getOrNull()
-    val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember {
+    val routeStatus by (usbDacManager?.routeStatus?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice)
     })
-    val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember {
+    val dacInfo by (usbDacManager?.dacState?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(org.michimusic.player.UsbDacInfo())
     })
 
-    val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember {
+    val outputDevices by (usbDacManager?.outputDevices?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(emptyList())
     })
 

@@ -36,7 +36,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
@@ -105,13 +105,13 @@ fun NowPlayingScreen(
     modifier: Modifier = Modifier,
 ) {
     val sessionManager: PlaybackSessionManager = koinInject()
-    val sessionState by sessionManager.sessionState.collectAsState()
-    val controlPreviews by sessionManager.controlPreviews.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
+    val controlPreviews by sessionManager.controlPreviews.collectAsStateWithLifecycle()
     val audioController: AudioController = koinInject()
     val favoritesRepo: FavoritesRepository = koinInject()
     val coroutineScope = rememberCoroutineScope()
-    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
-    val playerState by audioController.state.collectAsState()
+    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsStateWithLifecycle(initialValue = emptySet())
+    val playerState by audioController.state.collectAsStateWithLifecycle()
 
     val presentation = org.michimusic.mobile.playback.resolvePlaybackPresentation(sessionState, playerState)
     val currentTrack = presentation.currentTrack
@@ -130,7 +130,7 @@ fun NowPlayingScreen(
     val repeatMode = presentation.repeatMode
     // This singleton is the same instance fed by the Media3 service.
     val signalTracker: org.michimusic.player.SignalTruthTracker = koinInject()
-    val signalObservation by signalTracker.observation.collectAsState()
+    val signalObservation by signalTracker.observation.collectAsStateWithLifecycle()
 
     var showQueueDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }

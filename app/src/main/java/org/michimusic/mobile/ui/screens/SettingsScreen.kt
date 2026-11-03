@@ -46,7 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -132,7 +132,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val appDao: AppDao = koinInject()
     val visualPreferencesRepo: org.michimusic.mobile.ui.theme.VisualPreferencesRepository = koinInject()
-    val visualPrefs by visualPreferencesRepo.preferences.collectAsState()
+    val visualPrefs by visualPreferencesRepo.preferences.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
 

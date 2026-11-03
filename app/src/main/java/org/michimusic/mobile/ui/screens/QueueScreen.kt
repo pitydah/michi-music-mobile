@@ -37,7 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,11 +90,11 @@ fun QueueScreen(
     controller: AudioController = koinInject(),
     favoritesRepo: FavoritesRepository = koinInject(),
 ) {
-    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
+    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsStateWithLifecycle(initialValue = emptySet())
     val coroutineScope = rememberCoroutineScope()
-    val sessionState by sessionManager.sessionState.collectAsState()
-    val localState by controller.state.collectAsState()
-    val isReady by controller.isReady.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
+    val localState by controller.state.collectAsStateWithLifecycle()
+    val isReady by controller.isReady.collectAsStateWithLifecycle()
     val isRemote = sessionState.isRemoteActive
     val queue = if (isRemote) sessionState.queue else localState.queue
     val currentIndex = if (isRemote) sessionState.queueIndex else localState.queueIndex

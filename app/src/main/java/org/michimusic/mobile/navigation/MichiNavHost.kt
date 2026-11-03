@@ -41,7 +41,6 @@ import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.player.AudioController
 import org.koin.compose.koinInject
-import androidx.compose.runtime.collectAsState
 
 @Composable
 fun MichiNavHost() {
@@ -54,10 +53,10 @@ fun MichiNavHost() {
     val miniPlayerVisible = chrome.showMiniPlayer
     // Reserve mini player height only when a track actually exists.
     val sessionManager: PlaybackSessionManager = koinInject()
-    val sessionState by sessionManager.sessionState.collectAsState()
-    val pendingConfirmation by sessionManager.pendingQueueConfirmation.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
+    val pendingConfirmation by sessionManager.pendingQueueConfirmation.collectAsStateWithLifecycle()
     val audioController: AudioController = koinInject()
-    val localState by audioController.state.collectAsState()
+    val localState by audioController.state.collectAsStateWithLifecycle()
     val presentation = resolvePlaybackPresentation(sessionState, localState)
     val hasMiniPlayer = presentation.hasActiveTrack
 

@@ -39,7 +39,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,15 +88,15 @@ fun PlaylistDetailScreen(
     audioController: AudioController = koinInject(),
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
 ) {
-    val uiState by viewModel.selectedPlaylistState.collectAsState()
-    val availableTracks by viewModel.availableTracks.collectAsState()
-    val isLoadingAvailableTracks by viewModel.isLoadingAvailableTracks.collectAsState()
-    val isAddingTracks by viewModel.isAddingTracks.collectAsState()
-    val addTracksError by viewModel.addTracksError.collectAsState()
-    val isRemovingTrack by viewModel.isRemovingTrack.collectAsState()
-    val isDeletingPlaylist by viewModel.isDeletingPlaylist.collectAsState()
-    val isRenamingPlaylist by viewModel.isRenamingPlaylist.collectAsState()
-    val isReorderingTrack by viewModel.isReorderingTrack.collectAsState()
+    val uiState by viewModel.selectedPlaylistState.collectAsStateWithLifecycle()
+    val availableTracks by viewModel.availableTracks.collectAsStateWithLifecycle()
+    val isLoadingAvailableTracks by viewModel.isLoadingAvailableTracks.collectAsStateWithLifecycle()
+    val isAddingTracks by viewModel.isAddingTracks.collectAsStateWithLifecycle()
+    val addTracksError by viewModel.addTracksError.collectAsStateWithLifecycle()
+    val isRemovingTrack by viewModel.isRemovingTrack.collectAsStateWithLifecycle()
+    val isDeletingPlaylist by viewModel.isDeletingPlaylist.collectAsStateWithLifecycle()
+    val isRenamingPlaylist by viewModel.isRenamingPlaylist.collectAsStateWithLifecycle()
+    val isReorderingTrack by viewModel.isReorderingTrack.collectAsStateWithLifecycle()
 
     var showAddTracksDialog by remember { mutableStateOf(false) }
     var trackPendingRemoval by remember { mutableStateOf<Track?>(null) }

@@ -32,7 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,10 +79,10 @@ fun PlaylistScreen(
     audioController: org.michimusic.player.AudioController = org.koin.compose.koinInject(),
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
 ) {
-    val playlists by viewModel.playlists.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsState()
-    val createPlaylistError by viewModel.createPlaylistError.collectAsState()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsStateWithLifecycle()
+    val createPlaylistError by viewModel.createPlaylistError.collectAsStateWithLifecycle()
     var showCreateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.loadPlaylists() }

@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import org.koin.android.ext.android.inject
@@ -65,8 +65,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val ready by visualPreferencesRepository.ready.collectAsState()
-            val visualPrefs by visualPreferencesRepository.preferences.collectAsState()
+            val ready by visualPreferencesRepository.ready.collectAsStateWithLifecycle()
+            val visualPrefs by visualPreferencesRepository.preferences.collectAsStateWithLifecycle()
             if (!ready) {
                 // The stored theme arrives a frame or two later. Painting the obsidian base
                 // instead of the default theme keeps the launch visually continuous: no

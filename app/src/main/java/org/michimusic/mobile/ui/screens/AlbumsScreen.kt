@@ -47,7 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -135,13 +135,13 @@ fun AlbumsScreen(
     modifier: Modifier = Modifier,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
-    val allTracks by viewModel.allTracks.collectAsState()
-    val albums by viewModel.albums.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
+    val albums by viewModel.albums.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
 
     val audioController: AudioController = koinInject()
-    val sessionState by sessionManager.sessionState.collectAsState()
-    val playerState by audioController.state.collectAsState()
+    val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
+    val playerState by audioController.state.collectAsStateWithLifecycle()
     val presentation = resolvePlaybackPresentation(sessionState, playerState)
     val currentTrack = presentation.currentTrack
     val isPlaying = presentation.isPlaying
@@ -152,8 +152,8 @@ fun AlbumsScreen(
 
     val libraryScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
     val musicLibraryRepo: org.michimusic.data.repository.MusicLibraryRepository = koinInject()
-    val activeScope by libraryScopeStore.activeScope.collectAsState()
-    val availableLibraries by musicLibraryRepo.observeLibraries().collectAsState(initial = emptyList())
+    val activeScope by libraryScopeStore.activeScope.collectAsStateWithLifecycle()
+    val availableLibraries by musicLibraryRepo.observeLibraries().collectAsStateWithLifecycle(initialValue = emptyList())
 
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
     var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
@@ -165,10 +165,10 @@ fun AlbumsScreen(
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
     val favoritesRepo: FavoritesRepository = koinInject()
-    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsState(initial = emptySet())
+    val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsStateWithLifecycle(initialValue = emptySet())
     val coroutineScope = rememberCoroutineScope()
-    val playlists by viewModel.playlists.collectAsState()
-    val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsState()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.loadMedia()
@@ -912,8 +912,8 @@ fun AlbumsScreen(
         }
 
         if (showCreatePlaylist) {
-            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsState()
-            val createPlaylistError by viewModel.createPlaylistError.collectAsState()
+            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsStateWithLifecycle()
+            val createPlaylistError by viewModel.createPlaylistError.collectAsStateWithLifecycle()
             CreatePlaylistDialog(
                 isCreating = isCreatingPlaylist,
                 errorMessage = createPlaylistError,

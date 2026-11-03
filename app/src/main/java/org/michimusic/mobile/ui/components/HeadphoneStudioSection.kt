@@ -15,7 +15,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,10 +47,10 @@ fun HeadphoneStudioSection() {
     val store: HeadphoneProfileStore = koinInject()
     val manager: UsbDacManager = koinInject()
     val mode: AudioModeManager = koinInject()
-    val state by store.state.collectAsState()
-    val savedProfiles by store.savedProfiles.collectAsState()
-    val route by manager.routeStatus.collectAsState()
-    val audioMode by mode.currentMode.collectAsState()
+    val state by store.state.collectAsStateWithLifecycle()
+    val savedProfiles by store.savedProfiles.collectAsStateWithLifecycle()
+    val route by manager.routeStatus.collectAsStateWithLifecycle()
+    val audioMode by mode.currentMode.collectAsStateWithLifecycle()
     val confirmed = route as? AudioRouteStatus.Confirmed
     val device = confirmed?.device
     val isHeadphones = device?.androidType in listOf(

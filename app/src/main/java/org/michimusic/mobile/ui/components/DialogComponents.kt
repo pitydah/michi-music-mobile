@@ -82,7 +82,7 @@ import org.michimusic.core.models.Track
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.michimusic.mobile.ui.theme.*
 import org.michimusic.mobile.ui.components.premium.AeroFloatingSurface
 import org.michimusic.mobile.playback.RemoteQueuePreflightDecision
@@ -228,13 +228,13 @@ fun EqualizerDialog(
     val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching { org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>() }.getOrNull()
     val audioModeManager: org.michimusic.player.AudioModeManager? = runCatching { org.koin.compose.koinInject<org.michimusic.player.AudioModeManager>() }.getOrNull()
 
-    val effectsState by (audioEffects?.effectsState?.collectAsState() ?: remember {
+    val effectsState by (audioEffects?.effectsState?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(org.michimusic.player.AudioEffectsState())
     })
-    val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember {
+    val dacInfo by (usbDacManager?.dacState?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(org.michimusic.player.UsbDacInfo())
     })
-    val currentMode by (audioModeManager?.currentMode?.collectAsState() ?: remember {
+    val currentMode by (audioModeManager?.currentMode?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(org.michimusic.core.models.AudioProcessingMode.DSP)
     })
 
@@ -1236,18 +1236,18 @@ fun AudioRouteDialog(
     val sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = runCatching {
         org.koin.compose.koinInject<org.michimusic.mobile.playback.PlaybackSessionManager>()
     }.getOrNull()
-    val sessionState by (sessionManager?.sessionState?.collectAsState() ?: remember {
+    val sessionState by (sessionManager?.sessionState?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(org.michimusic.mobile.playback.PlaybackSessionState())
     })
 
     val usbDacManager: org.michimusic.player.UsbDacManager? = runCatching {
         org.koin.compose.koinInject<org.michimusic.player.UsbDacManager>()
     }.getOrNull()
-    val outputDevices by (usbDacManager?.outputDevices?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+    val outputDevices by (usbDacManager?.outputDevices?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(emptyList()) })
     val friendlyOutputNames = remember(outputDevices) { audioOutputDisambiguatedNames(outputDevices) }
-    val dacInfo by (usbDacManager?.dacState?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
-    val selectedId by (usbDacManager?.selectedDeviceId?.collectAsState() ?: remember { mutableStateOf(null) })
-    val routeStatus by (usbDacManager?.routeStatus?.collectAsState() ?: remember { mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice) })
+    val dacInfo by (usbDacManager?.dacState?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(org.michimusic.player.UsbDacInfo()) })
+    val selectedId by (usbDacManager?.selectedDeviceId?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) })
+    val routeStatus by (usbDacManager?.routeStatus?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(org.michimusic.player.AudioRouteStatus.NoDevice) })
 
     Dialog(onDismissRequest = onDismiss) {
         AeroFloatingSurface(
