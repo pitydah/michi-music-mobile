@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
@@ -1524,38 +1526,53 @@ class SyncViewModel(
 
     fun schedulePeriodicSyncIfEnabled(targetDeviceId: String? = null) {
         val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("auto_sync", false)) return
         val target = targetDeviceId
             ?: uiState.value.pairingConfirm?.deviceId
             ?: uiState.value.connectedPeer?.deviceId
             ?: registry.getAllDevices().firstOrNull { !it.isRevoked }?.effectiveServerId
-            ?: return
+        val pairedDevice = target?.let { registry.getDevice(it) }?.takeIf { !it.isRevoked }
 
+        // Cancelling here is deliberate: `auto_sync = false` or a pairing that went away
+        // must stop the job that is already enqueued, not just prevent a new one.
+        if (periodicSyncDecision(prefs.getBoolean("auto_sync", false), pairedDevice != null) ==
+            PeriodicSyncDecision.Cancel
+        ) {
+            WorkManager.getInstance(context).cancelAllWorkByTag(PERIODIC_SYNC_TAG)
+            return
+        }
+        val device = pairedDevice ?: return
+        val deviceId = target ?: return
 
-        val pairedDevice = registry.getDevice(target)
-        if (pairedDevice == null || pairedDevice.isRevoked) return
-
-
-        val baseUrl = currentClient?.baseUrl ?: pairedDevice.lastUrl.ifEmpty { return }
-        val pairedClientDeviceId = pairedDevice.effectiveClientDeviceId.ifEmpty { identity.michiId }
-
+        val baseUrl = currentClient?.baseUrl ?: device.lastUrl.ifEmpty { return }
+        val pairedClientDeviceId = device.effectiveClientDeviceId.ifEmpty { identity.michiId }
 
         val inputData = SyncWorker.buildInputData(
             baseUrl = baseUrl,
-            deviceId = target,
+            deviceId = deviceId,
             alias = android.os.Build.MODEL,
             clientDeviceId = pairedClientDeviceId,
         )
 
+        // Without constraints the mirror fired on a dead network, on a battery at 3 %
+        // and on a full disk, spending a wake lock to fail. These three keep the normal
+        // case silent and leave the manual run as the escape hatch for the rest.
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .build()
 
         val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(12, TimeUnit.HOURS)
             .setInputData(inputData)
+            .setConstraints(constraints)
+            .addTag(PERIODIC_SYNC_TAG)
             .build()
 
-
-        val periodicWorkName = "michi_sync_periodic_${target.replace(Regex("[^A-Za-z0-9_]"), "_")}"
+        val periodicWorkName = "michi_sync_periodic_${deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
+        // UPDATE, not KEEP: a re-pairing or a token refresh changes the input data, and
+        // KEEP would keep the stale credentials for up to twelve hours.
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.KEEP, workRequest)
+            .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.UPDATE, workRequest)
     }
 
 

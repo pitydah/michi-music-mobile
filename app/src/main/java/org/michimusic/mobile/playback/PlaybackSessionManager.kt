@@ -301,40 +301,46 @@ class PlaybackSessionManager(
 
         // 2. Initial fetch & Fallback polling (strictly fallback when SSE disconnected)
         remotePollingJob = scope.launch(Dispatchers.IO) {
-            refreshRemotePlayback(client, peer, deviceId)
+            var consecutiveFailures = 0
+            if (refreshRemotePlayback(client, peer, deviceId)) consecutiveFailures = 0 else consecutiveFailures++
             while (isActive && connectionManager.connectionStates.value[deviceId] == SyncConnectionState.CONNECTED) {
                 if (ec.connectionState.value == org.michimusic.link.EventConnectionState.CONNECTED) {
-                    // Polling is completely OFF while SSE is connected. Wait until SSE state changes away from CONNECTED.
+                    // SSE owns the stream: reset the backoff and wait until it drops.
+                    consecutiveFailures = 0
                     ec.connectionState.first { it != org.michimusic.link.EventConnectionState.CONNECTED }
                 } else {
-                    delay(3_000)
+                    // Cadence follows playback and health instead of a flat three seconds,
+                    // so a paused session and a host that keeps failing cost far less.
+                    val delayMs = RemotePollingPolicy.nextDelayMs(
+                        isPlaying = _sessionState.value.isPlaying,
+                        consecutiveFailures = consecutiveFailures,
+                        sseConnected = false,
+                        jitter = kotlin.random.Random.nextDouble() * 0.2,
+                    ) ?: RemotePollingPolicy.PLAYING_INTERVAL_MS
+                    delay(delayMs)
                     if (isRemoteSelected) {
-                        refreshRemotePlayback(client, peer, deviceId)
+                        if (refreshRemotePlayback(client, peer, deviceId)) consecutiveFailures = 0
+                        else consecutiveFailures++
                     }
                 }
             }
         }
     }
 
-    private suspend fun refreshRemotePlayback(client: LinkClient, peer: DiscoveredPeer?, deviceId: String) {
+    /** Returns true when the read completed, false when the host could not be reached. */
+    private suspend fun refreshRemotePlayback(client: LinkClient, peer: DiscoveredPeer?, deviceId: String): Boolean {
         val opEpoch = _sessionEpoch.get()
-        client.getPlaybackState().onSuccess { stateDto ->
-            if (isRemoteSelected && opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
-                client.getQueue().onSuccess { queueDto ->
-                    if (opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
-                        withContext(Dispatchers.Main) {
-                            applyRemoteState(peer, stateDto, queueDto, deviceId)
-                        }
-                    }
-                }.onFailure {
-                    if (opEpoch == _sessionEpoch.get() && _sessionState.value.activeEndpoint.id == deviceId) {
-                        withContext(Dispatchers.Main) {
-                            applyRemoteState(peer, stateDto, null, deviceId)
-                        }
-                    }
-                }
-            }
+        val stateDto = client.getPlaybackState().getOrNull() ?: return false
+        if (!isRemoteSelected || opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != deviceId) {
+            // A stale read is not a network failure; it was already replaced.
+            return true
         }
+        val queueDto = client.getQueue().getOrNull()
+        if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != deviceId) return true
+        withContext(Dispatchers.Main) {
+            applyRemoteState(peer, stateDto, queueDto, deviceId)
+        }
+        return true
     }
 
     private suspend fun refreshRemoteQueue(client: LinkClient, peer: DiscoveredPeer?, deviceId: String) {

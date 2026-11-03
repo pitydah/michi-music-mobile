@@ -68,11 +68,55 @@ fun coverStyleFor(key: String?): CoverStyle {
     return styles[hash % styles.size]
 }
 
+/**
+ * Memory the decoded-cover cache may hold, in KiB, for this device.
+ *
+ * The cache used to be a flat 16 MiB, which is most of the heap on a 96 MB low-RAM
+ * phone and needlessly tight on a flagship. One sixteenth of the memory class is a
+ * defensible share for thumbnails; a low-RAM device gets a twenty-fourth.
+ */
+internal fun embeddedCoverCacheBudgetKb(memoryClassMb: Int, isLowRamDevice: Boolean): Int {
+    val divisor = if (isLowRamDevice) 24 else 16
+    val kb = (memoryClassMb.coerceAtLeast(32) * 1024) / divisor
+    return kb.coerceIn(4 * 1024, 16 * 1024)
+}
+
 /** A bounded cache of decoded cover thumbnails; runs MediaMetadataRetriever only off main. */
-private object EmbeddedCoverCache {
-    private val thumbnails = object : LruCache<String, Bitmap>(16 * 1024) {
+internal object EmbeddedCoverCache {
+    private const val DEFAULT_CACHE_KB = 8 * 1024
+
+    @Volatile
+    private var budgetKb: Int = DEFAULT_CACHE_KB
+
+    @Volatile
+    private var thumbnails = newCache(DEFAULT_CACHE_KB)
+
+    private fun newCache(sizeKb: Int) = object : LruCache<String, Bitmap>(sizeKb) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
+
+    /** Sizes the cache to the device's memory class; called once from the Application. */
+    fun configure(memoryClassMb: Int, isLowRamDevice: Boolean) {
+        val kb = embeddedCoverCacheBudgetKb(memoryClassMb, isLowRamDevice)
+        synchronized(this) {
+            if (kb == budgetKb) return
+            budgetKb = kb
+            thumbnails = newCache(kb)
+        }
+    }
+
+    /** Gives decoded covers back when the system reports memory pressure. */
+    fun onTrimMemory(level: Int) {
+        synchronized(this) {
+            when {
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> thumbnails.evictAll()
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> thumbnails.evictAll()
+                level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> thumbnails.trimToSize(budgetKb / 2)
+                level == android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> thumbnails.evictAll()
+            }
+        }
+    }
+
     private const val MISS_TTL_MS = 45_000L
     private val missing = LinkedHashMap<String, Long>()
 

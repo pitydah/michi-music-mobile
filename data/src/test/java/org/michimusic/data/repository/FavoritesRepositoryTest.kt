@@ -58,4 +58,31 @@ class FavoritesRepositoryTest {
         coVerify(exactly = 0) { appDao.getTopTracks(any()) }
         coVerify(exactly = 0) { appDao.incrementPlayCount(any(), any()) }
     }
+
+    @Test
+    fun `a failed write never publishes the new favorite`() = runTest {
+        // Load the initial (empty) set first, otherwise the failure could hide behind
+        // the lazy initialisation.
+        repository.isFavorite("track_1")
+        coEvery { appDao.setSetting(any()) } answers { throw IllegalStateException("disk full") }
+
+        val attempt = runCatching { repository.toggleFavorite("track_1") }
+
+        assertTrue("the failure must reach the caller", attempt.isFailure)
+        assertFalse(
+            "the heart must not show a favorite that was never saved",
+            repository.isFavorite("track_1"),
+        )
+    }
+
+    @Test
+    fun `a failed removal keeps the favorite visible`() = runTest {
+        repository.toggleFavorite("track_1")
+        coEvery { appDao.setSetting(any()) } answers { throw IllegalStateException("disk full") }
+
+        val attempt = runCatching { repository.removeFavorite("track_1") }
+
+        assertTrue(attempt.isFailure)
+        assertTrue(repository.isFavorite("track_1"))
+    }
 }

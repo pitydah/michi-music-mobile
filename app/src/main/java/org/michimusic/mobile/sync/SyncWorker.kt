@@ -35,6 +35,7 @@ class SyncWorker(
         const val CHANNEL_ID = "michi_sync"
         const val NOTIFICATION_ID = 1001
         private const val SYNC_WAKELOCK_TIMEOUT_MS = 30 * 60 * 1000L
+        private const val WAKE_LOCK_TAG = "michi:sync"
         private val planJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
         @androidx.annotation.VisibleForTesting
@@ -64,6 +65,34 @@ class SyncWorker(
     }
 
     override suspend fun doWork(): Result {
+        // WorkManager keeps a wake lock only while the worker is running, but a library
+        // transfer can outlive that window in Doze, so this worker owns one lease for
+        // the whole run. It is acquired once here and released in a single `finally`,
+        // because the body below returns from more than a dozen early exits and the
+        // per-branch releases it used to carry left the 30-minute lock held on every
+        // path that forgot one.
+        val wakeLock = newSyncWakeLock()
+        return try {
+            runSync()
+        } finally {
+            releaseSyncWakeLock(wakeLock)
+        }
+    }
+
+    private fun newSyncWakeLock(): PowerManager.WakeLock? {
+        val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val lock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
+        runCatching { lock?.acquire(SYNC_WAKELOCK_TIMEOUT_MS) }
+        return lock
+    }
+
+    private fun releaseSyncWakeLock(lock: PowerManager.WakeLock?) {
+        // Releasing an already-released or timed-out lock throws; a worker that has
+        // finished its work must never fail because of cleanup.
+        runCatching { if (lock?.isHeld == true) lock.release() }
+    }
+
+    private suspend fun runSync(): Result {
         val baseUrl = inputData.getString("baseUrl") ?: return Result.failure()
         val deviceId = inputData.getString("deviceId") ?: ""
         val alias = inputData.getString("alias") ?: ""
@@ -94,16 +123,11 @@ class SyncWorker(
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
 
-        val powerManager = applicationContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "michi:sync")
-        wakeLock?.acquire(SYNC_WAKELOCK_TIMEOUT_MS)
-
         // Check available storage (strictly enforcing 100 MB safety reserve + expected payload)
         val storage = StatFs(applicationContext.filesDir.absolutePath)
         val freeBytes = storage.availableBytes
         val minFree = org.michimusic.core.sync.StoragePreflightEvaluator.SAFETY_BUFFER_BYTES // 100 MB minimum
         if (freeBytes < minFree || (expectedBytes > 0 && freeBytes < minFree + expectedBytes)) {
-            try { wakeLock?.release() } catch (_: Exception) {}
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
 
@@ -119,7 +143,6 @@ class SyncWorker(
         val trackDao = trackDao
         if (trackDao == null) {
             client.close()
-            try { wakeLock?.release() } catch (_: Exception) {}
             return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
         }
         val playlistDao = playlistDao
@@ -133,22 +156,18 @@ class SyncWorker(
             val plan = approvedPlanRepo?.getPlan(planId)
             if (plan == null) {
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
             }
             if (plan.endpointId != deviceId) {
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
             }
             if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.CANCELLED.name) {
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
             }
             if (plan.executionState == org.michimusic.core.models.TransferLifecycleState.COMPLETED.name) {
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
             }
 
@@ -174,7 +193,6 @@ class SyncWorker(
                 // Plan is already claimed by another active worker, cancelled, or in terminal FAILED state.
                 // Fail closed immediately to prevent unauthorized or automatic loops.
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
             }
             plan
@@ -187,7 +205,6 @@ class SyncWorker(
             if (manifestResult.isFailure) {
                 val error = manifestResult.exceptionOrNull()
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 if (approvedPlan != null && planId.isNotEmpty()) {
                     if (error is LinkException) {
                         approvedPlanRepo?.tryTransitionState(
@@ -225,7 +242,6 @@ class SyncWorker(
                         errorMessage = "PLAN_STALE: El catálogo del servidor ha cambiado desde que se aprobó el plan."
                     )
                     client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
             }
@@ -263,7 +279,6 @@ class SyncWorker(
                         errorMessage = "Plan corrupto o no deserializable"
                     )
                     client.close()
-                    try { wakeLock?.release() } catch (_: Exception) {}
                     return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                 }
 
@@ -344,7 +359,6 @@ class SyncWorker(
                     }
                     if (ex is org.michimusic.mobile.devices.aircat.AirCatException.UnauthorizedPeer) {
                         client.close()
-                        try { wakeLock?.release() } catch (_: Exception) {}
                         return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
                     }
                     android.util.Log.w("SyncWorker", "Error recuperando checkpoints incompletos: ${ex?.message}")
@@ -400,7 +414,6 @@ class SyncWorker(
                             errorMessage = "$rejectedPlanTracksCount pista(s) autorizada(s) fueron rechazadas por exceder presupuesto",
                         )
                         client.close()
-                        try { wakeLock?.release() } catch (_: Exception) {}
                         return Result.failure(workDataOf(RESULT_ERROR to rejectedPlanTracksCount, RESULT_DOWNLOADED to 0))
                     } else {
                         val completed = approvedPlanRepo?.tryTransitionState(
@@ -418,7 +431,6 @@ class SyncWorker(
                     }
                 }
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.success(workDataOf(RESULT_DOWNLOADED to 0))
             }
 
@@ -436,7 +448,6 @@ class SyncWorker(
                     )
                 }
                 client.close()
-                try { wakeLock?.release() } catch (_: Exception) {}
                 return Result.failure(workDataOf(RESULT_ERROR to 1, RESULT_DOWNLOADED to 0))
             }
 
@@ -610,7 +621,6 @@ class SyncWorker(
             }
 
             client.close()
-            try { wakeLock?.release() } catch (_: Exception) {}
             setProgress(workDataOf(PROGRESS_TOTAL to total, PROGRESS_CURRENT to downloaded))
 
             val totalPlanErrors = errors + rejectedPlanTracksCount
@@ -671,7 +681,6 @@ class SyncWorker(
             }
         } catch (e: java.util.concurrent.CancellationException) {
             client.close()
-            try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
                 val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
@@ -690,7 +699,6 @@ class SyncWorker(
             throw e
         } catch (e: kotlinx.coroutines.CancellationException) {
             client.close()
-            try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
                 val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
@@ -709,7 +717,6 @@ class SyncWorker(
             throw e
         } catch (e: LinkException) {
             client.close()
-            try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
                 val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(
@@ -734,7 +741,6 @@ class SyncWorker(
             val targetState = if (retryable)
                 org.michimusic.core.models.TransferLifecycleState.RETRY_PENDING
                 else org.michimusic.core.models.TransferLifecycleState.FAILED
-            try { wakeLock?.release() } catch (_: Exception) {}
             val planId = inputData.getString("planId") ?: ""
             if (planId.isNotEmpty()) {
                 val transitioned = org.michimusic.mobile.di.approvedSyncPlanRepository?.tryTransitionState(

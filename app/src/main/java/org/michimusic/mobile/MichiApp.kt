@@ -1,8 +1,11 @@
 package org.michimusic.mobile
 
+import android.app.ActivityManager
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ComponentCallbacks2
+import android.os.StrictMode
 import android.util.Log
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
@@ -16,6 +19,7 @@ import org.michimusic.data.dataModule
 import org.michimusic.mobile.di.appDao as michiAppDao
 import org.michimusic.mobile.di.replayGainDao as michiReplayGainDao
 import org.michimusic.mobile.sync.SyncWorker
+import org.michimusic.mobile.ui.components.EmbeddedCoverCache
 import org.michimusic.player.PlayerDependencies
 
 class MichiApp : Application() {
@@ -44,19 +48,66 @@ class MichiApp : Application() {
         }
         createNotificationChannels()
         configureImageLoader()
+        configureStrictMode()
+    }
+
+    /**
+     * Debug-only StrictMode. Disk and network reads on the main thread are the class of
+     * regression this project keeps reintroducing (the search filter that touched files
+     * from composition), and they are invisible without a policy that reports them.
+     * Release builds pay nothing: a non-debuggable package returns before installing it.
+     */
+    private fun configureStrictMode() {
+        val debuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!debuggable) return
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads()
+                .detectDiskWrites()
+                .detectNetwork()
+                .detectCustomSlowCalls()
+                .penaltyLog()
+                .build(),
+        )
+        StrictMode.setVmPolicy(
+            StrictMode.VmPolicy.Builder()
+                .detectLeakedClosableObjects()
+                .detectLeakedSqlLiteObjects()
+                .penaltyLog()
+                .build(),
+        )
+    }
+
+    @Suppress("DEPRECATION") // the RUNNING_* levels still arrive on API 31..33 devices
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        EmbeddedCoverCache.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            SingletonImageLoader.get(this).memoryCache?.clear()
+        }
     }
 
     private fun configureImageLoader() {
+        val activityManager = getSystemService(ActivityManager::class.java)
+        val lowRam = activityManager?.isLowRamDevice == true
+        val memoryClass = activityManager?.memoryClass ?: 128
+        EmbeddedCoverCache.configure(memoryClassMb = memoryClass, isLowRamDevice = lowRam)
+
+        // One shared budget instead of two generous ones: Coil keeps 20 % of the heap
+        // (10 % on low-RAM) and the embedded-cover LRU takes its own small share, so
+        // scrolling a library does not hold the same cover twice at full size.
+        val memoryPercent = if (lowRam) 0.10 else 0.20
+        val diskBytes = (if (lowRam) 32L else 50L) * 1024 * 1024
         val imageLoader = ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(this, 0.25)
+                    .maxSizePercent(this, memoryPercent)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("coil").toOkioPath())
-                    .maxSizeBytes(50L * 1024 * 1024)
+                    .maxSizeBytes(diskBytes)
                     .build()
             }
             .crossfade(true)

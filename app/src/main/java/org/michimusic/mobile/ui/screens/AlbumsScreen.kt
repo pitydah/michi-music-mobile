@@ -1088,8 +1088,16 @@ fun AlbumsScreen(
                     trackToAddToPlaylist = track
                 },
                 onToggleFavorite = {
+                    // The write can fail; an unhandled throw here would take the screen
+                    // scope down with it and the sheet would stay open with a stale heart.
                     coroutineScope.launch {
-                        favoritesRepo.toggleFavorite(track.id)
+                        try {
+                            favoritesRepo.toggleFavorite(track.id)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            android.util.Log.w("AlbumsScreen", "Favorite update failed", error)
+                        }
                     }
                 },
             )

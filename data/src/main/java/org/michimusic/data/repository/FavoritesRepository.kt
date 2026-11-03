@@ -50,8 +50,11 @@ class DefaultFavoritesRepository(
         val current = _favoritesFlow.value
         val willBeFavorite = !current.contains(trackId)
         val updated = if (willBeFavorite) current + trackId else current - trackId
-        _favoritesFlow.value = updated
+        // Write before publishing. Publishing first made a failed write invisible: the
+        // heart stayed filled until the next launch, and the listener had no way to know
+        // the change never reached disk.
         persist(updated)
+        _favoritesFlow.value = updated
         return willBeFavorite
     }
 
@@ -60,8 +63,8 @@ class DefaultFavoritesRepository(
         val current = _favoritesFlow.value
         if (!current.contains(trackId)) {
             val updated = current + trackId
-            _favoritesFlow.value = updated
             persist(updated)
+            _favoritesFlow.value = updated
         }
     }
 
@@ -70,8 +73,8 @@ class DefaultFavoritesRepository(
         val current = _favoritesFlow.value
         if (current.contains(trackId)) {
             val updated = current - trackId
-            _favoritesFlow.value = updated
             persist(updated)
+            _favoritesFlow.value = updated
         }
     }
 
