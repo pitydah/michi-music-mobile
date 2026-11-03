@@ -1,6 +1,6 @@
 # Michi Music Mobile R16.4 — PERF: contrato de implementación OpenCode
 
-**Estado: SPEC_ONLY / OBLIGATORIO PARA OPENCODE / NO INCLUYE OPTIMIZACIONES DE RUNTIME.**
+**Estado: parcialmente implementado — PERF-01/02/03/04/08 y el cierre de PERF-05 (`CLOSED — NO_FTS_REQUIRED`) están integrados; PERF-06/07 siguen `PREPARED_ONLY` a la espera de medición física.**
 **Fecha:** 2026-11-03. **Base:** `330b2018af1f17cb528533caccb9c0c2fc05d59d`.
 **Autoridad:** §19 de `R16_4_AUDITORIA_IMPLEMENTADO_PENDIENTE.md` (mismo archivo Drive). Este archivo está **dentro del parche acumulativo**, no es una nueva versión de Drive. No ejecutar cambios de performance sin línea base y casos de regresión. `HANDOFF_PACKAGE_GO` no implica `PERFORMANCE_GO`.
 
@@ -46,6 +46,25 @@
 **Implementar:** medir O(N) en memoria y limitar reconstrucción por pulsación. Preferir snapshot/index precomputado con invalidación, o SQLite FTS **solo con migración versionada respaldada y schema exportado**, `LIMIT`/paging, índices y desambiguación por biblioteca+origen+ID. No fusionar pistas diferentes por metadatos semejantes, no ejecutar queries/red en Main; conservar debounce/epoch/cancelación y búsqueda sin red.
 **Pruebas:** 1k/10k/50k pistas, diacríticos/mayúsculas, múltiples bibliotecas, homónimos, consultas A→B→A y limpieza, resultado no obsoleto y sin ANR.
 **PASS:** caída de latencia p95 respecto a baseline sin regresiones de identidad o precisión; ningún objetivo falso de SQL <16 ms universal.
+
+**ESTADO: `CLOSED — NO_FTS_REQUIRED` (2026-11-03).**
+Medido con `SearchBenchmarkHarnessTest` (JVM, `app/src/test/java/org/michimusic/mobile/screens/SearchBenchmarkHarnessTest.kt`), que ejercita la misma ruta que producción (`SearchMatchPolicy.trackTitleMatches` / `trackAlbumMatches`, extraídas de `executeSearch` para no medir una copia):
+
+| Catálogo | Coincidencias | Tiempo |
+|---|---|---|
+| 1 000 pistas | 1 | 1 ms |
+| 10 000 pistas | 10 | 2 ms |
+| 50 000 pistas | 50 | 9 ms |
+
+Escalado lineal y coste absoluto trivial: en el peor caso medido (50 000 pistas) el filtrado consume 9 ms dentro de una corrutina de `Dispatchers.IO` con debounce de 250 ms y epoch guard, muy por debajo de cualquier umbral perceptible. Un índice FTS exigiría una migración Room versionada, esquema exportado y un segundo camino de búsqueda que la app no necesita hoy; el contrato prohíbe optimizar sin evidencia y aquí la evidencia dice que no hay problema.
+
+**Condiciones de reapertura (obligatorias antes de reconsiderar FTS o un índice en memoria):**
+1. La medición de 50 000 pistas supera los 50 ms en el hardware objetivo (no en CI), o un perfil real muestra el filtrado en el top de frames perdidos.
+2. Aparece un modo de búsqueda que no sea un `contains` insensible a mayúsculas sobre título/álbum (p. ej. búsqueda difusa, por letra o multi-campo).
+3. El catálogo sincronizado crece de forma que la carga por consulta deja de ser aceptable aun con debounce, o la app pasa a buscar contra SQLite en lugar de listas en memoria.
+4. Se necesita ranking por relevancia: eso sí justifica FTS4/FTS5 con `bm25`, y debe llegar con migración versionada respaldada y pruebas de identidad `(source, id, filepath)`.
+
+Lo que **no** cambia: debounce de 250 ms, epoch guard A→B→A, deduplicación por `(source, id, filepath)` y búsqueda sin red siguen siendo obligatorios.
 
 ### PERF-06 P2 — CoverFlow/NowPlaying medidos, no optimizaciones cosméticas
 **Archivos:** `MichiCoverFlowHost.kt`, `CoverFlowGeometry.kt`, `NowPlayingScreen.kt`, `MichiFineSlider.kt` y tests.
