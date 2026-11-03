@@ -21,6 +21,7 @@ val appModule = module {
     single { org.michimusic.core.models.TrackAvailabilityManager(get()) }
     single { org.michimusic.mobile.library.LibraryScopeStore(get(), get()) }
     single { org.michimusic.mobile.ui.theme.VisualPreferencesRepository(get()) }
+    single { org.michimusic.mobile.sync.AutoSyncScheduler(get(), get(), get()) }
 
     viewModel {
         SyncViewModel(
@@ -33,6 +34,7 @@ val appModule = module {
             airCatClient = getOrNull(),
             checkpointRepository = getOrNull(),
             approvedPlanRepository = getOrNull(),
+            autoSyncScheduler = get(),
         )
     }
     viewModelOf(::AlbumsViewModel)

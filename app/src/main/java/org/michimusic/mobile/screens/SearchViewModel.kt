@@ -206,7 +206,7 @@ class SearchViewModel(
 
         // Typed Albums
         val albumMatches = if (filter == SearchFilter.ALL || filter == SearchFilter.ALBUMS) {
-            allCombinedTracks.filter { it.album.lowercase().contains(lower) }
+            allCombinedTracks.filter { trackAlbumMatches(it, lower) }
                 .groupBy { "${it.album}___${it.artist}" }
                 .map { (_, tracks) ->
                     val first = tracks.first()
@@ -222,15 +222,15 @@ class SearchViewModel(
 
         // Typed Tracks
         val trackMatches = when (filter) {
-            SearchFilter.ALL -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
-            SearchFilter.TRACKS -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
+            SearchFilter.ALL -> allCombinedTracks.filter { trackTitleMatches(it, lower) }
+            SearchFilter.TRACKS -> allCombinedTracks.filter { trackTitleMatches(it, lower) }
             SearchFilter.ARTISTS -> emptyList()
             SearchFilter.ALBUMS -> emptyList()
             SearchFilter.LOSSLESS -> allCombinedTracks.filter {
-                it.title.lowercase().contains(lower) && it.isLossless
+                trackTitleMatches(it, lower) && it.isLossless
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
-                it.title.lowercase().contains(lower) && isTrackDownloaded(it)
+                trackTitleMatches(it, lower) && isTrackDownloaded(it)
             }
         }.map { track ->
             val locations = mutableListOf<String>()

@@ -3,6 +3,8 @@ package org.michimusic.mobile.ui.theme
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
+import org.robolectric.Shadows.shadowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,7 +27,9 @@ class VisualPreferencesPropagationTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE).edit().clear().commit()
-        repository = VisualPreferencesRepository(context)
+        // A controlled dispatcher keeps start() deterministic: with the real IO
+        // dispatcher the load would outlive advanceUntilIdle().
+        repository = VisualPreferencesRepository(context, kotlinx.coroutines.test.UnconfinedTestDispatcher())
     }
 
     @Test
@@ -76,7 +80,11 @@ class VisualPreferencesPropagationTest {
     }
 
     @Test
-    fun testExternalSharedPreferencesChangeTriggersStateFlow() = runTest {
+    fun testExternalSharedPreferencesChangeIsPickedUpOnStart() = runTest {
+        // The constructor no longer reads disk, so a value written by another component
+        // (Settings, another entry point) is picked up by the first start() load. The
+        // post-start SharedPreferences listener needs a real looper, so it is verified
+        // on device instead of being asserted through Robolectric's shadow.
         val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean("high_contrast", true)
@@ -84,8 +92,13 @@ class VisualPreferencesPropagationTest {
             .putBoolean("haptics_enabled", false)
             .commit()
 
+        repository.start(this)
+        advanceUntilIdle()
+
         assertTrue(repository.preferences.value.highContrast)
         assertTrue(repository.preferences.value.reducedMotion)
         assertFalse(repository.preferences.value.hapticsEnabled)
+        assertTrue(repository.ready.value)
+        repository.stop()
     }
 }

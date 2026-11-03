@@ -49,6 +49,11 @@ class SettingsHierarchyTest {
                 module {
                     single<AppDao> { mockAppDao }
                     single<VisualPreferencesRepository> { mockVisualRepo }
+                    // The auto-sync switch reads its initial state from the scheduler, so the
+                    // settings screen needs one definition even when the test never toggles it.
+                    single<org.michimusic.mobile.sync.AutoSyncScheduler> {
+                        mockk<org.michimusic.mobile.sync.AutoSyncScheduler>(relaxed = true)
+                    }
                 }
             )
         }

@@ -1,5 +1,7 @@
 package org.michimusic.mobile.playback
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -7,7 +9,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -18,6 +22,7 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.link.LinkClient
 import org.michimusic.link.ConnectionManager
 import org.michimusic.link.LinkDiscovery
+import org.michimusic.link.PairedDevice
 import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.dto.PlaybackStateDto
 import org.michimusic.player.AudioController
@@ -36,9 +41,23 @@ class PlaybackSessionManager(
     private val linkDiscovery: LinkDiscovery,
     private val registry: PairedDeviceRegistry,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val _sessionState = MutableStateFlow(PlaybackSessionState())
     val sessionState: StateFlow<PlaybackSessionState> = _sessionState.asStateFlow()
+
+    /**
+     * Last snapshot of paired devices handed over by the registry flow.
+     *
+     * Kept here so [updateAvailableEndpoints] stays a pure in-memory computation: it is
+     * reached from three collectors on the main dispatcher, and reading the encrypted
+     * preferences file there is exactly what StrictMode flagged at every cold start.
+     */
+    @Volatile
+    private var pairedDevicesSnapshot: List<PairedDevice> = emptyList()
+
+    /** Endless observation job; owned explicitly so tests do not inherit it. */
+    private var deviceObservation: Job? = null
 
     private val _controlPreviews = MutableStateFlow<Map<String, RemoteEndpointPreview>>(emptyMap())
     val controlPreviews: StateFlow<Map<String, RemoteEndpointPreview>> = _controlPreviews.asStateFlow()
@@ -54,7 +73,7 @@ class PlaybackSessionManager(
                 "AUDIO_OUTPUT" !in it.capabilities && "REMOTE_CONTROL" in it.capabilities }
             .distinctBy { it.id }.take(8).forEach { endpoint ->
                 val client = connectionManager.getClient(endpoint.id) ?: return@forEach
-                scope.launch(Dispatchers.IO) {
+                scope.launch(ioDispatcher) {
                     val state = runCatching { client.getPlaybackState() }.getOrNull()?.getOrNull()
                     withContext(Dispatchers.Main) {
                         if (epoch != controlPreviewEpoch.get()) return@withContext
@@ -189,11 +208,48 @@ class PlaybackSessionManager(
                 updateAvailableEndpoints()
             }
         }
+
+    }
+
+    /**
+     * Starts tracking paired devices. The registry does no work on its own, so collecting
+     * is what triggers its single disk read; every later emission comes from a write or
+     * from the preference listener, so a revoked device never survives in the endpoint
+     * list. This is explicit instead of happening in `init` because the collection is
+     * endless: a manager created by a test would otherwise keep dispatching into the test
+     * dispatcher after the test ended.
+     */
+    fun startDeviceObservation() {
+        if (deviceObservation?.isActive == true) return
+        deviceObservation = scope.launch {
+            try {
+                registry.observeDevices()
+                    .flowOn(ioDispatcher)
+                    .collect { snapshot ->
+                        pairedDevicesSnapshot = snapshot
+                        updateAvailableEndpoints()
+                    }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A registry whose storage is unavailable must not take the session
+                // manager down with it: the endpoint list just stays peer-only.
+            }
+        }
+    }
+
+    /** Stops tracking paired devices. Safe to call when observation was never started. */
+    fun stopDeviceObservation() {
+        deviceObservation?.cancel()
+        deviceObservation = null
     }
 
     private fun updateAvailableEndpoints() {
         val discoveredPeers = linkDiscovery.peers.value.values
-        val pairedDevices = registry.getAllDevices()
+        // Snapshot only: EncryptedSharedPreferences must never be read from the main
+        // thread (StrictMode flagged it at every cold start). Until the first emission
+        // lands the list is empty, which can only hide an endpoint, never authorize one.
+        val pairedDevices = pairedDevicesSnapshot
 
         val discoveredEndpoints = discoveredPeers.map { peer ->
             val isConnected = connectionManager.connectionStates.value[peer.deviceId] == SyncConnectionState.CONNECTED
@@ -278,7 +334,7 @@ class PlaybackSessionManager(
         if (peer == null) {
             // A paired host without live mDNS still supports an initial read.
             // Do not install an endless polling job tied to a nonexistent peer.
-            scope.launch(Dispatchers.IO) {
+            scope.launch(ioDispatcher) {
                 runCatching { refreshRemotePlayback(client, null, deviceId) }
             }
             return
@@ -288,7 +344,7 @@ class PlaybackSessionManager(
         val token = client.deviceToken.ifEmpty { client.sessionToken }
         val ec = client.createEventClient(token)
         eventClient = ec
-        eventJob = scope.launch(Dispatchers.IO) {
+        eventJob = scope.launch(ioDispatcher) {
             ec.events.collect { event ->
                 if (!isRemoteSelected) return@collect
                 when (event.type) {
@@ -300,7 +356,7 @@ class PlaybackSessionManager(
         ec.connect(scope)
 
         // 2. Initial fetch & Fallback polling (strictly fallback when SSE disconnected)
-        remotePollingJob = scope.launch(Dispatchers.IO) {
+        remotePollingJob = scope.launch(ioDispatcher) {
             var consecutiveFailures = 0
             if (refreshRemotePlayback(client, peer, deviceId)) consecutiveFailures = 0 else consecutiveFailures++
             while (isActive && connectionManager.connectionStates.value[deviceId] == SyncConnectionState.CONNECTED) {
@@ -470,7 +526,7 @@ class PlaybackSessionManager(
             val client = connectionManager.getClient(activeEp.id)
             val sTok = activeReceiverSessionToken
             if (sTok != null) {
-                scope.launch(Dispatchers.IO) {
+                scope.launch(ioDispatcher) {
                     runCatching { client?.deleteReceiverLiteSession(sTok) }
                 }
             }
@@ -653,7 +709,7 @@ class PlaybackSessionManager(
             if (prevEp.id != target.id && (prevEp.type == EndpointType.STREAM_RECEIVER || prevEp.capabilities.contains("AUDIO_OUTPUT"))) {
                 val prevClient = connectionManager.getClient(prevEp.id)
                 val prevTok = activeReceiverSessionToken
-                scope.launch(Dispatchers.IO) {
+                scope.launch(ioDispatcher) {
                     prevClient?.deleteReceiverLiteSession(prevTok)
                 }
                 rtpAudioSender.stop()
@@ -700,7 +756,7 @@ class PlaybackSessionManager(
                         eff.bitDepth != sourceFormat.bitDepth ||
                         eff.channels != sourceFormat.channels ||
                         !eff.codec.equals(sourceFormat.codec, ignoreCase = true)) {
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch(ioDispatcher) {
                             client.deleteReceiverLiteSession(sessionResp.sessionToken)
                         }
                         onResult(false, "Incompatibilidad de formato: receptor requiere ${eff.codec} ${eff.sampleRate}Hz/${eff.bitDepth}bit")
@@ -715,7 +771,7 @@ class PlaybackSessionManager(
                     )
 
                     if (!rtpAudioSender.isActive) {
-                        scope.launch(Dispatchers.IO) {
+                        scope.launch(ioDispatcher) {
                             client.deleteReceiverLiteSession(sessionResp.sessionToken)
                         }
                         onResult(false, "No se pudo inicializar la transmisión RTP hacia $targetHost:${eff.streamPort}")
@@ -748,7 +804,7 @@ class PlaybackSessionManager(
 
                     receiverHeartbeatJob?.cancel()
                     val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
-                    receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
+                    receiverHeartbeatJob = scope.launch(ioDispatcher) {
                         while (isActive && isRemoteSelected && activeReceiverSessionId == sessionResp.sessionId) {
                             delay(intervalMs)
                             val hbResult = client.sendReceiverLiteHeartbeat(
@@ -2169,7 +2225,7 @@ class PlaybackSessionManager(
                 }
 
                 val intervalMs = (sessionResp.leaseSeconds / 3).coerceAtLeast(1) * 1000L
-                receiverHeartbeatJob = scope.launch(Dispatchers.IO) {
+                receiverHeartbeatJob = scope.launch(ioDispatcher) {
                     while (isActive && isRemoteSelected && activeReceiverSessionId == sessionResp.sessionId) {
                         delay(intervalMs)
                         val hbResult = client.sendReceiverLiteHeartbeat(

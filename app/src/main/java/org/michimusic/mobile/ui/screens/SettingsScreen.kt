@@ -140,6 +140,8 @@ fun SettingsScreen(
 
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
+    val autoSyncScheduler: org.michimusic.mobile.sync.AutoSyncScheduler = koinInject()
+    var autoSync by remember { mutableStateOf(autoSyncScheduler.isEnabled()) }
     var listeningHistory by remember { mutableStateOf(true) }
 
     var selectedMode by remember {
@@ -573,6 +575,21 @@ fun SettingsScreen(
                                         downloadArtwork = it
                                         prefs.edit { putBoolean(KEY_DOWNLOAD_ARTWORK, it) }
                                     },
+                                )
+
+                                Spacer(Modifier.height(12.dp))
+
+                                SettingSwitchRow(
+                                    title = "Sincronización automática",
+                                    subtitle = "Cada 12 horas, solo con red disponible y batería suficiente",
+                                    checked = autoSync,
+                                    onCheckedChange = {
+                                        autoSync = it
+                                        // The scheduler persists the preference and
+                                        // cancels the queued jobs in the same pass.
+                                        scope.launch { autoSyncScheduler.setEnabled(it) }
+                                    },
+                                    testTag = "settings_auto_sync",
                                 )
                             }
                         }

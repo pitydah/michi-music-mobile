@@ -41,3 +41,14 @@ fun periodicSyncConstraints(): Constraints = Constraints.Builder()
     .setRequiresBatteryNotLow(true)
     .setRequiresStorageNotLow(true)
     .build()
+
+/**
+ * Unique work name for one device's periodic mirror.
+ *
+ * The name is derived from the device id, so cancelling the preference can reach the
+ * jobs that were enqueued before this policy existed: those carried no tag, and only
+ * their unique name identifies them. Slashes and colons are legal in ids but not in
+ * work names, so they are normalised consistently in both places.
+ */
+fun periodicWorkName(deviceId: String): String =
+    "michi_sync_periodic_${deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"

@@ -12,6 +12,9 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -23,6 +26,13 @@ import org.michimusic.mobile.ui.components.EmbeddedCoverCache
 import org.michimusic.player.PlayerDependencies
 
 class MichiApp : Application() {
+
+    /**
+     * Application-scoped work that must outlive a single Activity, such as loading the
+     * visual preferences before the first frame is themed.
+     */
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     override fun onCreate() {
         super.onCreate()
         if (org.koin.core.context.GlobalContext.getOrNull() == null) {
@@ -49,6 +59,22 @@ class MichiApp : Application() {
         createNotificationChannels()
         configureImageLoader()
         configureStrictMode()
+        startVisualPreferencesLoad()
+    }
+
+    /**
+     * The stored theme is disk state. Loading it here, on an application scope, keeps the
+     * read off the main thread; [org.michimusic.mobile.ui.theme.VisualPreferencesRepository.ready]
+     * holds the first frame until it lands so the app never flashes the default theme.
+     */
+    private fun startVisualPreferencesLoad() {
+        try {
+            org.koin.core.context.GlobalContext.get()
+                .get<org.michimusic.mobile.ui.theme.VisualPreferencesRepository>()
+                .start(applicationScope)
+        } catch (e: Exception) {
+            Log.w("MichiApp", "No se pudieron cargar las preferencias visuales: ${e.message}")
+        }
     }
 
     /**

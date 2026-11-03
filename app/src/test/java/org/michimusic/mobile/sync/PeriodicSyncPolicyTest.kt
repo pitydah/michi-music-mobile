@@ -3,6 +3,7 @@ package org.michimusic.mobile.sync
 import androidx.work.NetworkType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -52,5 +53,18 @@ class PeriodicSyncPolicyTest {
         // Metered is still a working network; forcing unmetered would silently disable
         // the mirror for every user on mobile data.
         assertFalse(periodicSyncConstraints().requiredNetworkType == NetworkType.UNMETERED)
+    }
+
+    @Test
+    fun `the unique work name keeps ids readable and sanitises separators`() {
+        assertEquals("michi_sync_periodic_srv_1", periodicWorkName("srv_1"))
+        // Device ids may carry characters that WorkManager rejects in a name.
+        assertEquals("michi_sync_periodic_srv_1_a_b", periodicWorkName("srv/1:a b"))
+    }
+
+    @Test
+    fun `two different devices never collapse into the same work name`() {
+        assertNotEquals(periodicWorkName("srv_1"), periodicWorkName("srv_2"))
+        assertNotEquals(periodicWorkName("michi://a"), periodicWorkName("michi://b"))
     }
 }

@@ -118,7 +118,7 @@ fun AudioRouteScreen() {
                 .padding(MichiSpacing.screenHorizontal)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(text = "SIGNAL TRUTH", style = MichiTypography.screenEyebrow)
+            Text(text = "SIGNAL TRUTH", style = MichiTypography.screenEyebrowTechnical)
             Text(
                 text = "Ruta de audio",
                 style = MichiTypography.screenTitle,

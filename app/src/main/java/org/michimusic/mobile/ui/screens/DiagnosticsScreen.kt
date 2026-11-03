@@ -123,7 +123,7 @@ fun DiagnosticsScreen() {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "TELEMETRÍA",
-                        style = MichiTypography.screenEyebrow,
+                        style = MichiTypography.screenEyebrowTechnical,
                     )
                     Text(
                         text = "Diagnóstico Michi Link",

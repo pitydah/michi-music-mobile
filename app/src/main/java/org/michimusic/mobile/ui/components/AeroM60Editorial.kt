@@ -65,7 +65,9 @@ fun AeroSectionHeading(
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         if (eyebrow != null) {
-            Text(eyebrow.uppercase(), fontFamily = InterFontFamily, color = TertiaryCyan,
+            // Editorial eyebrow: pink identifies content sections. Cyan stays reserved
+            // for technical evidence such as Signal Truth and audio routes.
+            Text(eyebrow.uppercase(), fontFamily = InterFontFamily, color = PrimaryPinkContainer,
                 fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 1.15.sp)
         }
         Text(title, fontFamily = InterFontFamily, color = PureWhite,
@@ -108,8 +110,10 @@ fun AeroLibraryFeature(
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                Box(Modifier.size(6.dp).background(TertiaryCyan, RoundedCornerShape(3.dp)))
-                Text("SELECCIÓN DE TU BIBLIOTECA", color = TertiaryCyan,
+                // Editorial marker, not telemetry: the Aero identity speaks pink about
+                // content, and reserves cyan for Signal Truth and audio routes.
+                Box(Modifier.size(6.dp).background(PrimaryPinkContainer, RoundedCornerShape(3.dp)))
+                Text("SELECCIÓN DE TU BIBLIOTECA", color = PrimaryPinkContainer,
                     fontFamily = InterFontFamily, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                     letterSpacing = 1.sp)
             }
@@ -137,7 +141,7 @@ fun AeroLibraryFeature(
                     Text(featuredTrack.artist, color = TextSecondary,
                         fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("$trackCount ${if (trackCount == 1) "canción" else "canciones"} en tu colección",
-                        color = TertiaryCyan, fontSize = 12.sp, maxLines = 2,
+                        color = PrimaryPinkContainer, fontSize = 12.sp, maxLines = 2,
                         overflow = TextOverflow.Ellipsis)
                 }
             }

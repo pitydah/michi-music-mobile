@@ -97,6 +97,7 @@ class SyncViewModel(
     private val airCatClient: org.michimusic.mobile.devices.aircat.AirCatTransferClient? = null,
     private val checkpointRepository: org.michimusic.core.models.TransferCheckpointRepository? = null,
     private val approvedPlanRepository: org.michimusic.core.models.ApprovedSyncPlanRepository? = null,
+    private val autoSyncScheduler: AutoSyncScheduler? = null,
 ) : ViewModel() {
     // Same-process authority is shared by every SyncViewModel instance. A file lock
     // below provides cross-process exclusion for this transfer entry point.
@@ -1524,55 +1525,13 @@ class SyncViewModel(
     fun clearError() { _error.value = null }
 
 
-    fun schedulePeriodicSyncIfEnabled(targetDeviceId: String? = null) {
-        val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
-        val target = targetDeviceId
-            ?: uiState.value.pairingConfirm?.deviceId
-            ?: uiState.value.connectedPeer?.deviceId
-            ?: registry.getAllDevices().firstOrNull { !it.isRevoked }?.effectiveServerId
-        val pairedDevice = target?.let { registry.getDevice(it) }?.takeIf { !it.isRevoked }
-
-        // Cancelling here is deliberate: `auto_sync = false` or a pairing that went away
-        // must stop the job that is already enqueued, not just prevent a new one.
-        if (periodicSyncDecision(prefs.getBoolean("auto_sync", false), pairedDevice != null) ==
-            PeriodicSyncDecision.Cancel
-        ) {
-            WorkManager.getInstance(context).cancelAllWorkByTag(PERIODIC_SYNC_TAG)
-            return
-        }
-        val device = pairedDevice ?: return
-        val deviceId = target ?: return
-
-        val baseUrl = currentClient?.baseUrl ?: device.lastUrl.ifEmpty { return }
-        val pairedClientDeviceId = device.effectiveClientDeviceId.ifEmpty { identity.michiId }
-
-        val inputData = SyncWorker.buildInputData(
-            baseUrl = baseUrl,
-            deviceId = deviceId,
-            alias = android.os.Build.MODEL,
-            clientDeviceId = pairedClientDeviceId,
-        )
-
-        // Without constraints the mirror fired on a dead network, on a battery at 3 %
-        // and on a full disk, spending a wake lock to fail. These three keep the normal
-        // case silent and leave the manual run as the escape hatch for the rest.
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .setRequiresStorageNotLow(true)
-            .build()
-
-        val workRequest = PeriodicWorkRequestBuilder<SyncWorker>(12, TimeUnit.HOURS)
-            .setInputData(inputData)
-            .setConstraints(constraints)
-            .addTag(PERIODIC_SYNC_TAG)
-            .build()
-
-        val periodicWorkName = "michi_sync_periodic_${deviceId.replace(Regex("[^A-Za-z0-9_]"), "_")}"
-        // UPDATE, not KEEP: a re-pairing or a token refresh changes the input data, and
-        // KEEP would keep the stale credentials for up to twelve hours.
-        WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(periodicWorkName, ExistingPeriodicWorkPolicy.UPDATE, workRequest)
+    /**
+     * Applies the automatic-sync preference. The scheduling itself lives in
+     * [AutoSyncScheduler] so the settings switch and this view model cannot drift.
+     */
+    fun schedulePeriodicSyncIfEnabled() {
+        val scheduler = autoSyncScheduler ?: return
+        viewModelScope.launch { scheduler.refresh() }
     }
 
 

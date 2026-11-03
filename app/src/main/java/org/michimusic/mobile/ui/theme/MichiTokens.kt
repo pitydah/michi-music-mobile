@@ -72,7 +72,23 @@ val InterFontFamily = FontFamily(
 )
 
 object MichiTypography {
+    /**
+     * Editorial eyebrow. Aero keeps one canonical theme with two accents: pink speaks
+     * about content (collections, artists, library) and cyan about technical evidence
+     * (Signal Truth, sample rates, routes). The Aero canonization had pushed every
+     * eyebrow to cyan, which read the home screen as telemetry instead of as music.
+     */
     val screenEyebrow = TextStyle(
+        fontFamily = InterFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        letterSpacing = 1.5.sp,
+        color = PrimaryPinkContainer,
+    )
+
+    /** Technical eyebrow for telemetry and audio-route evidence; never for editorial content. */
+    val screenEyebrowTechnical = TextStyle(
         fontFamily = InterFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 11.sp,
