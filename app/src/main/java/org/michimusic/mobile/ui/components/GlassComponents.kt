@@ -95,6 +95,15 @@ fun GlassCard(
     accent: Color? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    // Legacy compatibility only. New screens call AeroCard/AeroSurface directly.
+    // Default GlassCards use exactly the same role, stroke, elevation and click semantics.
+    // Explicit glow, accents and translucent overlays retain their specialized old rendering.
+    if (glowColor == null && accent == null &&
+        backgroundColor == GlassFillLow && borderColor == GlassBorderLow) {
+        AeroCard(modifier = modifier, shape = shape, onClick = onClick,
+            contentPadding = contentPadding, content = content)
+        return
+    }
     val highContrast = LocalVisualPreferences.current.highContrast
     val role = if (backgroundColor == GlassFillHigh) AeroSurfaceRole.Floating else AeroSurfaceRole.Raised
     val material = aeroMaterialStyle(role, highContrast)

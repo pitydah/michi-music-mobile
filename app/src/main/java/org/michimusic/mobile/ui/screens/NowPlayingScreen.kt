@@ -275,18 +275,53 @@ fun NowPlayingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (compactLayout) 6.dp else 8.dp),
             ) {
-                Text(
-                    text = currentTrack?.title ?: "Sin reproducción activa",
-                    style = MichiTypography.screenTitle.copy(
-                        fontSize = if (compactLayout) 24.sp else 29.sp,
-                        lineHeight = if (compactLayout) 29.sp else 34.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(0.86f),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spacer(Modifier.size(48.dp))
+                    Text(
+                        text = currentTrack?.title ?: "Sin reproducción activa",
+                        style = MichiTypography.screenTitle.copy(
+                            fontSize = if (compactLayout) 24.sp else 29.sp,
+                            lineHeight = if (compactLayout) 29.sp else 34.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.weight(1f),
+                    )
+                    val isFav = currentTrack?.let { favoriteIds.contains(it.id) } == true
+                    var favoritePending by remember(currentTrack?.id) { mutableStateOf(false) }
+                    MichiIconAction(
+                        icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = if (isFav) "Quitar de favoritos" else "Añadir a favoritos",
+                        onClick = {
+                            currentTrack?.let { track ->
+                                if (!favoritePending) {
+                                    favoritePending = true
+                                    coroutineScope.launch {
+                                        try {
+                                            favoritesRepo.toggleFavorite(track.id)
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (error: Exception) {
+                                            android.util.Log.w("NowPlayingScreen", "Favorite update failed", error)
+                                        } finally {
+                                            favoritePending = false
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        enabled = currentTrack != null && !favoritePending,
+                        tint = if (isFav) PrimaryPinkContainer else PureWhite.copy(alpha = 0.82f),
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "now_playing_favorite_button",
+                    )
+                }
                 Text(
                     text = currentTrack?.artist ?: "Selecciona una canción",
                     style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
@@ -366,8 +401,6 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val isFav = currentTrack?.let { favoriteIds.contains(it.id) } == true
-
                 MichiIconAction(
                     icon = Icons.AutoMirrored.Filled.QueueMusic,
                     contentDescription = "Abrir cola",
@@ -376,20 +409,6 @@ fun NowPlayingScreen(
                     iconSize = 22.dp,
                     minTargetSize = MichiSpacing.minTouchTarget,
                     testTag = "now_playing_queue_button",
-                )
-                MichiIconAction(
-                    icon = if (isFav) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = if (isFav) "Quitar de favoritos" else "Añadir a favoritos",
-                    onClick = {
-                        currentTrack?.let { track ->
-                            coroutineScope.launch { favoritesRepo.toggleFavorite(track.id) }
-                        }
-                    },
-                    enabled = currentTrack != null,
-                    tint = if (isFav) PrimaryPinkContainer else PureWhite.copy(alpha = 0.82f),
-                    iconSize = 22.dp,
-                    minTargetSize = MichiSpacing.minTouchTarget,
-                    testTag = "now_playing_favorite_button",
                 )
                 MichiIconAction(
                     icon = Icons.Filled.Timer,
@@ -568,9 +587,9 @@ private fun SignalTruthCard(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = SurfaceContainerLowest,
-        border = androidx.compose.foundation.BorderStroke(0.75.dp, GlassBorderLow),
+        shape = RoundedCornerShape(15.dp),
+        color = Color(0xFF1C232D),
+        border = androidx.compose.foundation.BorderStroke(0.65.dp, GlassBorderLow),
         modifier = modifier.fillMaxWidth(),
     ) {
         Column(
@@ -589,12 +608,20 @@ private fun SignalTruthCard(
                     color = OnSurfaceVariant,
                     style = MichiTypography.metadata,
                 )
-                Text(
-                    text = tag,
-                    color = tagColor,
-                    style = MichiTypography.microLabel,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = tagColor.copy(alpha = 0.10f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        0.65.dp, tagColor.copy(alpha = 0.42f)),
+                ) {
+                    Text(
+                        text = tag,
+                        color = tagColor,
+                        style = MichiTypography.microLabel,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
             }
             Text(
                 text = value,
@@ -626,7 +653,7 @@ private fun SignalTruthDialog(
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(26.dp),
             color = floating.fill,
             border = androidx.compose.foundation.BorderStroke(floating.borderWidth, floating.outline),
             modifier = Modifier

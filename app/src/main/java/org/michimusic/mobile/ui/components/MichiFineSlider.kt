@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,7 +43,7 @@ fun MichiFineSlider(
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
-            .height(28.dp),
+            .heightIn(min = 48.dp), // 48dp gesture target, 3dp visual track below
         colors = SliderDefaults.colors(
             thumbColor = accentColor,
             activeTrackColor = accentColor,

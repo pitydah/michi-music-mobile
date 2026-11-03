@@ -80,9 +80,9 @@ private val HighContrastDarkColorScheme = darkColorScheme(
     onErrorContainer = PureWhite,
 )
 
+/** Canonical Aero theme. Material3 remains the rendering foundation, never a competing skin. */
 @Composable
-fun MichiTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+fun AeroTheme(
     visualPreferences: VisualPreferences = VisualPreferences(),
     content: @Composable () -> Unit,
 ) {
@@ -91,14 +91,18 @@ fun MichiTheme(
     } else {
         LuminousDarkColorScheme
     }
-
-    CompositionLocalProvider(
-        LocalVisualPreferences provides visualPreferences
-    ) {
-        MaterialTheme(
-            colorScheme = colors,
-            typography = Typography,
-            content = content,
-        )
+    CompositionLocalProvider(LocalVisualPreferences provides visualPreferences) {
+        MaterialTheme(colorScheme = colors, typography = Typography, content = content)
     }
+}
+
+/** Compatibility entry point. Existing callers retain their preferences and exactly one theme. */
+@Composable
+fun MichiTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    visualPreferences: VisualPreferences = VisualPreferences(),
+    content: @Composable () -> Unit,
+) {
+    // The Aero palette is always dark; darkTheme was already ignored by the old implementation.
+    AeroTheme(visualPreferences = visualPreferences, content = content)
 }

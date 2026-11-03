@@ -5,6 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.mobile.ui.theme.MichiSpacing
 
+/** Spacing/touch-token assertions only; color ratios live in AeroContrastAndGradientTest. */
 class A11yAndTokensTest {
 
     @Test

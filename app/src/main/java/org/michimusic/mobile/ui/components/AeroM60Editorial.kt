@@ -19,6 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -144,7 +147,8 @@ fun AeroLibraryFeature(
                         Icons.Filled.PlayArrow, AeroActionKind.Primary, testTag = "m60_feature_play")
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         AeroActionButton("Todo", onPlayAll, Modifier.weight(1f),
-                            kind = AeroActionKind.Secondary, testTag = "quick_play_button")
+                            kind = AeroActionKind.Secondary, testTag = "quick_play_button",
+                            accessibilityLabel = "Reproducir todas las canciones")
                         AeroActionButton("Aleatorio", onShuffle, Modifier.weight(1f),
                             Icons.Filled.Shuffle, AeroActionKind.Quiet, testTag = "shuffle_button")
                     }
@@ -158,7 +162,8 @@ fun AeroLibraryFeature(
                     AeroActionButton("Escuchar", onFeatured, Modifier.weight(1f),
                         Icons.Filled.PlayArrow, AeroActionKind.Primary, testTag = "m60_feature_play")
                     AeroActionButton("Todo", onPlayAll, Modifier.weight(1f),
-                        kind = AeroActionKind.Secondary, testTag = "quick_play_button")
+                        kind = AeroActionKind.Secondary, testTag = "quick_play_button",
+                            accessibilityLabel = "Reproducir todas las canciones")
                     AeroActionButton("Mezclar", onShuffle, Modifier.weight(1f),
                         Icons.Filled.Shuffle, AeroActionKind.Quiet, testTag = "shuffle_button")
                 }
@@ -201,10 +206,15 @@ fun AeroSignalRouteStrip(
                 .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Text("RUTA DE AUDIO", color = TextSecondary, fontSize = 10.sp,
+                letterSpacing = 0.9.sp, fontWeight = FontWeight.SemiBold)
             val signal: @Composable (Modifier) -> Unit = { cellModifier ->
                 Column(
-                    modifier = cellModifier.clip(RoundedCornerShape(9.dp))
+                    modifier = cellModifier.clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.055f))
+                        .border(0.6.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
                         .clickable(role = Role.Button, onClick = onSignalClick)
+                        .padding(12.dp)
                         .semantics { contentDescription = "$signalLabel. Formato del archivo original; consulta independiente del PCM y de la salida física. Abrir Signal Truth" }
                         .heightIn(min = 48.dp)
                         .testTag("signal_truth_button"),
@@ -215,12 +225,16 @@ fun AeroSignalRouteStrip(
                     Text(signalLabel, color = TertiaryCyan,
                         fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = if (stacked) 3 else 2, overflow = TextOverflow.Ellipsis)
+                    Text("Ver Signal Truth  ›", color = TextSecondary, fontSize = 11.sp)
                 }
             }
             val output: @Composable (Modifier) -> Unit = { cellModifier ->
                 Column(
-                    modifier = cellModifier.clip(RoundedCornerShape(9.dp))
+                    modifier = cellModifier.clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.055f))
+                        .border(0.6.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
                         .clickable(role = Role.Button, onClick = onDestinationClick)
+                        .padding(12.dp)
                         .semantics { contentDescription = "Salida solicitada: $destination. Abrir selector de audio" }
                         .heightIn(min = 48.dp)
                         .testTag("audio_route_button"),
@@ -231,13 +245,14 @@ fun AeroSignalRouteStrip(
                     Text(destination, color = PureWhite, fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = if (stacked) 3 else 2, overflow = TextOverflow.Ellipsis)
+                    Text("Ver ruta de audio  ›", color = TextSecondary, fontSize = 11.sp)
                 }
             }
             if (stacked) {
                 signal(Modifier.fillMaxWidth())
                 output(Modifier.fillMaxWidth())
             } else {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     signal(Modifier.weight(1f))
                     output(Modifier.weight(1f))
                 }
@@ -301,7 +316,7 @@ fun MichiControlBadge(
         Surface(
             shape = MichiShapes.pill,
             color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.75.dp, Color.White.copy(alpha = 0.28f)),
+            border = androidx.compose.foundation.BorderStroke(0.65.dp, Color.White.copy(alpha = 0.16f)),
         ) {
             Row(
                 modifier = Modifier.clip(MichiShapes.pill)
@@ -318,7 +333,17 @@ fun MichiControlBadge(
                 Box(Modifier.size(6.dp).background(
                     if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan
                     else Color(0xFF647181), CircleShape))
-                Text(activeEndpoint.name, color = PureWhite, fontSize = 12.sp,
+                Icon(
+                    imageVector = when {
+                        activeEndpoint.isLocal -> Icons.Filled.Headphones
+                        activeEndpoint.type == EndpointType.SERVER -> Icons.Filled.Dns
+                        else -> Icons.Filled.Speaker
+                    },
+                    contentDescription = null,
+                    tint = if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan else TextSecondary,
+                    modifier = Modifier.size(17.dp),
+                )
+                Text(activeEndpoint.name, color = PureWhite, fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 154.dp))
                 Icon(Icons.Filled.ExpandMore, contentDescription = null,

@@ -239,6 +239,8 @@ fun EqualizerDialog(
     })
 
     var selectedTab by remember { mutableStateOf(0) }
+    // Local presentation state only; the two DSP engines keep their own stores.
+    var studioSection by remember { mutableStateOf(0) }
     val dialogMaxHeight = (LocalConfiguration.current.screenHeightDp.dp - 40.dp).coerceAtLeast(280.dp)
 
     val presets = listOf(
@@ -312,7 +314,7 @@ fun EqualizerDialog(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
-                                    text = if (effectsState.isEnabled) "DSP ACTIVO" else "BYPASS",
+                                    text = if (effectsState.isEnabled) "DSP HABILITADO" else "BYPASS SOLICITADO",
                                     color = if (effectsState.isEnabled) TertiaryCyan else TextMuted,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -336,11 +338,12 @@ fun EqualizerDialog(
                     ) {
                         IconButton(
                             onClick = { audioEffects?.resetToFlat() },
+                            enabled = studioSection == 0,
                             modifier = Modifier.size(48.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.RestartAlt,
-                                contentDescription = "Restablecer a Plano",
+                                contentDescription = "Restablecer únicamente las bandas del EQ Android a plano",
                                 tint = OnSurfaceVariant,
                                 modifier = Modifier.size(20.dp),
                             )
@@ -424,10 +427,45 @@ fun EqualizerDialog(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
-                HeadphoneStudioSection()
-                Spacer(modifier = Modifier.height(14.dp))
+                // Distinct engines need distinct workspaces, not one never-ending scroll.
+                // Selecting a workspace does NOT change AudioProcessingMode or enable effects.
+                Text("MOTOR DE ECUALIZACIÓN", color = OnSurfaceVariant,
+                    fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(6.dp))
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val stacked = aeroSegmentStacking(maxWidth.value, LocalDensity.current.fontScale)
+                    if (stacked) {
+                        AeroSegmentStack {
+                            AeroSegmentedChoice("EQ de Android", selected = studioSection == 0,
+                                onClick = { studioSection = 0 }, modifier = Modifier.fillMaxWidth(),
+                                testTag = "dsp_studio_android_tab")
+                            AeroSegmentedChoice("Auriculares · PEQ", selected = studioSection == 1,
+                                onClick = { studioSection = 1 }, modifier = Modifier.fillMaxWidth(),
+                                testTag = "dsp_studio_headphones_tab")
+                        }
+                    } else {
+                        AeroSegmentRail {
+                            AeroSegmentedChoice("EQ de Android", selected = studioSection == 0,
+                                onClick = { studioSection = 0 }, modifier = Modifier.weight(1f),
+                                testTag = "dsp_studio_android_tab")
+                            AeroSegmentedChoice("Auriculares · PEQ", selected = studioSection == 1,
+                                onClick = { studioSection = 1 }, modifier = Modifier.weight(1f),
+                                testTag = "dsp_studio_headphones_tab")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                if (studioSection == 1) {
+                    Text("PEQ local de seis filtros · perfil guardado no implica salida aplicada.",
+                        color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HeadphoneStudioSection()
+                } else {
+                    Text("EQ Android · bandas y presets dependen de la sesión y el dispositivo.",
+                        color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // High-End Frequency Response Curve Visualizer
+                // Curva ILUSTRATIVA del EQ Android. No representa una medición física.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -574,7 +612,7 @@ fun EqualizerDialog(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "Bandas Paramétricas",
+                            text = "Bandas del sistema",
                             color = if (selectedTab == 0) PureWhite else TextMuted,
                             fontSize = 12.sp,
                             fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
@@ -787,6 +825,7 @@ fun EqualizerDialog(
                         }
                     }
                 }
+                } // Fin del espacio de trabajo EQ Android; PEQ mantiene su propia vista.
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -800,7 +839,7 @@ fun EqualizerDialog(
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     Text(
-                        text = "Guardar y Cerrar",
+                        text = "Cerrar",
                         color = PureWhite,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
@@ -1212,7 +1251,7 @@ fun AudioRouteDialog(
 
     Dialog(onDismissRequest = onDismiss) {
         AeroFloatingSurface(
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(26.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(4.dp)
@@ -1273,7 +1312,13 @@ fun AudioRouteDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Reproductor y salida física son controles diferentes.",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
 
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().heightIn(
@@ -1306,9 +1351,9 @@ fun AudioRouteDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(if (isCurrent) PrimaryPinkContainer.copy(alpha = 0.15f) else GlassFillLow)
+                                .background(if (isCurrent) PrimaryPinkContainer.copy(alpha = 0.095f) else GlassFillLow)
                                 .border(
-                                    1.dp,
+                                    0.75.dp,
                                     if (isCurrent) PrimaryPink else GlassBorderLow,
                                     RoundedCornerShape(14.dp),
                                 )

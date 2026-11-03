@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
@@ -87,6 +88,8 @@ import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentTreatment
+import org.michimusic.mobile.ui.components.premium.AeroFloatingSurface
+import org.michimusic.mobile.artist.ArtistEnrichmentPanel
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
@@ -156,6 +159,7 @@ fun AlbumsScreen(
     var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
     var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.LIST) }
     var selectedAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedArtistName by rememberSaveable { mutableStateOf<String?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -814,6 +818,25 @@ fun AlbumsScreen(
                         val artistsList = remember(albums) {
                             albums.groupBy { it.album.artist }.toList()
                         }
+                        // Local-only explorer: we do not invent photos, MBIDs or biographies.
+                        artistsList.firstOrNull { it.first == selectedArtistName }?.let { (name, groups) ->
+                            ArtistLibraryDetailDialog(
+                                artistName = name,
+                                artistAlbums = groups,
+                                libraryId = when (val scope = activeScope) {
+                                    is org.michimusic.core.models.LibraryScope.One -> scope.libraryId
+                                    org.michimusic.core.models.LibraryScope.All ->
+                                        availableLibraries.singleOrNull()?.id
+                                },
+                                onDismiss = { selectedArtistName = null },
+                                onPlayTracks = { tracks ->
+                                    if (tracks.isNotEmpty()) {
+                                        playQueueSafe(tracks, 0)
+                                        selectedArtistName = null
+                                    }
+                                },
+                            )
+                        }
 
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
@@ -823,14 +846,10 @@ fun AlbumsScreen(
                             items(artistsList, key = { it.first }) { (artistName, artistAlbums) ->
                                 val artistTracks = artistAlbums.flatMap { it.tracks }
                                 GlassCard(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().testTag("artist_open_detail_${artistName}"),
                                     backgroundColor = GlassFillLow,
                                     borderColor = GlassBorderLow,
-                                    onClick = {
-                                        if (artistTracks.isNotEmpty()) {
-                                            playQueueSafe(artistTracks, 0)
-                                        }
-                                    },
+                                    onClick = { selectedArtistName = artistName },
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -873,11 +892,15 @@ fun AlbumsScreen(
                                             )
                                         }
 
-                                        Icon(
-                                            Icons.Default.PlayArrow,
-                                            contentDescription = "Reproducir Artista",
+                                        MichiIconAction(
+                                            icon = Icons.Default.PlayArrow,
+                                            contentDescription = "Reproducir ${artistName.ifBlank { "Artista Desconocido" }}",
+                                            onClick = { if (artistTracks.isNotEmpty()) playQueueSafe(artistTracks, 0) },
+                                            enabled = artistTracks.isNotEmpty(),
                                             tint = TertiaryCyan,
-                                            modifier = Modifier.size(24.dp),
+                                            iconSize = 22.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
+                                            testTag = "artist_play_button",
                                         )
                                     }
                                 }
@@ -1080,6 +1103,115 @@ fun AlbumsScreen(
         }
     }
 }
+/** Artist Enrichment phase 1: a factual local library view, not a remote metadata claim. */
+@Composable
+private fun ArtistLibraryDetailDialog(
+    artistName: String,
+    artistAlbums: List<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum>,
+    libraryId: String?,
+    onDismiss: () -> Unit,
+    onPlayTracks: (List<Track>) -> Unit,
+) {
+    val tracks = remember(artistAlbums) { artistAlbums.flatMap { it.tracks } }
+    var showExternal by remember(artistName) { mutableStateOf(false) }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        AeroFloatingSurface(
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth().testTag("artist_detail_dialog"),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+                    .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp - 64.dp)
+                        .coerceAtLeast(280.dp))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(artistName.ifBlank { "Artista Desconocido" }, color = PureWhite,
+                            fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("${artistAlbums.size} álbumes · ${tracks.size} canciones en tu colección",
+                            color = TextSecondary, fontSize = 12.sp)
+                    }
+                    MichiIconAction(
+                        icon = Icons.Default.Close,
+                        contentDescription = "Cerrar ficha del artista",
+                        onClick = onDismiss,
+                        tint = TextSecondary,
+                        iconSize = 20.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                    )
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AeroSegmentedChoice(
+                        label = "Mi colección", selected = !showExternal,
+                        onClick = { showExternal = false }, modifier = Modifier.weight(1f),
+                        testTag = "artist_local_tab",
+                    )
+                    AeroSegmentedChoice(
+                        label = "Enriquecimiento", selected = showExternal,
+                        onClick = { showExternal = true }, modifier = Modifier.weight(1f),
+                        testTag = "artist_external_tab",
+                    )
+                }
+                if (showExternal) {
+                    ArtistEnrichmentPanel(
+                        artistCredit = artistName,
+                        libraryId = libraryId,
+                        albumIds = artistAlbums.map { it.album.id },
+                        localAudioUris = tracks.filter { it.source == org.michimusic.core.models.TrackSource.LOCAL && it.filepath.isNotBlank() }
+                            .map { it.filepath }.filter(String::isNotBlank),
+                        localTrackIds = tracks.filter { it.source == org.michimusic.core.models.TrackSource.LOCAL && it.filepath.isNotBlank() }
+                            .map { it.id },
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(artistAlbums, key = { it.album.id }) { group ->
+                        GlassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            backgroundColor = GlassFillLow,
+                            borderColor = GlassBorderLow,
+                            onClick = { if (group.tracks.isNotEmpty()) onPlayTracks(group.tracks) },
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(group.album.title, color = PureWhite, fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold, maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis)
+                                    Text("${group.tracks.size} canciones", color = TextSecondary, fontSize = 12.sp)
+                                }
+                                Icon(Icons.Default.PlayArrow, contentDescription = null,
+                                    tint = TertiaryCyan, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
+                } // Sólo pistas locales en la vista de colección.
+                AeroActionButton(
+                    label = "Reproducir todo",
+                    onClick = { if (tracks.isNotEmpty()) onPlayTracks(tracks) },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Default.PlayArrow,
+                    kind = AeroActionKind.Primary,
+                    enabled = tracks.isNotEmpty(),
+                    testTag = "artist_detail_play_all",
+                )
+            }
+        }
+    }
+}
+
 
 /** Scope chooser is useful only with multiple libraries or for orphan-scope recovery. */
 internal fun shouldShowLibraryScopeSelector(availableCount: Int, allSelected: Boolean): Boolean =

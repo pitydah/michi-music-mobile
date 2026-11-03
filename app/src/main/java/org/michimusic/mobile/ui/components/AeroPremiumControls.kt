@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +65,7 @@ fun AeroActionButton(
     kind: AeroActionKind = AeroActionKind.Secondary,
     enabled: Boolean = true,
     testTag: String? = null,
+    accessibilityLabel: String? = null,
 ) {
     val visual = LocalVisualPreferences.current
     val contrast = visual.highContrast
@@ -86,7 +89,8 @@ fun AeroActionButton(
         !enabled -> Color.White.copy(alpha = 0.09f)
         contrast -> Color.White.copy(alpha = 0.72f)
         kind == AeroActionKind.Primary -> Color(0xFFFFB2BD).copy(alpha = 0.58f)
-        else -> Color.White.copy(alpha = 0.22f)
+        kind == AeroActionKind.Quiet -> Color.White.copy(alpha = 0.13f)
+        else -> Color.White.copy(alpha = 0.19f)
     }
     val ink = if (enabled && kind == AeroActionKind.Primary) SurfaceObsidian else
         if (enabled) PureWhite else Color(0xFFACB2BD)
@@ -107,6 +111,7 @@ fun AeroActionButton(
                 role = Role.Button,
                 onClick = onClick,
             )
+            .semantics { contentDescription = accessibilityLabel ?: label }
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             // 10dp, not 14dp: in a three-action row every dp of inner padding
             // competed with the longest label and forced it to ellipsize.

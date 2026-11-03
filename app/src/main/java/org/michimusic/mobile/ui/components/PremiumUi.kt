@@ -98,10 +98,9 @@ fun PremiumScreen(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    // Ambient waves/textures remain opt-in helpers. A global screen never draws
-    // neon halos on every device or ignores the user's contrast preference.
-    val canvas = aeroMaterialStyle(AeroSurfaceRole.Canvas, LocalVisualPreferences.current.highContrast)
-    Box(modifier = modifier.fillMaxSize().background(canvas.fill)) { content() }
+    // Compatibility API. AeroScreen owns the single canonical canvas rendering policy.
+    // Decorative waves/textures remain opt-in, never globally added.
+    AeroScreen(modifier = modifier, content = content)
 }
 
 @Composable
