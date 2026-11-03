@@ -171,9 +171,12 @@ fun AlbumsScreen(
     }
 
     LaunchedEffect(albums) {
-        if (selectedAlbumId == null && albums.isNotEmpty()) {
-            selectedAlbumId = albums.first().album.id
-        }
+        // A rescan can drop the album that was selected; without this reconciliation the
+        // CoverFlow and the detail panel would resolve the stale id differently.
+        selectedAlbumId = reconcileSelectedAlbumId(
+            selectedId = selectedAlbumId,
+            albumIds = albums.map { it.album.id },
+        )
     }
 
     val coverFlowAlbums = remember(albums) {
@@ -473,8 +476,11 @@ fun AlbumsScreen(
                                         .clip(MichiShapes.sm)
                                         .background(if (isCurrent) TertiaryCyan.copy(alpha = 0.075f) else androidx.compose.ui.graphics.Color.Transparent)
                                         .clickable(role = Role.Button) {
-                                            val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                                            playQueueSafe(filteredTracks, idx)
+                                            // The list can change under an open row; a -1 coerced to 0
+                                            // would play the first track instead of the tapped one.
+                                            indexOfTrackOrNull(filteredTracks, track.id)?.let { idx ->
+                                                playQueueSafe(filteredTracks, idx)
+                                            }
                                         },
                                 ) {
                                     Row(
@@ -554,8 +560,13 @@ fun AlbumsScreen(
                                         selectedAlbumId = selectedAlbumId,
                                         onAlbumSelected = { selectedAlbumId = it },
                                         onAlbumClick = { idx ->
+                                            // Resolve strictly by id: the carousel index can be
+                                            // stale mid-animation, and a positional fallback would
+                                            // start an album the user never tapped.
                                             val selectedCoverAlbum = coverFlowAlbums.getOrNull(idx)
-                                            val selectedAlbum = albums.find { it.album.id == selectedCoverAlbum?.id } ?: albums.getOrNull(idx)
+                                            val selectedAlbum = selectedCoverAlbum?.let { cover ->
+                                                albums.find { it.album.id == cover.id }
+                                            }
                                             if (selectedAlbum != null && selectedAlbum.tracks.isNotEmpty()) {
                                                 playQueueSafe(selectedAlbum.tracks, 0)
                                             }
@@ -1038,8 +1049,11 @@ fun AlbumsScreen(
                 isFavorite = favoriteIds.contains(track.id),
                 onDismiss = { selectedTrackForMenu = null },
                 onPlayNow = {
-                    val idx = filteredTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-                    playQueueSafe(filteredTracks, idx)
+                    // "Play now" must not fall back to the first track when the filter changed
+                    // while the sheet was open and the song is no longer in that list.
+                    indexOfTrackOrNull(filteredTracks, track.id)?.let { idx ->
+                        playQueueSafe(filteredTracks, idx)
+                    }
                 },
                 onPlayNext = {
                     sessionManager.playNext(track)

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -92,8 +93,9 @@ data class EqBand(val frequencyLabel: String, var gainDb: Float)
 fun QueueDialog(
     queue: List<Track>,
     currentTrack: Track?,
-    onTrackSelect: (Track) -> Unit,
+    onTrackSelect: (Int) -> Unit,
     onDismiss: () -> Unit,
+    currentIndex: Int = -1,
 ) {
     Dialog(onDismissRequest = onDismiss) {
         AeroFloatingSurface(
@@ -155,14 +157,16 @@ fun QueueDialog(
                             .heightIn(max = (LocalConfiguration.current.screenHeightDp.dp * 0.56f).coerceAtLeast(180.dp)),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        items(queue) { track ->
-                            val isCurrent = track.id == currentTrack?.id
+                        itemsIndexed(queue) { index, track ->
+                            // A song can appear twice in the same queue, so the highlighted row is
+                            // the one at the active position, not every row sharing the track id.
+                            val isCurrent = if (currentIndex >= 0) index == currentIndex else track.id == currentTrack?.id
                             GlassCard(
                                 modifier = Modifier.fillMaxWidth(),
                                 backgroundColor = if (isCurrent) GlassFillHigh else GlassFillLow,
                                 borderColor = if (isCurrent) TertiaryCyan else GlassBorderLow,
                                 onClick = {
-                                    onTrackSelect(track)
+                                    onTrackSelect(index)
                                     onDismiss()
                                 },
                             ) {

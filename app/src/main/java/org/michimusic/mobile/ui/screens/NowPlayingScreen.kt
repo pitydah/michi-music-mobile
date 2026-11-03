@@ -393,14 +393,24 @@ fun NowPlayingScreen(
                 )
                 MichiIconAction(
                     icon = Icons.Filled.Timer,
-                    contentDescription = if (playerState.sleepTimerRemainingMs > 0L)
-                        "Temporizador activo. Cambiar duración" else "Activar temporizador",
+                    contentDescription = when {
+                        // The sleep timer lives in the local player. Offering it while a remote
+                        // host is playing would promise a stop that never reaches that device.
+                        sessionState.isRemoteActive -> "Temporizador no disponible con reproducción remota"
+                        playerState.sleepTimerRemainingMs > 0L -> "Temporizador activo. Cambiar duración"
+                        else -> "Activar temporizador"
+                    },
                     onClick = {
                         val next = cycleSleepTimer(playerState.sleepTimerRemainingMs)
                         if (next <= 0L) audioController.cancelSleepTimer()
                         else audioController.setSleepTimer(next)
                     },
-                    tint = if (playerState.sleepTimerRemainingMs > 0L) TertiaryCyan else PureWhite.copy(alpha = .82f),
+                    enabled = !sessionState.isRemoteActive,
+                    tint = when {
+                        sessionState.isRemoteActive -> OnSurfaceVariant
+                        playerState.sleepTimerRemainingMs > 0L -> TertiaryCyan
+                        else -> PureWhite.copy(alpha = .82f)
+                    },
                     iconSize = 22.dp,
                     minTargetSize = MichiSpacing.minTouchTarget,
                     testTag = "sleep_timer_button",
@@ -426,11 +436,15 @@ fun NowPlayingScreen(
                 )
             }
 
-            val queue = if (sessionState.isRemoteActive) sessionState.queue else playerState.queue
-            val currentIndex = currentTrack?.let { cur -> queue.indexOfFirst { it.id == cur.id } } ?: -1
-            val nextTrack = if (currentIndex in queue.indices && currentIndex + 1 < queue.size) {
-                queue[currentIndex + 1]
-            } else null
+            // The position comes from the player, so a song that appears twice in the queue keeps
+            // its own entry. Searching the queue by track id would always find the first one and
+            // announce the wrong successor.
+            val nextTrack = nextQueueTrack(
+                queue = presentation.queue,
+                queueIndex = presentation.queueIndex,
+                repeatMode = presentation.repeatMode,
+                shuffleEnabled = presentation.shuffleMode != 0,
+            )
 
             Column(
                 modifier = Modifier
@@ -481,13 +495,14 @@ fun NowPlayingScreen(
         }
 
         if (showQueueDialog) {
-            val q = if (sessionState.isRemoteActive) sessionState.queue else playerState.queue
             QueueDialog(
-                queue = q,
+                queue = presentation.queue,
                 currentTrack = currentTrack,
-                onTrackSelect = { selected ->
-                    val idx = q.indexOfFirst { it.id == selected.id }.coerceAtLeast(0)
-                    sessionManager.skipToQueueIndex(idx)
+                currentIndex = presentation.queueIndex,
+                onTrackSelect = { index ->
+                    // The dialog reports the row that was tapped. Resolving it back through
+                    // indexOfFirst would collapse a repeated song onto its first occurrence.
+                    sessionManager.skipToQueueIndex(index)
                 },
                 onDismiss = { showQueueDialog = false },
             )
