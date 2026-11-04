@@ -185,3 +185,26 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     debugImplementation(libs.compose.ui.test.manifest)
 }
+
+// The :player module compiles its AudioTrackProvider lambda against the catalog's
+// media3 version. A transitive bump on the app runtime graph (camera-video 1.6.2
+// pulls media3-muxer 1.9.0) ships a library whose abstract methods the compiled
+// lambda does not implement, and playback dies with AbstractMethodError the moment
+// the audio sink is built. Fail the build instead of shipping that mismatch.
+val expectedMedia3Version = libs.versions.media3.get()
+tasks.register("checkMedia3Alignment") {
+    val runtimeClasspath = configurations.named("normalDebugRuntimeClasspath")
+    val expected = expectedMedia3Version
+    doLast {
+        val resolved = runtimeClasspath.get().incoming.resolutionResult.allComponents
+            .mapNotNull { it.moduleVersion }
+            .filter { it.group == "androidx.media3" }
+            .map { it.version }
+            .distinct()
+            .sorted()
+        check(resolved == listOf(expected)) {
+            "media3 drift: catalog=$expected, runtime=$resolved. Align the catalog with the transitive graph."
+        }
+    }
+}
+tasks.named("preBuild").configure { dependsOn("checkMedia3Alignment") }

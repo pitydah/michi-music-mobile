@@ -92,8 +92,12 @@ class PlayerController(
         return record.generation
     }
 
-    private val audioTrackProvider = DefaultAudioSink.AudioTrackProvider { config, attr, sessionId ->
-        val track = DefaultAudioSink.AudioTrackProvider.DEFAULT.getAudioTrack(config, attr, sessionId)
+    // media3 1.9 added the Context to this SAM. CameraX's camera-video pulls
+    // media3-muxer 1.9+, which raises the whole media3 graph to 1.9 at runtime,
+    // so the compiled shape has to match that version or the lambda is missing
+    // the abstract method and audio playback dies with AbstractMethodError.
+    private val audioTrackProvider = DefaultAudioSink.AudioTrackProvider { config, attr, sessionId, trackContext ->
+        val track = DefaultAudioSink.AudioTrackProvider.DEFAULT.getAudioTrack(config, attr, sessionId, trackContext)
         registerCreatedAudioTrack(track, config)
         track
     }
