@@ -20,6 +20,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.data.cache.AppDao
 
 import org.michimusic.data.repository.LocalMediaRepository
+import org.michimusic.data.repository.MediaResult
 import org.michimusic.data.repository.PlaylistRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -50,7 +51,7 @@ class AlbumsViewModelTest {
 
     @Test
     fun `loadMedia flips isLoading to false once it completes`() = runTest(testDispatcher) {
-        coEvery { localRepo.loadAlbums() } returns emptyList()
+        coEvery { localRepo.fetchAlbumsResult() } returns MediaResult.Success(emptyList())
         coEvery { appDao.getTopTracks(12) } returns emptyList()
         coEvery { appDao.getRecentHistory(20) } returns emptyList()
         coEvery { playlistRepo.getAllPlaylists() } returns emptyList()
@@ -71,7 +72,7 @@ class AlbumsViewModelTest {
         val album = org.michimusic.core.models.Album(id = "a1", title = "Album", artist = "Artist", coverId = "", year = 2020)
         val localAlbum = LocalMediaRepository.LocalAlbum(album = album, tracks = listOf(t1, t2))
 
-        coEvery { localRepo.loadAlbums() } returns listOf(localAlbum)
+        coEvery { localRepo.fetchAlbumsResult() } returns MediaResult.Success(listOf(localAlbum))
         coEvery { appDao.getTopTracks(12) } returns listOf(org.michimusic.data.cache.PlayCountEntity("t1", 10))
         coEvery { appDao.getRecentHistory(20) } returns listOf(org.michimusic.data.cache.HistoryEntity(trackId = "t2", playedAt = 1000L))
         coEvery { playlistRepo.getAllPlaylists() } returns listOf(Playlist("p1", "My Playlist", emptyList()))
@@ -144,7 +145,7 @@ class AlbumsViewModelTest {
             val album = org.michimusic.core.models.Album(id = "a1", title = "Album", artist = "Artist", coverId = "", year = 2020)
             val localAlbum = LocalMediaRepository.LocalAlbum(album = album, tracks = listOf(downloadedTrack, nonDownloadedTrack))
 
-            coEvery { localRepo.loadAlbums() } returns listOf(localAlbum)
+            coEvery { localRepo.fetchAlbumsResult() } returns MediaResult.Success(listOf(localAlbum))
             coEvery { appDao.getTopTracks(12) } returns emptyList()
             coEvery { appDao.getRecentHistory(20) } returns emptyList()
             coEvery { playlistRepo.getAllPlaylists() } returns emptyList()

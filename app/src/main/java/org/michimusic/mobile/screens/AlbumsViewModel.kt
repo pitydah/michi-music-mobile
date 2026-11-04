@@ -15,6 +15,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.data.cache.AppDao
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
+import org.michimusic.data.repository.MediaResult
 import org.michimusic.data.repository.PlaylistRepository
 
 class AlbumsViewModel(
@@ -55,6 +56,10 @@ class AlbumsViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _mediaState = MutableStateFlow(MediaLibraryState.LOADING)
+    /** Truthful local-media state: EMPTY only after a successful query with zero tracks. */
+    val mediaState: StateFlow<MediaLibraryState> = _mediaState.asStateFlow()
+
     private var loadJob: Job? = null
     private val loadEpoch = java.util.concurrent.atomic.AtomicLong()
 
@@ -65,21 +70,42 @@ class AlbumsViewModel(
         _isLoading.value = false
     }
 
-    fun loadMedia() {
+    fun loadMedia(forceRefresh: Boolean = false) {
         val epoch = loadEpoch.incrementAndGet()
         loadJob?.cancel()
         loadJob = viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             _error.value = null
-            try {
-                val result = try {
-                    repo.loadAlbums()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _error.value = e.message ?: "Error al cargar la biblioteca"
-                    emptyList()
+            _mediaState.value = MediaLibraryState.LOADING
+            // A permission change or a manual retry must never be answered from the cache
+            // that was filled while MediaStore was unreadable.
+            if (forceRefresh) repo.invalidateCache()
+            val albumsResult = try {
+                repo.fetchAlbumsResult()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (epoch != loadEpoch.get()) return@launch
+                _error.value = e.message ?: "Error al cargar la biblioteca"
+                _mediaState.value = MediaLibraryState.QUERY_ERROR
+                _isLoading.value = false
+                return@launch
+            }
+            if (albumsResult !is MediaResult.Success) {
+                // Media truth: a denied permission or a failed query keeps whatever the app
+                // already knows (remote libraries, playlists, favourites) and reports the
+                // real cause instead of pretending the library is empty.
+                if (epoch != loadEpoch.get()) return@launch
+                _mediaState.value = mediaStateFor(albumsResult, 0, false)
+                if (albumsResult is MediaResult.QueryFailed) {
+                    _error.value = albumsResult.cause.message
+                        ?: "No se pudo leer la música del dispositivo"
                 }
+                _isLoading.value = false
+                return@launch
+            }
+            val result = albumsResult.data
+            try {
                 val tracks = result.flatMap { it.tracks }
                 val trackById = tracks.associateBy { it.id }
                 val smartLists = try {
@@ -123,6 +149,7 @@ class AlbumsViewModel(
                 _topTracks.value = smartLists.first
                 _recentTracks.value = smartLists.second
                 _playlists.value = loadedPlaylists
+                _mediaState.value = mediaStateFor(albumsResult, result.size, loadedPlaylists.isNotEmpty())
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -136,6 +163,7 @@ class AlbumsViewModel(
                 _favoriteTrackIds.value = emptySet()
                 _downloadedTrackIds.value = emptySet()
                 _error.value = e.message ?: "Error al cargar la biblioteca"
+                _mediaState.value = MediaLibraryState.QUERY_ERROR
             } finally {
                 if (epoch == loadEpoch.get()) _isLoading.value = false
             }

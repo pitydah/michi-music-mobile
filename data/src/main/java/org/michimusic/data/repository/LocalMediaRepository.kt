@@ -1,6 +1,9 @@
 package org.michimusic.data.repository
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -23,6 +26,16 @@ open class LocalMediaRepository(
 
     companion object {
         private const val CACHE_TTL_MS = 30_000L
+
+        /** Android 13+ split audio permission; Android 12 still uses the storage grant. */
+        private fun hasAudioPermission(context: Context): Boolean {
+            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+            return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        }
     }
 
     private var cachedTracks: List<Track>? = null
@@ -49,8 +62,24 @@ open class LocalMediaRepository(
             .sortedBy { it.first.name }
     }
 
-    open suspend fun loadAlbums(): List<LocalAlbum> {
-        val tracks = loadTracks()
+    /**
+     * Legacy list API kept for callers and test doubles that override [loadTracks]; the
+     * typed path used by the UI is [fetchAlbumsResult], which never loses the failure.
+     */
+    open suspend fun loadAlbums(): List<LocalAlbum> = groupAlbums(loadTracks())
+
+    /**
+     * Typed variant: a denied permission or a failed MediaStore query must reach the UI
+     * as such, never as an empty album list.
+     */
+    open suspend fun fetchAlbumsResult(): MediaResult<List<LocalAlbum>> =
+        when (val tracks = fetchTracksResult()) {
+            is MediaResult.Success -> MediaResult.Success(groupAlbums(tracks.data))
+            is MediaResult.PermissionDenied -> MediaResult.PermissionDenied
+            is MediaResult.QueryFailed -> tracks
+        }
+
+    internal fun groupAlbums(tracks: List<Track>): List<LocalAlbum> {
         val grouped = tracks.groupBy { it.album to it.artist }
         return grouped.map { (albumArtist, albumTracks) ->
             val (albumName, artistName) = albumArtist
@@ -104,6 +133,10 @@ open class LocalMediaRepository(
     // Returns MediaResult typed status. Callers must not cache non-Success.
     internal open suspend fun queryTracksResult(): MediaResult<List<Track>> {
         val ctx = context ?: return MediaResult.Success(emptyList())
+        // Some MediaStore providers return zero rows instead of throwing when the audio
+        // permission is missing. Checking the grant first makes "denied" a fact instead of
+        // guessing from an empty cursor.
+        if (!hasAudioPermission(ctx)) return MediaResult.PermissionDenied
         val queryResult = MediaQueryDispatcher(
             ctx.contentResolver,
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,

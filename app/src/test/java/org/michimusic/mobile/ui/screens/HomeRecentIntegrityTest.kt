@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.screens.MediaLibraryState
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -28,6 +29,7 @@ class HomeRecentIntegrityTest {
     fun whenNoRecentHistory_doesNotDisplayRecientementeEscuchadasHeader() {
         val t1 = Track(id = "t1", title = "Track in Library", artist = "Artist", duration = 120)
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t1))
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList()) // No history
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
@@ -56,6 +58,7 @@ class HomeRecentIntegrityTest {
     fun whenRecentHistoryExists_displaysRecientementeEscuchadasHeader() {
         val t1 = Track(id = "t1", title = "Actually Played Track", artist = "Artist", duration = 120)
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t1))
         every { mockViewModel.recentTracks } returns MutableStateFlow(listOf(t1)) // Real history
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())

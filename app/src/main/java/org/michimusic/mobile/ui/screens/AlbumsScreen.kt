@@ -139,6 +139,10 @@ fun AlbumsScreen(
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val mediaState by viewModel.mediaState.collectAsStateWithLifecycle()
+    org.michimusic.mobile.ui.components.MediaPermissionWatcher(mediaState) {
+        viewModel.loadMedia(forceRefresh = true)
+    }
 
     val audioController: AudioController = koinInject()
     val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
@@ -438,6 +442,22 @@ fun AlbumsScreen(
                         modifier = Modifier.size(36.dp),
                         color = PrimaryPink,
                         strokeWidth = 3.dp,
+                    )
+                }
+            } else if (selectedTab != LibraryTab.ARTISTS &&
+                (mediaState == org.michimusic.mobile.screens.MediaLibraryState.PERMISSION_DENIED ||
+                    mediaState == org.michimusic.mobile.screens.MediaLibraryState.QUERY_ERROR)
+            ) {
+                // Media truth in the library tab: the permission/query panel replaces the
+                // editorial empty state, which is only valid after a successful query.
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    org.michimusic.mobile.ui.components.MediaTruthPanel(
+                        state = mediaState,
+                        onPermissionAvailable = { viewModel.loadMedia(forceRefresh = true) },
+                        onRetry = { viewModel.loadMedia(forceRefresh = true) },
                     )
                 }
             } else if (selectedTab != LibraryTab.ARTISTS && allTracks.isEmpty()) {

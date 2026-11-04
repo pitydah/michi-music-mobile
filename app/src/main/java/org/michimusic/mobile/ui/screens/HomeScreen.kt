@@ -139,6 +139,10 @@ fun HomeScreen(
 
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.error.collectAsStateWithLifecycle()
+    val mediaState by viewModel.mediaState.collectAsStateWithLifecycle()
+    org.michimusic.mobile.ui.components.MediaPermissionWatcher(mediaState) {
+        viewModel.loadMedia(forceRefresh = true)
+    }
     var retryPending by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading, errorMessage) {
         if (isLoading || errorMessage == null) retryPending = false
@@ -220,6 +224,25 @@ fun HomeScreen(
                 }
             }
 
+            // Media truth: a denied permission or a failed query is never an empty library.
+            // The panel owns the permission request, App info shortcut and resume check.
+            if (mediaState == org.michimusic.mobile.screens.MediaLibraryState.PERMISSION_DENIED ||
+                mediaState == org.michimusic.mobile.screens.MediaLibraryState.QUERY_ERROR
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                ) {
+                    org.michimusic.mobile.ui.components.MediaTruthPanel(
+                        state = mediaState,
+                        onPermissionAvailable = { viewModel.loadMedia(forceRefresh = true) },
+                        onRetry = { viewModel.loadMedia(forceRefresh = true) },
+                    )
+                }
+                return@Column
+            }
+
             if (isLoading) {
                 Box(
                     modifier = Modifier
@@ -261,7 +284,7 @@ fun HomeScreen(
                             onPlayAll = { sessionManager.playQueue(allTracks, 0) },
                             onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },
                         )
-                    } else {
+                    } else if (mediaState == org.michimusic.mobile.screens.MediaLibraryState.EMPTY) {
                         EmptyLibraryHomeCard()
                     }
                 }

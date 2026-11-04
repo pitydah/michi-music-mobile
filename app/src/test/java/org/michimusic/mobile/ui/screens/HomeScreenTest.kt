@@ -20,6 +20,7 @@ import org.junit.runner.RunWith
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.screens.MediaLibraryState
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -33,6 +34,7 @@ class HomeScreenTest {
     @Test
     fun `shows loading indicator when loading`() {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
         every { mockViewModel.isLoading } returns MutableStateFlow(true)
@@ -61,6 +63,7 @@ class HomeScreenTest {
         val isLoadingFlow = MutableStateFlow(true)
 
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
         every { mockViewModel.isLoading } returns isLoadingFlow
@@ -95,6 +98,7 @@ class HomeScreenTest {
     @Test
     fun `shows error message when error exists`() {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
         every { mockViewModel.isLoading } returns MutableStateFlow(false)
@@ -128,6 +132,7 @@ class HomeScreenTest {
         val loading = MutableStateFlow(false)
         val error = MutableStateFlow<String?>("Error inicial")
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
         every { mockViewModel.isLoading } returns loading
@@ -160,6 +165,7 @@ class HomeScreenTest {
         val t2 = Track(id = "t2", title = "Top Song", artist = "Artist 2", duration = 100, coverId = "")
         
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t2))
         every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
         every { mockViewModel.isLoading } returns MutableStateFlow(false)
@@ -197,6 +203,7 @@ class HomeScreenTest {
     @Test
     fun `shows user created playlists with name and track count`() {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(
             listOf(Playlist(id = "p1", name = "Synthwave Nights", trackCount = 3))
@@ -224,6 +231,7 @@ class HomeScreenTest {
     @Test
     fun `long playlist names wrap instead of being clipped to the first word`() {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(
             listOf(
@@ -258,6 +266,7 @@ class HomeScreenTest {
     @Test
     fun `clicking a real playlist tile invokes onNavigateToPlaylist with its id, not the top-recent callback`() {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.playlists } returns MutableStateFlow(
             listOf(Playlist(id = "real-playlist-42", name = "Synthwave Nights", trackCount = 3))
