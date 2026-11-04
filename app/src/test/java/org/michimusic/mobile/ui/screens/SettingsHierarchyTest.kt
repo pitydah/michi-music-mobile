@@ -54,6 +54,15 @@ class SettingsHierarchyTest {
                     single<org.michimusic.mobile.sync.AutoSyncScheduler> {
                         mockk<org.michimusic.mobile.sync.AutoSyncScheduler>(relaxed = true)
                     }
+                    // The privacy section now renders the device identity state. These tests
+                    // never resolve it, so a permanently loading authority is enough and
+                    // keeps them independent of the Keystore.
+                    single<org.michimusic.link.identity.MichiIdentityAuthority> {
+                        org.michimusic.link.identity.MichiIdentityAuthority(
+                            context = mockk(relaxed = true),
+                            initialState = org.michimusic.link.identity.IdentityState.Loading,
+                        )
+                    }
                 }
             )
         }

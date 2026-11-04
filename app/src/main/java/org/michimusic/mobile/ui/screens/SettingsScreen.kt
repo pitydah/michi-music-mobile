@@ -77,6 +77,7 @@ import org.michimusic.mobile.ui.components.AudioRouteDialog
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroSurface
+import androidx.compose.material3.TextButton
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
@@ -144,6 +145,10 @@ fun SettingsScreen(
     var downloadArtwork by remember { mutableStateOf(prefs.getBoolean(KEY_DOWNLOAD_ARTWORK, true)) }
     var autoScanLibrary by remember { mutableStateOf(prefs.getBoolean(KEY_AUTO_SCAN_LIBRARY, true)) }
     val autoSyncScheduler: org.michimusic.mobile.sync.AutoSyncScheduler = koinInject()
+    // The identity is resolved off the main thread, so a transient Keystore
+    // failure has to be retryable from the UI instead of forcing an app restart.
+    val identityAuthority: org.michimusic.link.identity.MichiIdentityAuthority = koinInject()
+    val identityState by identityAuthority.state.collectAsStateWithLifecycle()
     var autoSync by remember { mutableStateOf(autoSyncScheduler.isEnabled()) }
     var listeningHistory by remember { mutableStateOf(true) }
 
@@ -667,6 +672,13 @@ fun SettingsScreen(
                                         }
                                     },
                                 )
+
+                                Spacer(Modifier.height(16.dp))
+
+                                IdentityStatusRow(
+                                    state = identityState,
+                                    onRetry = { identityAuthority.retry(scope) },
+                                )
                             }
                         }
                     }
@@ -879,6 +891,71 @@ private fun SettingSwitchRow(
                 uncheckedTrackColor = GlassFillHigh,
             ),
         )
+    }
+}
+
+/**
+ * Shows the state of the Ed25519 device identity that pairing and command
+ * signing depend on. Resolution runs off the main thread, so a transient
+ * Keystore failure must be recoverable here instead of forcing a restart.
+ */
+@Composable
+internal fun IdentityStatusRow(
+    state: org.michimusic.link.identity.IdentityState,
+    onRetry: () -> Unit,
+) {
+    val title = when (state) {
+        is org.michimusic.link.identity.IdentityState.Ready -> "Identidad lista"
+        org.michimusic.link.identity.IdentityState.Loading -> "Cargando identidad…"
+        is org.michimusic.link.identity.IdentityState.Failed -> "Identidad no disponible"
+    }
+    val detail = when (state) {
+        is org.michimusic.link.identity.IdentityState.Ready ->
+            "El dispositivo puede emparejarse y firmar comandos."
+        org.michimusic.link.identity.IdentityState.Loading ->
+            "Resolviendo la clave Ed25519 del dispositivo…"
+        is org.michimusic.link.identity.IdentityState.Failed -> state.reason
+    }
+    val accent = when (state) {
+        is org.michimusic.link.identity.IdentityState.Ready -> TertiaryCyan
+        org.michimusic.link.identity.IdentityState.Loading -> TextMuted
+        is org.michimusic.link.identity.IdentityState.Failed ->
+            org.michimusic.mobile.ui.theme.ErrorColor
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MichiSpacing.minTouchTarget)
+            .testTag("settings_identity_status"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(
+                text = title,
+                color = accent,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = detail,
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (state is org.michimusic.link.identity.IdentityState.Failed) {
+            TextButton(
+                onClick = onRetry,
+                modifier = Modifier.testTag("settings_identity_retry"),
+            ) {
+                Text(
+                    text = "Reintentar",
+                    color = PrimaryPinkContainer,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
     }
 }
 
