@@ -20,20 +20,22 @@ interface PlaylistDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(playlists: List<CachedPlaylist>)
 
-    @Query("DELETE FROM cached_playlists WHERE id = :id")
-    suspend fun deleteById(id: String)
+    // K16-02: playlist IDs are only unique inside their library, so every
+    // mutation by ID must name the owner as well.
+    @Query("DELETE FROM cached_playlists WHERE sourceId = :sourceId AND id = :id")
+    suspend fun deleteById(id: String, sourceId: String)
 
-    @Query("UPDATE cached_playlists SET name = :name WHERE id = :id")
-    suspend fun renameById(id: String, name: String)
+    @Query("UPDATE cached_playlists SET name = :name WHERE sourceId = :sourceId AND id = :id")
+    suspend fun renameById(id: String, sourceId: String, name: String)
 
-    @Query("SELECT * FROM cached_playlists WHERE id = :id")
-    suspend fun getById(id: String): CachedPlaylist?
+    @Query("SELECT * FROM cached_playlists WHERE sourceId = :sourceId AND id = :id")
+    suspend fun getById(id: String, sourceId: String): CachedPlaylist?
 
-    @Query("UPDATE cached_playlists SET trackIds = :trackIds WHERE id = :id")
-    suspend fun updateTrackIds(id: String, trackIds: String)
+    @Query("UPDATE cached_playlists SET trackIds = :trackIds WHERE sourceId = :sourceId AND id = :id")
+    suspend fun updateTrackIds(id: String, sourceId: String, trackIds: String)
 
-    @Query("UPDATE cached_playlists SET trackIds = :trackIds, trackCount = :trackCount WHERE id = :id")
-    suspend fun updateTrackIdsAndCount(id: String, trackIds: String, trackCount: Int)
+    @Query("UPDATE cached_playlists SET trackIds = :trackIds, trackCount = :trackCount WHERE sourceId = :sourceId AND id = :id")
+    suspend fun updateTrackIdsAndCount(id: String, sourceId: String, trackIds: String, trackCount: Int)
 
     @Query("DELETE FROM cached_playlists")
     suspend fun deleteAll()

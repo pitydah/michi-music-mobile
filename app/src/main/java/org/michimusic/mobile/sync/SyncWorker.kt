@@ -246,13 +246,18 @@ class SyncWorker(
                 }
             }
 
+            // K16-01 / K16-02: every manifest row is scoped to the peer that sent
+            // it, so two libraries can share a track or playlist ID without the
+            // second sync overwriting the first one.
             repository.saveLibrary(
-                manifestTracks.map { it.toTrackDto() }
+                manifestTracks.map { it.toTrackDto() },
+                sourceId = deviceId,
             )
 
             if (manifest.playlists.isNotEmpty()) {
                 repository.saveManifestPlaylists(
-                    manifest.playlists.map { it.toDomainPlaylist() }
+                    manifest.playlists.map { it.toDomainPlaylist() },
+                    sourceId = deviceId,
                 )
             }
 

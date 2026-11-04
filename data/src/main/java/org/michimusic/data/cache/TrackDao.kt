@@ -16,8 +16,16 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks ORDER BY title")
     fun getAllTracksPagingSource(): PagingSource<Int, CachedTrack>
 
-    @Query("SELECT * FROM cached_tracks WHERE id = :id")
+    @Query("SELECT * FROM cached_tracks WHERE id = :id ORDER BY sourceId LIMIT 1")
     suspend fun getTrackById(id: String): CachedTrack?
+
+    // K16-01: a track ID is unique only inside one library. Callers that already
+    // know the owner must query with both halves of the composite key.
+    @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId AND id = :id")
+    suspend fun getTrackBySource(sourceId: String, id: String): CachedTrack?
+
+    @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId ORDER BY title")
+    fun getTracksForSource(sourceId: String): Flow<List<CachedTrack>>
 
     @Query("SELECT * FROM cached_tracks WHERE downloaded = 1")
     fun getDownloadedTracks(): Flow<List<CachedTrack>>

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first as flowFirst
 import org.michimusic.core.models.ManifestPlaylist
 import org.michimusic.core.models.TrackDto
 import org.michimusic.data.cache.CachedPlaylist
+import org.michimusic.data.cache.LOCAL_SOURCE_ID
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
@@ -16,36 +17,43 @@ open class SyncedTrackRepository(
     private val trackDao: TrackDao? = null,
     private val playlistDao: PlaylistDao? = null,
 ) {
-    open suspend fun saveLibrary(tracks: List<TrackDto>) {
+    /**
+     * Saves one peer's manifest under [sourceId]. The composite cache key means a
+     * manifest can no longer overwrite a locally authored row or another peer's
+     * row that happens to share a track ID (K16-01).
+     */
+    open suspend fun saveLibrary(tracks: List<TrackDto>, sourceId: String = LOCAL_SOURCE_ID) {
         val td = trackDao ?: return
-        val existing = td.getAllTracks().let { flow ->
+        val existing = td.getTracksForSource(sourceId).let { flow ->
             flow.flowFirst()
         }
         val existingMap = existing.associateBy { it.id }
 
-        // R16 safety fence: the legacy cache is global and contains no source/library ID.
-        // Never reconcile a single peer's manifest by deleting rows from that global table.
-        // A truly scoped reconciliation requires the versioned Room schema migration.
+        // Never reconcile a single peer's manifest by deleting rows from the
+        // shared cache: the absence of a row only proves this peer did not send
+        // it, not that another owner stopped owning it.
         require(tracks.map { it.id }.distinct().size == tracks.size) {
             "El manifiesto recibido repite identificadores de pista"
         }
-        // Same-ID collisions across peers remain possible until the schema
-        // includes a composite (sourceId, libraryId, trackId) identity.
         val entities = tracks.map { dto ->
             val old = existingMap[dto.id]
-            dto.toCachedTrackPreserving(old)
+            dto.toCachedTrackPreserving(old, sourceId)
         }
         td.insertAll(entities)
-        // No global delete: preserve other peers and locally authored records.
     }
 
-    open suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>) {
+    /** Saves one peer's playlists under [sourceId] (K16-02). */
+    open suspend fun saveManifestPlaylists(
+        playlists: List<ManifestPlaylist>,
+        sourceId: String = LOCAL_SOURCE_ID,
+    ) {
         val entities = playlists.map { mp ->
             CachedPlaylist(
                 id = mp.playlistId,
                 name = mp.name,
                 trackIds = mp.trackIds.joinToString(","),
                 trackCount = mp.trackIds.size,
+                sourceId = sourceId,
             )
         }
         playlistDao?.let { dao ->
@@ -54,7 +62,9 @@ open class SyncedTrackRepository(
             require(entities.map { p -> p.id }.distinct().size == entities.size) {
                 "Duplicated playlist IDs in incoming manifest"
             }
-            val existing = dao.getAllPlaylists().associateBy { p -> p.id }
+            val existing = dao.getAllPlaylists()
+                .filter { it.sourceId == sourceId }
+                .associateBy { p -> p.id }
             require(entities.none { incoming ->
                 existing[incoming.id]?.let { prior ->
                     prior.name != incoming.name || prior.trackIds != incoming.trackIds
@@ -108,7 +118,10 @@ open class SyncedTrackRepository(
     }
 }
 
-private fun TrackDto.toCachedTrackPreserving(old: CachedTrack? = null) = CachedTrack(
+private fun TrackDto.toCachedTrackPreserving(
+    old: CachedTrack? = null,
+    sourceId: String = LOCAL_SOURCE_ID,
+) = CachedTrack(
     id = id,
     title = title,
     artist = artist,
@@ -124,4 +137,5 @@ private fun TrackDto.toCachedTrackPreserving(old: CachedTrack? = null) = CachedT
     year = year,
     filepath = old?.filepath ?: "",
     downloaded = old?.downloaded ?: false,
+    sourceId = sourceId,
 )

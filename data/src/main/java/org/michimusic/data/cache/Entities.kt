@@ -3,9 +3,13 @@ package org.michimusic.data.cache
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "cached_tracks")
+// K16-01: the cache is shared by every paired library, so a track ID alone is
+// not an identity. Two peers can legitimately own a track with the same ID and
+// different metadata; the composite key keeps both rows. An empty sourceId is
+// the local/legacy owner, which is what the 7 -> 8 migration assigns.
+@Entity(tableName = "cached_tracks", primaryKeys = ["sourceId", "id"])
 data class CachedTrack(
-    @PrimaryKey val id: String,
+    val id: String,
     val title: String,
     val artist: String = "",
     val album: String = "",
@@ -20,6 +24,7 @@ data class CachedTrack(
     val year: Int = 0,
     val filepath: String = "",
     val downloaded: Boolean = false,
+    val sourceId: String = "",
 )
 
 @Entity(tableName = "cached_albums")
@@ -40,12 +45,15 @@ data class CachedArtist(
     val trackCount: Int = 0,
 )
 
-@Entity(tableName = "cached_playlists")
+// K16-02: playlist IDs are only unique inside the library that produced them.
+// The composite key prevents one peer's manifest from overwriting another's.
+@Entity(tableName = "cached_playlists", primaryKeys = ["sourceId", "id"])
 data class CachedPlaylist(
-    @PrimaryKey val id: String,
+    val id: String,
     val name: String,
     val trackIds: String = "",
     val trackCount: Int = 0,
+    val sourceId: String = "",
 )
 
 @Entity(tableName = "replaygain_cache")

@@ -103,7 +103,7 @@ class DaoTests {
         val p1 = CachedPlaylist(id = "p1", name = "Z Playlist")
         playlistDao.insert(p1)
         
-        playlistDao.deleteById("p1")
+        playlistDao.deleteById("p1", "")
         
         val playlists = playlistDao.getAllPlaylists()
         assertEquals(0, playlists.size)

@@ -27,7 +27,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TransferCheckpointEntity::class,
         ApprovedSyncPlanEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -293,6 +293,67 @@ abstract class MichiDatabase : RoomDatabase() {
             """.trimIndent())
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_approved_sync_plans_endpointId` ON `approved_sync_plans` (`endpointId`)")
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_approved_sync_plans_executionState` ON `approved_sync_plans` (`executionState`)")
+        }
+
+        /**
+         * K16-01 / K16-02: the track and playlist cache used to key on `id` alone,
+         * so two paired libraries that both own a track or playlist with the same
+         * ID overwrote each other. SQLite cannot change a primary key in place, so
+         * both tables are rebuilt. Every pre-existing row belonged to no declared
+         * source, which is exactly the local/legacy owner (`sourceId = ''`).
+         */
+        val MIGRATION_7_8 = Migration(7, 8) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `cached_tracks_new` (
+                    `id` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `artist` TEXT NOT NULL,
+                    `album` TEXT NOT NULL,
+                    `duration` INTEGER NOT NULL,
+                    `size` INTEGER NOT NULL,
+                    `format` TEXT NOT NULL,
+                    `bitrate` INTEGER NOT NULL,
+                    `sampleRate` INTEGER NOT NULL,
+                    `channels` INTEGER NOT NULL,
+                    `coverId` TEXT NOT NULL,
+                    `trackNumber` INTEGER NOT NULL,
+                    `year` INTEGER NOT NULL,
+                    `filepath` TEXT NOT NULL,
+                    `downloaded` INTEGER NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    PRIMARY KEY(`sourceId`, `id`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                INSERT INTO `cached_tracks_new`
+                    (`id`, `title`, `artist`, `album`, `duration`, `size`, `format`, `bitrate`,
+                     `sampleRate`, `channels`, `coverId`, `trackNumber`, `year`, `filepath`,
+                     `downloaded`, `sourceId`)
+                SELECT `id`, `title`, `artist`, `album`, `duration`, `size`, `format`, `bitrate`,
+                       `sampleRate`, `channels`, `coverId`, `trackNumber`, `year`, `filepath`,
+                       `downloaded`, ''
+                FROM `cached_tracks`
+            """.trimIndent())
+            db.execSQL("DROP TABLE `cached_tracks`")
+            db.execSQL("ALTER TABLE `cached_tracks_new` RENAME TO `cached_tracks`")
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `cached_playlists_new` (
+                    `id` TEXT NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `trackIds` TEXT NOT NULL,
+                    `trackCount` INTEGER NOT NULL,
+                    `sourceId` TEXT NOT NULL,
+                    PRIMARY KEY(`sourceId`, `id`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                INSERT INTO `cached_playlists_new` (`id`, `name`, `trackIds`, `trackCount`, `sourceId`)
+                SELECT `id`, `name`, `trackIds`, `trackCount`, ''
+                FROM `cached_playlists`
+            """.trimIndent())
+            db.execSQL("DROP TABLE `cached_playlists`")
+            db.execSQL("ALTER TABLE `cached_playlists_new` RENAME TO `cached_playlists`")
         }
     }
 }

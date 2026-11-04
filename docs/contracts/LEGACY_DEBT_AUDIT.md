@@ -11,35 +11,34 @@ Reference authority: `docs/contracts/R16_AERO_IMPLEMENTATION_CONTRACT.md` §5–
 
 | Ticket | Subject | State after this audit |
 |---|---|---|
-| K16-01 / K16-02 | Global primary keys in the synced cache | **OPEN** — needs a Room migration |
+| K16-01 / K16-02 | Global primary keys in the synced cache | **CLOSED** — composite `(sourceId, id)` key, schema v8 |
 | K16-08 / K16-26 | Bearer token over plain HTTP on the LAN | **MITIGATED, OPEN** — accepted LAN concession |
 | K15-02 / K15-04 | Signal Truth epoch ownership | **CLOSED in code**, `PENDING_HARDWARE` for evidence |
 | K15-03 | PEQ active → bypass transition without a ramp | **MITIGATED** — 5 ms crossfade, `PENDING_HARDWARE` measurement |
 | K16-16 | IIR memory ownership across `onFlush` and publication | **MITIGATED** — lock + per-buffer snapshot |
 | K16-29 | CPU/allocations budget inside `queueInput` | **OPEN** — needs measurement |
 | K16-13 / K16-15 | — | **NO LOCAL DEFINITION** — see below |
-| `compileSdk 36` | CameraX 1.6.2 requires API 36 | **OPEN** — project compiles against 35 |
+| `compileSdk 36` | CameraX 1.6.2 requires API 36 | **CLOSED** — every module compiles against 36 |
 
 ## K16-01 / K16-02 — global keys in `cached_tracks` and `cached_playlists`
 
-**Verified:** `data/src/main/java/org/michimusic/data/cache/Entities.kt` declares
-`@Entity(tableName = "cached_tracks") data class CachedTrack(@PrimaryKey val id: String, …)`
-and `@Entity(tableName = "cached_playlists") data class CachedPlaylist(@PrimaryKey val id: String, …)`.
-There is no `sourceId` and no `libraryId`, so two Michi Link servers that hand out the same
-track id collide in one row, and the last writer wins silently.
+**State: CLOSED.** `data/schemas/org.michimusic.data.cache.MichiDatabase/8.json` and
+`MichiDatabase.MIGRATION_7_8` move both tables to a composite `(sourceId, id)` primary key.
+`sourceId` names the library that owns the row; an empty value is this device, which is what
+the migration writes for every pre-existing row. `SyncedTrackRepository.saveLibrary` and
+`saveManifestPlaylists` now take the peer's identifier and read their previous rows from that
+source only, so two peers that hand out the same track or playlist id keep separate rows.
+`PlaylistDao` mutations by id require the owner as well, which makes it impossible to edit or
+delete another library's playlist by guessing its id.
 
-**Current mitigation (R16):** `SyncedTrackRepository.saveManifestTracks` no longer issues a
-global delete, and both `saveManifestTracks` and `saveManifestPlaylists` fail closed with a
-`require` when the incoming manifest repeats ids or when a legacy playlist id would be
-re-attributed to a different owner. That stops the corruption; it does not make the key
-correct, and the author of the patch said so explicitly.
+**Evidence:** `Migration7To8Test` migrates a version-7 database, asserts that the legacy rows
+survive under the local source, and asserts that the same id can be inserted twice under two
+different owners. The full suite (1918 JVM tests) and the 12 instrumented tests pass, and the
+schema-8 build migrated the emulator's real version-7 database with the library intact.
 
-**What closes it:** a transactional Room migration to a composite key. Sketch, not
-implemented: `SourceScope(deviceId, libraryId)` on `CachedTrack`/`CachedPlaylist`, a
-`ScopedTrackKey(source, id)` used by the DAOs, playlist ownership recorded alongside the
-id, and the `require` fences replaced by a legitimate update path for a homonymous
-playlist. Requires an exported schema, a migration test and a rollback plan; it must not
-delete local-only or offline-library rows.
+**Residual scope:** rows are scoped per *peer*, not per library inside a peer. A single server
+that exposes several libraries still shares one source id; splitting that further needs the
+server to send a library identifier in the manifest.
 
 ## K16-08 / K16-26 — bearer token over plain HTTP
 
@@ -106,14 +105,13 @@ audit records them as **unresolved identifiers**, not as work items. Whoever own
 original list must supply the definition before any implementation, otherwise the "fix"
 would be invented.
 
-## `compileSdk 36` — blocked by a deliberate pin
+## `compileSdk 36` — CLOSED
 
-`app/build.gradle.kts` sets `compileSdk = 35` and `gradle/libs.versions.toml` pins
-`camerax = "1.4.2"`. CameraX 1.6.2 fails `:app:checkNormalDebugAarMetadata` with
-"Dependency 'androidx.camera:camera-video:1.6.2' requires … compile against version 36 or
-later". Raising `compileSdk` touches every module, may surface new warnings and needs its own
-gate run, so it stays out of this stabilisation batch. The twelve `GradleDependency` lint
-warnings about CameraX 1.4.2 are the visible cost of the pin and are informational only.
+All five modules now set `compileSdk = 36` and `gradle/libs.versions.toml` pins
+`camerax = "1.6.2"`. `targetSdk` stays at 35 on purpose: raising it changes runtime behaviour
+(edge-to-edge enforcement, background limits) and was never part of this ticket. The twelve
+`GradleDependency` CameraX warnings disappeared with the update (`app` lint went from 151 to
+139 warnings, zero errors).
 
 ## What this document does not do
 

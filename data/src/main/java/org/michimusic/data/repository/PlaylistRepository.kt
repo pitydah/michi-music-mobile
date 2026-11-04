@@ -4,6 +4,7 @@ import java.util.UUID
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.CachedPlaylist
+import org.michimusic.data.cache.LOCAL_SOURCE_ID
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.cache.toTrack
@@ -31,7 +32,7 @@ open class PlaylistRepository(
     }
 
     open suspend fun getById(id: String): Playlist? {
-        val cached = playlistDao?.getById(id) ?: playlistDao?.getAllPlaylists()?.find { it.id == id } ?: return null
+        val cached = playlistDao?.getById(id, LOCAL_SOURCE_ID) ?: playlistDao?.getAllPlaylists()?.find { it.id == id } ?: return null
         return Playlist(id = cached.id, name = cached.name, trackIds = parseTrackIds(cached.trackIds), trackCount = cached.trackCount)
     }
 
@@ -76,13 +77,13 @@ open class PlaylistRepository(
         val incomingIds = newTrackIds.map { it.trim() }.filter { it.isNotBlank() }
         if (incomingIds.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
 
-        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id }
+        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: playlistDao.getAllPlaylists().find { it.id == id }
             ?: return@withLock PlaylistAddResult.PlaylistNotFound
 
         val existingIds = parseTrackIds(cached.trackIds)
         val combined = (existingIds + incomingIds).distinct()
         val addedCount = combined.size - existingIds.size
-        playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
+        playlistDao.updateTrackIdsAndCount(id, LOCAL_SOURCE_ID, combined.joinToString(","), combined.size)
         return@withLock PlaylistAddResult.Success(addedCount = addedCount, totalCount = combined.size)
     }
 
@@ -91,7 +92,7 @@ open class PlaylistRepository(
         if (playlistDao == null) return@withLock PlaylistAddResult.Error("PlaylistDao no disponible")
         if (albumTracks.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
 
-        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id }
+        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: playlistDao.getAllPlaylists().find { it.id == id }
             ?: return@withLock PlaylistAddResult.PlaylistNotFound
 
         val existingIds = parseTrackIds(cached.trackIds)
@@ -100,21 +101,21 @@ open class PlaylistRepository(
 
         val combined = (existingIds + incomingIds).distinct()
         val addedCount = combined.size - existingIds.size
-        playlistDao.updateTrackIdsAndCount(id, combined.joinToString(","), combined.size)
+        playlistDao.updateTrackIdsAndCount(id, LOCAL_SOURCE_ID, combined.joinToString(","), combined.size)
         return@withLock PlaylistAddResult.Success(addedCount = addedCount, totalCount = combined.size)
     }
 
     // New method: remove a single track from playlist
     open suspend fun removeTrackFromPlaylist(id: String, trackId: String) = writeMutex.withLock {
         if (playlistDao == null) return@withLock
-        val cached = playlistDao.getById(id) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
+        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
         val target = trackId.trim()
         val existingIds = parseTrackIds(cached.trackIds).filter { it != target }
-        playlistDao.updateTrackIdsAndCount(id, existingIds.joinToString(","), existingIds.size)
+        playlistDao.updateTrackIdsAndCount(id, LOCAL_SOURCE_ID, existingIds.joinToString(","), existingIds.size)
     }
 
     open suspend fun deletePlaylist(id: String) {
-        playlistDao?.deleteById(id)
+        playlistDao?.deleteById(id, LOCAL_SOURCE_ID)
     }
 
     // Updates only the name column, leaving trackIds/trackCount untouched - a targeted
@@ -125,7 +126,7 @@ open class PlaylistRepository(
         if (playlistDao == null) return
         val trimmed = newName.trim()
         if (trimmed.isEmpty()) return
-        playlistDao.renameById(id, trimmed)
+        playlistDao.renameById(id, LOCAL_SOURCE_ID, trimmed)
     }
 
     // Moves a track one step up/down among the *resolvable* tracks only (the ones
@@ -160,7 +161,7 @@ open class PlaylistRepository(
         newTrackIds[i] = neighborId
         newTrackIds[j] = trackId
 
-        playlistDao.updateTrackIds(id, newTrackIds.joinToString(","))
+        playlistDao.updateTrackIds(id, LOCAL_SOURCE_ID, newTrackIds.joinToString(","))
     }
 
     // Resolves a playlist's trackIds to their Track objects, preserving the stored order.

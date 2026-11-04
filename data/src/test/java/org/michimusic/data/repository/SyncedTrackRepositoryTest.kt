@@ -23,7 +23,7 @@ class SyncedTrackRepositoryTest {
     private val repository = SyncedTrackRepository(mockTrackDao, mockPlaylistDao)
 
     @Test
-    fun `saveLibrary preserves downloaded state and removes obsolete tracks`() = runTest {
+    fun `saveLibrary preserves downloaded state and never deletes other owners`() = runTest {
         val existingTrackDownloaded = CachedTrack(
             id = "t1", title = "Track 1", downloaded = true, filepath = "/path/t1", artist = "", album = "",
             duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "",
@@ -35,7 +35,9 @@ class SyncedTrackRepositoryTest {
             trackNumber = 0, year = 0
         )
         
-        every { mockTrackDao.getAllTracks() } returns flowOf(listOf(existingTrackDownloaded, existingTrackNotDownloaded))
+        // Rows are now read per owner (K16-01), so the stub must answer the
+        // source-scoped query the repository actually issues.
+        every { mockTrackDao.getTracksForSource("") } returns flowOf(listOf(existingTrackDownloaded, existingTrackNotDownloaded))
 
         val newTracksFromNetwork = listOf(
             TrackDto(id = "t1", title = "Track 1 Updated", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0),

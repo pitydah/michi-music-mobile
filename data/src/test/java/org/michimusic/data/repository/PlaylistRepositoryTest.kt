@@ -698,7 +698,7 @@ private class TestPlaylistDao : PlaylistDao {
     override suspend fun getAllPlaylists(): List<CachedPlaylist> = playlists.sortedBy { it.name }
 
     override suspend fun insert(playlist: CachedPlaylist) {
-        playlists.removeAll { it.id == playlist.id }
+        playlists.removeAll { it.id == playlist.id && it.sourceId == playlist.sourceId }
         playlists.add(playlist)
     }
 
@@ -706,24 +706,30 @@ private class TestPlaylistDao : PlaylistDao {
         this.playlists.addAll(playlists)
     }
 
-    override suspend fun deleteById(id: String) {
-        playlists.removeAll { it.id == id }
+    override suspend fun deleteById(id: String, sourceId: String) {
+        playlists.removeAll { it.id == id && it.sourceId == sourceId }
     }
 
-    override suspend fun getById(id: String): CachedPlaylist? = playlists.find { it.id == id }
+    override suspend fun getById(id: String, sourceId: String): CachedPlaylist? =
+        playlists.find { it.id == id && it.sourceId == sourceId }
 
-    override suspend fun renameById(id: String, name: String) {
-        val index = playlists.indexOfFirst { it.id == id }
+    override suspend fun renameById(id: String, sourceId: String, name: String) {
+        val index = playlists.indexOfFirst { it.id == id && it.sourceId == sourceId }
         if (index >= 0) playlists[index] = playlists[index].copy(name = name)
     }
 
-    override suspend fun updateTrackIds(id: String, trackIds: String) {
-        val index = playlists.indexOfFirst { it.id == id }
+    override suspend fun updateTrackIds(id: String, sourceId: String, trackIds: String) {
+        val index = playlists.indexOfFirst { it.id == id && it.sourceId == sourceId }
         if (index >= 0) playlists[index] = playlists[index].copy(trackIds = trackIds)
     }
 
-    override suspend fun updateTrackIdsAndCount(id: String, trackIds: String, trackCount: Int) {
-        val index = playlists.indexOfFirst { it.id == id }
+    override suspend fun updateTrackIdsAndCount(
+        id: String,
+        sourceId: String,
+        trackIds: String,
+        trackCount: Int,
+    ) {
+        val index = playlists.indexOfFirst { it.id == id && it.sourceId == sourceId }
         if (index >= 0) playlists[index] = playlists[index].copy(trackIds = trackIds, trackCount = trackCount)
     }
 
