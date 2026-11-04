@@ -41,9 +41,12 @@ class ArtistEnrichmentRepository(
         .followRedirects(false)
         .followSslRedirects(false)
         .build(),
-) : ArtistEnrichmentGateway {
+) : ArtistEnrichmentGateway, ArtistDiscographyGateway {
     private val json = Json { ignoreUnknownKeys = true }
     private val musicBrainzMutex = Mutex()
+    private val discographyCache = ArtistDiscographyPageCache(
+        nowMs = { SystemClock.elapsedRealtime() },
+    )
     private var nextMusicBrainzRequestAtMs = 0L
     private val profiles = object : LinkedHashMap<String, Pair<Long, ArtistExternalProfile>>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, ArtistExternalProfile>>?): Boolean = size > 32
@@ -67,6 +70,20 @@ class ArtistEnrichmentRepository(
                 area = (artist["area"] as? JsonObject)?.string("name").orEmpty(),
             )
         }
+    }
+
+    /** Explicit user-triggered query: never invoked by mosaic scrolling or name search. */
+    override suspend fun fetchAlbumGroups(confirmedMbid: String, offset: Int): ArtistDiscographyPage {
+        val id = canonicalArtistMbid(confirmedMbid) ?: throw IllegalArgumentException("MBID no válido")
+        require(offset in 0..999) { "Página fuera de límite" }
+        discographyCache.get(id, offset)?.let { return it }
+        val response = musicBrainzJson(api("https://musicbrainz.org/ws/2/release-group", mapOf(
+            "artist" to id, "type" to "album", "fmt" to "json", "limit" to "25",
+            "offset" to offset.toString(),
+        )))
+        val page = parseMusicBrainzAlbumGroups(response, offset)
+        discographyCache.put(id, offset, page)
+        return page
     }
 
     override suspend fun confirmedProfile(mbid: String): ArtistExternalProfile {

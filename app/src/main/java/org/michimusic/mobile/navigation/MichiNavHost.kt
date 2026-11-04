@@ -22,6 +22,7 @@ import androidx.navigation.navArgument
 import org.michimusic.mobile.ui.components.BottomNavBar
 import org.michimusic.mobile.ui.components.MiniPlayer
 import org.michimusic.mobile.ui.screens.AlbumsScreen
+import org.michimusic.mobile.ui.screens.ArtistDetailScreen
 import org.michimusic.mobile.ui.screens.AudioRouteScreen
 import org.michimusic.mobile.ui.screens.DevicesScreen
 import org.michimusic.mobile.ui.screens.DiagnosticsScreen
@@ -112,6 +113,25 @@ fun MichiNavHost() {
                 composable("library") {
                     AlbumsScreen(
                         onNavigateToPlaylists = { navController.navigate("playlist") },
+                        onNavigateToArtist = { credit -> navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=false") },
+                        onNavigateToArtistEnrichment = { credit ->
+                            navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=true")
+                        },
+                        sessionManager = sessionManager,
+                    )
+                }
+                composable(
+                    route = "artist/{artistKey}?enrich={enrich}",
+                    arguments = listOf(
+                        navArgument("artistKey") { type = NavType.StringType },
+                        navArgument("enrich") { type = NavType.BoolType; defaultValue = false },
+                    ),
+                ) { entry ->
+                    val artistCredit = decodeArtistCredit(entry.arguments?.getString("artistKey")) ?: return@composable
+                    ArtistDetailScreen(
+                        artistCredit = artistCredit,
+                        onBack = { navController.popBackStack() },
+                        initialEnrichment = entry.arguments?.getBoolean("enrich") ?: false,
                         sessionManager = sessionManager,
                     )
                 }

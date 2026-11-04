@@ -255,8 +255,9 @@ fun AeroSignalRouteStrip(
                             contentDescription = "Archivo original: $signalLabel. Abrir Signal Truth"
                         }
                         .testTag("signal_truth_button")
-                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         "ARCHIVO ORIGINAL",
@@ -266,6 +267,8 @@ fun AeroSignalRouteStrip(
                         lineHeight = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
                         "Signal Truth",
@@ -275,6 +278,8 @@ fun AeroSignalRouteStrip(
                         lineHeight = 19.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -288,8 +293,9 @@ fun AeroSignalRouteStrip(
                             contentDescription = "Salida solicitada: $destination. Abrir ruta de audio"
                         }
                         .testTag("audio_route_button")
-                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         "SALIDA SOLICITADA",
@@ -299,6 +305,8 @@ fun AeroSignalRouteStrip(
                         lineHeight = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
                         destination,
@@ -309,6 +317,8 @@ fun AeroSignalRouteStrip(
                         fontWeight = FontWeight.Medium,
                         maxLines = if (stacked) 3 else 2,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -318,13 +328,33 @@ fun AeroSignalRouteStrip(
                 originalFile(Modifier.fillMaxWidth())
                 requestedOutput(Modifier.fillMaxWidth())
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    originalFile(Modifier.weight(1f))
-                    requestedOutput(Modifier.weight(1f))
+                // Every column owns exactly half the width. The visual axis is
+                // independent of text length, font weight and output device name.
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        originalFile(Modifier.weight(1f))
+                        requestedOutput(Modifier.weight(1f))
+                    }
+                    // Centered separator: decorative only, not a third action.
+                    // It fades at both ends and does not cross the shared note.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(width = 1.dp, height = 36.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        TertiaryCyan.copy(alpha = if (highContrast) 0.82f else 0.50f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                            )
+                            .testTag("signal_strip_center_divider"),
+                    )
                 }
             }
             if (signalDescription.isNotBlank()) {
@@ -397,41 +427,50 @@ fun MichiControlBadge(
 ) {
     val entries = (listOf(PlaybackEndpoint.LocalPhone) + endpoints + activeEndpoint).distinctBy { it.id }
     Box(modifier = modifier) {
-        Surface(
-            shape = MichiShapes.pill,
-            color = AeroGraphiteRaised,
-            border = androidx.compose.foundation.BorderStroke(0.65.dp, Color.White.copy(alpha = 0.16f)),
+        // Keep a 48dp actionable target while drawing a lighter 40dp pill.
+        // One click owner prevents nested pointer/semantics handlers.
+        Box(
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .clip(MichiShapes.pill)
+                .clickable(role = Role.Button, onClick = onToggle)
+                .semantics {
+                    contentDescription = "Michi Control: ${activeEndpoint.name}. Abrir reproductores disponibles"
+                }
+                .testTag("michi_control_badge")
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Row(
-                modifier = Modifier.clip(MichiShapes.pill)
-                    .testTag("michi_control_badge")
-                    .clickable(role = Role.Button, onClick = onToggle)
-                    .semantics {
-                        contentDescription = "Michi Control: ${activeEndpoint.name}. Abrir reproductores disponibles"
-                    }
-                    .heightIn(min = 48.dp)
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            Surface(
+                shape = MichiShapes.pill,
+                color = AeroGraphiteRaised,
+                border = androidx.compose.foundation.BorderStroke(0.65.dp, Color.White.copy(alpha = 0.16f)),
             ) {
-                Box(Modifier.size(6.dp).background(
-                    if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan
-                    else Color(0xFF647181), CircleShape))
-                Icon(
-                    imageVector = when {
-                        activeEndpoint.isLocal -> Icons.Filled.Headphones
-                        activeEndpoint.type == EndpointType.SERVER -> Icons.Filled.Dns
-                        else -> Icons.Filled.Speaker
-                    },
-                    contentDescription = null,
-                    tint = if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan else TextSecondary,
-                    modifier = Modifier.size(17.dp),
-                )
-                Text(activeEndpoint.name, color = PureWhite, fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 154.dp))
-                Icon(Icons.Filled.ExpandMore, contentDescription = null,
-                    tint = TextSecondary, modifier = Modifier.size(16.dp))
+                Row(
+                    modifier = Modifier.heightIn(min = 40.dp)
+                        .padding(horizontal = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Box(Modifier.size(5.dp).background(
+                        if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan
+                        else Color(0xFF647181), CircleShape))
+                    Icon(
+                        imageVector = when {
+                            activeEndpoint.isLocal -> Icons.Filled.Headphones
+                            activeEndpoint.type == EndpointType.SERVER -> Icons.Filled.Dns
+                            else -> Icons.Filled.Speaker
+                        },
+                        contentDescription = null,
+                        tint = if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan else TextSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(activeEndpoint.name, color = PureWhite, fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 136.dp))
+                    Icon(Icons.Filled.ExpandMore, contentDescription = null,
+                        tint = TextSecondary, modifier = Modifier.size(14.dp))
+                }
             }
         }
         DropdownMenu(
