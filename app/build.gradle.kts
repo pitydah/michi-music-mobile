@@ -27,7 +27,7 @@ val gitCommitCount: String = rootProject.rootDir.let {
 
 android {
     namespace = "org.michimusic.mobile"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.michimusic.mobile"

@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "org.michimusic.player"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 31

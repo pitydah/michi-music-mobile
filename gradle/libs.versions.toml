@@ -24,7 +24,7 @@ paging = "3.3.6"
 security-crypto = "1.1.0-alpha06"
 junit = "4.13.2"
 bouncycastle = "1.77"
-camerax = "1.4.2"
+camerax = "1.6.2"
 zxing = "3.5.3"
 
 
