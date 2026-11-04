@@ -40,10 +40,15 @@ class EcosystemPresentationPolicyTest {
         assertEquals(1.0f,syncProgressFraction(99,5)!!,0.0001f)
         assertEquals(0.0f,syncProgressFraction(-4,5)!!,0.0001f)
     }
-    @Test fun unknownTotalHasHonestCaption() {
-        assertEquals("3 pistas procesadas · total desconocido",syncProgressCaption(3,0))
+    @Test fun unknownTotalIsReportedAsUnknownNotZero() {
+        val counters = syncProgressCounters(3, 0)
+        assertFalse(counters.hasKnownTotal)
+        assertEquals(3, counters.completed)
     }
     @Test fun knownTotalNeverGoesBeyondRange() {
-        assertEquals("8 de 8 pistas",syncProgressCaption(11,8))
+        val counters = syncProgressCounters(11, 8)
+        assertTrue(counters.hasKnownTotal)
+        assertEquals(8, counters.completed)
+        assertEquals(8, counters.total)
     }
 }

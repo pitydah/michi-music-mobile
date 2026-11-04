@@ -23,10 +23,22 @@ fun airCatUiPresentation(stateName: String): AirCatUiPresentation = when (stateN
     else -> AirCatUiPresentation("Estado no reconocido")
 }
 
-/** Absence of a total is not 0%. */
-fun syncProgressCaption(completed: Int, total: Int): String =
-    if (total <= 0) "${completed.coerceAtLeast(0)} pistas procesadas · total desconocido"
-    else "${completed.coerceIn(0,total)} de $total pistas"
+/**
+ * Normalized progress counters. The wording — plural agreement included — belongs to
+ * the string resources, so this stays a pure, testable decision and a single-track
+ * transfer can read "1 de 1 pista" instead of a hard-coded plural.
+ */
+data class SyncProgressCounters(
+    val completed: Int,
+    val total: Int,
+) {
+    /** Absence of a total is unknown, not zero. */
+    val hasKnownTotal: Boolean get() = total > 0
+}
+
+fun syncProgressCounters(completed: Int, total: Int): SyncProgressCounters =
+    if (total <= 0) SyncProgressCounters(completed.coerceAtLeast(0), 0)
+    else SyncProgressCounters(completed.coerceIn(0, total), total)
 
 fun syncProgressFraction(completed: Int, total: Int): Float? =
     if (total <= 0) null else (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f)

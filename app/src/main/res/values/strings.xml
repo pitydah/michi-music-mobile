@@ -39,4 +39,14 @@
         <item quantity="one">%d tema en biblioteca</item>
         <item quantity="other">%d temas en biblioteca</item>
     </plurals>
+    <!-- Progress within a known total: the plural is governed by the total, not by
+         the completed count, so "1 de 1 pista" stays singular instead of "1 de 1 pistas". -->
+    <plurals name="tracks_progress">
+        <item quantity="one">%1$d de %2$d pista</item>
+        <item quantity="other">%1$d de %2$d pistas</item>
+    </plurals>
+    <plurals name="tracks_processed_unknown_total">
+        <item quantity="one">%1$d pista procesada · total desconocido</item>
+        <item quantity="other">%1$d pistas procesadas · total desconocido</item>
+    </plurals>
 </resources>

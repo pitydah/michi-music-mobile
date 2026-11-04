@@ -49,4 +49,18 @@ class LibraryPluralStringsTest {
             resources.getQuantityString(R.plurals.select_playlist_for_album, 4, "Michi", 4),
         )
     }
+
+    @Test
+    fun `transfer progress agrees with its total`() {
+        assertEquals("1 de 1 pista", resources.getQuantityString(R.plurals.tracks_progress, 1, 1, 1))
+        assertEquals("2 de 5 pistas", resources.getQuantityString(R.plurals.tracks_progress, 5, 2, 5))
+        assertEquals(
+            "1 pista procesada · total desconocido",
+            resources.getQuantityString(R.plurals.tracks_processed_unknown_total, 1, 1),
+        )
+        assertEquals(
+            "3 pistas procesadas · total desconocido",
+            resources.getQuantityString(R.plurals.tracks_processed_unknown_total, 3, 3),
+        )
+    }
 }

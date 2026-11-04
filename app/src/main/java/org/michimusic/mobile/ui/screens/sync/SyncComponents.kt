@@ -59,7 +59,9 @@ import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import androidx.compose.foundation.BorderStroke
-import org.michimusic.mobile.ui.components.syncProgressCaption
+import androidx.compose.ui.res.pluralStringResource
+import org.michimusic.mobile.R
+import org.michimusic.mobile.ui.components.syncProgressCounters
 import org.michimusic.mobile.ui.components.syncProgressFraction
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.AccentPink
@@ -332,7 +334,26 @@ private fun SyncProgressContent(completed: Int, total: Int) {
             )
         }
         Spacer(Modifier.height(8.dp))
-        Text(syncProgressCaption(completed, total), style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        // Plurals live in the resources: a single-track transfer says "1 de 1 pista".
+        val counters = syncProgressCounters(completed, total)
+        Text(
+            text = if (counters.hasKnownTotal) {
+                pluralStringResource(
+                    R.plurals.tracks_progress,
+                    counters.total,
+                    counters.completed,
+                    counters.total,
+                )
+            } else {
+                pluralStringResource(
+                    R.plurals.tracks_processed_unknown_total,
+                    counters.completed,
+                    counters.completed,
+                )
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+        )
     }
 }
 
@@ -714,7 +735,12 @@ private fun AirCatActiveTransferView(
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${progress.currentTrackIndex.coerceAtLeast(1)} de ${progress.totalTracks} pistas",
+                    text = pluralStringResource(
+                        R.plurals.tracks_progress,
+                        progress.totalTracks,
+                        progress.currentTrackIndex.coerceAtLeast(1),
+                        progress.totalTracks,
+                    ),
                     style = org.michimusic.mobile.ui.theme.MichiTypography.metadata,
                     color = org.michimusic.mobile.ui.theme.TextSecondary,
                 )
