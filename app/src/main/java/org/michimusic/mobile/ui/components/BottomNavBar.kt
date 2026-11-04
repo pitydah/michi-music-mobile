@@ -177,12 +177,17 @@ fun BottomNavBar(
                             // inside 73.dp-wide tabs. Auto-size keeps the whole label by
                             // shrinking only as much as the available width requires, instead of
                             // truncating it for the users who explicitly asked for bigger text.
+                            // A single-word label ("Biblioteca", "Dispositivos") cannot wrap
+                            // without cutting the word, which broke at font scale 2.0. Keep one
+                            // line and let auto-size shrink instead; multi-word labels still wrap.
+                            val singleWordLabel = tab.label.none { it.isWhitespace() }
                             BasicText(
                                 text = tab.label,
-                                maxLines = if (dockHeight > 64.dp) 2 else 1,
+                                maxLines = if (singleWordLabel) 1 else if (dockHeight > 64.dp) 2 else 1,
+                                softWrap = !singleWordLabel,
                                 overflow = TextOverflow.Ellipsis,
                                 autoSize = TextAutoSize.StepBased(
-                                    minFontSize = 9.sp,
+                                    minFontSize = 8.sp,
                                     maxFontSize = 11.sp,
                                     stepSize = 0.5.sp,
                                 ),

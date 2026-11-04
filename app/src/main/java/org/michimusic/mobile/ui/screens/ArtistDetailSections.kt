@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,21 +67,27 @@ internal fun ArtistDetailHero(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(24.dp)
+    // At large font scales the 62.sp monogram and the artist name collide inside the
+    // hero. The name is the information, so the decorative monogram steps aside and the
+    // hero grows with its content instead of clipping or overlapping.
+    val fontScale = LocalDensity.current.fontScale
     Box(
-        modifier = modifier.fillMaxWidth().height(248.dp).clip(shape)
+        modifier = modifier.fillMaxWidth().heightIn(min = 248.dp).clip(shape)
             .background(Brush.linearGradient(listOf(Color(0xFF26364A), Color(0xFF302639))))
             .border(0.8.dp, Color.White.copy(alpha = 0.21f), shape)
             .testTag("artist_detail_hero"),
     ) {
         // Draw the monogram BELOW Coil regardless of URL availability: if the
         // verified remote image fails/offline, the hero still has an identity.
-        Text(
-            artistMosaicMonogram(artistCredit),
-            modifier = Modifier.align(Alignment.Center).testTag("artist_detail_hero_monogram"),
-            color = PureWhite.copy(alpha = 0.72f),
-            fontSize = 62.sp,
-            fontFamily = InterFontFamily,
-        )
+        if (fontScale < 1.6f) {
+            Text(
+                artistMosaicMonogram(artistCredit),
+                modifier = Modifier.align(Alignment.Center).testTag("artist_detail_hero_monogram"),
+                color = PureWhite.copy(alpha = 0.72f),
+                fontSize = 62.sp,
+                fontFamily = InterFontFamily,
+            )
+        }
         if (portrait != null && allowedCommonsPortrait(portrait)) {
             AsyncImage(
                 model = portrait.imageUrl,
