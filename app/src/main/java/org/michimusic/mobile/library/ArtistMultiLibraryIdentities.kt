@@ -8,7 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.map as flowMap
 import org.michimusic.core.models.LibraryScope
 import org.michimusic.core.models.MusicLibrary
 import org.michimusic.core.models.ResolvedTrack
@@ -68,8 +68,10 @@ fun rememberArtistIdentityMemberships(
     val identities = libraries.map { it.id }.sorted()
     val observed by produceState(
         initialValue = ArtistIdentityMemberships(false, emptyMap()),
-        key1 = aggregate.scope, key2 = identities, key3 = repository,
-        key4 = aggregate to retryKey,
+        // produceState exposes at most key1..key3; the retry signal rides with the
+        // repository identity so a new retry re-runs the membership read.
+        key1 = aggregate.scope, key2 = identities,
+        key3 = Triple(repository, aggregate, retryKey),
     ) {
         if (aggregate.scope !is LibraryScope.All || libraries.size < 2) {
             value = ArtistIdentityMemberships(true, emptyMap())
@@ -78,7 +80,7 @@ fun rememberArtistIdentityMemberships(
         try {
             val flows = libraries.map { library ->
                 repository.observeTracks(LibraryScope.One(library.id))
-                    .map { tracks -> library.id to tracks }
+                    .flowMap { tracks -> library.id to tracks }
             }
             combine(flows) { pairs -> pairs.toMap() }
                 .flowOn(Dispatchers.IO)
