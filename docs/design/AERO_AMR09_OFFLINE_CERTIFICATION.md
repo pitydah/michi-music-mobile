@@ -1,6 +1,25 @@
-# Michi Aero — AMR-09 / Certificación offline pendiente
+# Michi Aero — AMR-09 / Certificación offline (cerrada)
 
-**Autoridad:** conservar el Aero original, especialmente `AeroSignalRouteStrip` ciruela compacto con pie centrado. El parche acumulativo **no se aplica al repositorio principal** durante la verificación. El Android físico no es necesario.
+## Estado real — aplicado y certificado (2026-11-04)
+
+El procedimiento de este documento se ejecutó sobre el repositorio real, no sobre un clon, y el parche quedó integrado.
+
+| Gate | Resultado |
+|---|---|
+| Parche | `MICHI_AERO_MATERIAL_REFINEMENT.patch`, SHA-256 `9ae5f79a427cd17cc2adf3904fee2bc0d41935c412f3064d7cbd8a957e254c71`, 58 rutas, base `09a4841` |
+| Aplicación | `git apply` limpio, `git diff --cached --check` OK, commit `cc307a3` (60 archivos, +1981/−360), merge `--ff-only` y push |
+| `scripts/verify_aero_release_contract.py` | **PASS 18/18** — los 3 `BLOCKED` del espejo parcial (navegación, toolchain, ventana Android) resolvieron con checkout completo |
+| `scripts/verify_aero_modal_contract.py` | **PASS 16/16** |
+| Gradle (vía `gradle-run`) | broad 13 tareas exit 0; **1908 tests JVM, 0 fallos** (app 708 ×2 flavors, core 34, data 159, player 169, michi-link-client 130) |
+| Lint | **0 errores** (app 152 warnings, ninguno nuevo de código tras corregir `AeroDialogField`) |
+| Instrumentadas | **12/12** en emulador Android 16 / API 36 |
+| CI | run `41747960571` sobre `cc307a3`: completed / success, **8/8 jobs** (incluye Job G instrumentado) |
+
+Defectos del paquete corregidos antes de publicar: `testTag` sin import en `SyncedTracksScreen`, imports inválidos de `assertExists` / `onNode` / `assertDoesNotExist` en 8 archivos de test, contrato `aeroM60StackSignal` desactualizado, cuatro consumidores de `MichiSurfaces` deprecado migrados a `aeroGradientStops`, `AeroDialogField` con `LocalWindowInfo`, y plurales concatenados migrados a `pluralStringResource`.
+
+**Nota de estado:** `compileSdk` es 36 en todos los módulos (el paso 2 de abajo menciona `android-35`, vigente cuando se escribió este contrato); `targetSdk` sigue en 35 a propósito.
+
+**Autoridad:** conservar el Aero original, especialmente `AeroSignalRouteStrip` ciruela compacto con pie centrado. El Android físico no es necesario para estos gates.
 
 ## Estado verificable
 
