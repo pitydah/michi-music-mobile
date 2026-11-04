@@ -12,6 +12,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -62,17 +63,27 @@ fun MichiFineSlider(
             )
         },
         track = { sliderState ->
-            SliderDefaults.Track(
-                sliderState = sliderState,
-                modifier = Modifier.height(3.dp),
-                colors = SliderDefaults.colors(
-                    activeTrackColor = accentColor,
-                    inactiveTrackColor = GlassFillHigh,
-                    disabledActiveTrackColor = TextMuted.copy(alpha = 0.3f),
-                    disabledInactiveTrackColor = GlassFillLow,
-                ),
-                drawStopIndicator = null,
-            )
+            // A 4dp recessed channel, still using Material3's real interactive slider.
+            // Only the paint changes; its gesture target, value range and callbacks do not.
+            Box(
+                modifier = Modifier.fillMaxWidth().height(4.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF121923))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.11f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                    colors = SliderDefaults.colors(
+                        activeTrackColor = accentColor,
+                        inactiveTrackColor = GlassFillHigh,
+                        disabledActiveTrackColor = TextMuted.copy(alpha = 0.3f),
+                        disabledInactiveTrackColor = GlassFillLow,
+                    ),
+                    drawStopIndicator = null,
+                )
+            }
         },
     )
 }

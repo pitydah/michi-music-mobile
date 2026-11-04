@@ -63,6 +63,9 @@ import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -175,10 +178,12 @@ fun QueueScreen(
 
             // Status Banner
             if (queue.isNotEmpty()) {
-                GlassCard(
+                // Queue status is one satin information rail; active track rows retain
+                // their existing semantic pink/cyan highlighting below.
+                AeroSurface(
+                    role = AeroSurfaceRole.Content,
+                    finish = AeroFinish.Satin,
                     modifier = Modifier.fillMaxWidth(),
-                    backgroundColor = GlassFillLow,
-                    borderColor = GlassBorderLow,
                 ) {
                     Row(
                         modifier = Modifier

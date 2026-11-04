@@ -69,6 +69,9 @@ import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.components.ManualConnectionDialog
@@ -187,12 +190,12 @@ fun SyncScreen(
             ) {
                 // Connection Status Search Card
                 item {
-                    GlassCard(
+                    AeroSurface(
+                        role = AeroSurfaceRole.Content,
+                        finish = AeroFinish.Satin,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("sync_search_card"),
-                        backgroundColor = GlassFillLow,
-                        borderColor = GlassBorderLow,
                     ) {
                         Row(
                             modifier = Modifier
@@ -635,13 +638,13 @@ private fun SyncProgressCard(
     val progress = syncProgressPresentation(completed, total)
     val fraction = progress.fraction
 
-    GlassCard(
+    // Progress uses a raised graphite instrument, never simulated completed work.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Anodized,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("sync_progress_card"),
-        backgroundColor = GlassFillHigh,
-        borderColor = GlassBorderHigh,
-        glowColor = PrimaryPink,
     ) {
         Column(
             modifier = Modifier

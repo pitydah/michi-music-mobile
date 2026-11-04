@@ -15,14 +15,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.aeroResolvedFinish
+import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -43,8 +50,15 @@ fun AeroSurface(
     borderStroke: BorderStroke? = null,
     onClick: (() -> Unit)? = null,
     contentPadding: Dp? = null,
+    finish: AeroFinish = AeroFinish.Plain,
+    contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val resolvedFinish = aeroResolvedFinish(role, finish, highContrast)
+    val finishSpec = aeroFinishSpec(resolvedFinish, highContrast)
+    // Android caches drawable decoding; there is no per-frame bitmap decoding.
+    val grain = if (finishSpec.grainAlpha > 0f) ImageBitmap.imageResource(R.drawable.aero_graphite_grain) else null
     val material = aeroMaterialStyle(role, LocalVisualPreferences.current.highContrast)
     val border = borderStroke ?: material.takeIf { it.borderWidth > 0.dp }?.let {
         BorderStroke(it.borderWidth, it.outline)
@@ -58,6 +72,7 @@ fun AeroSurface(
             .then(if (material.elevation > 0.dp) Modifier.shadow(material.elevation, shape) else Modifier)
             .clip(shape)
             .background(material.fill)
+            .aeroFinishDrawing(resolvedFinish, finishSpec, grain)
             .then(if (border != null) Modifier.border(border, shape) else Modifier)
             .then(if (onClick != null) Modifier.clickable(
                 interactionSource = interactionSource,
@@ -66,6 +81,7 @@ fun AeroSurface(
                 onClick = onClick,
             ) else Modifier)
             .then(if (contentPadding != null) Modifier.padding(contentPadding) else Modifier),
+            contentAlignment = contentAlignment,
             content = content,
         )
     }
@@ -85,8 +101,9 @@ fun AeroCard(
     shape: Shape = MichiShapes.md,
     onClick: (() -> Unit)? = null,
     contentPadding: Dp? = null,
+    finish: AeroFinish = AeroFinish.Plain,
     content: @Composable BoxScope.() -> Unit,
 ) {
     AeroSurface(role = AeroSurfaceRole.Raised, modifier = modifier, shape = shape,
-        onClick = onClick, contentPadding = contentPadding, content = content)
+        onClick = onClick, contentPadding = contentPadding, finish = finish, content = content)
 }

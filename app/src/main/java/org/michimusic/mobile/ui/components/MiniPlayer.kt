@@ -52,6 +52,8 @@ import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -115,13 +117,13 @@ fun MiniPlayerContent(
         modifier = modifier,
     ) {
         if (currentTrack != null) {
-            Box(
+            AeroSurface(
+                role = AeroSurfaceRole.Floating,
+                finish = AeroFinish.Smoked,
+                shape = MichiShapes.md,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = MichiSpacing.screenHorizontal, vertical = 4.dp)
-                    .clip(MichiShapes.md)
-                    .background(Brush.verticalGradient(listOf(Color(0xFF333B47), AeroGraphiteRaised, Color(0xFF1A222C))))
-                    .border(0.8.dp, AeroHairline, MichiShapes.md)
                     .testTag("mini_player_bar"),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {

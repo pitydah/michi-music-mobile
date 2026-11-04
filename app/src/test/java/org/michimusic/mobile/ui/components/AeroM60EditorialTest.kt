@@ -15,8 +15,12 @@ class AeroM60EditorialTest {
     }
 
     @Test fun signalFooterStacksOnNarrowViewportsOrLargeFonts() {
-        assertTrue(aeroM60StackSignal(320f, 1f))
-        assertFalse(aeroM60StackSignal(360f, 1f))
+        // AMR-COMPACT-02 turns the footer into one compact two-column band with a
+        // 276.dp useful-width floor, so a 320.dp window (284.dp of useful width) keeps
+        // two columns instead of stacking. Only a narrower band or a bigger font stacks.
+        assertTrue(aeroM60StackSignal(275f, 1f))
+        assertFalse(aeroM60StackSignal(320f, 1f))
+        assertTrue(aeroM60StackSignal(320f, 1.3f))
         assertTrue(aeroM60StackSignal(480f, 2f))
     }
 

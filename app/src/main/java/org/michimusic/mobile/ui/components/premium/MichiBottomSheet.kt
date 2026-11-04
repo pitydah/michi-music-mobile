@@ -19,6 +19,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceDark
@@ -44,16 +46,17 @@ fun MichiBottomSheet(
     val highContrast = visualPrefs.highContrast
 
     val topShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    val outlineColor = if (highContrast) PureWhite.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.14f)
+    val material = aeroMaterialStyle(AeroSurfaceRole.Floating, highContrast)
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        modifier = modifier.border(0.75.dp, outlineColor, topShape),
+        modifier = modifier.border(material.borderWidth, material.outline, topShape),
         sheetState = sheetState,
         shape = topShape,
-        containerColor = if (highContrast) Color.Black else SurfaceDark,
+        // Fully opaque graphite: Material3 tonal elevation must not repaint Aero's token.
+        containerColor = material.fill,
         contentColor = PureWhite,
-        tonalElevation = 8.dp,
+        tonalElevation = 0.dp,
         dragHandle = {
             Spacer(
                 Modifier

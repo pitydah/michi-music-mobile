@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.pluralStringResource
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -74,10 +76,15 @@ import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroLibraryFeature
 import org.michimusic.mobile.ui.components.AeroSectionHeading
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
@@ -92,6 +99,7 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.player.AudioController
+import org.michimusic.mobile.R
 
 @Composable
 fun HomeScreen(
@@ -431,12 +439,20 @@ private fun ContinueListeningCard(
     onPlayPause: () -> Unit,
     onContinueHere: () -> Unit,
 ) {
-    GlassCard(
+    // The single "continue" focus panel is machined graphite; the endpoint
+    // retains its own evidence color instead of becoming a generic glass card.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Anodized,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("continue_listening_card"),
-        backgroundColor = GlassFillHigh,
-        borderColor = if (isRemote) TertiaryCyan.copy(alpha = 0.35f) else PrimaryPinkContainer.copy(alpha = 0.35f),
+        borderStroke = BorderStroke(
+            width = if (LocalVisualPreferences.current.highContrast) 1.2.dp else 0.75.dp,
+            color = if (LocalVisualPreferences.current.highContrast) Color.White.copy(alpha = 0.85f)
+                else if (isRemote) TertiaryCyan.copy(alpha = 0.35f)
+                else PrimaryPinkContainer.copy(alpha = 0.35f),
+        ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -521,12 +537,12 @@ private fun ContinueListeningCard(
 /** An empty collection is not a playable queue. Never show dead transport controls. */
 @Composable
 private fun EmptyLibraryHomeCard() {
-    GlassCard(
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        finish = AeroFinish.Satin,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("home_empty_library"),
-        backgroundColor = GlassFillHigh,
-        borderColor = GlassBorderLow,
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
@@ -778,7 +794,7 @@ private fun YourPlaylistsSection(
         ) {
             item { PlaylistTile(
                 title = "Favoritos",
-                subtitle = "$favoritesCount pistas",
+                subtitle = pluralStringResource(R.plurals.track_count, favoritesCount, favoritesCount),
                 icon = Icons.Filled.Star,
                 accentColor = PrimaryPinkContainer,
                 modifier = Modifier.width(MichiSpacing.albumTileWidth),
@@ -786,7 +802,7 @@ private fun YourPlaylistsSection(
             ) }
             item { PlaylistTile(
                 title = "Más Escuchadas",
-                subtitle = "$topTracksCount temas",
+                subtitle = pluralStringResource(R.plurals.themes_count, topTracksCount, topTracksCount),
                 icon = Icons.Filled.PlayArrow,
                 accentColor = SecondaryPurple,
                 modifier = Modifier.width(MichiSpacing.albumTileWidth),
@@ -794,7 +810,7 @@ private fun YourPlaylistsSection(
             ) }
             item { PlaylistTile(
                 title = "Recientes",
-                subtitle = "$recentTracksCount pistas",
+                subtitle = pluralStringResource(R.plurals.track_count, recentTracksCount, recentTracksCount),
                 icon = Icons.Filled.LibraryMusic,
                 accentColor = TertiaryCyan,
                 modifier = Modifier.width(MichiSpacing.albumTileWidth),
@@ -836,10 +852,10 @@ private fun PlaylistTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    GlassCard(
+    // Tiles stay Plain: each icon brings the color, not a competing noisy plate.
+    AeroCard(
         modifier = modifier.heightIn(min = 82.dp),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
+        finish = AeroFinish.Plain,
         onClick = onClick,
     ) {
         Row(

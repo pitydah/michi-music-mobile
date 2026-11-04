@@ -57,12 +57,15 @@ import org.michimusic.mobile.remote.RemoteConnectionState
 import org.michimusic.mobile.remote.RemoteUiState
 import org.michimusic.mobile.remote.RemoteViewModel
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
+import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.GradientProgressBar
 import org.michimusic.mobile.ui.components.formatRemainingTimeSeconds
 import org.michimusic.mobile.ui.components.formatTimeSeconds
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.MichiSpacing
@@ -410,12 +413,13 @@ fun RemoteScreenContent(
                     // Remote artwork is not delivered by the current protocol.
                     // Render an honest listening-state sculpture, never a synthetic album cover.
                     item(key = "remote_artwork_unavailable") {
-                        Box(
-                            modifier = Modifier
-                                .size(240.dp)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(AeroGraphiteRaised)
-                                .border(0.75.dp, AeroHairline, RoundedCornerShape(24.dp)),
+                        // Not a fake album cover: a single equipment plate when
+                        // the remote host cannot supply genuine artwork.
+                        AeroSurface(
+                            role = AeroSurfaceRole.Raised,
+                            finish = AeroFinish.Anodized,
+                            modifier = Modifier.size(240.dp),
+                            shape = RoundedCornerShape(24.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Column(
@@ -549,15 +553,15 @@ fun RemoteScreenContent(
                         }
                     }
 
-                    // Selected Output Card
+                    // Selected Output: quieter Satin content, distinct from
+                    // the single machined artwork/device focus panel.
                     item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(AeroGraphiteRaised)
-                                .border(0.75.dp, AeroHairline, RoundedCornerShape(16.dp))
-                                .padding(16.dp),
+                        AeroSurface(
+                            role = AeroSurfaceRole.Content,
+                            finish = AeroFinish.Satin,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            contentPadding = 16.dp,
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,

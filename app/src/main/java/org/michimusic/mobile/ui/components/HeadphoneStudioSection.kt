@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +40,8 @@ import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
+import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.AeroHairline
 import kotlin.math.log10
 import kotlin.math.pow
 
@@ -86,6 +90,14 @@ fun HeadphoneStudioSection() {
             label = { Text("Nombre de tus auriculares") },
             modifier = Modifier.fillMaxWidth().testTag("headphone_name"),
             singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = TertiaryCyan,
+                unfocusedBorderColor = AeroHairline,
+                cursorColor = PrimaryPinkContainer,
+                focusedTextColor = PureWhite,
+                unfocusedTextColor = PureWhite,
+            ),
         )
         Text(
             when {

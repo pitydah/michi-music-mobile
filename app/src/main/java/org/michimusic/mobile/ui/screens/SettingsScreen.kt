@@ -76,6 +76,9 @@ import org.michimusic.data.cache.AppDao
 import org.michimusic.mobile.ui.components.AudioRouteDialog
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.shouldStackAudioActions
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
@@ -727,10 +730,11 @@ private fun SettingsAudioQuickActionCard(
     onClick: () -> Unit,
     modifier: Modifier,
 ) {
-    GlassCard(
+    // Single satin equipment action: no nested Material button or second border.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Satin,
         modifier = modifier.heightIn(min = 72.dp),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
         onClick = onClick,
     ) {
         Row(
@@ -804,10 +808,12 @@ private fun SettingsSectionCard(
     accent: Color,
     content: @Composable () -> Unit,
 ) {
-    GlassCard(
+    // Sections use one anodized shell; controls inside retain their own semantics.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Anodized,
         modifier = Modifier.fillMaxWidth(),
-        backgroundColor = org.michimusic.mobile.ui.theme.AeroGraphite,
-        borderColor = Color.White.copy(alpha = 0.11f),
+        shape = RoundedCornerShape(18.dp),
     ) {
         Column(
             modifier = Modifier

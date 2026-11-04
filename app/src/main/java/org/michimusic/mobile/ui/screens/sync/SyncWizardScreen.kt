@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.core.models.DeliveryProfile
 import org.michimusic.core.models.IssueSeverity
 import org.michimusic.core.models.ManifestPlaylist
@@ -75,6 +76,11 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroGraphite
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -84,6 +90,7 @@ import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextDim
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.R
 
 enum class SyncWizardStep {
     SELECTION,
@@ -537,7 +544,7 @@ private fun SelectionStep(
                         val isChecked = pl.playlistId in selectedPlaylistIds
                         ItemCheckboxRow(
                             title = pl.name,
-                            subtitle = "${pl.trackIds.size} pistas",
+                            subtitle = pluralStringResource(R.plurals.track_count, pl.trackIds.size, pl.trackIds.size),
                             isChecked = isChecked,
                             onToggle = { onTogglePlaylist(pl.playlistId) },
                             testTag = "sync_wizard_playlist_${pl.playlistId}"
@@ -558,7 +565,7 @@ private fun SelectionStep(
                     val isChecked = artistName in selectedArtistIds
                     ItemCheckboxRow(
                         title = artistName,
-                        subtitle = "${tracksOfArtist.size} pistas",
+                        subtitle = pluralStringResource(R.plurals.track_count, tracksOfArtist.size, tracksOfArtist.size),
                         isChecked = isChecked,
                         onToggle = { onToggleArtist(artistName) },
                         testTag = "sync_wizard_artist_${artistName.replace(" ", "_")}"
@@ -753,7 +760,7 @@ private fun ScopeOptionCard(
             )
             .testTag(testTag),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) GlassFillHigh else GlassFillLow
+            containerColor = if (isSelected) AeroGraphiteRaised else AeroGraphite
         )
     ) {
         Row(
@@ -849,7 +856,7 @@ private fun ProfileOptionCard(
             .border(1.dp, borderColor, MichiShapes.md)
             .testTag("sync_wizard_profile_${item.profile.name}"),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected && enabled) GlassFillHigh else GlassFillLow
+            containerColor = if (isSelected && enabled) AeroGraphiteRaised else AeroGraphite
         )
     ) {
         Column(
@@ -1003,12 +1010,12 @@ private fun ReviewStep(
 
 @Composable
 private fun PlanMetricsCard(plan: SyncPlan) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MichiShapes.md)
-            .border(1.dp, GlassBorderLow, MichiShapes.md),
-        colors = CardDefaults.cardColors(containerColor = GlassFillLow)
+    // Preflight numbers are informative, not an "all green" status.
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        finish = AeroFinish.Inset,
+        modifier = Modifier.fillMaxWidth().testTag("sync_wizard_plan_metrics"),
+        shape = MichiShapes.md,
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             MetricRow(label = "Pistas seleccionadas:", value = "${plan.totalSelectedTracks}")
@@ -1080,13 +1087,11 @@ private fun IssueBanner(issue: org.michimusic.core.models.SyncPreflightIssue) {
 @Composable
 private fun TrackDecisionListCard(items: List<org.michimusic.core.models.SyncItemDecision>) {
     var expanded by remember { mutableStateOf(false) }
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MichiShapes.md)
-            .border(1.dp, GlassBorderLow, MichiShapes.md)
-            .testTag("sync_wizard_track_decision_card"),
-        colors = CardDefaults.cardColors(containerColor = GlassFillLow)
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        finish = AeroFinish.Plain,
+        modifier = Modifier.fillMaxWidth().testTag("sync_wizard_track_decision_card"),
+        shape = MichiShapes.md,
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(

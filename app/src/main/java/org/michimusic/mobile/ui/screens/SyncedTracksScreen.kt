@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
@@ -42,6 +44,9 @@ import org.koin.compose.koinInject
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.mobile.screens.SyncedTracksViewModel
 import org.michimusic.mobile.ui.components.PremiumEmptyState
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.PremiumScreen
 import org.michimusic.mobile.ui.theme.AccentPink
 import org.michimusic.mobile.ui.theme.SurfaceBorder
@@ -162,16 +167,20 @@ private fun SyncedTrackRow(
 ) {
     val isDownloaded = track.filepath.isNotEmpty()
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(AeroGraphite)
-            .border(0.75.dp, AeroHairline, RoundedCornerShape(14.dp))
-            .clickable(enabled = isDownloaded, role = Role.Button) { onPlay() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    // Offline-only: missing files are presentation rows, not tappable buttons.
+    // Reuse the canonical plain surface instead of a custom second graphite layer.
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        finish = AeroFinish.Plain,
+        modifier = Modifier.fillMaxWidth().testTag("synced_track_${track.id}"),
+        shape = RoundedCornerShape(14.dp),
+        borderStroke = BorderStroke(0.75.dp, AeroHairline),
+        onClick = if (isDownloaded) onPlay else null,
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -228,5 +237,6 @@ private fun SyncedTrackRow(
                     color = TextDim,
                 )
             }
+        }
     }
 }

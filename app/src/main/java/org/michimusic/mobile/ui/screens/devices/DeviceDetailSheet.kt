@@ -59,6 +59,11 @@ import org.michimusic.mobile.ui.components.premium.MichiBottomSheet
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import org.michimusic.mobile.ui.components.premium.MichiSurface
 import org.michimusic.mobile.ui.components.premium.MichiSurfaceLevel
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.ErrorColor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
@@ -237,11 +242,16 @@ fun DeviceDetailSheet(
             }
 
             // Technical Details Collapsible Section
-            MichiSurface(
+            // Device identity disclosure is a recessed instrument panel; its
+            // announced properties must not be presented as physical verification.
+            AeroSurface(
+                role = AeroSurfaceRole.Content,
+                finish = AeroFinish.Inset,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showTechDetails = !showTechDetails },
-                level = MichiSurfaceLevel.Content,
+                    .heightIn(min = 48.dp)
+                    .testTag("device_identity_disclosure"),
+                onClick = { showTechDetails = !showTechDetails },
                 shape = MichiShapes.sm,
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -327,6 +337,11 @@ fun DeviceDetailSheet(
     }
 
     if (showUnpairConfirmation) {
+        // System-provided Material3 confirmation retains its semantics/actions but
+        // shares the same opaque Floating palette as the other Michi sheets.
+        val dialogSurface = aeroMaterialStyle(
+            AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast,
+        )
         AlertDialog(
             onDismissRequest = { showUnpairConfirmation = false },
             title = {
@@ -360,7 +375,9 @@ fun DeviceDetailSheet(
                     Text("Cancelar", color = PureWhite)
                 }
             },
-            containerColor = Color(0xFF1E2129),
+            containerColor = dialogSurface.fill,
+            shape = RoundedCornerShape(20.dp),
+            tonalElevation = 0.dp,
         )
     }
 }

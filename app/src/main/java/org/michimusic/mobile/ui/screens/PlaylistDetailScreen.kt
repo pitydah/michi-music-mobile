@@ -63,6 +63,8 @@ import org.michimusic.mobile.ui.components.AddTracksDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.DeletePlaylistDialog
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.RenamePlaylistDialog
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -408,12 +410,11 @@ private fun PlaylistTrackRow(
 ) {
     var showTrackMenu by remember { mutableStateOf(false) }
 
-    GlassCard(
+    AeroCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("playlist_detail_track_${track.id}"),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
+        finish = AeroFinish.Plain,
         onClick = onClick,
     ) {
         Row(

@@ -30,6 +30,10 @@ import org.michimusic.core.sync.StoragePreflightEvaluator
 import org.michimusic.mobile.ui.theme.AccentCoral
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.components.aeroFinishDrawing
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -98,6 +102,12 @@ fun StorageBreakdownBar(
                 .height(16.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(GlassFillLow)
+                // Recess the occupancy rail, never recolor its semantic segments.
+                .aeroFinishDrawing(
+                    AeroFinish.Inset,
+                    aeroFinishSpec(AeroFinish.Inset, LocalVisualPreferences.current.highContrast),
+                    null,
+                )
                 .border(1.dp, GlassBorderLow, RoundedCornerShape(8.dp))
         ) {
             Row(modifier = Modifier.fillMaxWidth().height(16.dp)) {

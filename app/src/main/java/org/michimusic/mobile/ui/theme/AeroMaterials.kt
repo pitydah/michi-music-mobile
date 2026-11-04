@@ -32,3 +32,45 @@ fun aeroMaterialStyle(role: AeroSurfaceRole, highContrast: Boolean): AeroMateria
         elevation = rule.elevationDp.dp,
     )
 }
+
+/** Optical finishes are a detail of the existing four Aero surface roles, not a second theme. */
+enum class AeroFinish { Plain, Satin, Anodized, Smoked, Inset }
+
+/** Immutable, testable optical recipe; paints do not own playback or UI state. */
+data class AeroFinishSpec(
+    val topLightAlpha: Float,
+    val grainAlpha: Float,
+    val edgeAlpha: Float,
+    val insetShadeAlpha: Float,
+)
+
+/** Invalid combinations and high contrast are always rendered as undecorated Plain. */
+fun aeroResolvedFinish(role: AeroSurfaceRole, requested: AeroFinish, highContrast: Boolean): AeroFinish {
+    if (highContrast) return AeroFinish.Plain
+    return when (role) {
+        AeroSurfaceRole.Canvas -> AeroFinish.Plain
+        AeroSurfaceRole.Content -> when (requested) {
+            AeroFinish.Plain, AeroFinish.Satin, AeroFinish.Inset -> requested
+            else -> AeroFinish.Plain
+        }
+        AeroSurfaceRole.Raised -> when (requested) {
+            AeroFinish.Plain, AeroFinish.Satin, AeroFinish.Anodized -> requested
+            else -> AeroFinish.Plain
+        }
+        AeroSurfaceRole.Floating -> when (requested) {
+            AeroFinish.Plain, AeroFinish.Smoked -> requested
+            else -> AeroFinish.Plain
+        }
+    }
+}
+
+fun aeroFinishSpec(finish: AeroFinish, highContrast: Boolean): AeroFinishSpec {
+    if (highContrast) return AeroFinishSpec(0f, 0f, 0f, 0f)
+    return when (finish) {
+        AeroFinish.Plain -> AeroFinishSpec(0f, 0f, 0f, 0f)
+        AeroFinish.Satin -> AeroFinishSpec(0.020f, 0.016f, 0.045f, 0f)
+        AeroFinish.Anodized -> AeroFinishSpec(0.038f, 0.022f, 0.090f, 0f)
+        AeroFinish.Smoked -> AeroFinishSpec(0.045f, 0.012f, 0.110f, 0f)
+        AeroFinish.Inset -> AeroFinishSpec(0f, 0f, 0f, 0.120f)
+    }
+}

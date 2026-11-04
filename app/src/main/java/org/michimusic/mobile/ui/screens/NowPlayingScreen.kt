@@ -64,6 +64,7 @@ import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GradientProgressBar
@@ -157,7 +158,10 @@ fun NowPlayingScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Brush.verticalGradient(
-                    org.michimusic.mobile.ui.theme.MichiSurfaces.heroFade,
+                    org.michimusic.mobile.ui.theme.aeroGradientStops(
+                        org.michimusic.mobile.ui.theme.AeroGradientRole.HeroToCanvas,
+                        LocalVisualPreferences.current.highContrast,
+                    ),
                 )),
         )
 
@@ -241,30 +245,19 @@ fun NowPlayingScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 val artSide = org.michimusic.mobile.ui.components.aeroArtworkSideDp(maxWidth.value, maxHeight.value).dp
-                // One frame only: the cover container owns the shadow (6.dp), the
-                // fill and the hairline. AeroArtworkMat used to add a second shadow,
-                // a four-color metal rim and an inset on top of this, so the hero art
-                // carried 2 shadows, 3 backgrounds and 3 borders in the same square.
-                Box(
-                    modifier = Modifier
-                        .size(artSide)
-                        .shadow(
-                            if (LocalVisualPreferences.current.highContrast) 0.dp else 6.dp,
-                            RoundedCornerShape(22.dp),
-                            clip = false,
-                        )
-                        .background(Color(0xFF1D1A27), RoundedCornerShape(22.dp))
-                        .border(0.75.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(22.dp))
-                        .padding(4.dp)
-                        .clip(RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center,
+                // Reuse the existing Aero frame: one shadow, one opaque metal lip,
+                // one inset. Never tint or obscure the original album-art bitmap.
+                AeroArtworkMat(
+                    modifier = Modifier.size(artSide),
+                    cornerRadius = 18.dp,
+                    inset = 4.dp,
                 ) {
                     AlbumArtView(
                         coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
                         imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
                         fallbackMediaUri = currentTrack?.filepath,
                         modifier = Modifier.fillMaxSize().testTag("now_playing_album_art"),
-                        cornerRadius = 20.dp,
+                        cornerRadius = 18.dp,
                         borderWidth = 0.dp,
                     )
                 }

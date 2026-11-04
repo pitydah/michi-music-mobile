@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -59,13 +60,10 @@ fun AeroFloatingSurface(
     shape: Shape = RoundedCornerShape(20.dp),
     content: @Composable () -> Unit,
 ) {
-    val material = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
-    Surface(
+    AeroSurface(
+        role = AeroSurfaceRole.Floating,
+        finish = AeroFinish.Smoked,
         shape = shape,
-        color = material.fill,
-        border = if (material.borderWidth > 0.dp) BorderStroke(material.borderWidth, material.outline) else null,
-        shadowElevation = material.elevation,
         modifier = modifier,
-        content = content,
-    )
+    ) { content() }
 }

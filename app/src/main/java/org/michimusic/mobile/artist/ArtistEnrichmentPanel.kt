@@ -43,6 +43,10 @@ import kotlinx.coroutines.launch
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.components.aeroFinishDrawing
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
 private sealed interface ArtistEnrichmentUi {
     data object Idle : ArtistEnrichmentUi
@@ -252,6 +256,12 @@ fun ArtistEnrichmentPanel(
                             modifier = Modifier.fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color.White.copy(alpha = 0.045f))
+                                .aeroFinishDrawing(
+                                    AeroFinish.Satin,
+                                    aeroFinishSpec(AeroFinish.Satin, LocalVisualPreferences.current.highContrast)
+                                        .copy(grainAlpha = 0f),
+                                    null,
+                                )
                                 .border(0.7.dp, Color.White.copy(alpha = 0.13f), RoundedCornerShape(12.dp))
                                 .clickable(role = Role.Button) {
                                     val verifiedId = selectedArtistMbid(result.found, candidate.mbid)

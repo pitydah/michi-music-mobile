@@ -16,7 +16,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -29,6 +28,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.components.AeroDialogFieldShape
+import org.michimusic.mobile.ui.components.aeroDialogFieldColors
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.AccentCoral
@@ -56,7 +59,7 @@ fun SettingsToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
+    AeroCard(finish = AeroFinish.Plain, modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
         Row(
             modifier = Modifier.fillMaxWidth().heightIn(min = MichiSpacing.minTouchTarget),
             verticalAlignment = Alignment.CenterVertically,
@@ -81,7 +84,7 @@ fun SettingsRadioGroup(
     selectedValue: String,
     onSelect: (String) -> Unit,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
+    AeroCard(finish = AeroFinish.Plain, modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
         Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
         Spacer(Modifier.height(8.dp))
         Column(Modifier.selectableGroup()) {
@@ -117,7 +120,7 @@ fun SettingsSlider(
     steps: Int = 0,
     accentColor: androidx.compose.ui.graphics.Color = PrimaryPinkContainer,
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
+    AeroCard(finish = AeroFinish.Plain, modifier = Modifier.fillMaxWidth(), contentPadding = MichiSpacing.lg) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
@@ -144,7 +147,7 @@ fun SettingsTextField(
     onValueChange: (String) -> Unit,
     placeholder: String = "",
 ) {
-    GlassCard(modifier = Modifier.fillMaxWidth()) {
+    AeroCard(finish = AeroFinish.Plain, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = TextPrimary)
             Spacer(Modifier.height(8.dp))
@@ -154,14 +157,8 @@ fun SettingsTextField(
                 placeholder = { Text(placeholder, color = TextMuted) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = PrimaryPinkContainer,
-                    unfocusedBorderColor = SurfaceElevated,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    cursorColor = PrimaryPinkContainer,
-                ),
-                shape = RoundedCornerShape(10.dp),
+                colors = aeroDialogFieldColors(accent = PrimaryPinkContainer),
+                shape = AeroDialogFieldShape,
             )
         }
     }

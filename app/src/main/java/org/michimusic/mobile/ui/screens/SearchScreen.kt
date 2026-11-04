@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,6 +87,8 @@ import org.michimusic.mobile.screens.StructuredSearchResults
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
@@ -95,6 +98,9 @@ import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
@@ -226,23 +232,26 @@ fun SearchScreen(
 
             Spacer(Modifier.height(MichiSpacing.md))
 
-            // Search Bar
-            Box(
+            // The actual input is the sole inset instrument on this screen.
+            // Keep the IME, BasicTextField and clear action untouched.
+            AeroSurface(
+                role = AeroSurfaceRole.Content,
+                finish = AeroFinish.Inset,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
-                    .clip(MichiShapes.md)
-                    .background(Brush.verticalGradient(org.michimusic.mobile.ui.theme.MichiSurfaces.raised))
-                    .border(
-                        width = 0.65.dp,
-                        color = if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.62f) else GlassBorderLow,
-                        shape = MichiShapes.md,
-                    )
-                    .padding(horizontal = 16.dp),
+                    .testTag("search_inset_surface"),
+                shape = MichiShapes.md,
+                borderStroke = BorderStroke(
+                    width = if (LocalVisualPreferences.current.highContrast) 1.2.dp else 0.65.dp,
+                    color = if (LocalVisualPreferences.current.highContrast) Color.White.copy(alpha = 0.85f)
+                        else if (query.isNotEmpty()) PrimaryPinkContainer.copy(alpha = 0.62f)
+                        else GlassBorderLow,
+                ),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -332,7 +341,12 @@ fun SearchScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MichiShapes.lg)
-                            .background(Brush.verticalGradient(org.michimusic.mobile.ui.theme.MichiSurfaces.base))
+                            .background(Brush.verticalGradient(
+                                org.michimusic.mobile.ui.theme.aeroGradientStops(
+                                    org.michimusic.mobile.ui.theme.AeroGradientRole.Inset,
+                                    LocalVisualPreferences.current.highContrast,
+                                ),
+                            ))
                             .border(0.8.dp, PrimaryPinkContainer.copy(alpha = 0.32f), MichiShapes.lg)
                             .padding(horizontal = 20.dp, vertical = 22.dp)
                             .testTag("search_error_panel"),
@@ -552,12 +566,11 @@ private fun ArtistSearchRow(
     artist: SearchArtistResult,
     onClick: () -> Unit,
 ) {
-    GlassCard(
+    // One click target, no per-result texture or heavy raised glass.
+    AeroCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
     ) {
         Row(
             modifier = Modifier
@@ -602,12 +615,10 @@ private fun AlbumSearchRow(
     album: SearchAlbumResult,
     onClick: () -> Unit,
 ) {
-    GlassCard(
+    AeroCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
     ) {
         Row(
             modifier = Modifier

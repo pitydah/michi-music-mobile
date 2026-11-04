@@ -79,7 +79,7 @@ import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
-import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroActionButton
@@ -733,10 +733,9 @@ fun AlbumsScreen(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 items(albums, key = { it.album.id }) { localAlbum ->
-                                    GlassCard(
+                                    // Dense scrolling album rows use the canonical Plain finish.
+                                    AeroCard(
                                         modifier = Modifier.fillMaxWidth(),
-                                        backgroundColor = GlassFillLow,
-                                        borderColor = GlassBorderLow,
                                         onClick = {
                                             if (localAlbum.tracks.isNotEmpty()) {
                                                 playQueueSafe(localAlbum.tracks, 0)
@@ -845,10 +844,8 @@ fun AlbumsScreen(
                         ) {
                             items(artistsList, key = { it.first }) { (artistName, artistAlbums) ->
                                 val artistTracks = artistAlbums.flatMap { it.tracks }
-                                GlassCard(
+                                AeroCard(
                                     modifier = Modifier.fillMaxWidth().testTag("artist_open_detail_${artistName}"),
-                                    backgroundColor = GlassFillLow,
-                                    borderColor = GlassBorderLow,
                                     onClick = { selectedArtistName = artistName },
                                 ) {
                                     Row(
@@ -1007,10 +1004,8 @@ fun AlbumsScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 items(playlists, key = { it.id }) { pl ->
-                                    GlassCard(
+                                    AeroCard(
                                         modifier = Modifier.fillMaxWidth(),
-                                        backgroundColor = GlassFillLow,
-                                        borderColor = GlassBorderLow,
                                         onClick = {
                                             if (!isAddingToPlaylist) {
                                                 isAddingToPlaylist = true
@@ -1040,7 +1035,7 @@ fun AlbumsScreen(
                                                 color = PureWhite,
                                             )
                                             Text(
-                                                text = "${pl.trackCount} temas",
+                                                text = pluralStringResource(R.plurals.themes_count, pl.trackCount, pl.trackCount),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = TextSecondary,
                                             )
@@ -1183,10 +1178,8 @@ private fun ArtistLibraryDetailDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(artistAlbums, key = { it.album.id }) { group ->
-                        GlassCard(
+                        AeroCard(
                             modifier = Modifier.fillMaxWidth(),
-                            backgroundColor = GlassFillLow,
-                            borderColor = GlassBorderLow,
                             onClick = { if (group.tracks.isNotEmpty()) onPlayTracks(group.tracks) },
                         ) {
                             Row(

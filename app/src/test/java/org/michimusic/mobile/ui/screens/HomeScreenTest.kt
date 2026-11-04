@@ -187,7 +187,8 @@ class HomeScreenTest {
         // Playlist tiles
         composeTestRule.onNodeWithTag("home_scroll_list").performScrollToNode(hasText("Favoritos"))
         composeTestRule.onNodeWithText("Favoritos").assertIsDisplayed()
-        composeTestRule.onNodeWithText("1 pistas").assertIsDisplayed()
+        // The count goes through plurals now, so a single-track playlist says "1 pista".
+        composeTestRule.onNodeWithText("1 pista").assertIsDisplayed()
         
         // Top tracks (shown in Quick Picks if we populate allTracks)
         // composeTestRule.onNodeWithText("Pistas Sugeridas").performScrollTo().assertIsDisplayed()

@@ -53,6 +53,8 @@ import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -171,13 +173,11 @@ fun PlaylistScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(playlists, key = { it.id }) { playlist ->
-                        GlassCard(
+                        AeroCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("playlist_item_${playlist.id}"),
-                            backgroundColor = GlassFillLow,
-                            borderColor = GlassBorderLow,
-                            accent = null,
+                            finish = AeroFinish.Plain,
                             onClick = { onNavigateToPlaylist(playlist.id) },
                         ) {
                             Row(

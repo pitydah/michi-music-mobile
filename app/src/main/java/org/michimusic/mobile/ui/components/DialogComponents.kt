@@ -5,6 +5,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -161,10 +162,16 @@ fun QueueDialog(
                             // A song can appear twice in the same queue, so the highlighted row is
                             // the one at the active position, not every row sharing the track id.
                             val isCurrent = if (currentIndex >= 0) index == currentIndex else track.id == currentTrack?.id
-                            GlassCard(
+                            // Only the active queue row receives a satin technical lip.
+                            // No glass blur per row; target/callback semantics remain unchanged.
+                            AeroSurface(
+                                role = AeroSurfaceRole.Content,
+                                finish = if (isCurrent) AeroFinish.Satin else AeroFinish.Plain,
                                 modifier = Modifier.fillMaxWidth(),
-                                backgroundColor = if (isCurrent) GlassFillHigh else GlassFillLow,
-                                borderColor = if (isCurrent) TertiaryCyan else GlassBorderLow,
+                                borderStroke = BorderStroke(
+                                    if (isCurrent) 0.85.dp else 0.65.dp,
+                                    if (isCurrent) TertiaryCyan.copy(alpha = 0.56f) else GlassBorderLow,
+                                ),
                                 onClick = {
                                     onTrackSelect(index)
                                     onDismiss()
@@ -963,12 +970,8 @@ fun QrScannerDialog(
                     placeholder = { Text("michi://pair?format=michi-link-pairing&…", color = OnSurfaceVariant) },
                     singleLine = true,
                     isError = trimmedCode.isNotEmpty() && !looksLikePairingLink,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
                     modifier = Modifier.fillMaxWidth().testTag("pairing_link_field"),
                 )
 
@@ -1025,6 +1028,7 @@ fun ManualConnectionDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aeroModalFormViewport()
                     .padding(20.dp),
             ) {
                 Row(
@@ -1058,13 +1062,9 @@ fun ManualConnectionDialog(
                     label = { Text("Nombre del Dispositivo") },
                     placeholder = { Text("Ej. Michi Server", color = OnSurfaceVariant) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
+                    modifier = Modifier.fillMaxWidth().testTag("manual_connection_name_field"),
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -1078,13 +1078,9 @@ fun ManualConnectionDialog(
                     label = { Text("IP o nombre local · puerto opcional") },
                     placeholder = { Text("192.168.1.20:8400", color = OnSurfaceVariant) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
+                    modifier = Modifier.fillMaxWidth().testTag("manual_connection_endpoint_field"),
                 )
 
                 if (connectionError != null) {
@@ -1093,6 +1089,7 @@ fun ManualConnectionDialog(
                         text = connectionError!!,
                         color = ErrorColor,
                         fontSize = 12.sp,
+                        modifier = Modifier.testTag("manual_connection_error"),
                     )
                 }
 
@@ -1110,7 +1107,8 @@ fun ManualConnectionDialog(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(48.dp)
+                        .testTag("manual_connection_confirm_button"),
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -1143,6 +1141,7 @@ fun CreatePlaylistDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aeroModalFormViewport()
                     .padding(20.dp),
             ) {
                 Row(
@@ -1175,14 +1174,11 @@ fun CreatePlaylistDialog(
                     onValueChange = { playlistName = it },
                     placeholder = { Text("Ej. Cyberpunk Chill", color = OnSurfaceVariant) },
                     enabled = !isCreating,
+                    singleLine = true,
                     isError = errorMessage != null,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = PrimaryPink,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = PrimaryPink),
+                    modifier = Modifier.fillMaxWidth().testTag("create_playlist_name_field"),
                 )
 
                 if (errorMessage != null) {
@@ -1207,7 +1203,8 @@ fun CreatePlaylistDialog(
                     enabled = !isCreating && playlistName.isNotBlank(),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp),
+                        .height(48.dp)
+                        .testTag("create_playlist_confirm_button"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = PrimaryPinkContainer,
                         disabledContainerColor = PrimaryPinkContainer.copy(alpha = 0.5f),
@@ -1604,6 +1601,7 @@ fun PinPairingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aeroModalFormViewport()
                     .padding(20.dp),
             ) {
                 Row(
@@ -1674,12 +1672,8 @@ fun PinPairingDialog(
                     },
                     placeholder = { Text("000000", color = OnSurfaceVariant) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("pin_input_field"),
@@ -1735,6 +1729,7 @@ fun ReceiverButtonPairingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aeroModalFormViewport()
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -1783,12 +1778,8 @@ fun ReceiverButtonPairingDialog(
                     },
                     placeholder = { Text("Código PIN (ej. 123456)", color = OnSurfaceVariant) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("receiver_pin_input_field"),
@@ -1826,7 +1817,7 @@ fun ReceiverButtonPairingDialog(
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp),
+                        .heightIn(min = 48.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -1858,6 +1849,7 @@ fun PlayerPasswordPairingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aeroModalFormViewport()
                     .padding(20.dp),
             ) {
                 Row(
@@ -1926,12 +1918,8 @@ fun PlayerPasswordPairingDialog(
                     },
                     placeholder = { Text("Usuario (opcional)", color = OnSurfaceVariant) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("player_username_input_field"),
@@ -1947,12 +1935,12 @@ fun PlayerPasswordPairingDialog(
                     },
                     placeholder = { Text("Contraseña", color = OnSurfaceVariant) },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = TertiaryCyan,
-                        unfocusedBorderColor = GlassBorderLow,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
                     ),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = TertiaryCyan),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("player_password_input_field"),
@@ -2033,7 +2021,7 @@ fun AddTracksDialog(
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
                         Icon(
                             imageVector = Icons.Filled.Close,
                             contentDescription = "Cerrar",
@@ -2185,7 +2173,7 @@ fun RemoveTrackFromPlaylistDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("remove_track_dialog_cancel_button"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                         shape = RoundedCornerShape(12.dp),
@@ -2197,7 +2185,7 @@ fun RemoveTrackFromPlaylistDialog(
                         onClick = onConfirm,
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("remove_track_dialog_confirm_button"),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryPinkContainer),
                         shape = RoundedCornerShape(12.dp),
@@ -2255,7 +2243,7 @@ fun DeletePlaylistDialog(
                         enabled = !isDeleting,
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("delete_playlist_dialog_cancel_button"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                         shape = RoundedCornerShape(12.dp),
@@ -2264,10 +2252,11 @@ fun DeletePlaylistDialog(
                     }
 
                     Button(
-                        onClick = { if (!isDeleting) onConfirm() },
+                        onClick = onConfirm,
+                        enabled = !isDeleting,
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("delete_playlist_dialog_confirm_button"),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (isDeleting) PrimaryPinkContainer.copy(alpha = 0.4f) else PrimaryPinkContainer,
@@ -2312,6 +2301,7 @@ fun RenamePlaylistDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .aeroModalFormViewport()
                     .padding(20.dp),
             ) {
                 Text(
@@ -2327,12 +2317,8 @@ fun RenamePlaylistDialog(
                     value = textValue,
                     onValueChange = { textValue = it },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = PureWhite,
-                        unfocusedTextColor = PureWhite,
-                        focusedBorderColor = PrimaryPink,
-                        unfocusedBorderColor = GlassBorderLow,
-                    ),
+                    shape = AeroDialogFieldShape,
+                    colors = aeroDialogFieldColors(accent = PrimaryPink),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("rename_playlist_dialog_field"),
@@ -2349,7 +2335,7 @@ fun RenamePlaylistDialog(
                         enabled = !isSaving,
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("rename_playlist_dialog_cancel_button"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                         shape = RoundedCornerShape(12.dp),
@@ -2360,13 +2346,15 @@ fun RenamePlaylistDialog(
                     val trimmedName = textValue.text.trim()
                     val canConfirm = trimmedName.isNotEmpty() && !isSaving
                     Button(
-                        onClick = { if (canConfirm) onConfirm(trimmedName) },
+                        onClick = { onConfirm(trimmedName) },
+                        enabled = canConfirm,
                         modifier = Modifier
                             .weight(1f)
-                            .height(46.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("rename_playlist_dialog_confirm_button"),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (canConfirm) PrimaryPinkContainer else PrimaryPinkContainer.copy(alpha = 0.4f),
+                            containerColor = PrimaryPinkContainer,
+                            disabledContainerColor = PrimaryPinkContainer.copy(alpha = 0.4f),
                         ),
                         shape = RoundedCornerShape(12.dp),
                     ) {
@@ -2545,7 +2533,7 @@ fun RemoteQueueConfirmationDialog(
                         onClick = onConfirmReplace,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("remote_queue_replace_button"),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = TertiaryCyan,
@@ -2564,7 +2552,7 @@ fun RemoteQueueConfirmationDialog(
                         onClick = onConfirmAppend,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("remote_queue_append_button"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                         shape = RoundedCornerShape(12.dp),
@@ -2581,7 +2569,7 @@ fun RemoteQueueConfirmationDialog(
                         onClick = onDismiss,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("remote_queue_cancel_button"),
                         border = androidx.compose.foundation.BorderStroke(1.dp, GlassBorderLow),
                         shape = RoundedCornerShape(12.dp),

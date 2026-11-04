@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.InterFontFamily
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -71,6 +73,7 @@ fun AeroSegmentRail(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
+            .aeroFinishDrawing(AeroFinish.Inset, aeroFinishSpec(AeroFinish.Inset, highContrast), null)
             .border(0.8.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.13f), shape)
             .selectableGroup()
             .padding(4.dp),
@@ -92,6 +95,7 @@ fun AeroSegmentStack(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
+            .aeroFinishDrawing(AeroFinish.Inset, aeroFinishSpec(AeroFinish.Inset, highContrast), null)
             .border(0.8.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.13f), shape)
             .selectableGroup()
             .padding(4.dp),

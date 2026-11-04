@@ -47,11 +47,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.res.pluralStringResource
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.PrimaryPink
@@ -61,6 +64,7 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
+import org.michimusic.mobile.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -226,13 +230,14 @@ fun AddToPlaylistDialog(
     Dialog(onDismissRequest = {
         if (!isAdding) onDismiss()
     }) {
-        Surface(
+        // Same smoked floating material as other Aero dialogs; no independent
+        // opaque popup skin or additional nested framing.
+        AeroSurface(
+            role = AeroSurfaceRole.Floating,
+            finish = AeroFinish.Smoked,
             shape = RoundedCornerShape(20.dp),
-            color = SurfaceObsidian,
-            border = BorderStroke(1.dp, GlassBorderHigh),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            borderStroke = BorderStroke(1.dp, GlassBorderHigh),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
@@ -298,10 +303,9 @@ fun AddToPlaylistDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(playlists, key = { it.id }) { pl ->
-                            GlassCard(
+                            AeroCard(
                                 modifier = Modifier.fillMaxWidth(),
-                                backgroundColor = GlassFillLow,
-                                borderColor = GlassBorderLow,
+                                finish = AeroFinish.Plain,
                                 onClick = {
                                     if (!isAdding) {
                                         isAdding = true
@@ -348,7 +352,7 @@ fun AddToPlaylistDialog(
                                         color = PureWhite,
                                     )
                                     Text(
-                                        text = "${pl.trackCount} pistas",
+                                        text = pluralStringResource(R.plurals.track_count, pl.trackCount, pl.trackCount),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = TextSecondary,
                                     )

@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +21,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -51,10 +54,12 @@ fun AeroInfoPanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = {},
 ) {
-    GlassCard(
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Anodized,
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        borderColor = GlassBorderLow,
+        borderStroke = BorderStroke(0.65.dp, GlassBorderLow),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(18.dp),

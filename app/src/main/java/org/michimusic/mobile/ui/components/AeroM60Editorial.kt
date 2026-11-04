@@ -33,12 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import org.michimusic.mobile.R
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,6 +52,8 @@ import org.michimusic.mobile.playback.RemoteEndpointPreview
 import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
@@ -96,10 +102,23 @@ fun AeroLibraryFeature(
 ) {
     val highContrast = LocalVisualPreferences.current.highContrast
     val shape = RoundedCornerShape(25.dp)
+    // One opt-in machined finish over the EXISTING Aero hero gradient.
+    // Colorful artwork remains the focal point; no animated blur and no second border.
+    val grain = if (highContrast) null else ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
-            .background(Brush.verticalGradient(org.michimusic.mobile.ui.theme.MichiSurfaces.hero))
+            .background(Brush.verticalGradient(
+                    org.michimusic.mobile.ui.theme.aeroGradientStops(
+                        org.michimusic.mobile.ui.theme.AeroGradientRole.Hero,
+                        highContrast,
+                    ),
+                ))
+            .aeroFinishDrawing(
+                AeroFinish.Anodized,
+                aeroFinishSpec(AeroFinish.Anodized, highContrast),
+                grain,
+            )
             .border(if (highContrast) 1.4.dp else 0.75.dp,
                 if (highContrast) Color.White.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.20f), shape)
             .testTag("m60_library_feature"),
@@ -178,15 +197,19 @@ fun AeroLibraryFeature(
 
 /** True when the signal/output labels need separate rows rather than clipped 50/50 cells. */
 fun aeroM60StackSignal(availableWidthDp: Float, fontScale: Float): Boolean =
-    availableWidthDp < 340f || fontScale >= 1.4f
+    availableWidthDp < 276f || fontScale >= 1.6f ||
+        (fontScale >= 1.3f && availableWidthDp < 330f)
 
 /** Public wording must never infer a lossless or bit-perfect path from having a song. */
 fun aeroNowPlayingQualityBadge(pcmObserved: Boolean): String =
     if (pcmObserved) "PCM decodificado" else "Michi Music"
 
 /**
- * Readable signal and requested output footer, never a bit-perfect claim.
- * Each action keeps an independent 48dp target at fontScale 200%.
+ * A compact two-column signal strip, restoring the original Now Playing hierarchy.
+ * ONE shared plum surface, TWO independent hit targets, ONE explanatory note.
+ * Neither a header nor nested cards may take vertical space from the artwork.
+ * File metadata remains in the click accessibility label and in Signal Truth;
+ * it is never mislabeled as measured/bit-perfect output.
  */
 @Composable
 fun AeroSignalRouteStrip(
@@ -202,67 +225,124 @@ fun AeroSignalRouteStrip(
     val shape = RoundedCornerShape(18.dp)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val stacked = aeroM60StackSignal(maxWidth.value, fontScale)
+        // The original card sampled #211A30. Preserve its identity: a quiet plum
+        // tonal mass with one hairline, not another generic gray equipment card.
         Column(
-            modifier = Modifier.fillMaxWidth().clip(shape)
-                .background(if (highContrast) Color(0xFF161D27) else org.michimusic.mobile.ui.theme.MichiSurfaces.baseSolid)
-                .border(if (highContrast) 1.2.dp else 0.7.dp,
-                    Color.White.copy(alpha = if (highContrast) 0.85f else 0.17f), shape)
-                .padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(if (highContrast) Color(0xFF161D27) else Color(0xFF211A30))
+                .aeroFinishDrawing(
+                    AeroFinish.Satin,
+                    aeroFinishSpec(AeroFinish.Satin, highContrast).copy(grainAlpha = 0f),
+                    null,
+                )
+                .border(
+                    width = if (highContrast) 1.2.dp else 0.75.dp,
+                    color = Color.White.copy(alpha = if (highContrast) 0.85f else 0.16f),
+                    shape = shape,
+                )
+                .padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("RUTA DE AUDIO", color = TextSecondary, fontSize = 10.sp,
-                letterSpacing = 0.9.sp, fontWeight = FontWeight.SemiBold)
-            val signal: @Composable (Modifier) -> Unit = { cellModifier ->
+            val originalFile: @Composable (Modifier) -> Unit = { cellModifier ->
                 Column(
-                    modifier = cellModifier.clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.055f))
-                        .border(0.6.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                        .clickable(role = Role.Button, onClick = onSignalClick)
-                        .padding(12.dp)
-                        .semantics { contentDescription = "$signalLabel. Formato del archivo original; consulta independiente del PCM y de la salida física. Abrir Signal Truth" }
+                    modifier = cellModifier
                         .heightIn(min = 48.dp)
-                        .testTag("signal_truth_button"),
-                    verticalArrangement = Arrangement.Center,
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(role = Role.Button, onClick = onSignalClick)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = "Archivo original: $signalLabel. Abrir Signal Truth"
+                        }
+                        .testTag("signal_truth_button")
+                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Text("ARCHIVO ORIGINAL", color = TextSecondary,
-                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Text(signalLabel, color = TertiaryCyan,
-                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                        maxLines = if (stacked) 3 else 2, overflow = TextOverflow.Ellipsis)
-                    Text("Ver Signal Truth  ›", color = TextSecondary, fontSize = 11.sp)
+                    Text(
+                        "ARCHIVO ORIGINAL",
+                        color = TextSecondary,
+                        fontFamily = InterFontFamily,
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                    )
+                    Text(
+                        "Signal Truth",
+                        color = TertiaryCyan,
+                        fontFamily = InterFontFamily,
+                        fontSize = 15.sp,
+                        lineHeight = 19.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
                 }
             }
-            val output: @Composable (Modifier) -> Unit = { cellModifier ->
+            val requestedOutput: @Composable (Modifier) -> Unit = { cellModifier ->
                 Column(
-                    modifier = cellModifier.clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.055f))
-                        .border(0.6.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
-                        .clickable(role = Role.Button, onClick = onDestinationClick)
-                        .padding(12.dp)
-                        .semantics { contentDescription = "Salida solicitada: $destination. Abrir selector de audio" }
+                    modifier = cellModifier
                         .heightIn(min = 48.dp)
-                        .testTag("audio_route_button"),
-                    verticalArrangement = Arrangement.Center,
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(role = Role.Button, onClick = onDestinationClick)
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = "Salida solicitada: $destination. Abrir ruta de audio"
+                        }
+                        .testTag("audio_route_button")
+                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Text("SALIDA SOLICITADA", color = TextSecondary,
-                        fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Text(destination, color = PureWhite, fontSize = 13.sp,
+                    Text(
+                        "SALIDA SOLICITADA",
+                        color = TextSecondary,
+                        fontFamily = InterFontFamily,
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                    )
+                    Text(
+                        destination,
+                        color = PureWhite,
+                        fontFamily = InterFontFamily,
+                        fontSize = 15.sp,
+                        lineHeight = 19.sp,
                         fontWeight = FontWeight.Medium,
-                        maxLines = if (stacked) 3 else 2, overflow = TextOverflow.Ellipsis)
-                    Text("Ver ruta de audio  ›", color = TextSecondary, fontSize = 11.sp)
+                        maxLines = if (stacked) 3 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
             if (stacked) {
-                signal(Modifier.fillMaxWidth())
-                output(Modifier.fillMaxWidth())
+                // Accessibility fallback: stacked only when the logical text width
+                // really cannot sustain two legible equal-width columns.
+                originalFile(Modifier.fillMaxWidth())
+                requestedOutput(Modifier.fillMaxWidth())
             } else {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    signal(Modifier.weight(1f))
-                    output(Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    originalFile(Modifier.weight(1f))
+                    requestedOutput(Modifier.weight(1f))
                 }
             }
-            Text(signalDescription, color = TextSecondary, fontSize = 12.sp,
-                lineHeight = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (signalDescription.isNotBlank()) {
+                // A single centered, full-width note. No additional click target.
+                // Center every visual line, including a wrapped second line;
+                // the underlying signalDescription remains unmodified.
+                Text(
+                    text = signalDescription,
+                    modifier = Modifier.fillMaxWidth().testTag("signal_strip_footer"),
+                    textAlign = TextAlign.Center,
+                    color = TextSecondary,
+                    fontFamily = InterFontFamily,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = if (stacked) 3 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

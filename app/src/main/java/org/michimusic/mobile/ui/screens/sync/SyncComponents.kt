@@ -55,6 +55,10 @@ import androidx.compose.ui.unit.dp
 import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.mobile.sync.SyncProgress
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import androidx.compose.foundation.BorderStroke
 import org.michimusic.mobile.ui.components.syncProgressCaption
 import org.michimusic.mobile.ui.components.syncProgressFraction
 import org.michimusic.mobile.ui.theme.AccentCoral
@@ -72,7 +76,12 @@ fun ConnectionPrompt(onStart: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
+        AeroSurface(
+            role = AeroSurfaceRole.Content,
+            finish = AeroFinish.Satin,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+        ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -147,9 +156,13 @@ fun PeerCard(
     peer: DiscoveredPeer,
     onClick: () -> Unit,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
+    // A discovered peer is not an authenticated/connected endpoint: keep a
+    // quiet plain surface and preserve exactly one click target.
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        finish = AeroFinish.Plain,
+        modifier = Modifier.fillMaxWidth().testTag("sync_peer_candidate"),
+        onClick = onClick,
         shape = RoundedCornerShape(12.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -173,7 +186,12 @@ fun PairingForm(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
+        AeroSurface(
+            role = AeroSurfaceRole.Content,
+            finish = AeroFinish.Satin,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+        ) {
             Column(Modifier.fillMaxWidth()) {
                 Text("Emparejar con ${peer?.alias ?: "servidor"}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
                 Spacer(Modifier.height(16.dp))
@@ -197,7 +215,12 @@ fun CodePairingForm(
 ) {
     var code by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
+        AeroSurface(
+            role = AeroSurfaceRole.Content,
+            finish = AeroFinish.Satin,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+        ) {
             Column(Modifier.fillMaxWidth()) {
                 Text("Emparejar con ${peer?.alias ?: "servidor"}", style = MaterialTheme.typography.titleMedium, color = TextPrimary)
                 Spacer(Modifier.height(8.dp))
@@ -231,7 +254,12 @@ fun ConnectedState(
     syncProgress: SyncProgress = SyncProgress.Idle,
 ) {
     Column(Modifier.fillMaxSize()) {
-        GlassCard(modifier = Modifier.fillMaxWidth()) {
+        AeroSurface(
+            role = AeroSurfaceRole.Content,
+            finish = AeroFinish.Satin,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+        ) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentCoral, modifier = Modifier.size(48.dp))
                 Spacer(Modifier.height(12.dp))
@@ -340,21 +368,21 @@ fun AirCatTransferSafeLayout(
         org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED, org.michimusic.mobile.devices.aircat.AirCatTransferState.CANCELLED -> 1
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(org.michimusic.mobile.ui.theme.AeroGraphiteRaised)
-            .border(
-                width = 0.75.dp,
-                color = if (isError) org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.6f) else org.michimusic.mobile.ui.theme.AeroHairline,
-                shape = RoundedCornerShape(20.dp)
-            )
-            .padding(18.dp)
-            .testTag("aircat_transfer_card"),
+    // AirCat's four evidence stages stay unchanged. A raised instrument shell
+    // highlights the transfer, while its error border remains explicitly red.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Anodized,
+        modifier = modifier.fillMaxWidth().testTag("aircat_transfer_card"),
+        shape = RoundedCornerShape(20.dp),
+        borderStroke = BorderStroke(
+            0.75.dp,
+            if (isError) org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.6f)
+            else org.michimusic.mobile.ui.theme.AeroHairline,
+        ),
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // 4-Stage Stepper: Preparación -> Transferencia -> Verificando -> Completado

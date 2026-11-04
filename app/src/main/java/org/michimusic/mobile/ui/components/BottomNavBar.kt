@@ -41,6 +41,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.AeroGraphite
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -96,26 +98,16 @@ fun BottomNavBar(
             .testTag("bottom_nav_bar"),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(dockHeight)
-                .clip(MichiShapes.lg)
-                .background(
-                    Brush.verticalGradient(
-                        org.michimusic.mobile.ui.theme.MichiSurfaces.raised,
-                    ),
-                )
-                .border(
-                    width = 0.85.dp,
-                    color = Color.White.copy(alpha = if (highContrast) 0.86f else 0.21f),
-                    shape = MichiShapes.lg,
-                )
-                .padding(horizontal = if (configuration.screenWidthDp <= 340) 4.dp else 8.dp, vertical = 4.dp),
+        AeroSurface(
+            role = AeroSurfaceRole.Floating,
+            finish = AeroFinish.Smoked,
+            shape = MichiShapes.lg,
+            modifier = Modifier.fillMaxWidth().height(dockHeight),
             contentAlignment = Alignment.Center,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
+                    .padding(horizontal = if (configuration.screenWidthDp <= 340) 4.dp else 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {

@@ -70,6 +70,9 @@ import org.michimusic.link.LinkDiagnostics
 import org.michimusic.link.TokenStore
 import org.michimusic.link.dto.DiagnosticReport
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.PulsingDot
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
@@ -432,10 +435,11 @@ private fun TelemetryCard(
     value: String,
     accent: Color,
 ) {
-    GlassCard(
+    // Telemetry values have no implied physical observation or elevated status.
+    AeroSurface(
+        role = AeroSurfaceRole.Content,
+        finish = AeroFinish.Plain,
         modifier = modifier,
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
     ) {
         Column(
             modifier = Modifier

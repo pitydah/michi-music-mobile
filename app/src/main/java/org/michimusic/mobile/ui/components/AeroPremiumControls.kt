@@ -29,6 +29,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -41,6 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.InterFontFamily
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -94,6 +99,18 @@ fun AeroActionButton(
     }
     val ink = if (enabled && kind == AeroActionKind.Primary) SurfaceObsidian else
         if (enabled) PureWhite else Color(0xFFACB2BD)
+    // Same renderer and lighting recipe as AeroSurface, never an independent skin.
+    val finish = if (!enabled || contrast) AeroFinish.Plain else when (kind) {
+        AeroActionKind.Primary -> AeroFinish.Satin
+        AeroActionKind.Secondary -> AeroFinish.Anodized
+        AeroActionKind.Quiet -> AeroFinish.Satin
+    }
+    // Saturated coral is painted, not a metallic grain. The neutral finishes
+    // receive the fixed monochrome tile; no pixel work is done on press frames.
+    val finishSpec = aeroFinishSpec(finish, contrast).let {
+        if (kind == AeroActionKind.Primary) it.copy(grainAlpha = 0f) else it
+    }
+    val grain = if (finishSpec.grainAlpha > 0f) ImageBitmap.imageResource(R.drawable.aero_graphite_grain) else null
     Box(
         modifier = modifier
             .heightIn(min = aeroActionMinimumHeightDp(androidx.compose.ui.platform.LocalConfiguration.current.fontScale).dp)
@@ -103,6 +120,7 @@ fun AeroActionButton(
                 else Modifier)
             .clip(shape)
             .background(Brush.verticalGradient(base))
+            .aeroFinishDrawing(finish, finishSpec, grain)
             .border(if (contrast) 1.3.dp else 0.8.dp, line, shape)
             .clickable(
                 enabled = enabled,

@@ -42,6 +42,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.audioRouteEvidence
 import org.michimusic.mobile.ui.components.sampleRateLabel
 import org.michimusic.player.AudioRouteStatus
@@ -126,7 +129,9 @@ fun AudioRouteScreen() {
             )
             Spacer(Modifier.height(16.dp))
 
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            // Observed route receives material emphasis; it is not a bit-perfect claim.
+            AeroSurface(role = AeroSurfaceRole.Raised, finish = AeroFinish.Anodized,
+                modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -187,7 +192,9 @@ fun AudioRouteScreen() {
                     "Frecuencias: Según mixer de Android"
                 }
 
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                // Merely advertised device: quiet, plain, non-selected content surface.
+                AeroSurface(role = AeroSurfaceRole.Content, finish = AeroFinish.Plain,
+                    modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(14.dp)) {
                         Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                         Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)

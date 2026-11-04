@@ -1,0 +1,24 @@
+{
+  "schema": "michi.aero.asset-provenance/1",
+  "date": "2026-11-03",
+  "status": "PARTIAL_PATCH_IN_PROGRESS",
+  "runtime_assets": [
+    {
+      "path": "app/src/main/res/drawable-nodpi/aero_graphite_grain.png",
+      "format": "PNG RGBA",
+      "dimensions_px": [
+        128,
+        128
+      ],
+      "origin": "Generated original material from deterministic in-repo script",
+      "generator_path": "scripts/generate_aero_grain.py",
+      "sha256": "ba49d9b045300dc00caa351544fac19c2c139f36e37a7f071be5e9d4210744fc",
+      "copyright_source": "Original creation; no third-party source copied",
+      "license_action": "No external license required"
+    }
+  ],
+  "external_redistributed_assets": [],
+  "external_references": "docs/design/AERO_MATERIAL_REFERENCE_LIBRARY.md",
+  "third_party_dependency_changes": [],
+  "note": "Design references do not confer a license to copy externally hosted screenshots, shaders or icon artwork. Existing Phosphor assets remain under their prior licensing."
+}

@@ -7,6 +7,7 @@ import org.michimusic.mobile.ui.components.syncProgressPresentation
 import org.michimusic.mobile.ui.components.allowLegacyReceiverButton
 import org.michimusic.mobile.ui.components.UNVERIFIED_RECEIVER_GUIDANCE
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -93,6 +94,7 @@ import org.michimusic.mobile.sync.DeviceActionResolver
 import org.michimusic.mobile.sync.DeviceActionType
 import org.michimusic.mobile.sync.SyncViewModel
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
@@ -108,6 +110,9 @@ import org.michimusic.mobile.ui.components.ManualConnectionDialog
 import org.michimusic.mobile.ui.components.PinPairingDialog
 import org.michimusic.mobile.ui.components.QrScannerDialog
 import org.michimusic.mobile.ui.components.ReceiverButtonPairingDialog
+import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.AccentCoral
@@ -788,7 +793,10 @@ fun DevicesScreen(
                     }
                 },
                 // Smoked obsidian surface, not the platform's default opaque dialog.
-                containerColor = org.michimusic.mobile.ui.theme.MichiSurfaces.baseSolid,
+                containerColor = org.michimusic.mobile.ui.theme.aeroGradientStops(
+                    org.michimusic.mobile.ui.theme.AeroGradientRole.Inset,
+                    LocalVisualPreferences.current.highContrast,
+                ).first(),
                 titleContentColor = PureWhite,
                 textContentColor = PureWhite,
                 tonalElevation = 0.dp,
@@ -989,12 +997,14 @@ private fun LocalDeviceCard(
     availableStorageBytes: Long = 0L,
     isActiveOutput: Boolean = true,
 ) {
-    GlassCard(
+    // The phone is the physical reference device: one restrained
+    // anodized plate; status and transport icons remain unchanged.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = AeroFinish.Anodized,
         modifier = Modifier
             .fillMaxWidth()
             .testTag("local_device_card"),
-        backgroundColor = GlassFillLow,
-        borderColor = GlassBorderLow,
     ) {
         Row(
             modifier = Modifier
@@ -1218,10 +1228,17 @@ internal fun DeviceNodeCard(
         else -> Color(0xFF4CAF50)
     }
 
-    GlassCard(
+    // Prominence is reserved for a connected unit. Discovered != paired != active.
+    AeroSurface(
+        role = AeroSurfaceRole.Raised,
+        finish = if (connected) AeroFinish.Anodized else AeroFinish.Plain,
         modifier = Modifier.fillMaxWidth().testTag("device_node_${item.ip}"),
-        backgroundColor = if (connected) GlassFillHigh else GlassFillLow,
-        borderColor = if (connected) TertiaryCyan.copy(alpha = 0.35f) else GlassBorderLow,
+        borderStroke = BorderStroke(
+            width = if (LocalVisualPreferences.current.highContrast) 1.2.dp else 0.75.dp,
+            color = if (LocalVisualPreferences.current.highContrast) Color.White.copy(alpha = 0.85f)
+                else if (connected) TertiaryCyan.copy(alpha = 0.35f)
+                else GlassBorderLow,
+        ),
         shape = MichiShapes.md,
     ) {
         Column(
