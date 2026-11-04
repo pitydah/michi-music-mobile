@@ -2,6 +2,9 @@ package org.michimusic.mobile.artist
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +17,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,8 +46,11 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.TertiaryCyan
+import org.michimusic.mobile.ui.theme.aeroMaterialStyle
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.components.aeroFinishDrawing
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.aeroFinishSpec
@@ -95,6 +103,14 @@ fun ArtistEnrichmentPanel(
     }
     var requestJob by remember(artistCredit, libraryId, stableGroup) { mutableStateOf<Job?>(null) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
+    // Aero Content/Plain for the candidate rows: the same fill and hairline the rest of
+    // the system uses, instead of a locally invented white alpha that read as a card.
+    val candidateSurface = aeroMaterialStyle(
+        AeroSurfaceRole.Content,
+        LocalVisualPreferences.current.highContrast,
+    )
+    val secondaryColors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryPurple)
+    val secondaryBorder = BorderStroke(0.8.dp, SecondaryPurple.copy(alpha = 0.5f))
     DisposableEffect(artistCredit, libraryId, stableGroup, localEvidenceScope) {
         onDispose { requestJob?.cancel(); tagJob?.cancel() }
     }
@@ -229,6 +245,7 @@ fun ArtistEnrichmentPanel(
             ArtistEnrichmentUi.Idle -> OutlinedButton(
                 onClick = ::lookup, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .testTag("artist_enrichment_search"),
+                colors = secondaryColors, border = secondaryBorder,
             ) { Text("Buscar en MusicBrainz") }
             ArtistEnrichmentUi.LoadingCandidates, ArtistEnrichmentUi.LoadingProfile -> Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -240,7 +257,12 @@ fun ArtistEnrichmentPanel(
             ArtistEnrichmentUi.Failed -> {
                 Text("No fue posible obtener los datos. Tu biblioteca permanece disponible sin conexión.",
                     color = TextSecondary, fontSize = 12.sp)
-                OutlinedButton(onClick = ::lookup, modifier = Modifier.heightIn(min = 48.dp)) {
+                OutlinedButton(
+                    onClick = ::lookup,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    colors = secondaryColors,
+                    border = secondaryBorder,
+                ) {
                     Text("Reintentar consulta")
                 }
             }
@@ -251,33 +273,43 @@ fun ArtistEnrichmentPanel(
                 } else {
                     Text("Selecciona el artista correcto · ${result.found.size} candidatos",
                         color = PureWhite, fontSize = 13.sp)
-                    result.found.forEach { candidate ->
-                        Column(
-                            modifier = Modifier.fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color.White.copy(alpha = 0.045f))
-                                .aeroFinishDrawing(
-                                    AeroFinish.Satin,
-                                    aeroFinishSpec(AeroFinish.Satin, LocalVisualPreferences.current.highContrast)
-                                        .copy(grainAlpha = 0f),
-                                    null,
+                    // One selectable group, Plain rows and a hairline between them: the plan
+                    // rejects a locally invented card per candidate.
+                    Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                        result.found.forEachIndexed { index, candidate ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    color = candidateSurface.outline.copy(alpha = 0.55f),
+                                    thickness = 0.5.dp,
                                 )
-                                .border(0.7.dp, Color.White.copy(alpha = 0.13f), RoundedCornerShape(12.dp))
-                                .clickable(role = Role.Button) {
-                                    val verifiedId = selectedArtistMbid(result.found, candidate.mbid)
-                                    if (verifiedId != null) confirmExplicitly(verifiedId)
-                                }
-                                .heightIn(min = 48.dp)
-                                .padding(12.dp)
-                                .testTag("artist_candidate_${candidate.mbid}"),
-                        ) {
-                            Text(candidate.name, color = PureWhite, fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium)
-                            Text(listOf(candidate.type, candidate.area, candidate.disambiguation)
-                                .filter(String::isNotBlank).joinToString(" · ").ifBlank { "Sin desambiguador" },
-                                color = TextSecondary, fontSize = 12.sp, maxLines = 2,
-                                overflow = TextOverflow.Ellipsis)
-                            Text("MusicBrainz · ${candidate.mbid}", color = TertiaryCyan, fontSize = 10.sp)
+                            }
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                                    .background(candidateSurface.fill)
+                                    .border(
+                                        candidateSurface.borderWidth,
+                                        candidateSurface.outline,
+                                        RoundedCornerShape(12.dp),
+                                    )
+                                    .selectable(
+                                        selected = false,
+                                        role = Role.Button,
+                                    ) {
+                                        val verifiedId = selectedArtistMbid(result.found, candidate.mbid)
+                                        if (verifiedId != null) confirmExplicitly(verifiedId)
+                                    }
+                                    .heightIn(min = 48.dp)
+                                    .padding(12.dp)
+                                    .testTag("artist_candidate_${candidate.mbid}"),
+                            ) {
+                                Text(candidate.name, color = PureWhite, fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium)
+                                Text(listOf(candidate.type, candidate.area, candidate.disambiguation)
+                                    .filter(String::isNotBlank).joinToString(" · ").ifBlank { "Sin desambiguador" },
+                                    color = TextSecondary, fontSize = 12.sp, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis)
+                                Text("MusicBrainz · ${candidate.mbid}", color = TertiaryCyan, fontSize = 10.sp)
+                            }
                         }
                     }
                 }
@@ -293,8 +325,12 @@ fun ArtistEnrichmentPanel(
                     else -> "Solo esta consulta. Cambia a una biblioteca individual para guardar."
                 }, color = TextSecondary, fontSize = 11.sp)
                 if (result.stale) {
-                    OutlinedButton(onClick = { state = ArtistEnrichmentUi.Idle },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    OutlinedButton(
+                        onClick = { state = ArtistEnrichmentUi.Idle },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        colors = secondaryColors,
+                        border = secondaryBorder,
+                    ) {
                         Text("Buscar datos actualizados")
                     }
                 }
@@ -315,6 +351,8 @@ fun ArtistEnrichmentPanel(
                         },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .testTag("artist_enrichment_clear"),
+                        colors = secondaryColors,
+                        border = secondaryBorder,
                     ) { Text("Borrar enriquecimiento guardado") }
                 }
                 Text(listOf(profile.type, profile.area, profile.disambiguation)

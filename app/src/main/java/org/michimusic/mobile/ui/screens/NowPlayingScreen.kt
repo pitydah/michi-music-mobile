@@ -87,8 +87,12 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.SurfaceContainerLowest
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.GlassBorderLow
+import org.michimusic.mobile.ui.components.aeroFinishDrawing
+import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
+import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.playback.SignalTruthResolver
 import org.michimusic.player.AudioController
 
@@ -572,55 +576,58 @@ fun NowPlayingScreen(
 }
 
 @Composable
-private fun SignalTruthCard(
+private fun SignalTruthRow(
     label: String,
     tag: String,
     tagColor: Color,
     value: String,
+    note: String?,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        shape = RoundedCornerShape(15.dp),
-        color = Color(0xFF1C232D),
-        border = androidx.compose.foundation.BorderStroke(0.65.dp, GlassBorderLow),
-        modifier = modifier.fillMaxWidth(),
+    // No per-layer surface: the row lives on the sheet itself and a hairline
+    // separates one layer from the next, per the Signal Truth contract.
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Text(
+                text = label,
+                color = OnSurfaceVariant,
+                style = MichiTypography.metadata,
+            )
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = tagColor.copy(alpha = 0.10f),
+                border = androidx.compose.foundation.BorderStroke(
+                    0.65.dp, tagColor.copy(alpha = 0.42f)),
             ) {
                 Text(
-                    text = label,
-                    color = OnSurfaceVariant,
-                    style = MichiTypography.metadata,
+                    text = tag,
+                    color = tagColor,
+                    style = MichiTypography.microLabel,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                 )
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = tagColor.copy(alpha = 0.10f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        0.65.dp, tagColor.copy(alpha = 0.42f)),
-                ) {
-                    Text(
-                        text = tag,
-                        color = tagColor,
-                        style = MichiTypography.microLabel,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    )
-                }
             }
+        }
+        Text(
+            text = value,
+            color = PureWhite,
+            style = MichiTypography.sectionTitle.copy(fontSize = 17.sp),
+            fontWeight = FontWeight.Bold,
+        )
+        note?.let {
             Text(
-                text = value,
-                color = PureWhite,
-                style = MichiTypography.sectionTitle.copy(fontSize = 17.sp),
-                fontWeight = FontWeight.Bold,
+                text = it,
+                color = OnSurfaceVariant,
+                style = MichiTypography.microLabel,
             )
         }
     }
@@ -645,13 +652,21 @@ private fun SignalTruthDialog(
     }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(26.dp),
-            color = floating.fill,
-            border = androidx.compose.foundation.BorderStroke(floating.borderWidth, floating.outline),
+        // Floating + Smoked, as the plan requires: one static top light, hairline edge,
+        // no blur and no per-frame work behind the text.
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(12.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(floating.fill)
+                .aeroFinishDrawing(
+                    AeroFinish.Smoked,
+                    aeroFinishSpec(AeroFinish.Smoked, LocalVisualPreferences.current.highContrast)
+                        .copy(grainAlpha = 0f),
+                    null,
+                )
+                .border(floating.borderWidth, floating.outline, RoundedCornerShape(26.dp)),
         ) {
             Column(
                 modifier = Modifier
@@ -691,24 +706,30 @@ private fun SignalTruthDialog(
 
                 HorizontalDivider(color = GlassBorderLow)
 
-                for (item in provenanceItems) {
+                // The plan asks for a technical list, not a stack of cards: every layer
+                // shares the sheet surface and a hairline separates them. Evidence stays
+                // a chip, and CONFIGURED reads neutral-violet instead of plain grey.
+                provenanceItems.forEachIndexed { index, item ->
                     val (tagText, tagColor) = when (item.evidenceType) {
                         org.michimusic.core.models.SignalEvidenceType.OBSERVED -> "Observado" to TertiaryCyan
                         org.michimusic.core.models.SignalEvidenceType.DECLARED -> "Declarado" to OnSurfaceVariant
-                        org.michimusic.core.models.SignalEvidenceType.CONFIGURED -> "Configurado" to OnSurfaceVariant
+                        org.michimusic.core.models.SignalEvidenceType.CONFIGURED -> "Configurado" to SecondaryPurple
                         org.michimusic.core.models.SignalEvidenceType.UNKNOWN -> "Desconocido" to Color(0xFFE5A93C)
                     }
-                    SignalTruthCard(
+                    if (index > 0) {
+                        HorizontalDivider(
+                            color = GlassBorderLow.copy(alpha = 0.55f),
+                            thickness = 0.5.dp,
+                        )
+                    }
+                    SignalTruthRow(
                         label = item.label,
                         tag = tagText,
                         tagColor = tagColor,
                         value = item.value,
+                        // Provenance notes are part of Signal Truth, not hidden model data.
+                        note = item.confidenceNote?.takeIf { it.isNotBlank() },
                     )
-                    // Provenance notes are part of Signal Truth, not hidden model data.
-                    item.confidenceNote?.takeIf { it.isNotBlank() }?.let { note ->
-                        Text(text = note, color = OnSurfaceVariant,
-                            style = MichiTypography.microLabel)
-                    }
                 }
 
                 Spacer(Modifier.height(4.dp))
