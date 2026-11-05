@@ -99,30 +99,232 @@ class ArtistEnrichmentRepository(
         fun related(type: String): String? = links.firstOrNull { it.string("type") == type }
             ?.let { (it["url"] as? JsonObject)?.string("resource") }
         val wikipediaUrl = related("wikipedia")
-        val wikipedia = wikipediaUrl?.let { optionalMetadata { wikipediaExtract(it) } }
         val wikidataUrl = related("wikidata")
-        val portrait = wikidataUrl?.let { optionalMetadata { commonsPortrait(it) } }
+
+        // One Wikidata read feeds both optional stages: sitelinks for the
+        // biography fallback and P18 for the portrait. The stages remain
+        // independent, so a portrait failure never erases a verified text.
+        val wikidata = wikidataSnapshot(wikidataUrl)
+        val biography = biographyStage(wikipediaUrl, wikidata)
+        val portrait = portraitStage(wikidata)
+
         val result = ArtistExternalProfile(
             mbid = id,
             name = artist.string("name").orEmpty(),
             disambiguation = artist.string("disambiguation").orEmpty(),
             type = artist.string("type").orEmpty(),
             area = (artist["area"] as? JsonObject)?.string("name").orEmpty(),
-            biography = wikipedia,
-            biographySourceUrl = if (wikipedia != null) wikipediaUrl else null,
-            portrait = portrait,
+            biography = biography.value?.text,
+            biographySourceUrl = biography.value?.sourceUrl,
+            portrait = portrait.value,
+            biographyOutcome = biography.outcome,
+            portraitOutcome = portrait.outcome,
+            wikidataQid = wikidata.value?.qid,
         )
         synchronized(profiles) { profiles[id] = SystemClock.elapsedRealtime() to result }
         return result
     }
 
-    /** Missing optional providers fail closed; coroutine cancellation must remain observable. */
-    private suspend fun <T> optionalMetadata(block: suspend () -> T): T? = try {
-        block()
+    private class WikipediaArticle(val text: String, val sourceUrl: String)
+
+    private class WikidataSnapshot(val qid: String, val entity: JsonObject)
+
+    private class Stage<out T>(val value: T?, val outcome: ArtistMetadataOutcome)
+
+    /** Internal marker: the stage knows exactly why it produced no value. */
+    private class MetadataFailure(
+        val outcome: ArtistMetadataOutcome,
+        cause: Throwable? = null,
+    ) : Exception(cause)
+
+    private suspend fun <T : Any> stage(
+        emptyOutcome: ArtistMetadataOutcome,
+        block: suspend () -> T?,
+    ): Stage<T> = try {
+        val value = block()
+        Stage(value, if (value == null) emptyOutcome else ArtistMetadataOutcome.SUCCESS)
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (_: Exception) {
-        null
+    } catch (failure: MetadataFailure) {
+        Stage(null, failure.outcome)
+    } catch (error: Exception) {
+        Stage(null, outcomeFor(error))
+    }
+
+    private fun outcomeFor(error: Throwable): ArtistMetadataOutcome = when {
+        error is ProviderHttpException -> ArtistMetadataOutcome.HTTP_ERROR
+        error is java.net.SocketTimeoutException -> ArtistMetadataOutcome.TIMEOUT
+        error is java.io.InterruptedIOException -> ArtistMetadataOutcome.TIMEOUT
+        error is java.io.IOException -> ArtistMetadataOutcome.NETWORK_ERROR
+        error is kotlinx.serialization.SerializationException -> ArtistMetadataOutcome.DECODE_ERROR
+        else -> ArtistMetadataOutcome.DECODE_ERROR
+    }
+
+    private suspend fun wikidataSnapshot(link: String?): Stage<WikidataSnapshot> {
+        if (link == null) return Stage(null, ArtistMetadataOutcome.NO_IDENTITY)
+        return stage(ArtistMetadataOutcome.DECODE_ERROR) {
+            val qid = wikidataQid(link)
+                ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+            val item = readJson(api("https://www.wikidata.org/w/api.php", mapOf(
+                "action" to "wbgetentities", "ids" to qid,
+                "props" to "claims|sitelinks", "sitefilter" to "eswiki|enwiki",
+                "format" to "json",
+            )))
+            val entity = ((item["entities"] as? JsonObject)?.get(qid) as? JsonObject)
+                ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+            if (entity["missing"] != null) {
+                throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+            }
+            WikidataSnapshot(qid, entity)
+        }
+    }
+
+    private suspend fun biographyStage(
+        wikipediaUrl: String?,
+        wikidata: Stage<WikidataSnapshot>,
+    ): Stage<WikipediaArticle> {
+        val direct = if (wikipediaUrl != null) {
+            stage(ArtistMetadataOutcome.NO_TEXT) { wikipediaExtract(wikipediaUrl) }
+        } else {
+            Stage(null, ArtistMetadataOutcome.NO_IDENTITY)
+        }
+        if (direct.value != null) return direct
+
+        val snapshot = wikidata.value
+        val fallback = if (snapshot == null) {
+            Stage(null, wikidata.outcome)
+        } else {
+            val article = sitelinkArticle(snapshot.entity)
+            if (article == null) Stage(null, ArtistMetadataOutcome.NO_SITELINK)
+            else stage(ArtistMetadataOutcome.NO_TEXT) { wikipediaExtract(article) }
+        }
+        if (fallback.value != null) return fallback
+
+        // A concrete transport/diagnostic failure is more useful than the
+        // absence of a fallback link; otherwise report the fallback diagnosis.
+        val informative = direct.outcome.takeIf {
+            it == ArtistMetadataOutcome.HTTP_ERROR || it == ArtistMetadataOutcome.TIMEOUT ||
+                it == ArtistMetadataOutcome.NETWORK_ERROR || it == ArtistMetadataOutcome.DECODE_ERROR
+        }
+        return Stage(null, informative ?: fallback.outcome)
+    }
+
+    private suspend fun portraitStage(wikidata: Stage<WikidataSnapshot>): Stage<CommonsPortrait> {
+        val snapshot = wikidata.value ?: return Stage(null, wikidata.outcome)
+        return stage(ArtistMetadataOutcome.NO_P18) { commonsPortrait(snapshot.entity) }
+    }
+
+    private fun wikidataQid(link: String): String? {
+        val parsed = link.toHttpUrlOrNull() ?: return null
+        if (parsed.scheme != "https" || parsed.host != "www.wikidata.org") return null
+        return parsed.pathSegments.lastOrNull()
+            ?.takeIf { Regex("^Q[1-9][0-9]{0,10}$").matches(it) }
+    }
+
+    /** Prefer the Spanish article, then English; both come from the verified QID. */
+    private fun sitelinkArticle(entity: JsonObject): String? {
+        val sitelinks = entity["sitelinks"] as? JsonObject ?: return null
+        for (site in listOf("eswiki", "enwiki")) {
+            val title = (sitelinks[site] as? JsonObject)?.string("title")
+                ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 200 } ?: continue
+            val url = wikipediaArticleUrl(site.removeSuffix("wiki") + ".wikipedia.org", title)
+                ?: continue
+            if (allowedWikipediaSource(url)) return url
+        }
+        return null
+    }
+
+    private fun wikipediaArticleUrl(host: String, title: String): String? =
+        "https://$host/wiki/".toHttpUrlOrNull()?.newBuilder()
+            ?.addPathSegment(title.replace(' ', '_'))?.build()?.toString()
+            ?.takeIf(::allowedWikipediaSource)
+
+    private suspend fun wikipediaExtract(link: String): WikipediaArticle {
+        val article = link.toHttpUrlOrNull()
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        if (article.scheme != "https" ||
+            !Regex("^[a-z-]{2,12}\\.wikipedia\\.org$").matches(article.host)
+        ) {
+            throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        }
+        if (article.pathSegments.firstOrNull() != "wiki") {
+            throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        }
+        val title = article.pathSegments.drop(1).joinToString("/").take(160)
+        if (title.isBlank()) throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val data = readJson(api("https://${article.host}/w/api.php", mapOf(
+            "action" to "query", "prop" to "extracts", "exintro" to "1",
+            "explaintext" to "1", "format" to "json", "redirects" to "1",
+            "titles" to title,
+        )))
+        val pages = ((data["query"] as? JsonObject)?.get("pages") as? JsonObject)
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val page = pages.values.firstOrNull() as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        if (page["missing"] != null) {
+            throw MetadataFailure(ArtistMetadataOutcome.NO_TEXT)
+        }
+        val text = page.string("extract")?.trim()?.take(850)
+            ?.takeIf(String::isNotBlank)
+            ?: throw MetadataFailure(ArtistMetadataOutcome.NO_TEXT)
+        // The API resolves redirects; the stored source must be the exact
+        // article that produced the text, never the redirecting title.
+        val resolvedTitle = page.string("title")?.takeIf(String::isNotBlank) ?: title
+        val sourceUrl = wikipediaArticleUrl(article.host, resolvedTitle)
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        return WikipediaArticle(text, sourceUrl)
+    }
+
+    private suspend fun commonsPortrait(entity: JsonObject): CommonsPortrait {
+        val claims = entity["claims"] as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.NO_P18)
+        val photo = (claims["P18"] as? JsonArray)?.firstOrNull() as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.NO_P18)
+        val claim = photo["mainsnak"] as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val data = claim["datavalue"] as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val filename = data.string("value")?.take(180)
+        if (filename.isNullOrBlank() || '/' in filename || '\\' in filename) {
+            throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        }
+        val image = readJson(api("https://commons.wikimedia.org/w/api.php", mapOf(
+            "action" to "query", "prop" to "imageinfo", "iiprop" to "url|extmetadata",
+            "iiurlwidth" to "640", "titles" to "File:$filename", "format" to "json",
+        )))
+        val pages = ((image["query"] as? JsonObject)?.get("pages") as? JsonObject)
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val record = pages.values.firstOrNull() as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val imageInfo = (record["imageinfo"] as? JsonArray)?.firstOrNull() as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        val meta = imageInfo["extmetadata"] as? JsonObject
+            ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        fun metaText(field: String): String =
+            ((meta[field] as? JsonObject)?.string("value")).orEmpty()
+        val attributionHtml = metaText("Attribution").ifBlank { metaText("Artist") }
+        val plainAttribution = Html.fromHtml(attributionHtml, Html.FROM_HTML_MODE_COMPACT)
+            .toString().trim().take(500)
+        if (!allowedPortraitAttribution(plainAttribution)) {
+            throw MetadataFailure(ArtistMetadataOutcome.BAD_ATTRIBUTION)
+        }
+        val portrait = CommonsPortrait(
+            imageUrl = imageInfo.string("thumburl").orEmpty(),
+            commonsPageUrl = imageInfo.string("descriptionurl").orEmpty(),
+            license = metaText("LicenseShortName"),
+            licenseUrl = metaText("LicenseUrl"),
+            attribution = plainAttribution,
+        )
+        if (!allowedPortraitLicense(portrait.license)) {
+            throw MetadataFailure(ArtistMetadataOutcome.NO_ALLOWED_LICENSE)
+        }
+        if (!allowedPortraitUrls(portrait)) {
+            throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
+        }
+        if (!allowedCommonsPortrait(portrait)) {
+            throw MetadataFailure(ArtistMetadataOutcome.NO_ALLOWED_LICENSE)
+        }
+        return portrait
     }
 
     private suspend fun musicBrainzJson(url: String): JsonObject = musicBrainzMutex.withLock {
@@ -132,58 +334,6 @@ class ArtistEnrichmentRepository(
         if (wait > 0) delay(wait)
         nextMusicBrainzRequestAtMs = SystemClock.elapsedRealtime() + 1_100
         readJson(url)
-    }
-
-    private suspend fun wikipediaExtract(link: String): String? {
-        val article = link.toHttpUrlOrNull() ?: return null
-        if (article.scheme != "https" || !Regex("^[a-z-]{2,12}\\.wikipedia\\.org$").matches(article.host)) return null
-        if (article.pathSegments.firstOrNull() != "wiki") return null
-        val title = article.pathSegments.drop(1).joinToString("/").take(160)
-        if (title.isBlank()) return null
-        val data = readJson(api("https://${article.host}/w/api.php", mapOf(
-            "action" to "query", "prop" to "extracts", "exintro" to "1",
-            "explaintext" to "1", "format" to "json", "titles" to title,
-        )))
-        val pages = ((data["query"] as? JsonObject)?.get("pages") as? JsonObject) ?: return null
-        return pages.values.firstNotNullOfOrNull { (it as? JsonObject)?.string("extract") }
-            ?.trim()?.take(850)?.takeIf(String::isNotBlank)
-    }
-
-    private suspend fun commonsPortrait(wikidataLink: String): CommonsPortrait? {
-        val link = wikidataLink.toHttpUrlOrNull() ?: return null
-        if (link.scheme != "https" || link.host != "www.wikidata.org") return null
-        val qid = link.pathSegments.lastOrNull()?.takeIf { Regex("^Q[1-9][0-9]{0,10}$").matches(it) }
-            ?: return null
-        val item = readJson(api("https://www.wikidata.org/w/api.php", mapOf(
-            "action" to "wbgetentities", "ids" to qid, "props" to "claims", "format" to "json",
-        )))
-        val entity = ((item["entities"] as? JsonObject)?.get(qid) as? JsonObject) ?: return null
-        val claims = entity["claims"] as? JsonObject ?: return null
-        val photo = (claims["P18"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return null
-        val claim = photo["mainsnak"] as? JsonObject ?: return null
-        val data = claim["datavalue"] as? JsonObject ?: return null
-        val filename = data.string("value")?.take(180) ?: return null
-        if (filename.isBlank() || '/' in filename || '\\' in filename) return null
-        val image = readJson(api("https://commons.wikimedia.org/w/api.php", mapOf(
-            "action" to "query", "prop" to "imageinfo", "iiprop" to "url|extmetadata",
-            "iiurlwidth" to "640", "titles" to "File:$filename", "format" to "json",
-        )))
-        val pages = ((image["query"] as? JsonObject)?.get("pages") as? JsonObject) ?: return null
-        val record = pages.values.firstOrNull() as? JsonObject ?: return null
-        val imageInfo = (record["imageinfo"] as? JsonArray)?.firstOrNull() as? JsonObject ?: return null
-        val meta = imageInfo["extmetadata"] as? JsonObject ?: return null
-        fun metaText(field: String): String = ((meta[field] as? JsonObject)?.string("value")).orEmpty()
-        val attributionHtml = metaText("Attribution").ifBlank { metaText("Artist") }
-        val plainAttribution = Html.fromHtml(attributionHtml, Html.FROM_HTML_MODE_COMPACT)
-            .toString().trim().take(500)
-        val portrait = CommonsPortrait(
-            imageUrl = imageInfo.string("thumburl").orEmpty(),
-            commonsPageUrl = imageInfo.string("descriptionurl").orEmpty(),
-            license = metaText("LicenseShortName"),
-            licenseUrl = metaText("LicenseUrl"),
-            attribution = plainAttribution,
-        )
-        return portrait.takeIf(::allowedCommonsPortrait)
     }
 
     private fun api(base: String, args: Map<String, String>): String {

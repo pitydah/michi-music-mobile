@@ -74,6 +74,22 @@ class ArtistEnrichmentPersistenceTest {
         assertNull(store.load("lib-a", credit, albums))
     }
 
+    @Test fun optionalProviderOutcomesSurviveTheRoundTrip() = runBlocking {
+        val saved = profile().copy(
+            biography = "Banda australiana de rock.",
+            biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+            biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+            portraitOutcome = ArtistMetadataOutcome.NO_ALLOWED_LICENSE,
+            wikidataQid = "Q123",
+        )
+        store.save("lib-a", credit, albums, saved)
+        val loaded = requireNotNull(store.load("lib-a", credit, albums)).profile
+        assertEquals(saved, loaded)
+        assertEquals(ArtistMetadataOutcome.SUCCESS, loaded.biographyOutcome)
+        assertEquals(ArtistMetadataOutcome.NO_ALLOWED_LICENSE, loaded.portraitOutcome)
+        assertEquals("Q123", loaded.wikidataQid)
+    }
+
     @Test fun noBindingInAllScopeAndCreditNeverSplitsOnAmpersand() {
         assertNull(scopedArtistCreditKey(null, credit, albums))
         assertNull(scopedArtistCreditKey("SCOPE_ALL", credit, albums))
