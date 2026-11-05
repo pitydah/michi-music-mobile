@@ -18,6 +18,7 @@ import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.michimusic.mobile.network.MICHI_HTTP_USER_AGENT
 import java.io.IOException
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
@@ -399,7 +400,7 @@ class ArtistEnrichmentRepository(
             return@suspendCancellableCoroutine
         }
         val request = Request.Builder().url(endpoint)
-            .header("User-Agent", "MichiMusicMobile/0.1 (https://github.com/pitydah/michi-music-mobile)")
+            .header("User-Agent", MICHI_HTTP_USER_AGENT)
             .header("Accept", "application/json")
             .build()
         val call = http.newCall(request)

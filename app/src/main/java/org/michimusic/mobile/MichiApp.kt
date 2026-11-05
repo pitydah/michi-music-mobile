@@ -11,14 +11,17 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.michimusic.data.dataModule
+import org.michimusic.mobile.network.MICHI_HTTP_USER_AGENT
 import org.michimusic.mobile.di.appDao as michiAppDao
 import org.michimusic.mobile.di.replayGainDao as michiReplayGainDao
 import org.michimusic.mobile.sync.SyncWorker
@@ -151,6 +154,21 @@ class MichiApp : Application() {
                     .directory(cacheDir.resolve("coil").toOkioPath())
                     .maxSizeBytes(diskBytes)
                     .build()
+            }
+            .components {
+                // Wikimedia rejects Coil's default `okhttp/*` user agent with
+                // HTTP 403, so every image request carries Michi's identity.
+                add(OkHttpNetworkFetcherFactory(callFactory = {
+                    OkHttpClient.Builder()
+                        .addInterceptor { chain ->
+                            chain.proceed(
+                                chain.request().newBuilder()
+                                    .header("User-Agent", MICHI_HTTP_USER_AGENT)
+                                    .build(),
+                            )
+                        }
+                        .build()
+                }))
             }
             .crossfade(true)
             .build()
