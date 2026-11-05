@@ -200,13 +200,17 @@ class ArtistEnrichmentRepository(
                 return readJsonOnce(url)
             } catch (e: ProviderHttpException) {
                 if (e.status != 429 && e.status != 503 || retries >= 2) throw e
-                delay((1_000L shl retries).coerceAtMost(4_000L))
+                // Honour Retry-After when the provider sends seconds; otherwise back off
+                // exponentially. Both paths are capped so a hostile header cannot stall UI.
+                val wait = e.retryAfterMs.takeIf { it > 0L } ?: (1_000L shl retries)
+                delay(wait.coerceAtMost(MAX_RETRY_AFTER_MS))
                 retries++
             }
         }
     }
 
-    private class ProviderHttpException(val status: Int) : IOException("Proveedor HTTP $status")
+    private class ProviderHttpException(val status: Int, val retryAfterMs: Long = 0L) :
+        IOException("Proveedor HTTP $status")
 
     private suspend fun readJsonOnce(url: String): JsonObject = suspendCancellableCoroutine { continuation ->
         val endpoint = url.toHttpUrlOrNull()
@@ -236,7 +240,9 @@ class ArtistEnrichmentRepository(
             override fun onResponse(call: Call, response: Response) {
                 try {
                     val result = response.use {
-                        if (!it.isSuccessful) throw ProviderHttpException(it.code)
+                        if (!it.isSuccessful) {
+                            throw ProviderHttpException(it.code, retryAfterDelayMs(it.header("Retry-After")))
+                        }
                         if (it.header("Content-Type")?.contains("json", ignoreCase = true) != true) {
                             throw IOException("Proveedor no devolvió JSON")
                         }
@@ -271,4 +277,17 @@ class ArtistEnrichmentRepository(
 /** One shared rate limiter and bounded volatile cache for all artist-detail screens. */
 object ArtistEnrichmentService {
     val repository: ArtistEnrichmentRepository by lazy { ArtistEnrichmentRepository() }
+}
+
+/** Upper bound for any provider-requested wait, so a header cannot freeze the screen. */
+internal const val MAX_RETRY_AFTER_MS: Long = 5_000L
+
+/**
+ * Parses `Retry-After` in seconds (the only form Wikimedia and MusicBrainz send) into a
+ * bounded delay. HTTP-date values and garbage return 0, which falls back to backoff.
+ */
+internal fun retryAfterDelayMs(raw: String?): Long {
+    val seconds = raw?.trim()?.toLongOrNull() ?: return 0L
+    if (seconds <= 0L) return 0L
+    return (seconds * 1_000L).coerceAtMost(MAX_RETRY_AFTER_MS)
 }
