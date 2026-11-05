@@ -52,6 +52,8 @@ import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.components.aeroFinishDrawing
+import org.michimusic.mobile.ui.components.biographyStatusText
+import org.michimusic.mobile.ui.components.portraitStatusText
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
@@ -62,7 +64,7 @@ private sealed interface ArtistEnrichmentUi {
     data class Candidates(val found: List<ArtistLookupCandidate>) : ArtistEnrichmentUi
     data object LoadingProfile : ArtistEnrichmentUi
     data class Verified(val profile: ArtistExternalProfile, val persisted: Boolean = false,
-        val stale: Boolean = false) : ArtistEnrichmentUi
+        val stale: Boolean = false, val refreshFailed: Boolean = false) : ArtistEnrichmentUi
     data object Failed : ArtistEnrichmentUi
 }
 
@@ -162,6 +164,33 @@ fun ArtistEnrichmentPanel(
                 throw cancelled
             } catch (_: Exception) {
                 state = ArtistEnrichmentUi.Failed
+            }
+        }
+    }
+
+    fun refreshVerified(previous: ArtistEnrichmentUi.Verified) {
+        val verifiedId = canonicalArtistMbid(previous.profile.mbid) ?: return
+        if (requestJob?.isActive == true) return
+        state = ArtistEnrichmentUi.LoadingProfile
+        requestJob = scope.launch {
+            try {
+                val profile = gateway.refreshProfile(verifiedId)
+                require(canonicalArtistMbid(profile.mbid) == verifiedId)
+                val persisted = if (canPersist) {
+                    try {
+                        store.save(requireNotNull(libraryId), artistCredit, albumIds, profile)
+                        true
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) { false }
+                } else false
+                state = ArtistEnrichmentUi.Verified(profile, persisted = persisted)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // A failed refresh keeps the last verified profile visible and
+                // records that an update is still pending.
+                state = previous.copy(refreshFailed = true)
             }
         }
     }
@@ -319,6 +348,7 @@ fun ArtistEnrichmentPanel(
                 Text(profile.name, color = PureWhite, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text("MBID confirmado por selección: ${profile.mbid}", color = TextSecondary, fontSize = 11.sp)
                 Text(when {
+                    result.refreshFailed -> "No fue posible actualizar los datos externos. Se muestran los últimos datos verificados."
                     result.stale -> "Datos guardados: revisión vencida. Confirma nuevamente para actualizar."
                     result.persisted -> "Datos guardados para este crédito y biblioteca."
                     canPersist -> "Datos consultados, pero no guardados; revisa disponibilidad del almacenamiento."
@@ -375,7 +405,7 @@ fun ArtistEnrichmentPanel(
                         modifier = Modifier.clickable(role = Role.Button) { uriHandler.openUri(portrait.licenseUrl) }
                             .heightIn(min = 48.dp))
                 }
-                Text(profile.biography ?: "Biografía sin fuente verificable disponible.",
+                Text(profile.biography ?: biographyStatusText(profile.biographyOutcome),
                     color = PureWhite, fontSize = 12.sp)
                 profile.biographySourceUrl?.let { source ->
                     Text("Texto: Wikipedia · CC BY-SA · Ver fuente", color = TertiaryCyan, fontSize = 12.sp,
@@ -383,8 +413,16 @@ fun ArtistEnrichmentPanel(
                             .heightIn(min = 48.dp).testTag("artist_biography_source"))
                 }
                 if (profile.portrait == null) {
-                    Text("Retrato no disponible: no se ha verificado una imagen de licencia permitida.",
+                    Text(portraitStatusText(profile.portraitOutcome),
                         color = TextSecondary, fontSize = 11.sp)
+                    OutlinedButton(
+                        onClick = { refreshVerified(result) },
+                        enabled = requestJob?.isActive != true,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .testTag("artist_enrichment_retry_portrait"),
+                        colors = secondaryColors,
+                        border = secondaryBorder,
+                    ) { Text("Reintentar retrato y datos") }
                 }
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)

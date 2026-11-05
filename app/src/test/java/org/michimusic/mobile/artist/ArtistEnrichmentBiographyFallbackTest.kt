@@ -221,6 +221,24 @@ class ArtistEnrichmentBiographyFallbackTest {
     }
 
     @Test
+    fun explicitRefreshBypassesTheInMemoryProfileCache() = runBlocking {
+        val musicBrainzCalls = java.util.concurrent.atomic.AtomicInteger(0)
+        val repo = repository { request ->
+            if (request.url.host == "musicbrainz.org") {
+                musicBrainzCalls.incrementAndGet()
+                response(request, musicBrainz())
+            } else null
+        }
+
+        repo.confirmedProfile(mbid)
+        repo.confirmedProfile(mbid)
+        assertEquals(1, musicBrainzCalls.get())
+
+        repo.refreshProfile(mbid)
+        assertEquals(2, musicBrainzCalls.get())
+    }
+
+    @Test
     fun malformedWikidataIdentifierFailsClosedInsteadOfSearchingByName() = runBlocking {
         val hosts = ConcurrentLinkedQueue<String>()
         val repo = repository { request ->

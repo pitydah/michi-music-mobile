@@ -47,4 +47,75 @@ class ArtistEnrichmentPanelTest {
         assertEquals(1, profiles)
         compose.onNodeWithText("MBID confirmado", substring = true).assertExists()
     }
+
+    @Test fun missingPortraitOffersAnExplicitRefreshWithoutHidingTheReason() {
+        var refreshes = 0
+        val fake = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String) =
+                listOf(ArtistLookupCandidate(mbid, "Midnight Oil", area = "AU"))
+            override suspend fun confirmedProfile(mbid: String) = ArtistExternalProfile(
+                mbid, "Midnight Oil", "", "Group", "Australia",
+                biography = "Banda australiana.",
+                biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+                biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+                portraitOutcome = ArtistMetadataOutcome.NO_P18,
+            )
+            override suspend fun refreshProfile(mbid: String): ArtistExternalProfile {
+                refreshes++
+                return confirmedProfile(mbid)
+            }
+        }
+        compose.setContent { ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = fake) }
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("artist_candidate_$mbid").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_candidate_$mbid").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("artist_enrichment_retry_portrait")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Wikidata no registra", substring = true).assertExists()
+        compose.onNodeWithTag("artist_enrichment_retry_portrait").performClick()
+        compose.waitUntil(5000) { refreshes == 1 }
+        compose.onNodeWithText("Midnight Oil").assertExists()
+    }
+
+    @Test fun failedRefreshKeepsTheLastVerifiedProfileAndSaysItIsPending() {
+        var refreshes = 0
+        val fake = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String) =
+                listOf(ArtistLookupCandidate(mbid, "Midnight Oil", area = "AU"))
+            override suspend fun confirmedProfile(mbid: String) = ArtistExternalProfile(
+                mbid, "Midnight Oil", "", "Group", "Australia",
+                biography = "Banda australiana.",
+                biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+                biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+                portraitOutcome = ArtistMetadataOutcome.HTTP_ERROR,
+            )
+            override suspend fun refreshProfile(mbid: String): ArtistExternalProfile {
+                refreshes++
+                throw java.io.IOException("provider unavailable")
+            }
+        }
+        compose.setContent { ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = fake) }
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("artist_candidate_$mbid").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_candidate_$mbid").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("artist_enrichment_retry_portrait")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("No fue posible consultar la fotografía", substring = true).assertExists()
+        compose.onNodeWithTag("artist_enrichment_retry_portrait").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithText("No fue posible actualizar", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Midnight Oil").assertExists()
+        compose.onNodeWithText("Banda australiana.").assertExists()
+        assertEquals(1, refreshes)
+    }
 }

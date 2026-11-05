@@ -33,6 +33,12 @@ import kotlin.coroutines.resumeWithException
 interface ArtistEnrichmentGateway {
     suspend fun findCandidates(localCredit: String): List<ArtistLookupCandidate>
     suspend fun confirmedProfile(mbid: String): ArtistExternalProfile
+
+    /**
+     * Explicit retry from the enrichment surface. Bypasses the in-memory profile
+     * cache so a transient provider failure is not replayed for an hour.
+     */
+    suspend fun refreshProfile(mbid: String): ArtistExternalProfile = confirmedProfile(mbid)
 }
 
 class ArtistEnrichmentRepository(
@@ -86,11 +92,19 @@ class ArtistEnrichmentRepository(
         return page
     }
 
-    override suspend fun confirmedProfile(mbid: String): ArtistExternalProfile {
+    override suspend fun confirmedProfile(mbid: String): ArtistExternalProfile =
+        loadProfile(mbid, forceRefresh = false)
+
+    override suspend fun refreshProfile(mbid: String): ArtistExternalProfile =
+        loadProfile(mbid, forceRefresh = true)
+
+    private suspend fun loadProfile(mbid: String, forceRefresh: Boolean): ArtistExternalProfile {
         val id = canonicalArtistMbid(mbid) ?: throw IllegalArgumentException("MBID no válido")
-        synchronized(profiles) {
-            profiles[id]?.takeIf { SystemClock.elapsedRealtime() - it.first < 60 * 60 * 1000L }
-                ?.second?.let { return it }
+        if (!forceRefresh) {
+            synchronized(profiles) {
+                profiles[id]?.takeIf { SystemClock.elapsedRealtime() - it.first < 60 * 60 * 1000L }
+                    ?.second?.let { return it }
+            }
         }
         val artist = musicBrainzJson(api("https://musicbrainz.org/ws/2/artist/$id", mapOf(
             "inc" to "url-rels", "fmt" to "json",
