@@ -131,7 +131,6 @@ enum class LibraryViewMode {
 fun AlbumsScreen(
     onNavigateToPlaylists: () -> Unit = {},
     onNavigateToArtist: (String) -> Unit = {},
-    onNavigateToArtistEnrichment: ((String) -> Unit)? = null,
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     modifier: Modifier = Modifier,
 ) {
@@ -902,7 +901,6 @@ fun AlbumsScreen(
                                     libraryId = scoped.identityLibraryId,
                                     refreshToken = 0,
                                     onOpenArtist = onNavigateToArtist,
-                                    onEnrichArtist = onNavigateToArtistEnrichment,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }

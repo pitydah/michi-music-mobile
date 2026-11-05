@@ -124,7 +124,6 @@ internal fun ArtistBiographySection(
     profile: ArtistExternalProfile?,
     isStale: Boolean,
     portrait: CommonsPortrait?,
-    onEnrich: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val bio = profile?.biography?.takeIf(String::isNotBlank)
@@ -138,9 +137,6 @@ internal fun ArtistBiographySection(
                 color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp,
                 modifier = Modifier.testTag("artist_detail_stale_notice"),
             )
-            TextButton(onClick = onEnrich, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Revisar en Artist Enrichment", color = TertiaryCyan, fontSize = 12.sp)
-            }
         }
         if (bio != null) {
             Text(
@@ -168,9 +164,6 @@ internal fun ArtistBiographySection(
                 color = TextSecondary, fontSize = 13.sp, lineHeight = 19.sp,
                 modifier = Modifier.testTag("artist_detail_no_biography"),
             )
-            TextButton(onClick = onEnrich, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Consultar Artist Enrichment", color = TertiaryCyan, fontSize = 12.sp)
-            }
         }
         portrait?.let { licensed ->
             TextButton(
@@ -192,7 +185,7 @@ internal fun ArtistBiographySection(
 }
 
 @Composable
-internal fun ArtistDetailSectionHeader(name: String, count: Int) {
+internal fun ArtistDetailSectionHeader(name: String, count: Int? = null) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -200,7 +193,9 @@ internal fun ArtistDetailSectionHeader(name: String, count: Int) {
     ) {
         Text(name, color = PureWhite, fontFamily = InterFontFamily,
             fontSize = 17.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
-        Text(count.toString(), color = TextSecondary, fontSize = 12.sp)
+        if (count != null) {
+            Text(count.toString(), color = TextSecondary, fontSize = 12.sp)
+        }
     }
 }
 

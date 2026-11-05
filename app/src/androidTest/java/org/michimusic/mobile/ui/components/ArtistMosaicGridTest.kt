@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.components
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -69,6 +70,8 @@ class ArtistMosaicGridTest {
         compose.onNodeWithTag("artist_mosaic_tile_Patti Austin & James Ingram").performClick()
         compose.runOnIdle { assertEquals(entries.map { it.credit }, opened) }
         compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_retry_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun verifiedPortraitIsAvailableToTheVisibleTile() {
@@ -82,17 +85,25 @@ class ArtistMosaicGridTest {
         compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertExists()
     }
 
-    @Test fun missingPortraitOffersExplicitEnrichmentWithoutAutoLookup() {
-        val routed = mutableListOf<String>()
+    @Test fun missingPortraitShowsNoSecondaryCtaAndStillOpensTheArtist() {
+        var opened: String? = null
         val store = FakeStore(null)
         compose.setContent {
             ArtistMosaicGrid(
                 artists = entries.take(1), libraryId = "library-1", refreshToken = 0,
-                onOpenArtist = {}, onEnrichArtist = { routed.add(it) }, selectionStore = store,
+                onOpenArtist = { opened = it }, selectionStore = store,
             )
         }
-        compose.onNodeWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true).performClick()
-        compose.runOnIdle { assertEquals(listOf("Midnight Oil"), routed) }
+        compose.onNodeWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true)
+            .assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_retry_Midnight Oil", useUnmergedTree = true)
+            .assertDoesNotExist()
+        compose.onNodeWithText("Buscar retrato").assertDoesNotExist()
+        compose.onNodeWithText("Reintentar foto").assertDoesNotExist()
+        compose.onNodeWithText("Elegir biblioteca").assertDoesNotExist()
+        compose.onNodeWithText("Revisar identidad").assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_tile_Midnight Oil").performClick()
+        compose.runOnIdle { assertEquals("Midnight Oil", opened) }
     }
 
     @Test fun allLibrariesShowsPhotoWhenEveryLibraryConfirmsSameMbid() {
@@ -131,10 +142,11 @@ class ArtistMosaicGridTest {
         }
         compose.setContent {
             ArtistMosaicGrid(entries.take(1).map { it.copy(profileScopes = scopes) }, null, 0, {},
-                onEnrichArtist = {}, selectionStore = fake)
+                selectionStore = fake)
         }
         compose.waitUntil(5000) { queries == 2 }
         compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun allLibrariesNeverReusePortraitFromASingleLibrary() {
@@ -146,32 +158,25 @@ class ArtistMosaicGridTest {
         compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle { assertEquals(0, fake.queries) }
     }
-    @Test fun cacheFailureOffersRetryInsteadOfPretendingArtistIsUnidentified() {
+    @Test fun cacheFailureKeepsMonogramWithoutInventingIdentityOrASecondCta() {
         var attempts = 0
-        var failing = true
+        var opened: String? = null
         val fake = object : ArtistEnrichmentSelectionStore {
             override suspend fun load(libraryId: String, credit: String, albumIds: List<String>): PersistedArtistProfile? {
                 attempts++
-                if (failing) throw IllegalStateException("Room unavailable")
-                return null
+                throw IllegalStateException("Room unavailable")
             }
             override suspend fun save(libraryId: String, credit: String, albumIds: List<String>, profile: ArtistExternalProfile) {}
             override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) {}
         }
         compose.setContent {
-            ArtistMosaicGrid(entries.take(1), "library-1", 0, {},
-                onEnrichArtist = {}, selectionStore = fake)
+            ArtistMosaicGrid(entries.take(1), "library-1", 0, { opened = it }, selectionStore = fake)
         }
-        compose.waitUntil(5000) {
-            compose.onAllNodesWithTag("artist_mosaic_retry_Midnight Oil", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        failing = false
-        compose.onNodeWithTag("artist_mosaic_retry_Midnight Oil", useUnmergedTree = true).performClick()
-        compose.waitUntil(5000) {
-            attempts >= 2 && compose.onAllNodesWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.runOnIdle { assertEquals(2, attempts) }
+        compose.waitUntil(5000) { attempts == 1 }
+        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_retry_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("artist_mosaic_tile_Midnight Oil").performClick()
+        compose.runOnIdle { assertEquals("Midnight Oil", opened) }
     }
 }

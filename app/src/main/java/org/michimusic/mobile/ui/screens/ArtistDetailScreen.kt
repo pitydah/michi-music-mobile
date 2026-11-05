@@ -56,7 +56,6 @@ import org.koin.compose.koinInject
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.mobile.artist.ArtistEnrichmentPanel
-import org.michimusic.mobile.artist.ArtistPublicDiscography
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.PersistedArtistProfile
 import org.michimusic.mobile.artist.ArtistProfileStatus
@@ -435,14 +434,13 @@ fun ArtistDetailScreen(
                                 profile = savedProfile,
                                 isStale = cachedProfileIsStale,
                                 portrait = portrait,
-                                onEnrich = { showEnrichment = true },
                             )
                         }
                         // Discography is exactly the albums present in the local library.
                         // Catalogue-only releases are not shown here: this list must reflect
                         // the files the user actually has, not what MusicBrainz published.
                         item("artist_discography_heading") {
-                            ArtistDetailSectionHeader("DISCOGRAFÍA", localAlbums.size)
+                            ArtistDetailSectionHeader("DISCOGRAFÍA")
                         }
                         item("artist_discography_row") {
                             LazyRow(
