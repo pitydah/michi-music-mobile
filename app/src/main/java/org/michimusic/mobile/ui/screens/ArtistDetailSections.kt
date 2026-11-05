@@ -103,6 +103,11 @@ internal fun ArtistDetailHero(
                 onError = { photoVisible = false },
                 modifier = Modifier.fillMaxSize().testTag("artist_detail_hero_photo"),
             )
+            // Distinguishes "URL present" from "bytes decoded" for screenshot
+            // evidence without changing the visible layout.
+            if (photoVisible) {
+                Box(Modifier.fillMaxSize().testTag("artist_detail_hero_photo_loaded"))
+            }
         }
         Box(
             modifier = Modifier.fillMaxWidth().height(132.dp).align(Alignment.BottomCenter)

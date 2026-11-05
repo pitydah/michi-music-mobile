@@ -194,6 +194,12 @@ internal fun ArtistMosaicTile(
                             .clip(CircleShape)
                             .testTag("artist_mosaic_photo_${artist.credit}"),
                     )
+                    if (photoVisible) {
+                        Box(
+                            Modifier.matchParentSize()
+                                .testTag("artist_mosaic_photo_loaded_${artist.credit}"),
+                        )
+                    }
                 }
             }
         }
