@@ -56,7 +56,7 @@ import org.koin.compose.koinInject
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.mobile.artist.ArtistEnrichmentPanel
-import org.michimusic.mobile.artist.artistPublicDiscographyItems
+import org.michimusic.mobile.artist.artistDiscographyItems
 import org.michimusic.mobile.artist.rememberArtistPublicDiscographyState
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.PersistedArtistProfile
@@ -440,63 +440,16 @@ fun ArtistDetailScreen(
                                 onEnrich = { showEnrichment = true },
                             )
                         }
-                        item("artist_albums_heading") {
-                            ArtistDetailSectionHeader("ÁLBUMES", localAlbums.size)
-                        }
-                        item("artist_albums_row") {
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                contentPadding = PaddingValues(end = 4.dp),
-                                modifier = Modifier.fillMaxWidth().testTag("artist_detail_albums"),
-                            ) {
-                                items(localAlbums, key = { it.album.id }) { group ->
-                                    Column(
-                                        modifier = Modifier.width(142.dp)
-                                            .clip(RoundedCornerShape(13.dp))
-                                            .clickable(role = Role.Button,
-                                                enabled = group.tracks.any { it.id in playableTrackIds }) {
-                                                playEligible(artistFirstPlayableSelection(group.tracks, playableTrackIds))
-                                            }
-                                            .semantics(mergeDescendants = true) {
-                                                contentDescription = if (group.tracks.any { it.id in playableTrackIds })
-                                                    "Reproducir álbum ${group.album.title}"
-                                                else "Álbum ${group.album.title}, audio no disponible"
-                                            }
-                                            .padding(bottom = 6.dp)
-                                            .testTag("artist_detail_album_${group.album.id}"),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        AeroArtworkMat(
-                                            modifier = Modifier.size(142.dp),
-                                            cornerRadius = 13.dp,
-                                            inset = 3.dp,
-                                        ) {
-                                            AlbumArtView(
-                                                coverStyle = coverStyleFor(group.album.coverId.ifBlank { group.album.title }),
-                                                imageModel = group.album.coverId,
-                                                fallbackMediaUri = group.tracks.firstOrNull()?.filepath,
-                                                modifier = Modifier.fillMaxSize(),
-                                                cornerRadius = 13.dp,
-                                                borderWidth = 0.dp,
-                                            )
-                                        }
-                                        Text(group.album.title, color = PureWhite, fontSize = 13.sp,
-                                            fontFamily = InterFontFamily, fontWeight = FontWeight.SemiBold,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        val songCount = if (group.tracks.size == 1) "1 canción" else "${group.tracks.size} canciones"
-                                        Text(
-                                            if (group.album.year > 0) "${group.album.year} · $songCount" else songCount,
-                                            color = TextSecondary, fontSize = 11.sp,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        // Public release-groups are NEVER confused with local playable albums.
-                        // No provider request is made until the user explicitly taps Consultar.
-                        if (publicDiscography != null) {
-                            artistPublicDiscographyItems(publicDiscography)
-                        }
+                        // One discography: local playable albums and the published catalogue in a
+                        // single list. Adding an album to the library updates this same section.
+                        artistDiscographyItems(
+                            state = publicDiscography,
+                            localAlbums = localAlbums,
+                            playableTrackIds = playableTrackIds,
+                            onPlayAlbum = { group ->
+                                playEligible(artistFirstPlayableSelection(group.tracks, playableTrackIds))
+                            },
+                        )
                         item("artist_tracks_heading") {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 ArtistDetailSectionHeader("CANCIONES", tracks.size)
