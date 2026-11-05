@@ -39,12 +39,63 @@ class ArtistEnrichmentMigrationTest {
             legacy.version = 1
         } finally { legacy.close() }
         val upgraded = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
-            .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2)
+            .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
+                ArtistEnrichmentCacheDatabase.MIGRATION_2_3)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
                 upgraded.artistEnrichmentDao().get("lib-local", "artist", "group")?.confirmedMbid)
             assertTrue(upgraded.artistEnrichmentDao().getTrackEvidence("lib-local", "local_1").isEmpty())
+        } finally {
+            upgraded.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test fun addingArtworkTablesPreservesExistingArtistSelection() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "artist-migration-2-3-${System.nanoTime()}.db"
+        val legacy = context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null)
+        try {
+            legacy.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_enrichment` (
+                    `libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL,
+                    `albumGroupKey` TEXT NOT NULL, `confirmedMbid` TEXT NOT NULL,
+                    `profileJson` TEXT NOT NULL, `savedAtMs` INTEGER NOT NULL,
+                    `staleAfterMs` INTEGER NOT NULL, `source` TEXT NOT NULL,
+                    `biographySourceUrl` TEXT, `portraitSourceUrl` TEXT,
+                    `portraitLicense` TEXT, `portraitLicenseUrl` TEXT,
+                    `portraitAttribution` TEXT,
+                    PRIMARY KEY(`libraryId`, `creditKey`, `albumGroupKey`)
+                )
+            """.trimIndent())
+            legacy.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_track_evidence` (
+                    `libraryId` TEXT NOT NULL, `trackId` TEXT NOT NULL,
+                    `field` TEXT NOT NULL, `ordinal` INTEGER NOT NULL,
+                    `value` TEXT NOT NULL, `observedAtMs` INTEGER NOT NULL,
+                    `source` TEXT NOT NULL,
+                    PRIMARY KEY(`libraryId`, `trackId`, `field`, `ordinal`)
+                )
+            """.trimIndent())
+            legacy.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_track_evidence_libraryId_trackId` ON `artist_track_evidence` (`libraryId`, `trackId`)")
+            legacy.execSQL("""
+                INSERT INTO `artist_enrichment`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`confirmedMbid`,`profileJson`,
+                     `savedAtMs`,`staleAfterMs`,`source`)
+                VALUES('lib-local','artist','group','bd6d4f63-5cd0-4d78-a292-167997794c21','{}',1,2,'manual')
+            """.trimIndent())
+            legacy.version = 2
+        } finally { legacy.close() }
+        val upgraded = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
+            .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
+                ArtistEnrichmentCacheDatabase.MIGRATION_2_3)
+            .build()
+        try {
+            assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
+                upgraded.artistEnrichmentDao().get("lib-local", "artist", "group")?.confirmedMbid)
+            assertEquals(0, upgraded.artistEnrichmentDao().countArtworkSelections())
+            assertEquals(0, upgraded.artistEnrichmentDao().countArtworkAssets())
         } finally {
             upgraded.close()
             context.deleteDatabase(name)

@@ -50,6 +50,47 @@ data class ArtistTrackEvidenceRecord(
     val source: String = "USER_REQUESTED_EMBEDDED_TAG_SCAN",
 )
 
+/** One immutable downloaded artwork file, addressable by its SHA-256-derived asset id. */
+@Entity(tableName = "artist_artwork_asset", primaryKeys = ["assetId"])
+data class ArtistArtworkAssetRecord(
+    val assetId: String,
+    val confirmedMbid: String,
+    val verifiedQid: String?,
+    val source: String,
+    val sourcePageUrl: String,
+    val imageUrl: String,
+    val localRelativePath: String,
+    val sha256: String,
+    val mimeType: String,
+    val width: Int,
+    val height: Int,
+    val licenseId: String,
+    val licenseUrl: String,
+    val attribution: String,
+    val evidence: String,
+    val downloadedAtMs: Long,
+)
+
+/** Per-slot choice. The same asset may back both slots, but focus stays independent. */
+@Entity(
+    tableName = "artist_artwork_selection",
+    primaryKeys = ["libraryId", "creditKey", "albumGroupKey", "slot"],
+    indices = [Index(value = ["assetId"])],
+)
+data class ArtistArtworkSelectionRecord(
+    val libraryId: String,
+    val creditKey: String,
+    val albumGroupKey: String,
+    val slot: String,
+    val assetId: String,
+    val confirmedMbid: String,
+    val focusX: Float,
+    val focusY: Float,
+    val manuallyChosen: Boolean,
+    val revision: Long,
+    val updatedAtMs: Long,
+)
+
 @Dao
 interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
@@ -78,9 +119,48 @@ interface ArtistEnrichmentDao {
 
     @Query("SELECT COUNT(*) FROM artist_enrichment WHERE libraryId = :libraryId")
     suspend fun countForLibrary(libraryId: String): Int
+
+    @Query("SELECT * FROM artist_artwork_asset WHERE assetId = :assetId LIMIT 1")
+    suspend fun getArtworkAsset(assetId: String): ArtistArtworkAssetRecord?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putArtworkAsset(asset: ArtistArtworkAssetRecord)
+
+    @Query("SELECT * FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey")
+    suspend fun getArtworkSelections(libraryId: String, creditKey: String, albumGroupKey: String): List<ArtistArtworkSelectionRecord>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putArtworkSelection(selection: ArtistArtworkSelectionRecord)
+
+    @Query("DELETE FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey")
+    suspend fun clearArtworkSelections(libraryId: String, creditKey: String, albumGroupKey: String): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_selection WHERE libraryId = :libraryId")
+    suspend fun countArtworkSelectionsForLibrary(libraryId: String): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_selection")
+    suspend fun countArtworkSelections(): Int
+
+    @Query("SELECT COUNT(*) FROM artist_artwork_asset")
+    suspend fun countArtworkAssets(): Int
+
+    @Transaction
+    suspend fun persistArtwork(asset: ArtistArtworkAssetRecord, selection: ArtistArtworkSelectionRecord) {
+        putArtworkAsset(asset)
+        putArtworkSelection(selection)
+    }
 }
 
-@Database(entities = [ArtistEnrichmentRecord::class, ArtistTrackEvidenceRecord::class], version = 2, exportSchema = true)
+@Database(
+    entities = [
+        ArtistEnrichmentRecord::class,
+        ArtistTrackEvidenceRecord::class,
+        ArtistArtworkAssetRecord::class,
+        ArtistArtworkSelectionRecord::class,
+    ],
+    version = 3,
+    exportSchema = true,
+)
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
     abstract fun artistEnrichmentDao(): ArtistEnrichmentDao
 
@@ -97,6 +177,48 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                 )
             """.trimIndent())
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_track_evidence_libraryId_trackId` ON `artist_track_evidence` (`libraryId`, `trackId`)")
+        }
+
+        /** R11: independent thumb/hero assets and selections. Existing enrichment rows survive. */
+        val MIGRATION_2_3 = Migration(2, 3) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_asset` (
+                    `assetId` TEXT NOT NULL,
+                    `confirmedMbid` TEXT NOT NULL,
+                    `verifiedQid` TEXT,
+                    `source` TEXT NOT NULL,
+                    `sourcePageUrl` TEXT NOT NULL,
+                    `imageUrl` TEXT NOT NULL,
+                    `localRelativePath` TEXT NOT NULL,
+                    `sha256` TEXT NOT NULL,
+                    `mimeType` TEXT NOT NULL,
+                    `width` INTEGER NOT NULL,
+                    `height` INTEGER NOT NULL,
+                    `licenseId` TEXT NOT NULL,
+                    `licenseUrl` TEXT NOT NULL,
+                    `attribution` TEXT NOT NULL,
+                    `evidence` TEXT NOT NULL,
+                    `downloadedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`assetId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_selection` (
+                    `libraryId` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL,
+                    `albumGroupKey` TEXT NOT NULL,
+                    `slot` TEXT NOT NULL,
+                    `assetId` TEXT NOT NULL,
+                    `confirmedMbid` TEXT NOT NULL,
+                    `focusX` REAL NOT NULL,
+                    `focusY` REAL NOT NULL,
+                    `manuallyChosen` INTEGER NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    `updatedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `creditKey`, `albumGroupKey`, `slot`)
+                )
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_artwork_selection_assetId` ON `artist_artwork_selection` (`assetId`)")
         }
     }
 }

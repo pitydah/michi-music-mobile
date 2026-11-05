@@ -59,4 +59,36 @@ class ArtistEnrichmentCacheTest {
         assertEquals(0, dao.countForLibrary("lib-a"))
         assertEquals(1, dao.countForLibrary("lib-b"))
     }
+
+    @Test fun artworkAssetAndBothSlotsSurviveReopen() = runBlocking {
+        val dao = database.artistEnrichmentDao()
+        val asset = ArtistArtworkAssetRecord(
+            assetId = "sha256:abc", confirmedMbid = "bd6d4f63-5cd0-4d78-a292-167997794c21",
+            verifiedQid = "Q1", source = "COMMONS_P18",
+            sourcePageUrl = "https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg",
+            imageUrl = "https://upload.wikimedia.org/x.jpg",
+            localRelativePath = "artist-artwork/abc.jpg", sha256 = "abc",
+            mimeType = "image/jpeg", width = 1200, height = 800,
+            licenseId = "CC BY-SA 2.0", licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+            attribution = "Author", evidence = "VERIFIED_QID_REFERENCE", downloadedAtMs = 10L,
+        )
+        dao.putArtworkAsset(asset)
+        listOf("ARTIST_THUMB", "ARTIST_HERO").forEachIndexed { index, slot ->
+            dao.putArtworkSelection(ArtistArtworkSelectionRecord(
+                libraryId = "lib-a", creditKey = "artist", albumGroupKey = "group", slot = slot,
+                assetId = asset.assetId,
+                confirmedMbid = asset.confirmedMbid, focusX = 0.5f, focusY = 0.5f,
+                manuallyChosen = false, revision = index.toLong(), updatedAtMs = 11L,
+            ))
+        }
+        database.close()
+        database = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
+            .allowMainThreadQueries().build()
+        val reopened = database.artistEnrichmentDao()
+        val selections = reopened.getArtworkSelections("lib-a", "artist", "group")
+        assertEquals(2, selections.size)
+        assertEquals(setOf("ARTIST_THUMB", "ARTIST_HERO"), selections.map { it.slot }.toSet())
+        assertEquals(asset.localRelativePath, reopened.getArtworkAsset(asset.assetId)?.localRelativePath)
+        assertEquals(1, reopened.countArtworkAssets())
+    }
 }
