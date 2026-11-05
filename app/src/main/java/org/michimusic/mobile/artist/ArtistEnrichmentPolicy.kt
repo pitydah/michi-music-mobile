@@ -52,10 +52,12 @@ internal fun allowedPortraitLicense(license: String): Boolean {
     return allowed.matches(license.trim())
 }
 
-internal fun allowedPortraitAttribution(attribution: String): Boolean =
-    attribution.isNotBlank() && attribution.length <= 500 &&
-        !attribution.equals("none", ignoreCase = true) &&
-        !attribution.equals("null", ignoreCase = true)
+internal fun allowedPortraitAttribution(attribution: String): Boolean {
+    val clean = attribution.trim()
+    return clean.isNotEmpty() && clean.length <= 500 &&
+        !clean.equals("none", ignoreCase = true) &&
+        !clean.equals("null", ignoreCase = true)
+}
 
 internal fun allowedPortraitUrls(portrait: CommonsPortrait): Boolean {
     // Wikimedia's imageinfo endpoint currently returns thumbnail URLs on

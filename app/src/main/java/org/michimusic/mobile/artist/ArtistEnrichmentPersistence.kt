@@ -114,13 +114,23 @@ class RoomArtistEnrichmentSelectionStore(
 /** Application-context Room owner, intentionally separate from the playback/playlist database. */
 object ArtistEnrichmentPersistence {
     @Volatile private var instance: ArtistEnrichmentSelectionStore? = null
+    @Volatile private var databaseInstance: ArtistEnrichmentCacheDatabase? = null
+
+    fun database(context: Context): ArtistEnrichmentCacheDatabase =
+        databaseInstance ?: synchronized(this) {
+            databaseInstance ?: Room.databaseBuilder(
+                context.applicationContext,
+                ArtistEnrichmentCacheDatabase::class.java,
+                "michi-artist-enrichment.db",
+            )
+                .addMigrations(
+                    ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
+                )
+                .build().also { databaseInstance = it }
+        }
 
     fun from(context: Context): ArtistEnrichmentSelectionStore = instance ?: synchronized(this) {
-        instance ?: RoomArtistEnrichmentSelectionStore(
-            Room.databaseBuilder(context.applicationContext, ArtistEnrichmentCacheDatabase::class.java,
-                "michi-artist-enrichment.db")
-                .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2)
-                .build()
-        ).also { instance = it }
+        instance ?: RoomArtistEnrichmentSelectionStore(database(context)).also { instance = it }
     }
 }
