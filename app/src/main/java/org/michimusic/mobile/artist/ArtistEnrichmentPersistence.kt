@@ -59,9 +59,10 @@ class RoomArtistEnrichmentSelectionStore(
             else PersistedArtistProfile(profile, stale = clock() >= record.staleAfterMs)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
-            // Corrupt or legacy profile data must never be displayed as verified.
-            null
+        } catch (e: Exception) {
+            // Corrupt or legacy profile data must never be displayed as verified,
+            // but it is a cache failure rather than "this artist has no profile".
+            throw IllegalStateException("Perfil de artista corrupto o ilegible", e)
         }
     }
 

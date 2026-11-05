@@ -66,12 +66,19 @@ class ArtistEnrichmentPersistenceTest {
         assertNotNull(store.load("lib-b", credit, albums))
     }
 
-    @Test fun corruptJsonNeverGetsRenderedAsConfirmed() = runBlocking {
+    @Test fun corruptJsonIsReportedAsACacheFailureInsteadOfRenderedAsConfirmed() = runBlocking {
         val keys = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums))
         database.artistEnrichmentDao().put(org.michimusic.data.artist.ArtistEnrichmentRecord(
             "lib-a", keys.first, keys.second, mbid, "{not-json", 1, 2, "test", null, null, null, null, null
         ))
-        assertNull(store.load("lib-a", credit, albums))
+        val failure = try {
+            store.load("lib-a", credit, albums)
+            null
+        } catch (e: IllegalStateException) {
+            e
+        }
+        assertNotNull(failure)
+        assertTrue(requireNotNull(failure).message.orEmpty().contains("corrupto"))
     }
 
     @Test fun optionalProviderOutcomesSurviveTheRoundTrip() = runBlocking {
