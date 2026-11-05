@@ -170,20 +170,26 @@ internal fun ArtistMosaicTile(
                     .testTag("artist_mosaic_portrait_${artist.credit}"),
                 contentAlignment = Alignment.Center,
             ) {
+                var photoVisible by remember(portrait?.imageUrl) { mutableStateOf(false) }
                 // Kept under the async image, including offline/error states; never
                 // replace a failed portrait with unrelated album artwork.
-                Text(
-                    text = artistMosaicMonogram(name),
-                    fontFamily = InterFontFamily,
-                    fontSize = 31.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = PureWhite.copy(alpha = 0.92f),
-                )
+                if (!photoVisible) {
+                    Text(
+                        text = artistMosaicMonogram(name),
+                        modifier = Modifier.testTag("artist_mosaic_monogram_${artist.credit}"),
+                        fontFamily = InterFontFamily,
+                        fontSize = 31.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = PureWhite.copy(alpha = 0.92f),
+                    )
+                }
                 if (portrait != null) {
                     AsyncImage(
                         model = portrait.imageUrl,
                         contentDescription = null, // Parent owns the accessible artist action.
                         contentScale = ContentScale.Crop,
+                        onSuccess = { photoVisible = true },
+                        onError = { photoVisible = false },
                         modifier = Modifier.matchParentSize()
                             .clip(CircleShape)
                             .testTag("artist_mosaic_photo_${artist.credit}"),

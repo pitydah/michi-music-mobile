@@ -74,6 +74,9 @@ internal fun ArtistDetailHero(
     // hero. The name is the information, so the decorative monogram steps aside and the
     // hero grows with its content instead of clipping or overlapping.
     val fontScale = LocalDensity.current.fontScale
+    // The monogram is the fallback, not wallpaper: it stays visible while the
+    // image loads and returns if Coil reports a decode/network error.
+    var photoVisible by remember(portrait?.imageUrl) { mutableStateOf(false) }
     Box(
         modifier = modifier.fillMaxWidth().heightIn(min = 248.dp).clip(shape)
             .background(Brush.linearGradient(listOf(Color(0xFF26364A), Color(0xFF302639))))
@@ -82,7 +85,7 @@ internal fun ArtistDetailHero(
     ) {
         // Draw the monogram BELOW Coil regardless of URL availability: if the
         // verified remote image fails/offline, the hero still has an identity.
-        if (fontScale < 1.6f) {
+        if (fontScale < 1.6f && !photoVisible) {
             Text(
                 artistMosaicMonogram(artistCredit),
                 modifier = Modifier.align(Alignment.Center).testTag("artist_detail_hero_monogram"),
@@ -96,6 +99,8 @@ internal fun ArtistDetailHero(
                 model = portrait.imageUrl,
                 contentDescription = "Fotografía de $artistCredit. Autoría en sección de biografía",
                 contentScale = ContentScale.Crop,
+                onSuccess = { photoVisible = true },
+                onError = { photoVisible = false },
                 modifier = Modifier.fillMaxSize().testTag("artist_detail_hero_photo"),
             )
         }
