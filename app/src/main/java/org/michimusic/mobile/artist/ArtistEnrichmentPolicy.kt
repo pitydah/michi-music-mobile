@@ -53,10 +53,16 @@ internal fun allowedPortraitLicense(license: String): Boolean {
 }
 
 internal fun allowedPortraitAttribution(attribution: String): Boolean =
-    attribution.isNotBlank() && attribution.length <= 500
+    attribution.isNotBlank() && attribution.length <= 500 &&
+        !attribution.equals("none", ignoreCase = true) &&
+        !attribution.equals("null", ignoreCase = true)
 
 internal fun allowedPortraitUrls(portrait: CommonsPortrait): Boolean {
-    if (!portrait.imageUrl.startsWith("https://upload.wikimedia.org/")) return false
+    // Wikimedia's imageinfo endpoint currently returns thumbnail URLs on
+    // thumb.wikimedia.org while originals remain on upload.wikimedia.org.
+    // Both are first-party Wikimedia origins; anything else stays rejected.
+    if (!portrait.imageUrl.startsWith("https://upload.wikimedia.org/") &&
+        !portrait.imageUrl.startsWith("https://thumb.wikimedia.org/")) return false
     if (!portrait.commonsPageUrl.startsWith("https://commons.wikimedia.org/wiki/File:")) return false
     if (!portrait.licenseUrl.startsWith("https://creativecommons.org/") &&
         !portrait.licenseUrl.startsWith("https://commons.wikimedia.org/")) return false

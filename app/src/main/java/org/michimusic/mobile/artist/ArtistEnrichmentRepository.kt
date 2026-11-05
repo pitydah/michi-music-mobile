@@ -316,7 +316,15 @@ class ArtistEnrichmentRepository(
             ?: throw MetadataFailure(ArtistMetadataOutcome.DECODE_ERROR)
         fun metaText(field: String): String =
             ((meta[field] as? JsonObject)?.string("value")).orEmpty()
-        val attributionHtml = metaText("Attribution").ifBlank { metaText("Artist") }
+        // Commons commonly stores the literal string "None" in Attribution
+        // when no special credit is required; the file author is then the
+        // truthful attribution. Treating "None" as a credit would show users
+        // a meaningless label and must not satisfy the attribution gate.
+        fun meaningful(value: String): String = value.trim().takeUnless {
+            it.isEmpty() || it.equals("none", ignoreCase = true) || it.equals("null", ignoreCase = true)
+        }.orEmpty()
+        val attributionHtml = meaningful(metaText("Attribution"))
+            .ifBlank { metaText("Artist") }
         val plainAttribution = Html.fromHtml(attributionHtml, Html.FROM_HTML_MODE_COMPACT)
             .toString().trim().take(500)
         if (!allowedPortraitAttribution(plainAttribution)) {
