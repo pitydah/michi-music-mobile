@@ -94,91 +94,101 @@ class ArtistLiveScreenshotTest {
     }
 
     @Test
-    fun captureMosaicWithVerifiedPortraitsAndALocalMonogram() = runBlocking {
+    fun captureMosaicWithVerifiedPortraitsAndALocalMonogram() {
         assumeTrue("live providers are opt-in", enabled)
-        val midnight = liveProfile("Midnight Oil")
-        val flock = liveProfile("A Flock Of Seagulls")
-        prefetch(midnight)
-        prefetch(flock)
-        val store = liveStore(
-            "Midnight Oil" to midnight,
-            "A Flock Of Seagulls" to flock,
-        )
-        val entries = listOf(
-            ArtistMosaicEntry(
-                credit = "Midnight Oil",
-                albumIds = listOf("live-qa-album-midnight-oil"),
-                albumCount = 1,
-                trackCount = 8,
-            ),
-            ArtistMosaicEntry(
-                credit = "A Flock Of Seagulls",
-                albumIds = listOf("live-qa-album-flock"),
-                albumCount = 1,
-                trackCount = 6,
-            ),
-            ArtistMosaicEntry(
-                credit = "Artista local sin retrato",
-                albumIds = listOf("live-qa-album-local"),
-                albumCount = 1,
-                trackCount = 3,
-            ),
-        )
-        compose.setContent {
-            Box(
-                Modifier.width(412.dp).height(430.dp).background(Color(0xFF090B11))
-                    .testTag("evidence_mosaic"),
-            ) {
-                ArtistMosaicGrid(
-                    artists = entries,
-                    libraryId = "live-qa-library",
-                    refreshToken = 0,
-                    onOpenArtist = {},
-                    selectionStore = store,
-                    modifier = Modifier.fillMaxSize(),
-                )
+        runBlocking {
+            val midnight = liveProfile("Midnight Oil")
+            val flock = liveProfile("A Flock Of Seagulls")
+            prefetch(midnight)
+            prefetch(flock)
+            val store = liveStore(
+                "Midnight Oil" to midnight,
+                "A Flock Of Seagulls" to flock,
+            )
+            val entries = listOf(
+                ArtistMosaicEntry(
+                    credit = "Midnight Oil",
+                    albumIds = listOf("live-qa-album-midnight-oil"),
+                    albumCount = 1,
+                    trackCount = 8,
+                ),
+                ArtistMosaicEntry(
+                    credit = "A Flock Of Seagulls",
+                    albumIds = listOf("live-qa-album-flock"),
+                    albumCount = 1,
+                    trackCount = 6,
+                ),
+                ArtistMosaicEntry(
+                    credit = "Artista local sin retrato",
+                    albumIds = listOf("live-qa-album-local"),
+                    albumCount = 1,
+                    trackCount = 3,
+                ),
+            )
+            compose.setContent {
+                Box(
+                    Modifier.width(412.dp).height(430.dp).background(Color(0xFF090B11))
+                        .testTag("evidence_mosaic"),
+                ) {
+                    ArtistMosaicGrid(
+                        artists = entries,
+                        libraryId = "live-qa-library",
+                        refreshToken = 0,
+                        onOpenArtist = {},
+                        selectionStore = store,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
+            compose.waitUntil(20_000) {
+                compose.onAllNodesWithTag(
+                    "artist_mosaic_photo_loaded_Midnight Oil",
+                    useUnmergedTree = true,
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.waitUntil(20_000) {
+                compose.onAllNodesWithTag(
+                    "artist_mosaic_photo_loaded_A Flock Of Seagulls",
+                    useUnmergedTree = true,
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
+            save("evidence_mosaic", "artist-mosaic-after.png")
         }
-        compose.waitUntil(20_000) {
-            compose.onAllNodesWithTag("artist_mosaic_photo_loaded_Midnight Oil", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.waitUntil(20_000) {
-            compose.onAllNodesWithTag("artist_mosaic_photo_loaded_A Flock Of Seagulls", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        save("evidence_mosaic", "artist-mosaic-after.png")
     }
 
     @Test
-    fun captureMidnightOilFichaWithVerifiedBiographyAndPortrait() = runBlocking {
+    fun captureMidnightOilFichaWithVerifiedBiographyAndPortrait() {
         assumeTrue("live providers are opt-in", enabled)
-        val midnight = liveProfile("Midnight Oil")
-        prefetch(midnight)
-        compose.setContent {
-            Column(
-                Modifier.width(412.dp).background(Color(0xFF090B11)).padding(20.dp)
-                    .testTag("evidence_ficha"),
-            ) {
-                ArtistDetailHero(
-                    artistCredit = "Midnight Oil",
-                    portrait = midnight.portrait,
-                    albumCount = 1,
-                    trackCount = 8,
-                    modifier = Modifier.fillMaxWidth().height(300.dp),
-                )
-                ArtistBiographySection(
-                    artistCredit = "Midnight Oil",
-                    profile = midnight,
-                    isStale = false,
-                    portrait = midnight.portrait,
-                )
+        runBlocking {
+            val midnight = liveProfile("Midnight Oil")
+            prefetch(midnight)
+            compose.setContent {
+                Column(
+                    Modifier.width(412.dp).background(Color(0xFF090B11)).padding(20.dp)
+                        .testTag("evidence_ficha"),
+                ) {
+                    ArtistDetailHero(
+                        artistCredit = "Midnight Oil",
+                        portrait = midnight.portrait,
+                        albumCount = 1,
+                        trackCount = 8,
+                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                    )
+                    ArtistBiographySection(
+                        artistCredit = "Midnight Oil",
+                        profile = midnight,
+                        isStale = false,
+                        portrait = midnight.portrait,
+                    )
+                }
             }
+            compose.waitUntil(20_000) {
+                compose.onAllNodesWithTag(
+                    "artist_detail_hero_photo_loaded",
+                    useUnmergedTree = true,
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
+            save("evidence_ficha", "artist-ficha-midnight-oil-after.png")
         }
-        compose.waitUntil(20_000) {
-            compose.onAllNodesWithTag("artist_detail_hero_photo_loaded", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        save("evidence_ficha", "artist-ficha-midnight-oil-after.png")
     }
 }
