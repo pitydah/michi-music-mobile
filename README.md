@@ -24,6 +24,7 @@ Sync your music library wirelessly from your desktop and control playback remote
 - **CoverFlow** — DiscreteScrollView carousel matching KDE `coverflow.py` visual constants
 - **Android Auto ready** — `MediaLibraryService` with browsable tree (albums, songs, playlists)
 - **Glassmorphism UI** — Dark theme (`#090B11`), 14dp radius, accent pink/purple/blue
+- **Artist enrichment** — Local-library artists only; explicit MusicBrainz identity, verified Wikipedia biography, and licensed portrait artwork with private offline cache
 
 ## Tech Stack
 
@@ -58,6 +59,30 @@ Sync your music library wirelessly from your desktop and control playback remote
 | Remote | KDE remote control with status polling |
 | Sync | Discovery, registration, download progress |
 | Settings | Server config, auto-sync toggle |
+
+## Artist enrichment and artwork
+
+Artist metadata never adds remote albums to the local collection. The **DISCOGRAFÍA**
+section only lists albums whose files exist on this phone.
+
+- **Identity** — an artist must be explicitly matched to a canonical MusicBrainz MBID
+  from *Enriquecer*. The app never merges artists by name.
+- **Biography** — comes from a verified Wikipedia article (direct MusicBrainz relation or
+  a verified Wikidata QID sitelink), with its source URL shown.
+- **Artwork** — providers only propose images. Commons P18, Commons P180, Wikipedia
+  PageImages, and an explicitly chosen Openverse/Flickr result must pass license,
+  attribution, origin and identity checks before being downloaded.
+- **Two crops, one file** — a circular thumbnail for the artist mosaic and a hero crop
+  inside the existing ficha. Focus is stored per slot; the hero reuses the thumbnail
+  only when its resolution is sufficient.
+- **Offline cache** — decoded bytes live in app-private storage and are referenced from
+  Room. A URL alone is never treated as a saved image, and artwork is never uploaded.
+- **Optional providers** — TheAudioDB and Fanart.tv are compiled but disabled (no keys,
+  no network); Openverse is manual-only.
+
+The enrichment cache database (`michi-artist-enrichment.db`) is version 3; migrations
+preserve existing profiles and add artwork asset/selection tables without destructive
+fallback.
 
 ## Build
 
