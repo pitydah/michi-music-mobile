@@ -257,4 +257,100 @@ class ArtistEnrichmentBiographyFallbackTest {
         // Only the identity lookup is allowed: no name-based provider search.
         assertEquals(listOf("musicbrainz.org"), hosts.toList())
     }
+
+    @Test
+    fun commonsHttpFailureKeepsMusicBrainzIdentityAndReportsTheStage() = runBlocking {
+        val repo = repository { request ->
+            when (request.url.host) {
+                "musicbrainz.org" -> response(
+                    request,
+                    musicBrainz(relation("wikidata", "https://www.wikidata.org/wiki/Q123")),
+                )
+                "www.wikidata.org" -> response(
+                    request,
+                    wikidataEntity(claims = "{\"P18\":[{\"mainsnak\":{\"datavalue\":{\"value\":\"Missing.jpg\"}}}]}"),
+                )
+                "commons.wikimedia.org" -> Response.Builder().request(request)
+                    .protocol(Protocol.HTTP_1_1).code(404).message("Not Found")
+                    .body("{}".toResponseBody("application/json".toMediaType()))
+                    .header("Content-Type", "application/json").build()
+                else -> null
+            }
+        }
+
+        val profile = repo.confirmedProfile(mbid)
+
+        assertEquals("Midnight Oil", profile.name)
+        assertNull(profile.portrait)
+        assertEquals(ArtistMetadataOutcome.HTTP_ERROR, profile.portraitOutcome)
+    }
+
+    @Test
+    fun blankAttributionIsRejectedBeforeAnyImageUrlIsExposed() = runBlocking {
+        val repo = repository { request ->
+            when (request.url.host) {
+                "musicbrainz.org" -> response(
+                    request,
+                    musicBrainz(relation("wikidata", "https://www.wikidata.org/wiki/Q123")),
+                )
+                "www.wikidata.org" -> response(
+                    request,
+                    wikidataEntity(claims = "{\"P18\":[{\"mainsnak\":{\"datavalue\":{\"value\":\"Midnight Oil.jpg\"}}}]}"),
+                )
+                "commons.wikimedia.org" -> response(
+                    request,
+                    """{"query":{"pages":{"1":{"imageinfo":[{"thumburl":"https://upload.wikimedia.org/wikipedia/commons/x/xx/Midnight_Oil.jpg","descriptionurl":"https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg","extmetadata":{"Attribution":{"value":" "},"LicenseShortName":{"value":"CC BY-SA 4.0"},"LicenseUrl":{"value":"https://creativecommons.org/licenses/by-sa/4.0/"}}}]}}}}""",
+                )
+                else -> null
+            }
+        }
+
+        val profile = repo.confirmedProfile(mbid)
+
+        assertNull(profile.portrait)
+        assertEquals(ArtistMetadataOutcome.BAD_ATTRIBUTION, profile.portraitOutcome)
+    }
+
+    @Test
+    fun wikipediaTimeoutIsReportedAsATransportFailureNotAsMissingText() = runBlocking {
+        val repo = repository { request ->
+            when (request.url.host) {
+                "musicbrainz.org" -> response(
+                    request,
+                    musicBrainz(relation("wikipedia", "https://es.wikipedia.org/wiki/Midnight_Oil")),
+                )
+                "es.wikipedia.org" -> throw java.net.SocketTimeoutException("timed out")
+                else -> null
+            }
+        }
+
+        val profile = repo.confirmedProfile(mbid)
+
+        assertEquals("Midnight Oil", profile.name)
+        assertNull(profile.biography)
+        assertEquals(ArtistMetadataOutcome.TIMEOUT, profile.biographyOutcome)
+    }
+
+    @Test
+    fun malformedWikidataPayloadDoesNotEraseTheIdentity() = runBlocking {
+        val repo = repository { request ->
+            when (request.url.host) {
+                "musicbrainz.org" -> response(
+                    request,
+                    musicBrainz(relation("wikidata", "https://www.wikidata.org/wiki/Q123")),
+                )
+                "www.wikidata.org" -> Response.Builder().request(request)
+                    .protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                    .body("{\"entities\":".toResponseBody("application/json".toMediaType()))
+                    .header("Content-Type", "application/json").build()
+                else -> null
+            }
+        }
+
+        val profile = repo.confirmedProfile(mbid)
+
+        assertEquals("Midnight Oil", profile.name)
+        assertEquals(ArtistMetadataOutcome.DECODE_ERROR, profile.biographyOutcome)
+        assertEquals(ArtistMetadataOutcome.DECODE_ERROR, profile.portraitOutcome)
+    }
 }

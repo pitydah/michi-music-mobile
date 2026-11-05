@@ -1,5 +1,9 @@
 package org.michimusic.mobile.artist
 
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -117,5 +121,56 @@ class ArtistEnrichmentPanelTest {
         compose.onNodeWithText("Midnight Oil").assertExists()
         compose.onNodeWithText("Banda australiana.").assertExists()
         assertEquals(1, refreshes)
+    }
+
+    @Test fun compositionAndRecompositionNeverStartAProviderLookup() {
+        var searches = 0
+        var profiles = 0
+        val fake = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String): List<ArtistLookupCandidate> {
+                searches++
+                return listOf(ArtistLookupCandidate(mbid, "Midnight Oil"))
+            }
+            override suspend fun confirmedProfile(mbid: String): ArtistExternalProfile {
+                profiles++
+                return ArtistExternalProfile(mbid, "Midnight Oil")
+            }
+        }
+        var tick by mutableStateOf(0)
+        compose.setContent {
+            Text(if (tick >= 0) "" else "unreachable")
+            ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = fake)
+        }
+        compose.runOnIdle { tick++ }
+        compose.waitForIdle()
+        assertEquals(0, searches)
+        assertEquals(0, profiles)
+    }
+
+    @Test fun confirmingIsSingleFlightAndTheCandidateDisappearsWhileItRuns() {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var profiles = 0
+        val fake = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String) =
+                listOf(ArtistLookupCandidate(mbid, "Midnight Oil"))
+            override suspend fun confirmedProfile(mbid: String): ArtistExternalProfile {
+                profiles++
+                gate.await()
+                return ArtistExternalProfile(mbid, "Midnight Oil")
+            }
+        }
+        compose.setContent { ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = fake) }
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithTag("artist_candidate_$mbid").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_candidate_$mbid").performClick()
+        compose.waitUntil(5000) { profiles == 1 }
+        compose.onNodeWithTag("artist_candidate_$mbid").assertDoesNotExist()
+        gate.complete(Unit)
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithText("MBID confirmado", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(1, profiles)
     }
 }

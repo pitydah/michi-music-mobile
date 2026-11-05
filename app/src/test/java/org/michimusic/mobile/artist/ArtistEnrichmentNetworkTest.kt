@@ -59,4 +59,69 @@ class ArtistEnrichmentNetworkTest {
             assertEquals(1, attempts.get())
         }
     }
+
+    @Test fun malformedJsonFailsClosedInsteadOfReturningNoCandidates() = runBlocking {
+        val attempts = AtomicInteger(0)
+        val client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            attempts.incrementAndGet()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("mock")
+                .body("""{"artists":[""".toResponseBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json").build()
+        }).build()
+        try {
+            ArtistEnrichmentRepository(client).findCandidates("Midnight Oil")
+            throw AssertionError("malformed JSON must fail closed")
+        } catch (e: Exception) {
+            assertEquals(1, attempts.get())
+        }
+    }
+
+    @Test fun oversizedResponseIsRejectedBeforeParsing() = runBlocking {
+        val attempts = AtomicInteger(0)
+        val client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            attempts.incrementAndGet()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(200).message("mock")
+                .body(("x".repeat(300_000)).toResponseBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json").build()
+        }).build()
+        try {
+            ArtistEnrichmentRepository(client).findCandidates("Midnight Oil")
+            throw AssertionError("oversized body must fail closed")
+        } catch (e: java.io.IOException) {
+            assertEquals(1, attempts.get())
+        }
+    }
+
+    @Test fun temporaryServiceFailureRetriesAfterTheAnnouncedDelay() = runBlocking {
+        val attempts = AtomicInteger(0)
+        val client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            val number = attempts.incrementAndGet()
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(if (number == 1) 503 else 200).message("mock")
+                .body((if (number == 1) "{}" else """{"artists":[{"id":"bd6d4f63-5cd0-4d78-a292-167997794c21","name":"Midnight Oil"}]}""")
+                    .toResponseBody("application/json".toMediaType()))
+                .header("Content-Type", "application/json")
+                .apply { if (number == 1) header("Retry-After", "0") }
+                .build()
+        }).build()
+        val candidates = ArtistEnrichmentRepository(client).findCandidates("Midnight Oil")
+        assertEquals(2, attempts.get())
+        assertEquals("Midnight Oil", candidates.single().name)
+    }
+
+    @Test fun transportFailurePropagatesInsteadOfBecomingAnEmptyIdentity() = runBlocking {
+        val attempts = AtomicInteger(0)
+        val client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            attempts.incrementAndGet()
+            throw java.io.IOException("offline")
+        }).build()
+        try {
+            ArtistEnrichmentRepository(client).findCandidates("Midnight Oil")
+            throw AssertionError("offline must fail closed")
+        } catch (e: java.io.IOException) {
+            assertEquals(1, attempts.get())
+        }
+    }
 }
