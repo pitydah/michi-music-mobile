@@ -158,7 +158,10 @@ class RoomArtistArtworkStore(
         var freed = 0L
         root.listFiles()?.forEach { file ->
             if (!file.isFile) return@forEach
-            val relative = file.relativeTo(root).invariantSeparatorsPath
+            // Asset rows store the path relative to filesDir ("artist-artwork/<sha>.jpg").
+            // Comparing against relativeTo(root) would treat every referenced file as an
+            // orphan and delete the very bytes the selection points at.
+            val relative = file.relativeTo(context.filesDir).invariantSeparatorsPath
             val orphan = relative !in referenced || file.name.endsWith(".tmp")
             if (orphan) {
                 val length = file.length()

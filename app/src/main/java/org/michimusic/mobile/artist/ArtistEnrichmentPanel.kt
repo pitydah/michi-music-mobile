@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Job
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -117,6 +118,12 @@ fun ArtistEnrichmentPanel(
     var state by remember(artistCredit, libraryId, stableGroup) {
         mutableStateOf<ArtistEnrichmentUi>(ArtistEnrichmentUi.Idle)
     }
+    // Automatic artwork resolution finishes after the verified profile is shown.
+    // The manual section keys its Room read on this revision so persisted crops
+    // appear without requiring the user to leave and re-enter Enriquecer.
+    var artworkRevision by remember(artistCredit, libraryId, stableGroup) {
+        mutableIntStateOf(0)
+    }
     var requestJob by remember(artistCredit, libraryId, stableGroup) { mutableStateOf<Job?>(null) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
     // Aero Content/Plain for the candidate rows: the same fill and hairline the rest of
@@ -185,6 +192,7 @@ fun ArtistEnrichmentPanel(
                             // The verified identity and biography remain valid even when
                             // optional artwork providers fail.
                         }
+                        artworkRevision++
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -222,6 +230,7 @@ fun ArtistEnrichmentPanel(
                         } catch (_: Exception) {
                             // Optional artwork failure never masks the refreshed profile.
                         }
+                        artworkRevision++
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -468,6 +477,7 @@ fun ArtistEnrichmentPanel(
                     artistCredit = artistCredit,
                     libraryId = libraryId,
                     albumIds = albumIds,
+                    artworkRevision = artworkRevision,
                 )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
@@ -487,6 +497,7 @@ private fun ArtistArtworkManualSection(
     artistCredit: String,
     libraryId: String?,
     albumIds: List<String>,
+    artworkRevision: Int,
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
@@ -509,7 +520,7 @@ private fun ArtistArtworkManualSection(
     var busy by remember(anchor) { mutableStateOf(false) }
     var confirmedIdentity by remember(anchor, profile.mbid) { mutableStateOf(false) }
     var message by remember(anchor) { mutableStateOf<String?>(null) }
-    LaunchedEffect(anchor, store) {
+    LaunchedEffect(anchor, store, artworkRevision) {
         selections = try {
             store.load(anchor).associateBy { it.slot }
         } catch (cancelled: CancellationException) {
