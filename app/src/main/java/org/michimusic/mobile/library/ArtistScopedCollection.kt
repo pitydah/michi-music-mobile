@@ -127,10 +127,19 @@ fun resolveArtistScopedCollection(
         )
         LocalAlbum(album, groupTracks)
     }.sortedWith(compareBy({ it.album.artist.lowercase() }, { it.album.title.lowercase() }))
-    // ALL of multiple libraries may contain homonyms: it has no persisted profile key.
+    // All with only device-local tracks is not ambiguous any more: Artist Enrichment is a
+    // local-library feature, so the canonical device library owns the identity. A mix with
+    // synced/streaming tracks keeps the previous conservative null until the user picks one.
     val identityLibraryId = when (scope) {
         is LibraryScope.One -> scope.libraryId.takeIf { id -> libraries.any { it.id == id } }
-        LibraryScope.All -> libraries.singleOrNull()?.id
+        LibraryScope.All -> {
+            val hasRemoteTracks = tracks.any { it.source != org.michimusic.core.models.TrackSource.LOCAL }
+            if (tracks.isNotEmpty() && !hasRemoteTracks) {
+                org.michimusic.data.cache.MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID
+            } else {
+                libraries.singleOrNull()?.id
+            }
+        }
     }
     return ArtistScopedCollection(true, scopedAlbums, identityLibraryId, scope,
         playableTrackIds = playableIds)

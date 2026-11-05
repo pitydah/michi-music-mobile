@@ -48,10 +48,19 @@ class ArtistScopedCollectionTest {
         assertEquals("two", scopeB.identityLibraryId)
     }
 
-    @Test fun allLibrariesDoesNotAttachSingleLibraryPortraitIdentity() {
+    @Test fun allLocalLibraryResolvesTheCanonicalDeviceIdentity() {
         val state = resolveArtistScopedCollection(originals, LibraryScope.All, listOf(one,two), listOf(resolved(a)))
-        assertNull(state.identityLibraryId)
+        // Artist Enrichment is local-only: MediaStore tracks belong to the device library,
+        // so "All" with no remote content is not an ambiguous identity.
+        assertEquals(org.michimusic.data.cache.MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID, state.identityLibraryId)
         assertEquals(3, state.albums.flatMap { it.tracks }.size)
+    }
+
+    @Test fun allWithSyncedTracksKeepsTheIdentityUnresolved() {
+        val synced = c.copy(id = "id-4", source = org.michimusic.core.models.TrackSource.SYNCED)
+        val withRemote = originals + LocalAlbum(Album("album-nas", "NAS", "Other"), listOf(synced))
+        val state = resolveArtistScopedCollection(withRemote, LibraryScope.All, listOf(one,two), listOf(resolved(a)))
+        assertNull(state.identityLibraryId)
     }
 
     @Test fun oneLibraryEmptyMembershipNeverFallsBackToUnscopedMedia() {
