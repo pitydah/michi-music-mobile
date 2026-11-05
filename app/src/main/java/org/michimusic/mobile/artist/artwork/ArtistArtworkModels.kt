@@ -36,6 +36,7 @@ enum class ArtworkLoadStatus {
     REJECTED,
     PROVIDER_ERROR,
     CACHE_ERROR,
+    IDENTITY_MISMATCH,
 }
 
 enum class ArtworkProviderStatus { AVAILABLE, NO_MATCH, FAILURE, DISABLED, SKIPPED }

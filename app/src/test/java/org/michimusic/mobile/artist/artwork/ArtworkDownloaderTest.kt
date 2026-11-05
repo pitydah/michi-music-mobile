@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -15,6 +16,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -123,6 +125,59 @@ class ArtworkDownloaderTest {
         assertEquals(ArtworkLoadStatus.READY, verifyCachedArtwork(context, selection).status)
         val missing = verifyCachedArtwork(context, selection.copy(localImagePath = null))
         assertEquals(ArtworkLoadStatus.CACHE_ERROR, missing.status)
+    }
+
+    @Test
+    fun hashMismatchAndPathsOutsideThePrivateRootAreRejected() = runBlocking {
+        val downloaded = ArtworkDownloader(context, client()).download(candidate())
+        val file = java.io.File(context.filesDir, downloaded.relativePath)
+        val valid = ArtistArtworkSelection(
+            slot = ArtworkSlot.ARTIST_THUMB,
+            assetId = "sha256:${downloaded.sha256}",
+            confirmedMbid = "05072650-4b05-4e8b-83d0-dba2576e306a",
+            localImagePath = file.absolutePath,
+            focus = ArtworkFocus(),
+            manuallyChosen = false,
+            revision = 1L,
+        )
+        assertEquals(ArtworkLoadStatus.READY, verifyCachedArtwork(context, valid).status)
+        assertEquals(
+            ArtworkLoadStatus.CACHE_ERROR,
+            verifyCachedArtwork(context, valid.copy(assetId = "sha256:" + "0".repeat(64))).status,
+        )
+        val outside = java.io.File(context.filesDir, "outside-artwork.png")
+            .apply { writeBytes(png()) }
+        assertEquals(
+            ArtworkLoadStatus.CACHE_ERROR,
+            verifyCachedArtwork(context, valid.copy(localImagePath = outside.absolutePath)).status,
+        )
+    }
+
+    @Test
+    fun symlinkInsideTheCacheRootIsRejectedEvenWhenBytesDecode() = runBlocking {
+        val downloaded = ArtworkDownloader(context, client()).download(candidate())
+        val target = java.io.File(context.filesDir, downloaded.relativePath)
+        val link = java.io.File(target.parentFile, "symlink-${System.nanoTime()}.png")
+        try {
+            Files.createSymbolicLink(link.toPath(), target.toPath())
+        } catch (_: UnsupportedOperationException) {
+            assumeTrue("Filesystem does not support symlinks", false)
+        } catch (_: IOException) {
+            assumeTrue("Filesystem does not allow symlinks here", false)
+        }
+        val selection = ArtistArtworkSelection(
+            slot = ArtworkSlot.ARTIST_THUMB,
+            assetId = "sha256:${downloaded.sha256}",
+            confirmedMbid = "05072650-4b05-4e8b-83d0-dba2576e306a",
+            localImagePath = link.absolutePath,
+            focus = ArtworkFocus(),
+            manuallyChosen = false,
+            revision = 1L,
+        )
+        assertEquals(
+            ArtworkLoadStatus.CACHE_ERROR,
+            verifyCachedArtwork(context, selection).status,
+        )
     }
 
     @Test

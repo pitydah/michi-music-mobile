@@ -109,6 +109,15 @@ fun originPageConfirmsLicense(
     if (html.contains("<!DOCTYPE", ignoreCase = true).not() && html.contains("<html", ignoreCase = true).not()) {
         return false
     }
+    // A licence link anywhere on Flickr is not evidence for this photo. The page must
+    // identify the exact photo from the origin URL before its licence can be trusted.
+    val segments = origin.rawPath.orEmpty().trim('/').split('/')
+    if (segments.size < 3) return false
+    val owner = segments[1]
+    val photoId = segments[2]
+    if (photoId.isBlank() || !photoId.all(Char::isDigit)) return false
+    val canonical = "https://www.flickr.com/photos/$owner/$photoId"
+    if (!html.contains(canonical, ignoreCase = true)) return false
     val found = Regex(
         "https?://(?:www\\.)?creativecommons\\.org/(licenses|publicdomain)/([a-z-]+)(?:/([0-9.]+))?",
         RegexOption.IGNORE_CASE,

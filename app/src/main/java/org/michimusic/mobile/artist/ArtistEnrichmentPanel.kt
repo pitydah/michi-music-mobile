@@ -18,8 +18,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -50,6 +53,7 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistArtworkService
+import org.michimusic.mobile.artist.artwork.ArtworkFocus
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.ProviderArtworkResult
@@ -503,6 +507,7 @@ private fun ArtistArtworkManualSection(
         mutableStateOf<List<ArtistArtworkCandidate>>(emptyList())
     }
     var busy by remember(anchor) { mutableStateOf(false) }
+    var confirmedIdentity by remember(anchor, profile.mbid) { mutableStateOf(false) }
     var message by remember(anchor) { mutableStateOf<String?>(null) }
     LaunchedEffect(anchor, store) {
         selections = try {
@@ -519,12 +524,14 @@ private fun ArtistArtworkManualSection(
     selections.values.sortedBy { it.slot.ordinal }.forEach { selection ->
         val file = selection.localImagePath?.takeIf { it.isNotBlank() }?.let(::File)
         if (file != null && selection.status == ArtworkLoadStatus.READY) {
+            val live = selections[selection.slot] ?: selection
             AsyncImage(
                 model = file,
                 contentDescription = if (selection.slot == ArtworkSlot.ARTIST_THUMB)
                     "Retrato alternativo para el mosaico de $artistCredit"
                 else "Retrato alternativo para la ficha de $artistCredit",
                 contentScale = ContentScale.Crop,
+                alignment = BiasAlignment(live.focus.x * 2f - 1f, live.focus.y * 2f - 1f),
                 modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .testTag("artist_artwork_saved_${selection.slot.name}"),
@@ -533,6 +540,55 @@ private fun ArtistArtworkManualSection(
                 "${selection.attribution.orEmpty()} · ${selection.licenseId.orEmpty()}",
                 color = TextSecondary, fontSize = 10.sp, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
+            Text("Encuadre ${selection.slot.name.lowercase().replace('_', ' ')}: " +
+                "${(live.focus.x * 100).toInt()}% / ${(live.focus.y * 100).toInt()}%",
+                color = TextSecondary, fontSize = 10.sp)
+            Slider(
+                value = live.focus.x,
+                onValueChange = { value ->
+                    val current = selections[selection.slot] ?: selection
+                    selections = selections + (selection.slot to
+                        current.copy(focus = current.focus.copy(x = value)))
+                },
+                onValueChangeFinished = {
+                    val current = selections[selection.slot] ?: selection
+                    scope.launch {
+                        try {
+                            coordinator.updateFocus(anchor, selection.slot, current.focus)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            message = "No fue posible guardar el encuadre: ${error.message ?: "error"}"
+                        }
+                    }
+                },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth()
+                    .testTag("artist_artwork_focus_x_${selection.slot.name}"),
+            )
+            Slider(
+                value = live.focus.y,
+                onValueChange = { value ->
+                    val current = selections[selection.slot] ?: selection
+                    selections = selections + (selection.slot to
+                        current.copy(focus = current.focus.copy(y = value)))
+                },
+                onValueChangeFinished = {
+                    val current = selections[selection.slot] ?: selection
+                    scope.launch {
+                        try {
+                            coordinator.updateFocus(anchor, selection.slot, current.focus)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            message = "No fue posible guardar el encuadre: ${error.message ?: "error"}"
+                        }
+                    }
+                },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth()
+                    .testTag("artist_artwork_focus_y_${selection.slot.name}"),
+            )
         }
     }
     OutlinedButton(
@@ -568,6 +624,26 @@ private fun ArtistArtworkManualSection(
     ) { Text(if (busy) "Consultando Openverse…" else "Buscar retrato alternativo (Openverse)") }
     message?.let { Text(it, color = TextSecondary, fontSize = 11.sp,
         modifier = Modifier.testTag("artist_artwork_openverse_status")) }
+    if (candidates.isNotEmpty()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable {
+                confirmedIdentity = !confirmedIdentity
+            },
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Checkbox(
+                checked = confirmedIdentity,
+                onCheckedChange = { confirmedIdentity = it },
+                modifier = Modifier.testTag("artist_artwork_identity_confirm"),
+            )
+            Text(
+                "Confirmo que la foto elegida corresponde a $artistCredit " +
+                    "(MBID ${profile.mbid}). La identidad no se deduce por nombre.",
+                color = TextSecondary, fontSize = 11.sp,
+            )
+        }
+    }
     candidates.take(4).forEachIndexed { index, candidate ->
         AsyncImage(
             model = candidate.imageUrl,
@@ -606,7 +682,7 @@ private fun ArtistArtworkManualSection(
                                 }
                             }
                         },
-                        enabled = !busy,
+                        enabled = !busy && confirmedIdentity,
                         modifier = Modifier.heightIn(min = 48.dp)
                             .testTag("artist_artwork_choose_${slot.name}_$index"),
                         colors = secondaryColors,

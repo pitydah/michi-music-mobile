@@ -16,7 +16,9 @@ import org.michimusic.mobile.network.MICHI_HTTP_USER_AGENT
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -43,7 +45,7 @@ class ArtworkDownloader(
         .followSslRedirects(false)
         .build(),
 ) {
-    suspend fun download(candidate: ArtistArtworkCandidate): DownloadedArtwork {
+    suspend fun download(candidate: ArtistArtworkCandidate): DownloadedArtwork = withContext(Dispatchers.IO) {
         if (!allowedArtworkImageUrl(candidate.source, candidate.imageUrl)) {
             throw ArtworkCacheException("Origen de imagen no autorizado")
         }
@@ -93,6 +95,7 @@ class ArtworkDownloader(
                 if (bounds.outWidth.toLong() * bounds.outHeight > MAX_PIXELS) {
                     throw ArtworkCacheException("Resolución excesiva")
                 }
+                decodeProbe(temp, bounds)
                 val mime = bounds.outMimeType?.lowercase()
                     ?.takeIf { it in ALLOWED_MIME }
                     ?: headerType
@@ -107,7 +110,7 @@ class ArtworkDownloader(
                 val final = File(context.filesDir, relative)
                 if (final.isFile && final.length() == total && sha256Of(final) == sha) {
                     temp.delete()
-                    return DownloadedArtwork(relative, sha, bounds.outWidth, bounds.outHeight, mime)
+                    return@withContext DownloadedArtwork(relative, sha, bounds.outWidth, bounds.outHeight, mime)
                 }
                 if (!temp.renameTo(final)) {
                     temp.copyTo(final, overwrite = true)
@@ -117,7 +120,7 @@ class ArtworkDownloader(
                     final.delete()
                     throw ArtworkCacheException("Escritura de imagen no íntegra")
                 }
-                return DownloadedArtwork(relative, sha, bounds.outWidth, bounds.outHeight, mime)
+                return@withContext DownloadedArtwork(relative, sha, bounds.outWidth, bounds.outHeight, mime)
             }
         } catch (error: CancellationException) {
             temp.delete()
@@ -132,6 +135,24 @@ class ArtworkDownloader(
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, options)
         return options
+    }
+
+    /** Bounds prove the header; one bounded sampled decode proves real pixel data. */
+    private fun decodeProbe(file: File, bounds: BitmapFactory.Options) {
+        var sample = 1
+        while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) {
+            sample *= 2
+        }
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
+            ?: throw ArtworkCacheException("Imagen no decodificable")
+        try {
+            if (bitmap.width <= 0 || bitmap.height <= 0) {
+                throw ArtworkCacheException("Imagen no decodificable")
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun sha256Of(file: File): String = with(MessageDigest.getInstance("SHA-256")) {
@@ -177,15 +198,57 @@ class ArtworkDownloader(
 suspend fun verifyCachedArtwork(context: Context, selection: ArtistArtworkSelection): ArtistArtworkSelection =
     withContext(Dispatchers.IO) {
         val path = selection.localImagePath ?: return@withContext selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
-        val file = File(path)
-        if (!file.isFile || file.length() <= 0L || file.length() > ArtworkDownloader.MAX_IMAGE_BYTES) {
+        val root = File(context.filesDir, ArtworkDownloader.DIRECTORY).canonicalFile
+        val raw = File(path)
+        // Inspect the link itself before canonicalization: canonicalFile resolves
+        // symlinks, which would hide a link pointing at valid bytes.
+        if (Files.isSymbolicLink(raw.toPath())) {
             return@withContext selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
         }
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(path, options)
-        if (options.outWidth <= 0 || options.outHeight <= 0) {
-            selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
-        } else {
-            selection.copy(status = ArtworkLoadStatus.READY)
+        val file = runCatching { raw.canonicalFile }.getOrNull()
+            ?: return@withContext selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
+        val expected = selection.assetId.removePrefix("sha256:").lowercase()
+        val validPath = file.path.startsWith(root.path + File.separator) &&
+            file.isFile && !Files.isSymbolicLink(file.toPath())
+        if (!validPath || expected.length != 64 ||
+            file.length() <= 0L || file.length() > ArtworkDownloader.MAX_IMAGE_BYTES) {
+            return@withContext selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
+        }
+        val memoKey = "${file.path}|${file.length()}|${file.lastModified()}|$expected"
+        val valid = verifiedFileCache.computeIfAbsent(memoKey) {
+            sha256OfFile(file).equals(expected, ignoreCase = true) && probeDecodeFile(file)
+        }
+        selection.copy(status = if (valid) ArtworkLoadStatus.READY else ArtworkLoadStatus.CACHE_ERROR)
+    }
+
+private val verifiedFileCache = ConcurrentHashMap<String, Boolean>()
+
+private fun sha256OfFile(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(32 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
         }
     }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+private fun probeDecodeFile(file: File): Boolean {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
+    if (bounds.outWidth.toLong() * bounds.outHeight > ArtworkDownloader.MAX_PIXELS) return false
+    var sample = 1
+    while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) sample *= 2
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    val bitmap = runCatching { BitmapFactory.decodeFile(file.absolutePath, options) }.getOrNull()
+        ?: return false
+    return try {
+        bitmap.width > 0 && bitmap.height > 0
+    } finally {
+        bitmap.recycle()
+    }
+}

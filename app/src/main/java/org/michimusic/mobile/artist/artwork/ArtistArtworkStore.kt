@@ -1,10 +1,14 @@
 package org.michimusic.mobile.artist.artwork
 
 import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.michimusic.data.artist.ArtistArtworkAssetRecord
+import org.michimusic.data.artist.ArtistArtworkLinkRecord
 import org.michimusic.data.artist.ArtistArtworkSelectionRecord
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
+import java.io.File
 
 interface ArtistArtworkStore {
     suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection>
@@ -20,6 +24,9 @@ interface ArtistArtworkStore {
     suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean
     suspend fun clear(anchor: ArtistIdentityAnchor)
     suspend fun counts(): Pair<Int, Int>
+
+    /** Removes orphan files only; referenced artwork is never deleted by quota enforcement. */
+    suspend fun pruneCache(): Long = 0L
 }
 
 /** Absolute path is derived at read time; the database only stores a private relative path. */
@@ -31,8 +38,18 @@ class RoomArtistArtworkStore(
     private val dao get() = database.artistEnrichmentDao()
 
     override suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> {
-        val rows = dao.getArtworkSelections(anchor.libraryId, anchor.creditKey, anchor.albumGroupKey)
-        return rows.mapNotNull { row -> row.toSelection(dao.getArtworkAsset(row.assetId)) }
+        val rows = dao.getArtworkSelections(
+            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
+        )
+        return rows.mapNotNull { row ->
+            row.toSelection(
+                asset = dao.getArtworkAsset(row.assetId),
+                link = dao.getArtworkLink(
+                    anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, row.slot,
+                    anchor.confirmedMbid,
+                ),
+            )
+        }
     }
 
     override suspend fun loadAsset(assetId: String): ArtistArtworkSelection? {
@@ -84,12 +101,31 @@ class RoomArtistArtworkStore(
             revision = now,
             updatedAtMs = now,
         )
-        dao.persistArtwork(asset, selection)
-        return requireNotNull(asset.toSelection(selection)) { "Selección de artwork no legible" }
+        val link = ArtistArtworkLinkRecord(
+            libraryId = anchor.libraryId,
+            creditKey = anchor.creditKey,
+            albumGroupKey = anchor.albumGroupKey,
+            slot = slot.name,
+            confirmedMbid = anchor.confirmedMbid,
+            assetId = assetId,
+            verifiedQid = candidate.verifiedQid,
+            source = candidate.source.name,
+            sourcePageUrl = candidate.canonicalSourcePage,
+            imageUrl = candidate.imageUrl,
+            licenseId = candidate.licenseId.orEmpty(),
+            licenseUrl = candidate.licenseUrl.orEmpty(),
+            attribution = candidate.attribution.orEmpty(),
+            evidence = candidate.evidence.name,
+            linkedAtMs = now,
+        )
+        dao.persistArtwork(asset, link, selection)
+        return requireNotNull(selection.toSelection(asset, link)) { "Selección de artwork no legible" }
     }
 
     override suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean {
-        val rows = dao.getArtworkSelections(anchor.libraryId, anchor.creditKey, anchor.albumGroupKey)
+        val rows = dao.getArtworkSelections(
+            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
+        )
         val row = rows.firstOrNull { it.slot == slot.name } ?: return false
         val normalized = focus.normalized()
         dao.putArtworkSelection(row.copy(
@@ -102,15 +138,44 @@ class RoomArtistArtworkStore(
     }
 
     override suspend fun clear(anchor: ArtistIdentityAnchor) {
-        dao.clearArtworkSelections(anchor.libraryId, anchor.creditKey, anchor.albumGroupKey)
+        dao.clearArtworkSelections(
+            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
+        )
+        dao.clearArtworkLinks(
+            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
+        )
     }
 
     override suspend fun counts(): Pair<Int, Int> =
         dao.countArtworkSelections() to dao.countArtworkAssets()
 
-    private fun ArtistArtworkSelectionRecord.toSelection(asset: ArtistArtworkAssetRecord?): ArtistArtworkSelection? {
+    override suspend fun pruneCache(): Long = withContext(Dispatchers.IO) {
+        // Orphan asset rows are removed first; files referenced by any selection are kept.
+        dao.deleteUnreferencedArtworkAssets()
+        val referenced = dao.getAllArtworkAssets().map { it.localRelativePath }.toSet()
+        val root = File(context.filesDir, ArtworkDownloader.DIRECTORY)
+        if (!root.isDirectory) return@withContext 0L
+        var freed = 0L
+        root.listFiles()?.forEach { file ->
+            if (!file.isFile) return@forEach
+            val relative = file.relativeTo(root).invariantSeparatorsPath
+            val orphan = relative !in referenced || file.name.endsWith(".tmp")
+            if (orphan) {
+                val length = file.length()
+                if (file.delete()) freed += length
+            }
+        }
+        freed
+    }
+
+    private fun ArtistArtworkSelectionRecord.toSelection(
+        asset: ArtistArtworkAssetRecord?,
+        link: ArtistArtworkLinkRecord?,
+    ): ArtistArtworkSelection? {
         val slotValue = runCatching { ArtworkSlot.valueOf(slot) }.getOrNull() ?: return null
-        if (asset == null) {
+        if (asset == null || link == null || link.assetId != asset.assetId ||
+            link.confirmedMbid != confirmedMbid
+        ) {
             return ArtistArtworkSelection(
                 slot = slotValue,
                 assetId = assetId,
@@ -119,7 +184,7 @@ class RoomArtistArtworkStore(
                 focus = ArtworkFocus(focusX, focusY),
                 manuallyChosen = manuallyChosen,
                 revision = revision,
-                status = ArtworkLoadStatus.CACHE_ERROR,
+                status = ArtworkLoadStatus.IDENTITY_MISMATCH,
             )
         }
         val path = java.io.File(context.filesDir, asset.localRelativePath)
@@ -132,11 +197,11 @@ class RoomArtistArtworkStore(
             focus = ArtworkFocus(focusX, focusY),
             manuallyChosen = manuallyChosen,
             revision = revision,
-            sourcePageUrl = asset.sourcePageUrl,
-            licenseId = asset.licenseId,
-            licenseUrl = asset.licenseUrl,
-            attribution = asset.attribution,
-            source = runCatching { ArtworkSource.valueOf(asset.source) }.getOrNull(),
+            sourcePageUrl = link.sourcePageUrl,
+            licenseId = link.licenseId,
+            licenseUrl = link.licenseUrl,
+            attribution = link.attribution,
+            source = runCatching { ArtworkSource.valueOf(link.source) }.getOrNull(),
             status = if (exists) ArtworkLoadStatus.READY else ArtworkLoadStatus.CACHE_ERROR,
         )
     }

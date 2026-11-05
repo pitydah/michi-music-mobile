@@ -2,10 +2,13 @@ package org.michimusic.data.artist
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.testing.MigrationTestHelper
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -13,6 +16,11 @@ import org.robolectric.RobolectricTestRunner
 /** v1 -> v2 preserves previously selected artists; no destructive migration is permitted. */
 @RunWith(RobolectricTestRunner::class)
 class ArtistEnrichmentMigrationTest {
+    @get:Rule
+    val helper = MigrationTestHelper(
+        InstrumentationRegistry.getInstrumentation(),
+        ArtistEnrichmentCacheDatabase::class.java,
+    )
     @Test fun oldSelectedArtistSurvivesAddingPerTrackEvidenceTable() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "artist-migration-${System.nanoTime()}.db"
@@ -40,7 +48,8 @@ class ArtistEnrichmentMigrationTest {
         } finally { legacy.close() }
         val upgraded = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
             .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
-                ArtistEnrichmentCacheDatabase.MIGRATION_2_3)
+                ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
+                ArtistEnrichmentCacheDatabase.MIGRATION_3_4)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -89,7 +98,8 @@ class ArtistEnrichmentMigrationTest {
         } finally { legacy.close() }
         val upgraded = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
             .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
-                ArtistEnrichmentCacheDatabase.MIGRATION_2_3)
+                ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
+                ArtistEnrichmentCacheDatabase.MIGRATION_3_4)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -99,6 +109,62 @@ class ArtistEnrichmentMigrationTest {
         } finally {
             upgraded.close()
             context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun v3SelectionsGainMbidScopedLinksWithoutLosingProvenance() = runBlocking {
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val name = "artist-migration-3-4-${System.nanoTime()}.db"
+        helper.createDatabase(name, 3).apply {
+            execSQL("""
+                INSERT INTO `artist_artwork_asset`
+                    (`assetId`,`confirmedMbid`,`verifiedQid`,`source`,`sourcePageUrl`,
+                     `imageUrl`,`localRelativePath`,`sha256`,`mimeType`,`width`,`height`,
+                     `licenseId`,`licenseUrl`,`attribution`,`evidence`,`downloadedAtMs`)
+                VALUES('sha256:abc','$mbid','Q48284','COMMONS_P18',
+                       'https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg',
+                       'https://thumb.wikimedia.org/Midnight_Oil.jpg',
+                       'artist-artwork/abc.jpg','abc','image/jpeg',1920,1280,
+                       'CC BY-SA 2.0','https://creativecommons.org/licenses/by-sa/2.0/',
+                       'Fab_Photo_29','VERIFIED_QID_REFERENCE',1)
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO `artist_artwork_selection`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`slot`,`assetId`,
+                     `confirmedMbid`,`focusX`,`focusY`,`manuallyChosen`,`revision`,`updatedAtMs`)
+                VALUES('lib-a','artist','group','ARTIST_THUMB','sha256:abc',
+                       '$mbid',0.5,0.5,0,7,9)
+            """.trimIndent())
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 4, true, ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
+        )
+        try {
+            upgraded.query(
+                "SELECT assetId, licenseId, attribution FROM artist_artwork_link " +
+                    "WHERE libraryId=? AND creditKey=? AND albumGroupKey=? AND slot=? AND confirmedMbid=?",
+                arrayOf("lib-a", "artist", "group", "ARTIST_THUMB", mbid),
+            ).use { link ->
+                assertTrue(link.moveToFirst())
+                assertEquals("sha256:abc", link.getString(0))
+                assertEquals("CC BY-SA 2.0", link.getString(1))
+                assertEquals("Fab_Photo_29", link.getString(2))
+            }
+            fun selectionCount(selectedMbid: String): Int = upgraded.query(
+                "SELECT COUNT(*) FROM artist_artwork_selection " +
+                    "WHERE libraryId=? AND creditKey=? AND albumGroupKey=? AND confirmedMbid=?",
+                arrayOf("lib-a", "artist", "group", selectedMbid),
+            ).use { count ->
+                assertTrue(count.moveToFirst())
+                count.getInt(0)
+            }
+            assertEquals(1, selectionCount(mbid))
+            assertEquals(0, selectionCount(otherMbid))
+        } finally {
+            upgraded.close()
         }
     }
 }

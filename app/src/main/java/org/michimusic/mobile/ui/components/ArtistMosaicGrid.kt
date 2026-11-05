@@ -109,17 +109,27 @@ fun ArtistMosaicGrid(
                 artwork = null
                 try {
                     var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
-                    if (libraryId == null) {
-                        // ALL: only paint a photo if EVERY participating library has the same
-                        // explicitly confirmed MBID. Unassigned/ambiguous credits fail closed.
-                        val result = resolveArtistProfileConsensus(artist.profileScopes, store)
-                        currentCoroutineContext().ensureActive()
-                        portrait = result.portrait
-                        savedProfile = result.saved?.profile
-                    } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                    if (artworkStore == null) {
+                        if (libraryId == null) {
+                            // ALL: only paint a photo if EVERY participating library has the same
+                            // explicitly confirmed MBID. Unassigned/ambiguous credits fail closed.
+                            val result = resolveArtistProfileConsensus(artist.profileScopes, store)
+                            currentCoroutineContext().ensureActive()
+                            portrait = result.portrait
+                            savedProfile = result.saved?.profile
+                        } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                            val saved = store.load(libraryId, artist.credit, albumIds)
+                            currentCoroutineContext().ensureActive()
+                            portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
+                            savedProfile = saved?.profile
+                        }
+                    } else if (libraryId != null &&
+                        scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                        // Production mosaic never lets a legacy portrait URL reach Coil:
+                        // only the persisted, decoded artwork file may paint a tile. Recovery
+                        // lives in Enriquecer, not in a network request while scrolling.
                         val saved = store.load(libraryId, artist.credit, albumIds)
                         currentCoroutineContext().ensureActive()
-                        portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
                         savedProfile = saved?.profile
                     }
                     if (artworkStore != null && libraryId != null) {

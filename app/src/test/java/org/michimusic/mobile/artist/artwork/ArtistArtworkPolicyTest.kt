@@ -119,8 +119,10 @@ class ArtistArtworkPolicyTest {
     }
 
     @Test
-    fun flickrOriginPageMustStateTheExactLicense() {
-        val page = "<!DOCTYPE html><html><a href=\"https://creativecommons.org/licenses/by/2.0/\">CC BY 2.0</a></html>"
+    fun flickrOriginPageMustStateTheExactLicenseForTheSamePhoto() {
+        val page = "<!DOCTYPE html><html><link rel=\"canonical\" " +
+            "href=\"https://www.flickr.com/photos/130010035@N04/51904192325\">" +
+            "<a href=\"https://creativecommons.org/licenses/by/2.0/\">CC BY 2.0</a></html>"
         assertTrue(originPageConfirmsLicense(
             "https://www.flickr.com/photos/130010035@N04/51904192325",
             "https://creativecommons.org/licenses/by/2.0/",
@@ -129,6 +131,11 @@ class ArtistArtworkPolicyTest {
         assertFalse(originPageConfirmsLicense(
             "https://www.flickr.com/photos/130010035@N04/51904192325",
             "https://creativecommons.org/licenses/by-sa/2.0/",
+            page,
+        ))
+        assertFalse(originPageConfirmsLicense(
+            "https://www.flickr.com/photos/130010035@N04/99999999999",
+            "https://creativecommons.org/licenses/by/2.0/",
             page,
         ))
         assertFalse(originPageConfirmsLicense(

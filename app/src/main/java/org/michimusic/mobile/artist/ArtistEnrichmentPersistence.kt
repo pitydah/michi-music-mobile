@@ -126,6 +126,7 @@ object ArtistEnrichmentPersistence {
                 .addMigrations(
                     ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
                     ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                 )
                 .build().also { databaseInstance = it }
         }

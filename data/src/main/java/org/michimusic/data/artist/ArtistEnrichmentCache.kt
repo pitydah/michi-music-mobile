@@ -91,6 +91,34 @@ data class ArtistArtworkSelectionRecord(
     val updatedAtMs: Long,
 )
 
+/**
+ * Per-artist provenance for an immutable content-addressed asset. The asset row only
+ * describes bytes; this row keeps every attribution, licence and identity binding scoped
+ * to one library/artist/MBID/slot so two artists can never overwrite each other.
+ */
+@Entity(
+    tableName = "artist_artwork_link",
+    primaryKeys = ["libraryId", "creditKey", "albumGroupKey", "slot", "confirmedMbid"],
+    indices = [Index(value = ["assetId"])],
+)
+data class ArtistArtworkLinkRecord(
+    val libraryId: String,
+    val creditKey: String,
+    val albumGroupKey: String,
+    val slot: String,
+    val confirmedMbid: String,
+    val assetId: String,
+    val verifiedQid: String?,
+    val source: String,
+    val sourcePageUrl: String,
+    val imageUrl: String,
+    val licenseId: String,
+    val licenseUrl: String,
+    val attribution: String,
+    val evidence: String,
+    val linkedAtMs: Long,
+)
+
 @Dao
 interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
@@ -123,17 +151,62 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_artwork_asset WHERE assetId = :assetId LIMIT 1")
     suspend fun getArtworkAsset(assetId: String): ArtistArtworkAssetRecord?
 
+    @Query("SELECT * FROM artist_artwork_asset")
+    suspend fun getAllArtworkAssets(): List<ArtistArtworkAssetRecord>
+
+    @Query("DELETE FROM artist_artwork_asset WHERE assetId NOT IN (SELECT DISTINCT assetId FROM artist_artwork_selection)")
+    suspend fun deleteUnreferencedArtworkAssets(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putArtworkAsset(asset: ArtistArtworkAssetRecord)
 
-    @Query("SELECT * FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey")
-    suspend fun getArtworkSelections(libraryId: String, creditKey: String, albumGroupKey: String): List<ArtistArtworkSelectionRecord>
+    @Query("SELECT * FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND confirmedMbid = :confirmedMbid")
+    suspend fun getArtworkSelections(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        confirmedMbid: String,
+    ): List<ArtistArtworkSelectionRecord>
+
+    @Query("SELECT * FROM artist_artwork_link WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid = :confirmedMbid LIMIT 1")
+    suspend fun getArtworkLink(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        slot: String,
+        confirmedMbid: String,
+    ): ArtistArtworkLinkRecord?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putArtworkLink(link: ArtistArtworkLinkRecord)
+
+    @Query("DELETE FROM artist_artwork_link WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid != :confirmedMbid")
+    suspend fun deleteOtherArtworkLinks(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        slot: String,
+        confirmedMbid: String,
+    ): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putArtworkSelection(selection: ArtistArtworkSelectionRecord)
 
-    @Query("DELETE FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey")
-    suspend fun clearArtworkSelections(libraryId: String, creditKey: String, albumGroupKey: String): Int
+    @Query("DELETE FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND confirmedMbid = :confirmedMbid")
+    suspend fun clearArtworkSelections(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        confirmedMbid: String,
+    ): Int
+
+    @Query("DELETE FROM artist_artwork_link WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND confirmedMbid = :confirmedMbid")
+    suspend fun clearArtworkLinks(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        confirmedMbid: String,
+    ): Int
 
     @Query("SELECT COUNT(*) FROM artist_artwork_selection WHERE libraryId = :libraryId")
     suspend fun countArtworkSelectionsForLibrary(libraryId: String): Int
@@ -145,8 +218,20 @@ interface ArtistEnrichmentDao {
     suspend fun countArtworkAssets(): Int
 
     @Transaction
-    suspend fun persistArtwork(asset: ArtistArtworkAssetRecord, selection: ArtistArtworkSelectionRecord) {
+    suspend fun persistArtwork(
+        asset: ArtistArtworkAssetRecord,
+        link: ArtistArtworkLinkRecord,
+        selection: ArtistArtworkSelectionRecord,
+    ) {
         putArtworkAsset(asset)
+        deleteOtherArtworkLinks(
+            libraryId = link.libraryId,
+            creditKey = link.creditKey,
+            albumGroupKey = link.albumGroupKey,
+            slot = link.slot,
+            confirmedMbid = link.confirmedMbid,
+        )
+        putArtworkLink(link)
         putArtworkSelection(selection)
     }
 }
@@ -157,8 +242,9 @@ interface ArtistEnrichmentDao {
         ArtistTrackEvidenceRecord::class,
         ArtistArtworkAssetRecord::class,
         ArtistArtworkSelectionRecord::class,
+        ArtistArtworkLinkRecord::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -219,6 +305,43 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                 )
             """.trimIndent())
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_artwork_selection_assetId` ON `artist_artwork_selection` (`assetId`)")
+        }
+
+        /** R11.1: provenance is scoped per artist/MBID/slot; asset stays immutable content. */
+        val MIGRATION_3_4 = Migration(3, 4) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_link` (
+                    `libraryId` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL,
+                    `albumGroupKey` TEXT NOT NULL,
+                    `slot` TEXT NOT NULL,
+                    `confirmedMbid` TEXT NOT NULL,
+                    `assetId` TEXT NOT NULL,
+                    `verifiedQid` TEXT,
+                    `source` TEXT NOT NULL,
+                    `sourcePageUrl` TEXT NOT NULL,
+                    `imageUrl` TEXT NOT NULL,
+                    `licenseId` TEXT NOT NULL,
+                    `licenseUrl` TEXT NOT NULL,
+                    `attribution` TEXT NOT NULL,
+                    `evidence` TEXT NOT NULL,
+                    `linkedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `creditKey`, `albumGroupKey`, `slot`, `confirmedMbid`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                INSERT OR REPLACE INTO `artist_artwork_link` (
+                    `libraryId`, `creditKey`, `albumGroupKey`, `slot`, `confirmedMbid`,
+                    `assetId`, `verifiedQid`, `source`, `sourcePageUrl`, `imageUrl`,
+                    `licenseId`, `licenseUrl`, `attribution`, `evidence`, `linkedAtMs`
+                )
+                SELECT s.`libraryId`, s.`creditKey`, s.`albumGroupKey`, s.`slot`, s.`confirmedMbid`,
+                       a.`assetId`, a.`verifiedQid`, a.`source`, a.`sourcePageUrl`, a.`imageUrl`,
+                       a.`licenseId`, a.`licenseUrl`, a.`attribution`, a.`evidence`, s.`updatedAtMs`
+                FROM `artist_artwork_selection` s
+                INNER JOIN `artist_artwork_asset` a ON a.`assetId` = s.`assetId`
+            """.trimIndent())
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_artwork_link_assetId` ON `artist_artwork_link` (`assetId`)")
         }
     }
 }

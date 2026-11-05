@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import java.io.ByteArrayOutputStream
+import java.io.File
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
@@ -84,6 +85,9 @@ class ArtistArtworkCoordinatorTest {
         val url = chain.request().url
         onRequest(url.toString())
         val body = when {
+            url.host == "www.wikidata.org" && url.queryParameter("sites") == "commonswiki" ->
+                """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
+                    .toResponseBody("application/json".toMediaType())
             url.host == "www.wikidata.org" -> wikidataBody.toResponseBody("application/json".toMediaType())
             url.host == "commons.wikimedia.org" && url.queryParameter("list") == "search" ->
                 commonsSearchBody.toResponseBody("application/json".toMediaType())
@@ -103,7 +107,8 @@ class ArtistArtworkCoordinatorTest {
         val selections = linkedMapOf<ArtworkSlot, ArtistArtworkSelection>()
         var saves = 0
 
-        override suspend fun load(anchor: ArtistIdentityAnchor) = selections.values.toList()
+        override suspend fun load(anchor: ArtistIdentityAnchor) =
+            selections.values.filter { it.confirmedMbid == anchor.confirmedMbid }
         override suspend fun loadAsset(assetId: String) = selections.values.firstOrNull { it.assetId == assetId }
         override suspend fun save(
             anchor: ArtistIdentityAnchor,
@@ -170,9 +175,9 @@ class ArtistArtworkCoordinatorTest {
         assertEquals(thumb.assetId, hero.assetId)
         assertEquals("CC BY-SA 2.0", thumb.licenseId)
         assertTrue(java.io.File(thumb.localImagePath!!).isFile)
-        // One Wikidata read, one Commons metadata read, one image transfer.
-        assertEquals(1, requests.count { it.contains("www.wikidata.org") })
-        assertEquals(1, requests.count { it.contains("commons.wikimedia.org/w/api.php") })
+        // All three automatic providers run now; identity proof adds Commons MediaInfo reads.
+        assertTrue(requests.count { it.contains("www.wikidata.org") } >= 2)
+        assertTrue(requests.count { it.contains("commons.wikimedia.org/w/api.php") } >= 3)
         assertEquals(1, requests.count { it.contains("thumb.wikimedia.org") })
         val networkCount = requests.size
 
@@ -248,6 +253,7 @@ class ArtistArtworkCoordinatorTest {
         val requests = mutableListOf<String>()
         val coordinator = coordinator(client(
             wikidataBody = wikidata(p18 = null, depicts = null),
+            commonsSearchBody = """{"query":{"search":[]}}""",
             onRequest = { requests += it },
         ), store)
 
@@ -283,12 +289,109 @@ class ArtistArtworkCoordinatorTest {
         val store = MemoryStore(context)
         val other = anchor.copy(
             confirmedMbid = "aaa436da-b331-4e58-a0fd-3d64d090c120",
-            verifiedQid = "Q300409",
+            // The fixture Wikidata snapshot is pinned to Q48284; only the MBID changes,
+            // which is exactly the identity input under test.
+            verifiedQid = anchor.verifiedQid,
         )
-        val coordinator = coordinator(client(wikidataBody = wikidata(p18 = null, depicts = null)), store)
+        val coordinator = coordinator(client(), store)
+
         val report = coordinator.resolve(other)
-        assertEquals(ArtworkLoadStatus.NO_IMAGE, report.status)
-        assertNotNull(other.confirmedMbid)
-        assertFalse(store.selections.containsKey(ArtworkSlot.ARTIST_THUMB))
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(2, store.saves)
+        assertTrue(store.selections.values.all { it.confirmedMbid == other.confirmedMbid })
+    }
+
+    @Test
+    fun manualThumbSurvivesAutomaticHeroRecovery() = runBlocking {
+        val store = MemoryStore(context)
+        val manualThumb = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true)
+        store.selections[ArtworkSlot.ARTIST_THUMB] = manualThumb
+        val coordinator = coordinator(client(), store)
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(1, store.saves)
+        assertEquals(manualThumb.assetId, store.selections.getValue(ArtworkSlot.ARTIST_THUMB).assetId)
+        assertTrue(store.selections.getValue(ArtworkSlot.ARTIST_THUMB).manuallyChosen)
+        assertTrue(store.selections.containsKey(ArtworkSlot.ARTIST_HERO))
+    }
+
+    @Test
+    fun forceRefreshNeverOverwritesManualSlots() = runBlocking {
+        val store = MemoryStore(context)
+        val thumb = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true)
+        val hero = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = true)
+        store.selections[ArtworkSlot.ARTIST_THUMB] = thumb
+        store.selections[ArtworkSlot.ARTIST_HERO] = hero
+        val requests = mutableListOf<String>()
+        val coordinator = coordinator(client(onRequest = { requests += it }), store)
+
+        val report = coordinator.resolve(anchor, forceRefresh = true)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertTrue(report.fromCache)
+        assertEquals(0, store.saves)
+        assertEquals(thumb.assetId, store.selections.getValue(ArtworkSlot.ARTIST_THUMB).assetId)
+        assertEquals(hero.assetId, store.selections.getValue(ArtworkSlot.ARTIST_HERO).assetId)
+        assertTrue(requests.isEmpty())
+    }
+
+    @Test
+    fun crossMbidSelectionNeverSatisfiesAnotherArtist() = runBlocking {
+        val store = MemoryStore(context)
+        val otherMbid = "aaa436da-b331-4e58-a0fd-3d64d090c120"
+        store.selections[ArtworkSlot.ARTIST_THUMB] =
+            cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true, mbid = otherMbid)
+        store.selections[ArtworkSlot.ARTIST_HERO] =
+            cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = true, mbid = otherMbid)
+        val coordinator = coordinator(client(), store)
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(2, store.saves)
+        assertTrue(store.selections.values.all { it.confirmedMbid == anchor.confirmedMbid })
+    }
+
+    @Test
+    fun missingThumbRecoversWithoutReplacingAnAutomaticHero() = runBlocking {
+        val store = MemoryStore(context)
+        val hero = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = false)
+        store.selections[ArtworkSlot.ARTIST_HERO] = hero
+        val coordinator = coordinator(client(), store)
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(1, store.saves)
+        assertEquals(hero.assetId, store.selections.getValue(ArtworkSlot.ARTIST_HERO).assetId)
+        assertTrue(store.selections.containsKey(ArtworkSlot.ARTIST_THUMB))
+    }
+
+    private fun cached(
+        slot: ArtworkSlot,
+        manuallyChosen: Boolean,
+        mbid: String = anchor.confirmedMbid,
+    ): ArtistArtworkSelection {
+        val file = File(context.filesDir, "artist-artwork/cached-${slot.name}-$mbid.png").apply {
+            parentFile?.mkdirs()
+            writeBytes(imageBytes)
+        }
+        return ArtistArtworkSelection(
+            slot = slot,
+            assetId = "sha256:${"a".repeat(64)}",
+            confirmedMbid = mbid,
+            localImagePath = file.absolutePath,
+            focus = ArtworkFocus(),
+            manuallyChosen = manuallyChosen,
+            revision = 1L,
+            sourcePageUrl = "https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg",
+            licenseId = "CC BY-SA 2.0",
+            licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+            attribution = "Author",
+            source = ArtworkSource.COMMONS_P18,
+        )
     }
 }

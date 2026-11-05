@@ -75,6 +75,27 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
     private fun JsonObject.value(field: String): String? =
         ((get(field) as? JsonObject)?.get("value") as? JsonPrimitive)?.contentOrNull
 
+    /** Verifies the file's own structured-data claim, not the artist entity. */
+    suspend fun depicts(fileTitle: String, qid: String): Boolean {
+        if (!validCommonsFileTitle(fileTitle)) return false
+        val endpoint = requireNotNull("https://www.wikidata.org/w/api.php".toHttpUrlOrNull()).newBuilder()
+            .addQueryParameter("action", "wbgetentities")
+            .addQueryParameter("sites", "commonswiki")
+            .addQueryParameter("titles", "File:$fileTitle")
+            .addQueryParameter("props", "claims")
+            .addQueryParameter("format", "json")
+            .build()
+        val response = http.readJson(endpoint.toString(), setOf("www.wikidata.org"))
+        val entity = ((response["entities"] as? JsonObject)?.values?.firstOrNull() as? JsonObject)
+            ?: return false
+        val claims = (entity["claims"] as? JsonObject)?.get("P180") as? JsonArray ?: return false
+        return claims.any { claim ->
+            val mainsnak = (claim as? JsonObject)?.get("mainsnak") as? JsonObject
+            val value = (mainsnak?.get("datavalue") as? JsonObject)?.get("value") as? JsonObject
+            value?.string("id") == qid
+        }
+    }
+
     private fun meaningful(raw: String?): String? {
         val plain = raw?.let { runCatching { Html.fromHtml(it, 0).toString() }.getOrDefault(it) }
             ?.replace(Regex("\\s+"), " ")?.trim()
@@ -123,6 +144,7 @@ internal class CommonsP18Provider(
         val snapshot = try {
             wikidata.snapshot(qid) ?: return ProviderArtworkResult.NoMatch
         } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
             return failure(error)
         }
         if (snapshot.p18.isEmpty()) return ProviderArtworkResult.NoMatch
@@ -141,6 +163,7 @@ internal class CommonsP18Provider(
             try {
                 commons.read(file).toCandidate(anchor, source, evidence)?.let(candidates::add)
             } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 lastFailure = error
             }
         }
@@ -161,41 +184,46 @@ internal class CommonsP180Provider(
     override val source = ArtworkSource.COMMONS_P180
     override suspend fun findCandidates(anchor: ArtistIdentityAnchor, slot: ArtworkSlot): ProviderArtworkResult {
         val qid = anchor.verifiedQid ?: return ProviderArtworkResult.NoMatch
-        val snapshot = try {
-            wikidata.snapshot(qid) ?: return ProviderArtworkResult.NoMatch
-        } catch (error: Exception) {
-            return failure(error)
-        }
-        if (snapshot.depicts.isEmpty()) return ProviderArtworkResult.NoMatch
+        // Search Commons for files whose own structured data depicts the verified artist.
+        // The artist entity's P180 is unrelated to image depictions and must not be used.
         val files = mutableListOf<String>()
+        var offset: String? = null
         try {
-            snapshot.depicts.forEach { depicts ->
+            for (page in 0 until 2) {
                 val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
                     .addQueryParameter("action", "query")
                     .addQueryParameter("list", "search")
-                    .addQueryParameter("srsearch", "haswbstatement:P180=$depicts")
+                    .addQueryParameter("srsearch", "haswbstatement:P180=$qid")
                     .addQueryParameter("srnamespace", "6")
-                    .addQueryParameter("srlimit", "5")
+                    .addQueryParameter("srlimit", "50")
                     .addQueryParameter("format", "json")
+                    .apply { offset?.let { addQueryParameter("sroffset", it) } }
                     .build()
                 val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
-                val titles = ((response["query"] as? JsonObject)?.get("search") as? JsonArray).orEmpty()
+                ((response["query"] as? JsonObject)?.get("search") as? JsonArray).orEmpty()
                     .mapNotNull { ((it as? JsonObject)?.get("title") as? JsonPrimitive)?.contentOrNull }
                     .mapNotNull { it.removePrefix("File:").takeIf(::validCommonsFileTitle) }
-                files += titles
+                    .forEach(files::add)
+                offset = ((response["continue"] as? JsonObject)?.get("sroffset") as? JsonPrimitive)
+                    ?.contentOrNull
+                if (offset == null) break
             }
         } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
             return failure(error)
         }
-        val distinct = files.distinct().take(6)
+        val distinct = files.distinct().take(12)
         if (distinct.isEmpty()) return ProviderArtworkResult.NoMatch
         val candidates = mutableListOf<ArtistArtworkCandidate>()
         var lastFailure: Exception? = null
-        distinct.forEach { file ->
+        for (file in distinct) {
             try {
+                // The search index is a hint; the selected file must prove the same QID.
+                if (!commons.depicts(file, qid)) continue
                 commons.read(file).toCandidate(anchor, source, ArtworkEvidence.VERIFIED_QID_REFERENCE)
                     ?.let(candidates::add)
             } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 lastFailure = error
             }
         }
@@ -216,6 +244,7 @@ internal class WikipediaPageImageProvider(
         val snapshot = try {
             wikidata.snapshot(qid) ?: return ProviderArtworkResult.NoMatch
         } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
             return failure(error)
         }
         val articles = listOf("es" to snapshot.eswikiTitle, "en" to snapshot.enwikiTitle)
@@ -238,10 +267,14 @@ internal class WikipediaPageImageProvider(
                     ?.let { (it as? JsonObject)?.string("pageimage") }
                     ?.takeIf(::validCommonsFileTitle)
                     ?: continue
+                // The article link alone does not prove the lead image represents the
+                // artist; require the file's own structured data to depict the QID.
+                if (!commons.depicts(pageImage, qid)) continue
                 val candidate = commons.read(pageImage)
                     .toCandidate(anchor, source, ArtworkEvidence.VERIFIED_ARTICLE_LINK)
                 if (candidate != null) return ProviderArtworkResult.Available(listOf(candidate))
             } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 lastFailure = error
             }
         }

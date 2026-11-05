@@ -3,7 +3,7 @@ package org.michimusic.mobile.artist.artwork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.roundToLong
 
 /**
  * One owner for provider federation, ranking, download and persistence. No UI surface
@@ -19,7 +19,10 @@ class ArtistArtworkCoordinator internal constructor(
     private val verifySelection: suspend (ArtistArtworkSelection) -> ArtistArtworkSelection = { it },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    private data class LockRef(val mutex: Mutex, var holders: Int)
+
+    /** Locks are reference-counted so a long artist list cannot leak one mutex per anchor. */
+    private val locks = HashMap<String, LockRef>()
     private val automaticProviders: List<ArtistArtworkProvider> = listOf(
         CommonsP18Provider(http, wikidata, commons),
         CommonsP180Provider(http, wikidata, commons),
@@ -28,28 +31,42 @@ class ArtistArtworkCoordinator internal constructor(
         DisabledArtworkProvider(ArtworkSource.FANART_TV, "FANART_ENABLED=false"),
     )
 
-    suspend fun resolve(anchor: ArtistIdentityAnchor, forceRefresh: Boolean = false): ArtworkResolutionReport {
-        val lock = locks.computeIfAbsent(lockKey(anchor)) { Mutex() }
-        return lock.withLock { resolveLocked(anchor, forceRefresh) }
+    suspend fun resolve(anchor: ArtistIdentityAnchor, forceRefresh: Boolean = false): ArtworkResolutionReport =
+        withAnchorLock(anchor) { resolveLocked(anchor, forceRefresh) }
+
+    private suspend fun <T> withAnchorLock(anchor: ArtistIdentityAnchor, block: suspend () -> T): T {
+        val key = lockKey(anchor)
+        val ref = synchronized(locks) {
+            locks.getOrPut(key) { LockRef(Mutex(), 0) }.also { it.holders++ }
+        }
+        try {
+            return ref.mutex.withLock { block() }
+        } finally {
+            synchronized(locks) {
+                ref.holders--
+                if (ref.holders == 0) locks.remove(key, ref)
+            }
+        }
     }
 
     private suspend fun resolveLocked(anchor: ArtistIdentityAnchor, forceRefresh: Boolean): ArtworkResolutionReport {
-        val existing = runCatching { store.load(anchor) }.getOrElse { error ->
-            return reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR, "No se pudo leer la caché de artwork: ${error.message}")
-        }.associateBy { it.slot }
-        if (!forceRefresh && existing.values.any { it.status == ArtworkLoadStatus.READY }) {
-            return reportFromCache(anchor, existing)
+        val existingList = runCatching { store.load(anchor) }.getOrElse { error ->
+            return reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR,
+                "No se pudo leer la caché de artwork: ${error.message}")
         }
+        val existing = existingList.filter { it.status == ArtworkLoadStatus.READY }.associateBy { it.slot }
+        val manualSlots = existing.filterValues { it.manuallyChosen }.keys
+        val needThumb = ArtworkSlot.ARTIST_THUMB !in manualSlots &&
+            (ArtworkSlot.ARTIST_THUMB !in existing || forceRefresh)
+        val needHero = ArtworkSlot.ARTIST_HERO !in manualSlots &&
+            (ArtworkSlot.ARTIST_HERO !in existing || forceRefresh)
+        if (!needThumb && !needHero) return reportFromCache(anchor, existing)
 
         val outcomes = mutableListOf<ArtworkProviderOutcome>()
         val candidates = mutableListOf<ArtistArtworkCandidate>()
         for (provider in automaticProviders) {
             if (provider is DisabledArtworkProvider) {
                 outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.DISABLED, "Proveedor desactivado")
-                continue
-            }
-            if (candidates.any(::coversBothSlots)) {
-                outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.SKIPPED, "EARLY_CUT")
                 continue
             }
             val result = try {
@@ -80,14 +97,12 @@ class ArtistArtworkCoordinator internal constructor(
         }
 
         val distinct = candidates.distinctBy { it.stableAssetId }
-        val chosenThumb = distinct.sortedWith(artworkRankingComparator(ArtworkSlot.ARTIST_THUMB)).firstOrNull()
-        val chosenHero = distinct.sortedWith(artworkRankingComparator(ArtworkSlot.ARTIST_HERO)).firstOrNull()
-        val heroCandidate = when {
-            chosenHero != null && chosenHero.stableAssetId != chosenThumb?.stableAssetId -> chosenHero
-            chosenThumb != null && canReuseThumbAsHero(chosenThumb) -> chosenThumb
-            chosenHero != null && canReuseThumbAsHero(chosenHero) -> chosenHero
-            else -> null
-        }
+        val chosenThumb = if (needThumb) {
+            distinct.sortedWith(artworkRankingComparator(ArtworkSlot.ARTIST_THUMB)).firstOrNull()
+        } else null
+        val chosenHero = if (needHero) {
+            distinct.sortedWith(heroComparator).firstOrNull()
+        } else null
         val downloads = mutableMapOf<String, Result<DownloadedArtwork>>()
         suspend fun download(candidate: ArtistArtworkCandidate): Result<DownloadedArtwork> {
             downloads[candidate.stableAssetId]?.let { return it }
@@ -104,39 +119,26 @@ class ArtistArtworkCoordinator internal constructor(
 
         val saved = existing.toMutableMap()
         var cacheError: String? = null
-        if (chosenThumb != null) {
-            val downloaded = download(chosenThumb)
+        suspend fun saveSlot(candidate: ArtistArtworkCandidate, slot: ArtworkSlot, focus: ArtworkFocus) {
+            val downloaded = download(candidate)
             if (downloaded.isSuccess) {
                 val stored = try {
-                    store.save(anchor, chosenThumb, ArtworkSlot.ARTIST_THUMB, downloaded.getOrThrow(),
-                        ArtworkFocus(0.5f, 0.5f), manuallyChosen = false)
+                    store.save(anchor, candidate, slot, downloaded.getOrThrow(), focus, manuallyChosen = false)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
                     cacheError = error.message
                     null
                 }
-                if (stored != null) saved[ArtworkSlot.ARTIST_THUMB] = stored
-            } else {
-                cacheError = downloaded.exceptionOrNull()?.message
-            }
-        }
-        if (heroCandidate != null) {
-            val downloaded = download(heroCandidate)
-            if (downloaded.isSuccess) {
-                val stored = try {
-                    store.save(anchor, heroCandidate, ArtworkSlot.ARTIST_HERO, downloaded.getOrThrow(),
-                        ArtworkFocus(0.5f, 0.45f), manuallyChosen = false)
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    cacheError = error.message
-                    null
-                }
-                if (stored != null) saved[ArtworkSlot.ARTIST_HERO] = stored
+                if (stored != null) saved[slot] = stored
             } else {
                 cacheError = cacheError ?: downloaded.exceptionOrNull()?.message
             }
+        }
+        if (chosenThumb != null) saveSlot(chosenThumb, ArtworkSlot.ARTIST_THUMB, ArtworkFocus(0.5f, 0.5f))
+        if (chosenHero != null) saveSlot(chosenHero, ArtworkSlot.ARTIST_HERO, ArtworkFocus(0.5f, 0.45f))
+        if (chosenThumb != null || chosenHero != null) {
+            runCatching { store.pruneCache() }
         }
 
         val ready = saved.filterValues { it.status == ArtworkLoadStatus.READY }
@@ -172,17 +174,17 @@ class ArtistArtworkCoordinator internal constructor(
         anchor: ArtistIdentityAnchor,
         candidate: ArtistArtworkCandidate,
         slot: ArtworkSlot,
-    ): ArtworkResolutionReport {
+    ): ArtworkResolutionReport = withAnchorLock(anchor) {
         if (!candidate.isManualEligible()) {
-            return reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Candidato manual no admitido")
+            return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Candidato manual no admitido")
         }
         if (candidate.confirmedMbid != anchor.confirmedMbid) {
-            return reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Identidad no coincidente")
+            return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "Identidad no coincidente")
         }
         try {
             val html = http.readText(candidate.canonicalSourcePage, setOf("www.flickr.com"))
             if (!originPageConfirmsLicense(candidate.canonicalSourcePage, candidate.licenseUrl, html)) {
-                return reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El origen no confirma la licencia")
+                return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El origen no confirma la licencia")
             }
             val downloaded = downloader.download(candidate)
             val verified = candidate.copy(
@@ -195,14 +197,14 @@ class ArtistArtworkCoordinator internal constructor(
                 downloadedSha256 = downloaded.sha256,
             )
             if (!allowedArtworkCandidate(verified, anchor)) {
-                return reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El candidato no cumple las reglas de artwork")
+                return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.REJECTED, "El candidato no cumple las reglas de artwork")
             }
             val selection = store.save(
                 anchor, verified, slot, downloaded,
                 ArtworkFocus(0.5f, 0.5f), manuallyChosen = true,
             )
             val selections = store.load(anchor).associateBy { it.slot }
-            return ArtworkResolutionReport(
+            return@withAnchorLock ArtworkResolutionReport(
                 status = if (selections.values.any { it.status == ArtworkLoadStatus.READY }) {
                     ArtworkLoadStatus.READY
                 } else {
@@ -217,7 +219,7 @@ class ArtistArtworkCoordinator internal constructor(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            return reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR, error.message)
+            return@withAnchorLock reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR, error.message)
         }
     }
 
@@ -258,10 +260,27 @@ class ArtistArtworkCoordinator internal constructor(
         )
     }
 
-    private fun coversBothSlots(candidate: ArtistArtworkCandidate): Boolean =
-        canReuseThumbAsHero(candidate) &&
-            (candidate.originalWidth ?: 0) >= 1_000 &&
-            (candidate.originalHeight ?: 0) >= 700
+    /**
+     * Hero ranking prioritises a clearly better landscape crop over provider order.
+     * P18/P180 still win ties, so identity-specific sources remain preferred when
+     * their pixels are comparable.
+     */
+    private val heroComparator = Comparator<ArtistArtworkCandidate> { a, b ->
+        val scoreA = heroScore(a)
+        val scoreB = heroScore(b)
+        when {
+            scoreA != scoreB -> scoreB.compareTo(scoreA)
+            a.source != b.source -> a.source.ordinal.compareTo(b.source.ordinal)
+            else -> a.stableAssetId.compareTo(b.stableAssetId)
+        }
+    }
+
+    private fun heroScore(candidate: ArtistArtworkCandidate): Long {
+        val width = candidate.originalWidth?.toLong() ?: 0L
+        val height = candidate.originalHeight?.toLong() ?: 0L
+        val pixels = width * height
+        return if (width >= height) pixels + pixels / 4 else pixels
+    }
 
     private fun lockKey(anchor: ArtistIdentityAnchor): String =
         "${anchor.libraryId}\u0000${anchor.creditKey}\u0000${anchor.albumGroupKey}\u0000${anchor.confirmedMbid}"
