@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -49,6 +51,11 @@ import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.ArtistEnrichmentSelectionStore
 import org.michimusic.mobile.artist.CommonsPortrait
 import org.michimusic.mobile.artist.allowedCommonsPortrait
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
 import org.michimusic.mobile.ui.theme.InterFontFamily
@@ -69,6 +76,7 @@ fun ArtistMosaicGrid(
     onOpenArtist: (String) -> Unit,
     modifier: Modifier = Modifier,
     selectionStore: ArtistEnrichmentSelectionStore? = null,
+    artworkStore: ArtistArtworkStore? = null,
 ) {
     val context = LocalContext.current
     val store = remember(context, selectionStore) {
@@ -90,22 +98,41 @@ fun ArtistMosaicGrid(
             var portrait by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
                 mutableStateOf<CommonsPortrait?>(null)
             }
-            LaunchedEffect(store, artist.credit, libraryId, albumIds, artist.profileScopes,
-                refreshToken) {
+            var artwork by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
+                mutableStateOf<ArtistArtworkSelection?>(null)
+            }
+            LaunchedEffect(store, artworkStore, artist.credit, libraryId, albumIds,
+                artist.profileScopes, refreshToken) {
                 // A cached portrait is only a hint: clear it before reading the scoped key so
                 // a library or album-fingerprint change can never keep a stale face.
                 portrait = null
+                artwork = null
                 try {
+                    var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
                     if (libraryId == null) {
                         // ALL: only paint a photo if EVERY participating library has the same
                         // explicitly confirmed MBID. Unassigned/ambiguous credits fail closed.
                         val result = resolveArtistProfileConsensus(artist.profileScopes, store)
                         currentCoroutineContext().ensureActive()
                         portrait = result.portrait
+                        savedProfile = result.saved?.profile
                     } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
                         val saved = store.load(libraryId, artist.credit, albumIds)
                         currentCoroutineContext().ensureActive()
                         portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
+                        savedProfile = saved?.profile
+                    }
+                    if (artworkStore != null && libraryId != null) {
+                        val anchor = artistIdentityAnchor(
+                            libraryId, artist.credit, albumIds, savedProfile,
+                        )
+                        if (anchor != null) {
+                            artwork = artworkStore.load(anchor).firstOrNull {
+                                it.slot == ArtworkSlot.ARTIST_THUMB &&
+                                    it.status == ArtworkLoadStatus.READY &&
+                                    it.confirmedMbid == anchor.confirmedMbid
+                            }
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -113,11 +140,13 @@ fun ArtistMosaicGrid(
                     // A failed cache read is a missing photo, never an invented identity.
                     // Retrying lives in the enrichment surface, not under the portrait.
                     portrait = null
+                    artwork = null
                 }
             }
             ArtistMosaicTile(
                 artist = artist,
                 portrait = portrait,
+                artwork = artwork,
                 onClick = { onOpenArtist(artist.credit) },
             )
         }
@@ -130,8 +159,12 @@ internal fun ArtistMosaicTile(
     portrait: CommonsPortrait?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    artwork: ArtistArtworkSelection? = null,
 ) {
     val name = artist.credit.ifBlank { "Artista desconocido" }
+    val localArtwork = artwork?.localImagePath
+        ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
+    val model: Any? = localArtwork?.let(::File) ?: portrait?.imageUrl
     val albumDescription = if (artist.albumCount == 1) "1 álbum" else "${artist.albumCount} álbumes"
     val trackDescription = if (artist.trackCount == 1) "1 canción" else "${artist.trackCount} canciones"
     // One accessible target per artist: the whole tile opens the ficha. Cache retries and
@@ -163,14 +196,14 @@ internal fun ArtistMosaicTile(
                     )
                     .border(
                         width = 0.9.dp,
-                        color = if (portrait != null) Color.White.copy(alpha = 0.23f)
+                        color = if (model != null) Color.White.copy(alpha = 0.23f)
                         else PrimaryPink.copy(alpha = 0.37f),
                         shape = CircleShape,
                     )
                     .testTag("artist_mosaic_portrait_${artist.credit}"),
                 contentAlignment = Alignment.Center,
             ) {
-                var photoVisible by remember(portrait?.imageUrl) { mutableStateOf(false) }
+                var photoVisible by remember(model) { mutableStateOf(false) }
                 // Kept under the async image, including offline/error states; never
                 // replace a failed portrait with unrelated album artwork.
                 if (!photoVisible) {
@@ -183,11 +216,15 @@ internal fun ArtistMosaicTile(
                         color = PureWhite.copy(alpha = 0.92f),
                     )
                 }
-                if (portrait != null) {
+                if (model != null) {
+                    val alignment = artwork?.focus?.let {
+                        BiasAlignment(it.x * 2f - 1f, it.y * 2f - 1f)
+                    } ?: Alignment.Center
                     AsyncImage(
-                        model = portrait.imageUrl,
+                        model = model,
                         contentDescription = null, // Parent owns the accessible artist action.
                         contentScale = ContentScale.Crop,
+                        alignment = alignment,
                         onSuccess = { photoVisible = true },
                         onError = { photoVisible = false },
                         modifier = Modifier.matchParentSize()

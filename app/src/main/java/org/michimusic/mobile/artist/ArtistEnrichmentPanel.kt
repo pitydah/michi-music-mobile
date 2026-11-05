@@ -43,8 +43,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
+import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkService
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.ProviderArtworkResult
+import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -86,6 +95,7 @@ fun ArtistEnrichmentPanel(
 ) {
     val context = LocalContext.current
     val store = remember(context, selectionStore) { selectionStore ?: ArtistEnrichmentPersistence.from(context) }
+    val artworkCoordinator = remember(context) { ArtistArtworkService.from(context) }
     val embeddedTags = remember(context, tagProbe) { tagProbe ?: LocalArtistTagProbe(context) }
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -160,6 +170,19 @@ fun ArtistEnrichmentPanel(
                     } catch (_: Exception) { false }
                 } else false
                 state = ArtistEnrichmentUi.Verified(profile, persisted = persisted)
+                if (persisted) {
+                    val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
+                    if (anchor != null) {
+                        try {
+                            artworkCoordinator.resolve(anchor)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // The verified identity and biography remain valid even when
+                            // optional artwork providers fail.
+                        }
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -185,6 +208,18 @@ fun ArtistEnrichmentPanel(
                     } catch (_: Exception) { false }
                 } else false
                 state = ArtistEnrichmentUi.Verified(profile, persisted = persisted)
+                if (persisted) {
+                    val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
+                    if (anchor != null) {
+                        try {
+                            artworkCoordinator.resolve(anchor)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Optional artwork failure never masks the refreshed profile.
+                        }
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -424,9 +459,160 @@ fun ArtistEnrichmentPanel(
                         border = secondaryBorder,
                     ) { Text("Reintentar retrato y datos") }
                 }
+                ArtistArtworkManualSection(
+                    profile = profile,
+                    artistCredit = artistCredit,
+                    libraryId = libraryId,
+                    albumIds = albumIds,
+                )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
             }
+        }
+    }
+}
+
+/**
+ * Optional, explicitly requested Openverse discovery. It never runs on composition:
+ * the provider query starts only from [artist_artwork_openverse_search], and a chosen
+ * candidate must pass the Flickr origin-licence check before bytes are downloaded.
+ */
+@Composable
+private fun ArtistArtworkManualSection(
+    profile: ArtistExternalProfile,
+    artistCredit: String,
+    libraryId: String?,
+    albumIds: List<String>,
+) {
+    if (libraryId == null) return
+    val context = LocalContext.current
+    val coordinator = remember(context) { ArtistArtworkService.from(context) }
+    val store = remember(context) { ArtistArtworkPersistence.from(context) }
+    val anchor = remember(libraryId, artistCredit, albumIds, profile.mbid,
+        profile.wikidataQid) {
+        artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
+    }
+    if (anchor == null) return
+    val scope = rememberCoroutineScope()
+    val secondaryColors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryPurple)
+    val secondaryBorder = BorderStroke(0.8.dp, SecondaryPurple.copy(alpha = 0.5f))
+    var selections by remember(anchor) {
+        mutableStateOf<Map<ArtworkSlot, ArtistArtworkSelection>>(emptyMap())
+    }
+    var candidates by remember(anchor) {
+        mutableStateOf<List<ArtistArtworkCandidate>>(emptyList())
+    }
+    var busy by remember(anchor) { mutableStateOf(false) }
+    var message by remember(anchor) { mutableStateOf<String?>(null) }
+    LaunchedEffect(anchor, store) {
+        selections = try {
+            store.load(anchor).associateBy { it.slot }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+    Text("Retratos alternativos", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    Text("Sólo se consultan si lo pides. La imagen elegida se descarga y se guarda para este artista.",
+        color = TextSecondary, fontSize = 11.sp)
+    selections.values.sortedBy { it.slot.ordinal }.forEach { selection ->
+        val file = selection.localImagePath?.takeIf { it.isNotBlank() }?.let(::File)
+        if (file != null && selection.status == ArtworkLoadStatus.READY) {
+            AsyncImage(
+                model = file,
+                contentDescription = if (selection.slot == ArtworkSlot.ARTIST_THUMB)
+                    "Retrato alternativo para el mosaico de $artistCredit"
+                else "Retrato alternativo para la ficha de $artistCredit",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .testTag("artist_artwork_saved_${selection.slot.name}"),
+            )
+            Text("${if (selection.slot == ArtworkSlot.ARTIST_THUMB) "Mosaico" else "Ficha"}: " +
+                "${selection.attribution.orEmpty()} · ${selection.licenseId.orEmpty()}",
+                color = TextSecondary, fontSize = 10.sp, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
+        }
+    }
+    OutlinedButton(
+        onClick = {
+            if (busy) return@OutlinedButton
+            busy = true
+            message = null
+            scope.launch {
+                try {
+                    when (val result = coordinator.searchManual(anchor, artistCredit)) {
+                        is ProviderArtworkResult.Available -> {
+                            candidates = result.items
+                            if (result.items.isEmpty()) message = "Sin retratos alternativos verificables."
+                        }
+                        ProviderArtworkResult.NoMatch -> message = "Sin retratos alternativos verificables."
+                        is ProviderArtworkResult.Disabled -> message = "Proveedor deshabilitado: ${result.reason}"
+                        is ProviderArtworkResult.Failure -> message = "No fue posible consultar Openverse: ${result.type}"
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    message = "No fue posible consultar Openverse: ${error.message ?: "error de red"}"
+                } finally {
+                    busy = false
+                }
+            }
+        },
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .testTag("artist_artwork_openverse_search"),
+        colors = secondaryColors,
+        border = secondaryBorder,
+    ) { Text(if (busy) "Consultando Openverse…" else "Buscar retrato alternativo (Openverse)") }
+    message?.let { Text(it, color = TextSecondary, fontSize = 11.sp,
+        modifier = Modifier.testTag("artist_artwork_openverse_status")) }
+    candidates.take(4).forEachIndexed { index, candidate ->
+        AsyncImage(
+            model = candidate.imageUrl,
+            contentDescription = "Candidato de retrato ${index + 1} para $artistCredit",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxWidth().heightIn(max = 130.dp)
+                .clip(RoundedCornerShape(12.dp)),
+        )
+        Text(candidate.attribution.orEmpty(), color = PureWhite, fontSize = 12.sp)
+        Text("${candidate.licenseId.orEmpty()} · revisar origen Flickr",
+            color = TextSecondary, fontSize = 10.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(ArtworkSlot.ARTIST_THUMB to "mosaico", ArtworkSlot.ARTIST_HERO to "ficha")
+                .forEach { (slot, label) ->
+                    OutlinedButton(
+                        onClick = {
+                            if (busy) return@OutlinedButton
+                            busy = true
+                            message = null
+                            scope.launch {
+                                try {
+                                    val report = coordinator.chooseManual(anchor, candidate, slot)
+                                    selections = report.selections
+                                    message = when (report.status) {
+                                        ArtworkLoadStatus.READY -> "Retrato guardado para $label."
+                                        ArtworkLoadStatus.REJECTED -> "El origen no confirma una licencia admitida."
+                                        else -> "No fue posible guardar el retrato (${report.status})."
+                                    }
+                                    if (report.status == ArtworkLoadStatus.READY) candidates = emptyList()
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    message = "No fue posible descargar el retrato: ${error.message ?: "error"}"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .testTag("artist_artwork_choose_${slot.name}_$index"),
+                        colors = secondaryColors,
+                        border = secondaryBorder,
+                    ) { Text("Usar en $label") }
+                }
         }
     }
 }

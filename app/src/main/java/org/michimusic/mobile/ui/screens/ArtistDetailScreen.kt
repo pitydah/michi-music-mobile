@@ -61,6 +61,11 @@ import org.michimusic.mobile.artist.PersistedArtistProfile
 import org.michimusic.mobile.artist.ArtistProfileStatus
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
 import org.michimusic.mobile.artist.allowedCommonsPortrait
+import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.library.LibraryScopeStore
 import org.michimusic.mobile.library.rememberArtistScopedCollection
@@ -160,6 +165,7 @@ fun ArtistDetailScreen(
     val albumIds = remember(localAlbums) { localAlbums.map { it.album.id } }
     val context = LocalContext.current
     val store = remember(context) { ArtistEnrichmentPersistence.from(context) }
+    val artworkStore = remember(context) { ArtistArtworkPersistence.from(context) }
     var showEnrichment by rememberSaveable(artistCredit) { mutableStateOf(initialEnrichment) }
     var cacheRevision by remember { mutableIntStateOf(0) }
     // Keep the stale bit: a saved association is not evidence of fresh external data.
@@ -205,6 +211,33 @@ fun ArtistDetailScreen(
     val savedProfile = savedRecord?.profile
     val cachedProfileIsStale = savedRecord?.stale == true
     val portrait = savedProfile?.portrait?.takeIf(::allowedCommonsPortrait)
+    var heroArtwork by remember(artistCredit, libraryId, albumIds) {
+        mutableStateOf<ArtistArtworkSelection?>(null)
+    }
+    var artworkReadError by remember(artistCredit, libraryId, albumIds) { mutableStateOf(false) }
+    LaunchedEffect(artworkStore, artistCredit, libraryId, albumIds,
+        savedProfile?.mbid, savedProfile?.wikidataQid, cacheRevision) {
+        heroArtwork = null
+        artworkReadError = false
+        if (libraryId == null) return@LaunchedEffect
+        try {
+            val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, savedProfile)
+                ?: return@LaunchedEffect
+            val selections = artworkStore.load(anchor)
+            currentCoroutineContext().ensureActive()
+            heroArtwork = selections.firstOrNull {
+                it.slot == ArtworkSlot.ARTIST_HERO &&
+                    it.status == ArtworkLoadStatus.READY &&
+                    it.confirmedMbid == anchor.confirmedMbid
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Artwork cache failure is independent from the verified biography and
+            // local playback; the hero falls back to the legacy portrait or monogram.
+            artworkReadError = true
+        }
+    }
     // State lives above LazyColumn so every remote discography row is its own lazy item.
     fun retryLibrary() {
         scopeRetry++
@@ -390,6 +423,7 @@ fun ArtistDetailScreen(
                                 portrait = portrait,
                                 albumCount = localAlbums.size,
                                 trackCount = tracks.size,
+                                artwork = heroArtwork,
                             )
                         }
                         if (profileStatus == ArtistProfileStatus.CONFLICT) {
@@ -434,7 +468,20 @@ fun ArtistDetailScreen(
                                 profile = savedProfile,
                                 isStale = cachedProfileIsStale,
                                 portrait = portrait,
+                                artwork = heroArtwork,
                             )
+                        }
+                        if (artworkReadError) {
+                            item("artist_artwork_cache_error") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("No se pudo leer la caché local de retratos. La biografía y tu colección siguen disponibles.",
+                                        color = TextSecondary,
+                                        modifier = Modifier.testTag("artist_artwork_cache_error"))
+                                    AeroActionButton("Reintentar retratos",
+                                        onClick = { cacheRevision++ },
+                                        testTag = "artist_artwork_cache_retry")
+                                }
+                            }
                         }
                         // Discography is exactly the albums present in the local library.
                         // Catalogue-only releases are not shown here: this list must reflect

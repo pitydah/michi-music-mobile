@@ -87,6 +87,7 @@ import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
+import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
@@ -135,6 +136,7 @@ fun AlbumsScreen(
     modifier: Modifier = Modifier,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -902,6 +904,9 @@ fun AlbumsScreen(
                                     refreshToken = 0,
                                     onOpenArtist = onNavigateToArtist,
                                     modifier = Modifier.fillMaxSize(),
+                                    artworkStore = remember(context) {
+                                        ArtistArtworkPersistence.from(context)
+                                    },
                                 )
                             }
                         }

@@ -29,6 +29,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -45,10 +46,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import java.io.File
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.artist.ArtistExternalProfile
 import org.michimusic.mobile.artist.CommonsPortrait
 import org.michimusic.mobile.artist.allowedCommonsPortrait
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.artistMosaicMonogram
 import org.michimusic.mobile.ui.components.biographyStatusText
@@ -68,15 +72,19 @@ internal fun ArtistDetailHero(
     albumCount: Int,
     trackCount: Int,
     modifier: Modifier = Modifier,
+    artwork: ArtistArtworkSelection? = null,
 ) {
     val shape = RoundedCornerShape(24.dp)
     // At large font scales the 62.sp monogram and the artist name collide inside the
     // hero. The name is the information, so the decorative monogram steps aside and the
     // hero grows with its content instead of clipping or overlapping.
     val fontScale = LocalDensity.current.fontScale
+    val localArtwork = artwork?.localImagePath
+        ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
+    val model: Any? = localArtwork?.let(::File) ?: portrait?.imageUrl
     // The monogram is the fallback, not wallpaper: it stays visible while the
     // image loads and returns if Coil reports a decode/network error.
-    var photoVisible by remember(portrait?.imageUrl) { mutableStateOf(false) }
+    var photoVisible by remember(model) { mutableStateOf(false) }
     Box(
         modifier = modifier.fillMaxWidth().heightIn(min = 248.dp).clip(shape)
             .background(Brush.linearGradient(listOf(Color(0xFF26364A), Color(0xFF302639))))
@@ -94,16 +102,21 @@ internal fun ArtistDetailHero(
                 fontFamily = InterFontFamily,
             )
         }
-        if (portrait != null && allowedCommonsPortrait(portrait)) {
+        if (model != null && (localArtwork != null || portrait != null && allowedCommonsPortrait(portrait))) {
+            val alignment = artwork?.focus?.let {
+                BiasAlignment(it.x * 2f - 1f, it.y * 2f - 1f)
+            } ?: Alignment.Center
             AsyncImage(
-                model = portrait.imageUrl,
+                model = model,
                 contentDescription = "Fotografía de $artistCredit. Autoría en sección de biografía",
                 contentScale = ContentScale.Crop,
+                alignment = alignment,
                 onSuccess = { photoVisible = true },
                 onError = { photoVisible = false },
-                modifier = Modifier.fillMaxSize().testTag("artist_detail_hero_photo"),
+                modifier = Modifier.fillMaxSize()
+                    .testTag(if (localArtwork != null) "artist_detail_hero_artwork" else "artist_detail_hero_photo"),
             )
-            // Distinguishes "URL present" from "bytes decoded" for screenshot
+            // Distinguishes "URL/path present" from "bytes decoded" for screenshot
             // evidence without changing the visible layout.
             if (photoVisible) {
                 Box(Modifier.fillMaxSize().testTag("artist_detail_hero_photo_loaded"))
@@ -137,8 +150,13 @@ internal fun ArtistBiographySection(
     profile: ArtistExternalProfile?,
     isStale: Boolean,
     portrait: CommonsPortrait?,
+    artwork: ArtistArtworkSelection? = null,
 ) {
     val uriHandler = LocalUriHandler.current
+    val verifiedArtwork = artwork?.takeIf {
+        it.status == ArtworkLoadStatus.READY &&
+            !it.attribution.isNullOrBlank() && !it.licenseId.isNullOrBlank()
+    }
     val bio = profile?.biography?.takeIf(String::isNotBlank)
     var expanded by rememberSaveable(artistCredit) { mutableStateOf(false) }
     var hasOverflow by remember(artistCredit, bio) { mutableStateOf(false) }
@@ -189,7 +207,26 @@ internal fun ArtistBiographySection(
                 modifier = Modifier.testTag("artist_detail_no_biography"),
             )
         }
-        if (portrait != null) {
+        if (verifiedArtwork != null) {
+            verifiedArtwork.sourcePageUrl?.let { sourceUrl ->
+                TextButton(
+                    onClick = { uriHandler.openUri(sourceUrl) },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_attribution"),
+                ) {
+                    Text("Foto: ${verifiedArtwork.attribution} · ${verifiedArtwork.licenseId}",
+                        fontSize = 10.sp, color = TextSecondary,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
+                }
+            }
+            verifiedArtwork.licenseUrl?.let { licenseUrl ->
+                TextButton(
+                    onClick = { uriHandler.openUri(licenseUrl) },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_license"),
+                ) {
+                    Text("Consultar licencia de la fotografía", fontSize = 11.sp, color = TertiaryCyan)
+                }
+            }
+        } else if (portrait != null) {
             TextButton(
                 onClick = { uriHandler.openUri(portrait.commonsPageUrl) },
                 modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_attribution"),
