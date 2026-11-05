@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,7 +51,9 @@ import org.michimusic.mobile.artist.CommonsPortrait
 import org.michimusic.mobile.artist.allowedCommonsPortrait
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.artistMosaicMonogram
+import org.michimusic.mobile.ui.components.biographyStatusText
 import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.components.portraitStatusText
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -128,6 +131,7 @@ internal fun ArtistBiographySection(
     val uriHandler = LocalUriHandler.current
     val bio = profile?.biography?.takeIf(String::isNotBlank)
     var expanded by rememberSaveable(artistCredit) { mutableStateOf(false) }
+    var hasOverflow by remember(artistCredit, bio) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         Text("SOBRE EL ARTISTA", color = PrimaryPinkContainer, fontSize = 11.sp,
             fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
@@ -142,15 +146,21 @@ internal fun ArtistBiographySection(
             Text(
                 bio,
                 color = PureWhite.copy(alpha = 0.89f), fontSize = 13.sp, lineHeight = 20.sp,
-                maxLines = if (expanded) Int.MAX_VALUE else 6,
+                maxLines = if (expanded) Int.MAX_VALUE else 5,
                 overflow = TextOverflow.Ellipsis,
+                onTextLayout = { layout ->
+                    if (!expanded) hasOverflow = layout.hasVisualOverflow
+                },
                 modifier = Modifier.testTag("artist_detail_biography"),
             )
-            // Wrap source links at 1.5–2.0× system font scale instead of
-            // compressing two TextButtons into a single 320dp row.
+            // The disclosure is only real when the intro actually exceeds the
+            // five-line editorial window; a short verified intro shows no
+            // inert "Leer más" control.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(if (expanded) "Leer menos" else "Leer más", color = TertiaryCyan, fontSize = 12.sp)
+                if (hasOverflow || expanded) {
+                    TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(if (expanded) "Leer menos" else "Leer más", color = TertiaryCyan, fontSize = 12.sp)
+                    }
                 }
                 profile.biographySourceUrl?.let { url ->
                     TextButton(onClick = { uriHandler.openUri(url) }, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -160,26 +170,36 @@ internal fun ArtistBiographySection(
             }
         } else {
             Text(
-                "Todavía no hay una biografía con fuente confirmada para este artista.",
+                if (profile == null) {
+                    "No hay biografía verificable disponible. Confirma la identidad del artista en Enriquecer."
+                } else {
+                    biographyStatusText(profile.biographyOutcome)
+                },
                 color = TextSecondary, fontSize = 13.sp, lineHeight = 19.sp,
                 modifier = Modifier.testTag("artist_detail_no_biography"),
             )
         }
-        portrait?.let { licensed ->
+        if (portrait != null) {
             TextButton(
-                onClick = { uriHandler.openUri(licensed.commonsPageUrl) },
+                onClick = { uriHandler.openUri(portrait.commonsPageUrl) },
                 modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_attribution"),
             ) {
-                Text("Foto: ${licensed.attribution} · ${licensed.license}",
+                Text("Foto: ${portrait.attribution} · ${portrait.license}",
                     fontSize = 10.sp, color = TextSecondary,
                     maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
             }
             TextButton(
-                onClick = { uriHandler.openUri(licensed.licenseUrl) },
+                onClick = { uriHandler.openUri(portrait.licenseUrl) },
                 modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_license"),
             ) {
                 Text("Consultar licencia de la fotografía", fontSize = 11.sp, color = TertiaryCyan)
             }
+        } else if (profile != null && profile.portrait == null) {
+            Text(
+                portraitStatusText(profile.portraitOutcome),
+                color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp,
+                modifier = Modifier.testTag("artist_detail_portrait_status"),
+            )
         }
     }
 }
