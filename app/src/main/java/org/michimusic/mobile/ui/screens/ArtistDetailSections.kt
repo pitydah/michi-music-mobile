@@ -41,7 +41,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,7 +107,7 @@ internal fun ArtistDetailHero(
             } ?: Alignment.Center
             AsyncImage(
                 model = model,
-                contentDescription = "Fotografía de $artistCredit. Autoría en sección de biografía",
+                contentDescription = "Fotografía de $artistCredit. Créditos disponibles en Enriquecer",
                 contentScale = ContentScale.Crop,
                 alignment = alignment,
                 onSuccess = { photoVisible = true },
@@ -153,10 +152,6 @@ internal fun ArtistBiographySection(
     artwork: ArtistArtworkSelection? = null,
 ) {
     val uriHandler = LocalUriHandler.current
-    val verifiedArtwork = artwork?.takeIf {
-        it.status == ArtworkLoadStatus.READY &&
-            !it.attribution.isNullOrBlank() && !it.licenseId.isNullOrBlank()
-    }
     val bio = profile?.biography?.takeIf(String::isNotBlank)
     var expanded by rememberSaveable(artistCredit) { mutableStateOf(false) }
     var hasOverflow by remember(artistCredit, bio) { mutableStateOf(false) }
@@ -207,41 +202,10 @@ internal fun ArtistBiographySection(
                 modifier = Modifier.testTag("artist_detail_no_biography"),
             )
         }
-        if (verifiedArtwork != null) {
-            verifiedArtwork.sourcePageUrl?.let { sourceUrl ->
-                TextButton(
-                    onClick = { uriHandler.openUri(sourceUrl) },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_attribution"),
-                ) {
-                    Text("Foto: ${verifiedArtwork.attribution} · ${verifiedArtwork.licenseId}",
-                        fontSize = 10.sp, color = TextSecondary,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
-                }
-            }
-            verifiedArtwork.licenseUrl?.let { licenseUrl ->
-                TextButton(
-                    onClick = { uriHandler.openUri(licenseUrl) },
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_license"),
-                ) {
-                    Text("Consultar licencia de la fotografía", fontSize = 11.sp, color = TertiaryCyan)
-                }
-            }
-        } else if (portrait != null) {
-            TextButton(
-                onClick = { uriHandler.openUri(portrait.commonsPageUrl) },
-                modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_attribution"),
-            ) {
-                Text("Foto: ${portrait.attribution} · ${portrait.license}",
-                    fontSize = 10.sp, color = TextSecondary,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
-            }
-            TextButton(
-                onClick = { uriHandler.openUri(portrait.licenseUrl) },
-                modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_license"),
-            ) {
-                Text("Consultar licencia de la fotografía", fontSize = 11.sp, color = TertiaryCyan)
-            }
-        } else if (profile != null && profile.portrait == null) {
+        // Credits and license links belong in Enriquecer, not in the reading flow.
+        // Only show missing-image status when neither visual source is available.
+        if (profile != null && portrait == null &&
+            artwork?.status != ArtworkLoadStatus.READY && profile.portrait == null) {
             Text(
                 portraitStatusText(profile.portraitOutcome),
                 color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp,
