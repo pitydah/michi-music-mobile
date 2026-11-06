@@ -162,7 +162,12 @@ class RoomArtistArtworkStore(
             // Comparing against relativeTo(root) would treat every referenced file as an
             // orphan and delete the very bytes the selection points at.
             val relative = file.relativeTo(context.filesDir).invariantSeparatorsPath
-            val orphan = relative !in referenced || file.name.endsWith(".tmp")
+            // Downloads publish through a short-lived .tmp file. Only old temporaries are
+            // orphans; deleting a fresh one would race an active download.
+            val isTemp = file.name.endsWith(".tmp")
+            val staleTemp = isTemp &&
+                (System.currentTimeMillis() - file.lastModified() > 15 * 60 * 1000L)
+            val orphan = if (isTemp) staleTemp else relative !in referenced
             if (orphan) {
                 val length = file.length()
                 if (file.delete()) freed += length

@@ -75,25 +75,44 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
     private fun JsonObject.value(field: String): String? =
         ((get(field) as? JsonObject)?.get("value") as? JsonPrimitive)?.contentOrNull
 
-    /** Verifies the file's own structured-data claim, not the artist entity. */
+    /**
+     * Verifies the file's own structured-data claim. Commons stores it as the MediaInfo
+     * entity `M<pageid>`, not as a Wikidata item and not on the artist entity.
+     */
     suspend fun depicts(fileTitle: String, qid: String): Boolean {
         if (!validCommonsFileTitle(fileTitle)) return false
-        val endpoint = requireNotNull("https://www.wikidata.org/w/api.php".toHttpUrlOrNull()).newBuilder()
+        val pageId = commonsPageId(fileTitle) ?: return false
+        val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
             .addQueryParameter("action", "wbgetentities")
-            .addQueryParameter("sites", "commonswiki")
-            .addQueryParameter("titles", "File:$fileTitle")
-            .addQueryParameter("props", "claims")
+            .addQueryParameter("ids", "M$pageId")
+            .addQueryParameter("props", "claims|statements")
             .addQueryParameter("format", "json")
             .build()
-        val response = http.readJson(endpoint.toString(), setOf("www.wikidata.org"))
-        val entity = ((response["entities"] as? JsonObject)?.values?.firstOrNull() as? JsonObject)
+        val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
+        val entity = ((response["entities"] as? JsonObject)?.get("M$pageId") as? JsonObject)
             ?: return false
-        val claims = (entity["claims"] as? JsonObject)?.get("P180") as? JsonArray ?: return false
+        // MediaInfo entities expose structured data under `statements`; Wikidata-style
+        // `claims` is accepted as a fallback for compatible test fixtures.
+        val statements = entity["statements"] as? JsonObject
+        val claims = (statements ?: entity["claims"] as? JsonObject)
+            ?.get("P180") as? JsonArray ?: return false
         return claims.any { claim ->
             val mainsnak = (claim as? JsonObject)?.get("mainsnak") as? JsonObject
             val value = (mainsnak?.get("datavalue") as? JsonObject)?.get("value") as? JsonObject
             value?.string("id") == qid
         }
+    }
+
+    private suspend fun commonsPageId(fileTitle: String): String? {
+        val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("prop", "info")
+            .addQueryParameter("titles", "File:$fileTitle")
+            .addQueryParameter("format", "json")
+            .build()
+        val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
+        val page = (response["query"] as? JsonObject)?.get("pages") as? JsonObject
+        return page?.values?.firstOrNull()?.let { (it as? JsonObject)?.string("pageid") }
     }
 
     private fun meaningful(raw: String?): String? {

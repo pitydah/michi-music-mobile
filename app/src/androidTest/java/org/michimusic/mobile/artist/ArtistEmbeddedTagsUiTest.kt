@@ -14,7 +14,7 @@ class ArtistEmbeddedTagsUiTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
 
-    @Test fun tagProbeRunsOnlyWhenTheUserTapsAndProviderIsNotCalledUntilConfirmed() {
+    @Test fun tagProbeRunsOnlyWhenTappedAndProviderBindingWaitsForConfirmation() {
         var scans = 0
         var remote = 0
         val probe = ArtistTagProbe {
@@ -44,14 +44,15 @@ class ArtistEmbeddedTagsUiTest {
                 },
             )
         }
+        rule.waitUntil(5_000) { remote >= 1 }
         assertEquals(0, scans)
-        assertEquals(0, remote)
+        assertEquals(1, remote) // Opening the panel searches candidates automatically.
         rule.onNodeWithTag("artist_embedded_tags_scan").performClick()
         rule.waitForIdle()
         assertEquals(1, scans)
-        assertEquals(0, remote)
+        assertEquals(1, remote) // Scanning a tag never binds an identity by itself.
         rule.onNodeWithTag("artist_embedded_mbid_confirm").assertExists().performClick()
-        rule.waitForIdle()
-        assertEquals(1, remote)
+        rule.waitUntil(5_000) { remote >= 2 }
+        assertEquals(2, remote)
     }
 }

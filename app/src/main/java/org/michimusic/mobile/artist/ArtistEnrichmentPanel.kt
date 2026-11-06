@@ -78,7 +78,9 @@ private sealed interface ArtistEnrichmentUi {
     data class Candidates(val found: List<ArtistLookupCandidate>) : ArtistEnrichmentUi
     data object LoadingProfile : ArtistEnrichmentUi
     data class Verified(val profile: ArtistExternalProfile, val persisted: Boolean = false,
-        val stale: Boolean = false, val refreshFailed: Boolean = false) : ArtistEnrichmentUi
+        val stale: Boolean = false, val refreshFailed: Boolean = false,
+        val message: String? = null,
+        val pendingPortraits: List<ArtistArtworkCandidate> = emptyList()) : ArtistEnrichmentUi
     data object Failed : ArtistEnrichmentUi
 }
 
@@ -101,6 +103,9 @@ fun ArtistEnrichmentPanel(
     val context = LocalContext.current
     val store = remember(context, selectionStore) { selectionStore ?: ArtistEnrichmentPersistence.from(context) }
     val artworkCoordinator = remember(context) { ArtistArtworkService.from(context) }
+    val orchestrator = remember(context, store, artworkCoordinator, gateway) {
+        ArtistEnrichmentOrchestrator(gateway = gateway, artwork = artworkCoordinator, store = store)
+    }
     val embeddedTags = remember(context, tagProbe) { tagProbe ?: LocalArtistTagProbe(context) }
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
@@ -125,6 +130,8 @@ fun ArtistEnrichmentPanel(
         mutableIntStateOf(0)
     }
     var requestJob by remember(artistCredit, libraryId, stableGroup) { mutableStateOf<Job?>(null) }
+    var cacheLoaded by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
+    var autoStarted by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
     // Aero Content/Plain for the candidate rows: the same fill and hairline the rest of
     // the system uses, instead of a locally invented white alpha that read as a card.
@@ -147,6 +154,9 @@ fun ArtistEnrichmentPanel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) { /* cache failure must not block local browsing */ }
+            finally { cacheLoaded = true }
+        } else {
+            cacheLoaded = true
         }
     }
 
@@ -163,38 +173,42 @@ fun ArtistEnrichmentPanel(
             }
         }
     }
+    fun applyResult(result: ArtistEnrichmentResult, previous: ArtistEnrichmentUi.Verified?) {
+        val profile = result.profile
+        if (profile == null) {
+            state = previous?.copy(refreshFailed = true, message = result.message) ?: ArtistEnrichmentUi.Failed
+            return
+        }
+        state = ArtistEnrichmentUi.Verified(
+            profile = profile,
+            persisted = result.persisted,
+            stale = false,
+            refreshFailed = previous != null && result.phase == ArtistEnrichmentPhase.PARTIAL &&
+                result.message?.contains("actualizar") == true,
+            message = result.message,
+            pendingPortraits = result.pendingPortraits,
+        )
+        artworkRevision++
+    }
 
     fun confirmExplicitly(id: String) {
         val verifiedId = canonicalArtistMbid(id) ?: return
-        if (requestJob?.isActive == true) return
+        // The automatic search job may still be unwinding after publishing candidates;
+        // replace it so an unambiguous candidate can continue the same journey.
+        requestJob?.cancel()
         state = ArtistEnrichmentUi.LoadingProfile
         requestJob = scope.launch {
             try {
-                val profile = gateway.confirmedProfile(verifiedId)
-                require(canonicalArtistMbid(profile.mbid) == verifiedId)
-                val persisted = if (canPersist) {
-                    try {
-                        store.save(requireNotNull(libraryId), artistCredit, albumIds, profile)
-                        true
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) { false }
-                } else false
-                state = ArtistEnrichmentUi.Verified(profile, persisted = persisted)
-                if (persisted) {
-                    val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
-                    if (anchor != null) {
-                        try {
-                            artworkCoordinator.resolve(anchor)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            // The verified identity and biography remain valid even when
-                            // optional artwork providers fail.
-                        }
-                        artworkRevision++
-                    }
-                }
+                applyResult(
+                    orchestrator.enrich(
+                        artistCredit = artistCredit,
+                        libraryId = libraryId,
+                        albumIds = albumIds,
+                        mbid = verifiedId,
+                        forceRefresh = true,
+                    ),
+                    previous = null,
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -209,37 +223,51 @@ fun ArtistEnrichmentPanel(
         state = ArtistEnrichmentUi.LoadingProfile
         requestJob = scope.launch {
             try {
-                val profile = gateway.refreshProfile(verifiedId)
-                require(canonicalArtistMbid(profile.mbid) == verifiedId)
-                val persisted = if (canPersist) {
-                    try {
-                        store.save(requireNotNull(libraryId), artistCredit, albumIds, profile)
-                        true
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) { false }
-                } else false
-                state = ArtistEnrichmentUi.Verified(profile, persisted = persisted)
-                if (persisted) {
-                    val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
-                    if (anchor != null) {
-                        try {
-                            artworkCoordinator.resolve(anchor)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            // Optional artwork failure never masks the refreshed profile.
-                        }
-                        artworkRevision++
-                    }
-                }
+                applyResult(
+                    orchestrator.enrich(
+                        artistCredit = artistCredit,
+                        libraryId = libraryId,
+                        albumIds = albumIds,
+                        mbid = verifiedId,
+                        cached = previous.profile,
+                        forceRefresh = true,
+                    ),
+                    previous = previous,
+                )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // A failed refresh keeps the last verified profile visible and
-                // records that an update is still pending.
-                state = previous.copy(refreshFailed = true)
+                state = previous.copy(refreshFailed = true,
+                    message = "No fue posible actualizar los datos externos")
             }
+        }
+    }
+
+    LaunchedEffect(cacheLoaded, autoStarted, state) {
+        if (!cacheLoaded) return@LaunchedEffect
+        val snapshot = state
+        if (snapshot is ArtistEnrichmentUi.Candidates) {
+            autoStarted = true
+            val only = snapshot.found.singleOrNull()
+            if (only != null && only.name.equals(artistCredit, ignoreCase = true)) {
+                confirmExplicitly(only.mbid)
+            }
+            return@LaunchedEffect
+        }
+        if (autoStarted) return@LaunchedEffect
+        when (val current = snapshot) {
+            is ArtistEnrichmentUi.Verified -> {
+                autoStarted = true
+                if (current.stale || current.profile.biography.isNullOrBlank() ||
+                    current.profile.portrait == null) {
+                    refreshVerified(current)
+                }
+            }
+            ArtistEnrichmentUi.Idle -> {
+                autoStarted = true
+                lookup()
+            }
+            else -> Unit
         }
     }
 
@@ -250,7 +278,7 @@ fun ArtistEnrichmentPanel(
     ) {
         Text("IDENTIDAD Y DATOS EXTERNOS", color = TertiaryCyan,
             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text("La búsqueda no vincula automáticamente identidades. Selecciona la coincidencia correcta antes de consultar biografía y retrato.",
+        Text("La identidad solo se vincula con un MBID confirmado. Si hay varias coincidencias, elige la correcta.",
             color = TextSecondary, fontSize = 12.sp)
         if (!canPersist) {
             Text("Selecciona una biblioteca individual para guardar esta asociación. La vista Todas puede mezclar artistas homónimos.",
@@ -319,11 +347,13 @@ fun ArtistEnrichmentPanel(
             }
         }
         when (val result = state) {
-            ArtistEnrichmentUi.Idle -> OutlinedButton(
-                onClick = ::lookup, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .testTag("artist_enrichment_search"),
-                colors = secondaryColors, border = secondaryBorder,
-            ) { Text("Buscar en MusicBrainz") }
+            ArtistEnrichmentUi.Idle -> Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = TertiaryCyan)
+                Text("Verificando artista…", color = TextSecondary, fontSize = 12.sp)
+            }
             ArtistEnrichmentUi.LoadingCandidates, ArtistEnrichmentUi.LoadingProfile -> Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -332,16 +362,8 @@ fun ArtistEnrichmentPanel(
                 Text("Consultando datos verificados…", color = TextSecondary, fontSize = 12.sp)
             }
             ArtistEnrichmentUi.Failed -> {
-                Text("No fue posible obtener los datos. Tu biblioteca permanece disponible sin conexión.",
+                Text("No fue posible completar la ficha ahora. Tu biblioteca permanece disponible sin conexión.",
                     color = TextSecondary, fontSize = 12.sp)
-                OutlinedButton(
-                    onClick = ::lookup,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    colors = secondaryColors,
-                    border = secondaryBorder,
-                ) {
-                    Text("Reintentar consulta")
-                }
             }
             is ArtistEnrichmentUi.Candidates -> {
                 if (result.found.isEmpty()) {
@@ -403,14 +425,8 @@ fun ArtistEnrichmentPanel(
                     else -> "Solo esta consulta. Cambia a una biblioteca individual para guardar."
                 }, color = TextSecondary, fontSize = 11.sp)
                 if (result.stale) {
-                    OutlinedButton(
-                        onClick = { state = ArtistEnrichmentUi.Idle },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        colors = secondaryColors,
-                        border = secondaryBorder,
-                    ) {
-                        Text("Buscar datos actualizados")
-                    }
+                    Text("Datos guardados: revisión vencida. Actualizando en segundo plano…",
+                        color = TextSecondary, fontSize = 11.sp)
                 }
                 if (canPersist && result.persisted) {
                     OutlinedButton(
@@ -461,16 +477,14 @@ fun ArtistEnrichmentPanel(
                             .heightIn(min = 48.dp).testTag("artist_biography_source"))
                 }
                 if (profile.portrait == null) {
-                    Text(portraitStatusText(profile.portraitOutcome),
-                        color = TextSecondary, fontSize = 11.sp)
-                    OutlinedButton(
-                        onClick = { refreshVerified(result) },
-                        enabled = requestJob?.isActive != true,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .testTag("artist_enrichment_retry_portrait"),
-                        colors = secondaryColors,
-                        border = secondaryBorder,
-                    ) { Text("Reintentar retrato y datos") }
+                    Text(result.message ?: "Ficha actualizada.",
+                        color = TextSecondary, fontSize = 11.sp,
+                        modifier = Modifier.testTag("artist_enrichment_status"))
+                } else {
+                    result.message?.let {
+                        Text(it, color = TextSecondary, fontSize = 11.sp,
+                            modifier = Modifier.testTag("artist_enrichment_status"))
+                    }
                 }
                 ArtistArtworkManualSection(
                     profile = profile,
@@ -478,6 +492,7 @@ fun ArtistEnrichmentPanel(
                     libraryId = libraryId,
                     albumIds = albumIds,
                     artworkRevision = artworkRevision,
+                    pendingCandidates = result.pendingPortraits,
                 )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
@@ -498,6 +513,7 @@ private fun ArtistArtworkManualSection(
     libraryId: String?,
     albumIds: List<String>,
     artworkRevision: Int,
+    pendingCandidates: List<ArtistArtworkCandidate>,
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
@@ -514,12 +530,10 @@ private fun ArtistArtworkManualSection(
     var selections by remember(anchor) {
         mutableStateOf<Map<ArtworkSlot, ArtistArtworkSelection>>(emptyMap())
     }
-    var candidates by remember(anchor) {
-        mutableStateOf<List<ArtistArtworkCandidate>>(emptyList())
-    }
     var busy by remember(anchor) { mutableStateOf(false) }
     var confirmedIdentity by remember(anchor, profile.mbid) { mutableStateOf(false) }
     var message by remember(anchor) { mutableStateOf<String?>(null) }
+    val candidates = pendingCandidates
     LaunchedEffect(anchor, store, artworkRevision) {
         selections = try {
             store.load(anchor).associateBy { it.slot }
@@ -530,7 +544,7 @@ private fun ArtistArtworkManualSection(
         }
     }
     Text("Retratos alternativos", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    Text("Sólo se consultan si lo pides. La imagen elegida se descarga y se guarda para este artista.",
+    Text("Se buscan automáticamente cuando hacen falta. La imagen elegida se descarga y se guarda para este artista.",
         color = TextSecondary, fontSize = 11.sp)
     selections.values.sortedBy { it.slot.ordinal }.forEach { selection ->
         val file = selection.localImagePath?.takeIf { it.isNotBlank() }?.let(::File)
@@ -602,37 +616,8 @@ private fun ArtistArtworkManualSection(
             )
         }
     }
-    OutlinedButton(
-        onClick = {
-            if (busy) return@OutlinedButton
-            busy = true
-            message = null
-            scope.launch {
-                try {
-                    when (val result = coordinator.searchManual(anchor, artistCredit)) {
-                        is ProviderArtworkResult.Available -> {
-                            candidates = result.items
-                            if (result.items.isEmpty()) message = "Sin retratos alternativos verificables."
-                        }
-                        ProviderArtworkResult.NoMatch -> message = "Sin retratos alternativos verificables."
-                        is ProviderArtworkResult.Disabled -> message = "Proveedor deshabilitado: ${result.reason}"
-                        is ProviderArtworkResult.Failure -> message = "No fue posible consultar Openverse: ${result.type}"
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    message = "No fue posible consultar Openverse: ${error.message ?: "error de red"}"
-                } finally {
-                    busy = false
-                }
-            }
-        },
-        enabled = !busy,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            .testTag("artist_artwork_openverse_search"),
-        colors = secondaryColors,
-        border = secondaryBorder,
-    ) { Text(if (busy) "Consultando Openverse…" else "Buscar retrato alternativo (Openverse)") }
+    Text("Los retratos alternativos se consultan automáticamente cuando las fuentes verificadas no cubren el mosaico y la ficha.",
+        color = TextSecondary, fontSize = 11.sp)
     message?.let { Text(it, color = TextSecondary, fontSize = 11.sp,
         modifier = Modifier.testTag("artist_artwork_openverse_status")) }
     if (candidates.isNotEmpty()) {
@@ -683,7 +668,6 @@ private fun ArtistArtworkManualSection(
                                         ArtworkLoadStatus.REJECTED -> "El origen no confirma una licencia admitida."
                                         else -> "No fue posible guardar el retrato (${report.status})."
                                     }
-                                    if (report.status == ArtworkLoadStatus.READY) candidates = emptyList()
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (error: Exception) {

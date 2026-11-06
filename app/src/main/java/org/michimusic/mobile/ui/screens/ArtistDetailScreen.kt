@@ -57,12 +57,14 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.mobile.artist.ArtistEnrichmentPanel
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
+import org.michimusic.mobile.artist.ArtistEnrichmentOrchestrator
 import org.michimusic.mobile.artist.PersistedArtistProfile
 import org.michimusic.mobile.artist.ArtistProfileStatus
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
 import org.michimusic.mobile.artist.allowedCommonsPortrait
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkService
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
@@ -236,6 +238,39 @@ fun ArtistDetailScreen(
             // Artwork cache failure is independent from the verified biography and
             // local playback; the hero falls back to the legacy portrait or monogram.
             artworkReadError = true
+        }
+    }
+    val orchestrator = remember(context, store) {
+        ArtistEnrichmentOrchestrator(artwork = ArtistArtworkService.from(context), store = store)
+    }
+    var autoRefreshedMbid by remember(artistCredit, libraryId, albumIds) {
+        mutableStateOf<String?>(null)
+    }
+    // A confirmed MBID is enough to finish biography and artwork in the background.
+    // The cache is rendered first; this effect only fills missing or stale data once per artist.
+    LaunchedEffect(artistCredit, libraryId, albumIds, savedProfile?.mbid,
+        cachedProfileIsStale, heroArtwork, cacheRevision) {
+        val profile = savedProfile ?: return@LaunchedEffect
+        val mbid = profile.mbid
+        if (libraryId == null || autoRefreshedMbid == mbid) return@LaunchedEffect
+        if (!cachedProfileIsStale && !profile.biography.isNullOrBlank() && heroArtwork != null) {
+            return@LaunchedEffect
+        }
+        autoRefreshedMbid = mbid
+        try {
+            val result = orchestrator.enrich(
+                artistCredit = artistCredit,
+                libraryId = libraryId,
+                albumIds = albumIds,
+                mbid = mbid,
+                cached = profile,
+                forceRefresh = cachedProfileIsStale,
+            )
+            if (result.profile != null) cacheRevision++
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional enrichment never blocks the local ficha or playback.
         }
     }
     // State lives above LazyColumn so every remote discography row is its own lazy item.

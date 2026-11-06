@@ -1,9 +1,11 @@
 package org.michimusic.mobile.artist
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -36,8 +38,11 @@ class ArtistEnrichmentPersistenceUiTest {
                 libraryId = "lib-one", albumIds = listOf("album-1"), selectionStore = store)
         }
         rule.onNodeWithText("MBID confirmado", substring = true).assertExists()
-        assertEquals(0, fetches)
-        rule.onNodeWithTag("artist_enrichment_clear").performClick()
+        assertEquals(1, fetches)
+        rule.waitUntil(5000) {
+            rule.onAllNodesWithTag("artist_enrichment_clear").fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithTag("artist_enrichment_clear").performScrollTo().performClick()
         rule.waitForIdle()
         assertEquals(1, cleared)
     }

@@ -194,7 +194,7 @@ class ArtistDetailSectionsTest {
         }
 
         compose.onNodeWithTag("artist_detail_portrait_status").assertExists()
-        compose.onNodeWithText("licencia admitida", substring = true).assertExists()
+        compose.onNodeWithText("Sin fotografías verificables", substring = true).assertExists()
         compose.onNodeWithText("Consultar Artist Enrichment").assertDoesNotExist()
         compose.onNodeWithText("Revisar en Artist Enrichment").assertDoesNotExist()
     }

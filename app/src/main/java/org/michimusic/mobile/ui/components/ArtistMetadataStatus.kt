@@ -18,18 +18,19 @@ internal fun biographyStatusText(outcome: ArtistMetadataOutcome?): String = when
 }
 
 internal fun portraitStatusText(outcome: ArtistMetadataOutcome?): String = when (outcome) {
-    ArtistMetadataOutcome.NO_P18 ->
-        "Wikidata no registra una fotografía (P18) para este artista."
-    ArtistMetadataOutcome.NO_ALLOWED_LICENSE ->
-        "La fotografía encontrada no tiene una licencia admitida."
-    ArtistMetadataOutcome.BAD_ATTRIBUTION ->
-        "La fotografía encontrada no acredita autoría verificable."
+    ArtistMetadataOutcome.NO_P18,
+    ArtistMetadataOutcome.NO_ALLOWED_LICENSE,
+    ArtistMetadataOutcome.BAD_ATTRIBUTION,
+    ArtistMetadataOutcome.NO_SITELINK,
+    ArtistMetadataOutcome.NO_TEXT,
+    ArtistMetadataOutcome.NO_IDENTITY,
+    -> "Sin fotografías verificables."
     ArtistMetadataOutcome.HTTP_ERROR,
     ArtistMetadataOutcome.TIMEOUT,
     ArtistMetadataOutcome.NETWORK_ERROR,
-    -> "No fue posible consultar la fotografía; se mantiene el monograma."
+    -> "No fue posible recuperar fotografías; se mantiene el monograma."
     ArtistMetadataOutcome.DECODE_ERROR,
     ArtistMetadataOutcome.CACHE_ERROR,
-    -> "La respuesta del proveedor no permitió verificar la fotografía."
-    else -> "No hay una fotografía verificada disponible para este artista."
+    -> "Las fotografías no pudieron verificarse; se mantiene el monograma."
+    else -> "Sin fotografías verificables."
 }

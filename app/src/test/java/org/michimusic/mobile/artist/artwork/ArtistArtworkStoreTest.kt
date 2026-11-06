@@ -44,6 +44,11 @@ class ArtistArtworkStoreTest {
         val root = File(context.filesDir, "artist-artwork").apply { mkdirs() }
         val referenced = File(root, "referenced.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
         val orphan = File(root, "orphan.jpg").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val activeTemp = File(root, "active-download.tmp").apply { writeBytes(byteArrayOf(7, 8)) }
+        val staleTemp = File(root, "abandoned.tmp").apply {
+            writeBytes(byteArrayOf(9, 10, 11, 12))
+            setLastModified(System.currentTimeMillis() - 20 * 60 * 1000L)
+        }
         val sha = "a".repeat(64)
         val assetId = "sha256:$sha"
         val dao = database.artistEnrichmentDao()
@@ -80,7 +85,9 @@ class ArtistArtworkStoreTest {
 
         assertTrue("Referenced artwork must survive pruning", referenced.isFile)
         assertFalse("Unreferenced artwork must be pruned", orphan.exists())
-        assertEquals(3L, freed)
+        assertTrue("A fresh download temporary must survive pruning", activeTemp.isFile)
+        assertFalse("An abandoned download temporary must be pruned", staleTemp.exists())
+        assertEquals(7L, freed)
         val loaded = store.load(anchor).single()
         assertEquals(ArtworkLoadStatus.READY, loaded.status)
         assertEquals(referenced.absolutePath, loaded.localImagePath)

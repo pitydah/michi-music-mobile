@@ -65,20 +65,25 @@ Sync your music library wirelessly from your desktop and control playback remote
 Artist metadata never adds remote albums to the local collection. The **DISCOGRAFÍA**
 section only lists albums whose files exist on this phone.
 
-- **Identity** — an artist must be explicitly matched to a canonical MusicBrainz MBID
-  from *Enriquecer*. The app never merges artists by name.
+- **Identity** — a single unambiguous MusicBrainz match is confirmed automatically;
+  ambiguous matches require an explicit choice. The app never merges artists by name.
+- **One automatic journey** — a confirmed MBID triggers biography, Commons P18/P180,
+  Wikipedia PageImages and fallback Openverse discovery without a second search or
+  retry button. Bio and artwork fail independently.
 - **Biography** — comes from a verified Wikipedia article (direct MusicBrainz relation or
   a verified Wikidata QID sitelink), with its source URL shown.
 - **Artwork** — providers only propose images. Commons P18, Commons P180, Wikipedia
-  PageImages, and an explicitly chosen Openverse/Flickr result must pass license,
-  attribution, origin and identity checks before being downloaded.
+  PageImages, and a name-only Openverse/Flickr result must pass license,
+  attribution, origin and identity checks before being downloaded. Openverse results
+  that cannot be tied to the verified MBID stay as visual-review candidates.
 - **Two crops, one file** — a circular thumbnail for the artist mosaic and a hero crop
   inside the existing ficha. Focus is stored per slot; the hero reuses the thumbnail
   only when its resolution is sufficient.
 - **Offline cache** — decoded bytes live in app-private storage and are referenced from
   Room. A URL alone is never treated as a saved image, and artwork is never uploaded.
 - **Optional providers** — TheAudioDB and Fanart.tv are compiled but disabled (no keys,
-  no network); Openverse is manual-only.
+  no network); Openverse discovery runs automatically only when verified sources leave
+  a slot uncovered.
 
 The enrichment cache database (`michi-artist-enrichment.db`) is version 3; migrations
 preserve existing profiles and add artwork asset/selection tables without destructive

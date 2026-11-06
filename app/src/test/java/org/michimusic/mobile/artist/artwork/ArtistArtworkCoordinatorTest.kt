@@ -85,6 +85,12 @@ class ArtistArtworkCoordinatorTest {
         val url = chain.request().url
         onRequest(url.toString())
         val body = when {
+            url.host == "commons.wikimedia.org" && url.queryParameter("ids")?.startsWith("M") == true ->
+                """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
+                    .toResponseBody("application/json".toMediaType())
+            url.host == "commons.wikimedia.org" && url.queryParameter("prop") == "info" ->
+                """{"query":{"pages":{"1":{"pageid":1,"title":"File:Midnight Oil.jpg"}}}}"""
+                    .toResponseBody("application/json".toMediaType())
             url.host == "www.wikidata.org" && url.queryParameter("sites") == "commonswiki" ->
                 """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
                     .toResponseBody("application/json".toMediaType())
@@ -175,8 +181,8 @@ class ArtistArtworkCoordinatorTest {
         assertEquals(thumb.assetId, hero.assetId)
         assertEquals("CC BY-SA 2.0", thumb.licenseId)
         assertTrue(java.io.File(thumb.localImagePath!!).isFile)
-        // All three automatic providers run now; identity proof adds Commons MediaInfo reads.
-        assertTrue(requests.count { it.contains("www.wikidata.org") } >= 2)
+        // P18 uses the Wikidata snapshot; MediaInfo P180 is verified on Commons.
+        assertTrue(requests.count { it.contains("www.wikidata.org") } >= 1)
         assertTrue(requests.count { it.contains("commons.wikimedia.org/w/api.php") } >= 3)
         assertEquals(1, requests.count { it.contains("thumb.wikimedia.org") })
         val networkCount = requests.size
