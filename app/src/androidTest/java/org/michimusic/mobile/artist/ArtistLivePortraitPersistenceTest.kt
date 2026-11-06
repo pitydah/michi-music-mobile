@@ -59,7 +59,12 @@ class ArtistLivePortraitPersistenceTest {
                     "license=${loaded.profile.portrait?.license} stale=${loaded.stale}",
             )
 
-            val request = ImageRequest.Builder(context).data(portrait.imageUrl).build()
+            // This test owns a fresh disk key so a previous live run cannot turn the
+            // first request into a DISK hit and hide a broken network write path.
+            val request = ImageRequest.Builder(context)
+                .data(portrait.imageUrl)
+                .diskCacheKey("live-portrait-${System.nanoTime()}")
+                .build()
             val first = SingletonImageLoader.get(context).execute(request)
             if (first !is SuccessResult) {
                 println("LIVE_IMAGE_ERROR ${(first as? coil3.request.ErrorResult)?.throwable}")

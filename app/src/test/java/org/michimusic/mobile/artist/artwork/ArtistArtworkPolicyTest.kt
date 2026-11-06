@@ -143,6 +143,15 @@ class ArtistArtworkPolicyTest {
             "https://creativecommons.org/licenses/by/2.0/",
             page,
         ))
+
+        // Openverse uses the Flickr NSID; Flickr may canonicalize the page to a vanity
+        // owner. The exact numeric photo id is the stable same-file evidence.
+        val vanityPage = page.replace("130010035@N04", "comedynose")
+        assertTrue(originPageConfirmsLicense(
+            "https://www.flickr.com/photos/130010035@N04/51904192325",
+            "https://creativecommons.org/licenses/by/2.0/",
+            vanityPage,
+        ))
     }
 
     @Test

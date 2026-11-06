@@ -402,6 +402,64 @@ class ArtistArtworkCoordinatorTest {
         assertTrue(store.selections.containsKey(ArtworkSlot.ARTIST_THUMB))
     }
 
+    @Test
+    fun providerFailureNeverErasesAlreadyValidatedArtwork() = runBlocking {
+        val store = MemoryStore(context)
+        val thumb = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = false)
+        val hero = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = false)
+        store.selections[ArtworkSlot.ARTIST_THUMB] = thumb
+        store.selections[ArtworkSlot.ARTIST_HERO] = hero
+        val coordinator = coordinator(
+            client(commonsBody = """{"error":"provider unavailable"}"""),
+            store,
+        )
+
+        val report = coordinator.resolve(anchor, forceRefresh = true)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(thumb.assetId, report.selections.getValue(ArtworkSlot.ARTIST_THUMB).assetId)
+        assertEquals(hero.assetId, report.selections.getValue(ArtworkSlot.ARTIST_HERO).assetId)
+        assertEquals(0, store.saves)
+    }
+
+    @Test
+    fun thumbOnlyEarlyCutSkipsLowerPriorityProviders() = runBlocking {
+        val store = MemoryStore(context)
+        store.selections[ArtworkSlot.ARTIST_HERO] = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = false)
+        val requests = mutableListOf<String>()
+        val coordinator = coordinator(client(onRequest = { requests += it }), store)
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(1, store.saves)
+        assertTrue(report.outcomes.any {
+            it.source == ArtworkSource.COMMONS_P180 && it.status == ArtworkProviderStatus.SKIPPED
+        })
+        assertTrue(report.outcomes.any {
+            it.source == ArtworkSource.WIKIPEDIA_PAGEIMAGE && it.status == ArtworkProviderStatus.SKIPPED
+        })
+        assertFalse(requests.any { it.contains("list=search") })
+        assertFalse(requests.any { it.contains("wikipedia.org") })
+    }
+
+    @Test
+    fun missingHeroStillQueriesLowerPriorityProvidersBecauseHeroRankingCanImprove() = runBlocking {
+        val store = MemoryStore(context)
+        store.selections[ArtworkSlot.ARTIST_THUMB] = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = false)
+        val requests = mutableListOf<String>()
+        val coordinator = coordinator(client(onRequest = { requests += it }), store)
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(1, store.saves)
+        assertTrue(report.outcomes.none {
+            it.source == ArtworkSource.COMMONS_P180 && it.status == ArtworkProviderStatus.SKIPPED
+        })
+        assertTrue(requests.any { it.contains("list=search") || it.contains("wikipedia.org") })
+    }
+
     private fun cached(
         slot: ArtworkSlot,
         manuallyChosen: Boolean,

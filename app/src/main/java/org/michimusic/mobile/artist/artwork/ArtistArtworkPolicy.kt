@@ -113,11 +113,18 @@ fun originPageConfirmsLicense(
     // identify the exact photo from the origin URL before its licence can be trusted.
     val segments = origin.rawPath.orEmpty().trim('/').split('/')
     if (segments.size < 3) return false
-    val owner = segments[1]
     val photoId = segments[2]
     if (photoId.isBlank() || !photoId.all(Char::isDigit)) return false
-    val canonical = "https://www.flickr.com/photos/$owner/$photoId"
-    if (!html.contains(canonical, ignoreCase = true)) return false
+    // Flickr renders the photo owner as either the NSID from Openverse or the
+    // account's vanity name. The canonical URL may therefore change owner while the
+    // numeric photo id remains the stable identity of the same file. Bind the licence
+    // to that exact id, not to a name that Flickr is allowed to rewrite.
+    val samePhoto = Regex(
+        "https?://(?:www\\.)?flickr\\.com/photos/[^/\\s\"'<>]+/" +
+            Regex.escape(photoId) + "(?:[/?#\\s\"'<>]|$)",
+        RegexOption.IGNORE_CASE,
+    )
+    if (!samePhoto.containsMatchIn(html)) return false
     val found = Regex(
         "https?://(?:www\\.)?creativecommons\\.org/(licenses|publicdomain)/([a-z-]+)(?:/([0-9.]+))?",
         RegexOption.IGNORE_CASE,

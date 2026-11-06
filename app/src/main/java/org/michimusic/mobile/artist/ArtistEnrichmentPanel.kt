@@ -352,6 +352,7 @@ fun ArtistEnrichmentPanel(
                     albumIds = albumIds,
                     initialSelections = uiState.selections,
                     pendingCandidates = result.pendingPortraits,
+                    onSelectionsChanged = activeController::applySelections,
                 )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
@@ -387,6 +388,7 @@ private fun ArtistArtworkManualSection(
     albumIds: List<String>,
     initialSelections: Map<ArtworkSlot, ArtistArtworkSelection>,
     pendingCandidates: List<ArtistArtworkCandidate>,
+    onSelectionsChanged: (Map<ArtworkSlot, ArtistArtworkSelection>) -> Unit,
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
@@ -465,6 +467,7 @@ private fun ArtistArtworkManualSection(
                     scope.launch {
                         try {
                             coordinator.updateFocus(anchor, selection.slot, current.focus)
+                            onSelectionsChanged(selections)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
@@ -488,6 +491,7 @@ private fun ArtistArtworkManualSection(
                     scope.launch {
                         try {
                             coordinator.updateFocus(anchor, selection.slot, current.focus)
+                            onSelectionsChanged(selections)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
@@ -548,6 +552,7 @@ private fun ArtistArtworkManualSection(
                                 try {
                                     val report = coordinator.chooseManual(anchor, candidate, slot)
                                     selections = report.selections
+                                    onSelectionsChanged(report.selections)
                                     message = when (report.status) {
                                         ArtworkLoadStatus.READY -> "Retrato guardado para $label."
                                         ArtworkLoadStatus.REJECTED -> "El origen no confirma una licencia admitida."

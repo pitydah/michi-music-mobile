@@ -79,9 +79,16 @@ class ArtistArtworkCoordinator internal constructor(
 
         val outcomes = mutableListOf<ArtworkProviderOutcome>()
         val candidates = mutableListOf<ArtistArtworkCandidate>()
+        var thumbOnlyEarlyCut = false
         for (provider in automaticProviders) {
             if (provider is DisabledArtworkProvider) {
                 outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.DISABLED, "Proveedor desactivado")
+                continue
+            }
+            if (thumbOnlyEarlyCut) {
+                outcomes += ArtworkProviderOutcome(
+                    provider.source, ArtworkProviderStatus.SKIPPED, "EARLY_CUT_THUMB_ONLY",
+                )
                 continue
             }
             val result = try {
@@ -101,6 +108,14 @@ class ArtistArtworkCoordinator internal constructor(
                         if (valid.isEmpty()) "Sin candidato que cumpla identidad y licencia" else null,
                         valid.size,
                     )
+                    // Thumb ranking is source-priority first (P18 > P180 > PageImage), so a
+                    // valid P18 thumb cannot be improved by querying lower-priority sources.
+                    // Hero ranking is resolution-first: keep querying so a better hero can win.
+                    if (provider.source == ArtworkSource.COMMONS_P18 &&
+                        needThumb && !needHero && valid.isNotEmpty()
+                    ) {
+                        thumbOnlyEarlyCut = true
+                    }
                 }
                 is ProviderArtworkResult.NoMatch ->
                     outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.NO_MATCH, "Sin coincidencias")

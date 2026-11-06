@@ -236,6 +236,19 @@ class ArtistEnrichmentController(
         }
     }
 
+    /**
+     * A manual choice is persisted by the artwork repository; this publishes that
+     * authoritative result to the shared UI state without creating a second controller.
+     */
+    fun applySelections(selections: Map<ArtworkSlot, ArtistArtworkSelection>) {
+        val profile = _state.value.profile ?: return
+        val verified = selections.filterValues {
+            it.status == ArtworkLoadStatus.READY &&
+                it.confirmedMbid.equals(profile.mbid, ignoreCase = true)
+        }
+        _state.value = _state.value.copy(selections = verified)
+    }
+
     fun release() {
         ++requestEpoch
         requestJob?.cancel()
