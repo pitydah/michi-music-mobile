@@ -24,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -388,6 +389,7 @@ private fun ArtistArtworkManualSection(
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val coordinator = remember(context) { ArtistArtworkService.from(context) }
     val anchor = remember(libraryId, artistCredit, albumIds, profile.mbid,
         profile.wikidataQid) {
@@ -430,6 +432,23 @@ private fun ArtistArtworkManualSection(
                 "${selection.attribution.orEmpty()} · ${selection.licenseId.orEmpty()}",
                 color = TextSecondary, fontSize = 10.sp, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
+            // The regular artist page stays clean; source and licence remain accessible here.
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                live.sourcePageUrl?.let { url ->
+                    TextButton(
+                        onClick = { uriHandler.openUri(url) },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .testTag("artist_artwork_source_${selection.slot.name}"),
+                    ) { Text("Origen de la foto", color = TertiaryCyan, fontSize = 11.sp) }
+                }
+                live.licenseUrl?.let { url ->
+                    TextButton(
+                        onClick = { uriHandler.openUri(url) },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .testTag("artist_artwork_license_${selection.slot.name}"),
+                    ) { Text("Licencia", color = TertiaryCyan, fontSize = 11.sp) }
+                }
+            }
             Text("Encuadre ${selection.slot.name.lowercase().replace('_', ' ')}: " +
                 "${(live.focus.x * 100).toInt()}% / ${(live.focus.y * 100).toInt()}%",
                 color = TextSecondary, fontSize = 10.sp)
