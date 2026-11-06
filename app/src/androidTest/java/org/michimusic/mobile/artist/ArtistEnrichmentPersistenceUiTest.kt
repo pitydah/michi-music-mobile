@@ -2,6 +2,7 @@ package org.michimusic.mobile.artist
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -50,6 +51,13 @@ class ArtistEnrichmentPersistenceUiTest {
         rule.setContent {
             ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = gateway,
                 libraryId = "lib-one", albumIds = listOf("album-1"), selectionStore = store)
+        }
+        // Compose synchronization can finish before the controller's cached-profile
+        // coroutine publishes its first state on a loaded CI emulator. Wait for the
+        // observable contract instead of racing it; no production timeout is changed.
+        rule.waitUntil(5000) {
+            rule.onAllNodesWithText("MBID confirmado por selección", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithText("MBID confirmado por selección", substring = true).assertExists()
         assertEquals(0, fetches)
