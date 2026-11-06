@@ -65,8 +65,9 @@ Sync your music library wirelessly from your desktop and control playback remote
 Artist metadata never adds remote albums to the local collection. The **DISCOGRAFÍA**
 section only lists albums whose files exist on this phone.
 
-- **Identity** — a single unambiguous MusicBrainz match is confirmed automatically;
-  ambiguous matches require an explicit choice. The app never merges artists by name.
+- **Identity** — MusicBrainz candidates are proposed automatically, but no candidate is
+  confirmed by name, not even a single exact match. The user selects the MBID explicitly;
+  ambiguous matches require that choice. The app never merges artists by name.
 - **One automatic journey** — a confirmed MBID triggers biography, Commons P18/P180,
   Wikipedia PageImages and fallback Openverse discovery without a second search or
   retry button. Bio and artwork fail independently.
@@ -83,11 +84,16 @@ section only lists albums whose files exist on this phone.
   Room. A URL alone is never treated as a saved image, and artwork is never uploaded.
 - **Optional providers** — TheAudioDB and Fanart.tv are compiled but disabled (no keys,
   no network); Openverse discovery runs automatically only when verified sources leave
-  a slot uncovered.
+  a slot uncovered. An Openverse/Flickr result never becomes READY until its page's
+  schema.org `ImageObject` contains both the exact numeric photo id and the expected
+  licence, and the user explicitly chooses it.
+- **Durable association** — a confirmed profile stores the album IDs that supported it.
+  A later rescan that adds or removes albums recovers the profile only when exactly one
+  historical association shares a visible album; ambiguous overlaps are left untouched.
 
-The enrichment cache database (`michi-artist-enrichment.db`) is version 3; migrations
-preserve existing profiles and add artwork asset/selection tables without destructive
-fallback.
+The enrichment cache database (`michi-artist-enrichment.db`) is version 6; migrations
+preserve existing profiles, artwork assets, selections, links, focus and licenses
+without destructive fallback.
 
 ## Build
 
