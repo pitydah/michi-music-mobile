@@ -53,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.flowOf
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.TrackSource
@@ -220,8 +221,11 @@ fun ArtistDetailScreen(
         mutableStateOf<ArtistArtworkSelection?>(null)
     }
     var artworkReadError by remember(artistCredit, libraryId, albumIds) { mutableStateOf(false) }
+    val artworkRevision by remember(artworkStore, libraryId) {
+        libraryId?.let(artworkStore::observeLibraryRevision) ?: flowOf(0L)
+    }.collectAsStateWithLifecycle(initialValue = 0L)
     LaunchedEffect(artworkStore, artistCredit, libraryId, albumIds,
-        savedProfile?.mbid, savedProfile?.wikidataQid, cacheRevision) {
+        savedProfile?.mbid, savedProfile?.wikidataQid, cacheRevision, artworkRevision) {
         heroArtwork = null
         artworkReadError = false
         if (libraryId == null) return@LaunchedEffect

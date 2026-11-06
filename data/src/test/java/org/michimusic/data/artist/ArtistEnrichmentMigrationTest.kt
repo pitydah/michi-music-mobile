@@ -49,7 +49,8 @@ class ArtistEnrichmentMigrationTest {
         val upgraded = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
             .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
                 ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
-                ArtistEnrichmentCacheDatabase.MIGRATION_3_4)
+                ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
+                ArtistEnrichmentCacheDatabase.MIGRATION_4_5)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -99,7 +100,8 @@ class ArtistEnrichmentMigrationTest {
         val upgraded = Room.databaseBuilder(context, ArtistEnrichmentCacheDatabase::class.java, name)
             .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
                 ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
-                ArtistEnrichmentCacheDatabase.MIGRATION_3_4)
+                ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
+                ArtistEnrichmentCacheDatabase.MIGRATION_4_5)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -109,6 +111,80 @@ class ArtistEnrichmentMigrationTest {
         } finally {
             upgraded.close()
             context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun v4SelectionsGainMonotonicRevisionWithoutLosingArtwork() = runBlocking {
+        val mbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val name = "artist-migration-4-5-${System.nanoTime()}.db"
+        helper.createDatabase(name, 4).apply {
+            execSQL("""
+                INSERT INTO `artist_artwork_asset`
+                    (`assetId`,`confirmedMbid`,`verifiedQid`,`source`,`sourcePageUrl`,
+                     `imageUrl`,`localRelativePath`,`sha256`,`mimeType`,`width`,`height`,
+                     `licenseId`,`licenseUrl`,`attribution`,`evidence`,`downloadedAtMs`)
+                VALUES('sha256:abc','$mbid','Q48284','COMMONS_P18',
+                       'https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg',
+                       'https://thumb.wikimedia.org/Midnight_Oil.jpg',
+                       'artist-artwork/abc.jpg','abc','image/jpeg',1920,1280,
+                       'CC BY-SA 2.0','https://creativecommons.org/licenses/by-sa/2.0/',
+                       'Fab_Photo_29','VERIFIED_QID_REFERENCE',1)
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO `artist_artwork_link`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`slot`,`confirmedMbid`,
+                     `assetId`,`verifiedQid`,`source`,`sourcePageUrl`,`imageUrl`,
+                     `licenseId`,`licenseUrl`,`attribution`,`evidence`,`linkedAtMs`)
+                VALUES('lib-a','artist','group','ARTIST_HERO','$mbid','sha256:abc',
+                       'Q48284','COMMONS_P18',
+                       'https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg',
+                       'https://thumb.wikimedia.org/Midnight_Oil.jpg',
+                       'CC BY-SA 2.0','https://creativecommons.org/licenses/by-sa/2.0/',
+                       'Fab_Photo_29','VERIFIED_QID_REFERENCE',9)
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO `artist_artwork_selection`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`slot`,`assetId`,
+                     `confirmedMbid`,`focusX`,`focusY`,`manuallyChosen`,`revision`,`updatedAtMs`)
+                VALUES('lib-a','artist','group','ARTIST_HERO','sha256:abc',
+                       '$mbid',0.5,0.45,1,7,9)
+            """.trimIndent())
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 5, true, ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
+        )
+        try {
+            upgraded.query(
+                "SELECT revision, updatedAtMs FROM artist_artwork_revision WHERE libraryId=?",
+                arrayOf("lib-a"),
+            ).use { revision ->
+                assertTrue(revision.moveToFirst())
+                assertEquals(1L, revision.getLong(0))
+                assertEquals(9L, revision.getLong(1))
+            }
+            upgraded.query(
+                "SELECT slot, manuallyChosen, focusY FROM artist_artwork_selection " +
+                    "WHERE libraryId=? AND confirmedMbid=?",
+                arrayOf("lib-a", mbid),
+            ).use { selection ->
+                assertTrue(selection.moveToFirst())
+                assertEquals("ARTIST_HERO", selection.getString(0))
+                assertEquals(1, selection.getInt(1))
+                assertEquals(0.45f, selection.getFloat(2), 0.0001f)
+            }
+            upgraded.query(
+                "SELECT attribution, licenseId FROM artist_artwork_link " +
+                    "WHERE libraryId=? AND confirmedMbid=? AND slot=?",
+                arrayOf("lib-a", mbid, "ARTIST_HERO"),
+            ).use { link ->
+                assertTrue(link.moveToFirst())
+                assertEquals("Fab_Photo_29", link.getString(0))
+                assertEquals("CC BY-SA 2.0", link.getString(1))
+            }
+        } finally {
+            upgraded.close()
         }
     }
 

@@ -42,4 +42,39 @@ class ArtistDetailArtworkPolicyTest {
         assertNull(selectEffectiveHeroArtwork(mbid, selection(mbid, ArtworkLoadStatus.CACHE_ERROR), null))
         assertNull(selectEffectiveHeroArtwork(null, selection(mbid), selection(mbid)))
     }
+
+    @Test
+    fun invalidControllerFallsBackToAValidRoomSelection() {
+        val persisted = selection(mbid)
+        assertEquals(
+            persisted,
+            selectEffectiveHeroArtwork(
+                mbid,
+                fromController = selection(mbid, ArtworkLoadStatus.CACHE_ERROR),
+                fromRoom = persisted,
+            ),
+        )
+        assertEquals(
+            persisted,
+            selectEffectiveHeroArtwork(mbid, fromController = selection(other), fromRoom = persisted),
+        )
+    }
+
+    @Test
+    fun bothInvalidCandidatesKeepTheMonogram() {
+        assertNull(
+            selectEffectiveHeroArtwork(
+                mbid,
+                fromController = selection(other),
+                fromRoom = selection(mbid, ArtworkLoadStatus.CACHE_ERROR),
+            ),
+        )
+    }
+
+    @Test
+    fun twoValidCandidatesKeepTheControllerAsThePrimarySelection() {
+        val controller = selection(mbid).copy(assetId = "sha256:${"c".repeat(64)}")
+        val room = selection(mbid).copy(assetId = "sha256:${"d".repeat(64)}")
+        assertEquals(controller, selectEffectiveHeroArtwork(mbid, controller, room))
+    }
 }

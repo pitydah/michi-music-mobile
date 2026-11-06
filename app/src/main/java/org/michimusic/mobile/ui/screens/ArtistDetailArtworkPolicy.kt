@@ -14,7 +14,12 @@ internal fun selectEffectiveHeroArtwork(
     fromRoom: ArtistArtworkSelection?,
 ): ArtistArtworkSelection? {
     val expected = profileMbid?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-    return (fromController ?: fromRoom)?.takeIf {
-        it.status == ArtworkLoadStatus.READY && it.confirmedMbid.equals(expected, ignoreCase = true)
-    }
+    fun valid(selection: ArtistArtworkSelection?): ArtistArtworkSelection? =
+        selection?.takeIf {
+            it.status == ArtworkLoadStatus.READY &&
+                it.confirmedMbid.equals(expected, ignoreCase = true)
+        }
+    // Evaluate each candidate independently: an invalid controller value must not
+    // shadow a valid persisted Room value for the same identity.
+    return valid(fromController) ?: valid(fromRoom)
 }

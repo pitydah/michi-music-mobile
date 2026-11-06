@@ -131,26 +131,26 @@ class RoomArtistArtworkStore(
     }
 
     override suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean {
-        val rows = dao.getArtworkSelections(
-            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
-        )
-        val row = rows.firstOrNull { it.slot == slot.name } ?: return false
         val normalized = focus.normalized()
-        dao.putArtworkSelection(row.copy(
+        return dao.updateArtworkFocus(
+            libraryId = anchor.libraryId,
+            creditKey = anchor.creditKey,
+            albumGroupKey = anchor.albumGroupKey,
+            slot = slot.name,
+            confirmedMbid = anchor.confirmedMbid,
             focusX = normalized.x,
             focusY = normalized.y,
-            revision = clock(),
-            updatedAtMs = clock(),
-        ))
-        return true
+            nowMs = clock(),
+        ) > 0
     }
 
     override suspend fun clear(anchor: ArtistIdentityAnchor) {
-        dao.clearArtworkSelections(
-            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
-        )
-        dao.clearArtworkLinks(
-            anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
+        dao.clearArtworkForMbid(
+            libraryId = anchor.libraryId,
+            creditKey = anchor.creditKey,
+            albumGroupKey = anchor.albumGroupKey,
+            confirmedMbid = anchor.confirmedMbid,
+            nowMs = clock(),
         )
     }
 

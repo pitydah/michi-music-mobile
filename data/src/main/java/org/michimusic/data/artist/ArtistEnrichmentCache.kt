@@ -120,6 +120,18 @@ data class ArtistArtworkLinkRecord(
     val linkedAtMs: Long,
 )
 
+/**
+ * Monotonic, persisted observation counter per library. It is incremented inside the
+ * same transaction as every selection mutation, so deletions and same-millisecond
+ * writes cannot hide behind MAX(updatedAtMs).
+ */
+@Entity(tableName = "artist_artwork_revision", primaryKeys = ["libraryId"])
+data class ArtistArtworkRevisionRecord(
+    val libraryId: String,
+    val revision: Long,
+    val updatedAtMs: Long,
+)
+
 @Dao
 interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
@@ -161,7 +173,7 @@ interface ArtistEnrichmentDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putArtworkAsset(asset: ArtistArtworkAssetRecord)
 
-    @Query("SELECT MAX(updatedAtMs) FROM artist_artwork_selection WHERE libraryId = :libraryId")
+    @Query("SELECT revision FROM artist_artwork_revision WHERE libraryId = :libraryId LIMIT 1")
     fun observeLibraryArtworkRevision(libraryId: String): Flow<Long?>
 
     @Query("SELECT * FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND confirmedMbid = :confirmedMbid")
@@ -212,6 +224,19 @@ interface ArtistEnrichmentDao {
         confirmedMbid: String,
     ): Int
 
+    @Query("INSERT OR IGNORE INTO artist_artwork_revision (libraryId, revision, updatedAtMs) VALUES (:libraryId, 0, :nowMs)")
+    suspend fun ensureArtworkRevision(libraryId: String, nowMs: Long)
+
+    @Query("UPDATE artist_artwork_revision SET revision = revision + 1, updatedAtMs = :nowMs WHERE libraryId = :libraryId")
+    suspend fun incrementArtworkRevision(libraryId: String, nowMs: Long): Int
+
+    /** Must run inside the same transaction as the selection mutation it describes. */
+    @Transaction
+    suspend fun bumpArtworkRevision(libraryId: String, nowMs: Long) {
+        ensureArtworkRevision(libraryId, nowMs)
+        incrementArtworkRevision(libraryId, nowMs)
+    }
+
     @Query("SELECT COUNT(*) FROM artist_artwork_selection WHERE libraryId = :libraryId")
     suspend fun countArtworkSelectionsForLibrary(libraryId: String): Int
 
@@ -237,6 +262,50 @@ interface ArtistEnrichmentDao {
         )
         putArtworkLink(link)
         putArtworkSelection(selection)
+        bumpArtworkRevision(selection.libraryId, selection.updatedAtMs)
+    }
+
+    @Transaction
+    suspend fun clearArtworkForMbid(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        confirmedMbid: String,
+        nowMs: Long,
+    ) {
+        clearArtworkSelections(libraryId, creditKey, albumGroupKey, confirmedMbid)
+        clearArtworkLinks(libraryId, creditKey, albumGroupKey, confirmedMbid)
+        bumpArtworkRevision(libraryId, nowMs)
+    }
+
+    @Query("UPDATE artist_artwork_selection SET focusX = :focusX, focusY = :focusY, revision = :nowMs, updatedAtMs = :nowMs WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid = :confirmedMbid")
+    suspend fun updateArtworkFocusRow(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        slot: String,
+        confirmedMbid: String,
+        focusX: Float,
+        focusY: Float,
+        nowMs: Long,
+    ): Int
+
+    @Transaction
+    suspend fun updateArtworkFocus(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        slot: String,
+        confirmedMbid: String,
+        focusX: Float,
+        focusY: Float,
+        nowMs: Long,
+    ): Int {
+        val changed = updateArtworkFocusRow(
+            libraryId, creditKey, albumGroupKey, slot, confirmedMbid, focusX, focusY, nowMs,
+        )
+        if (changed > 0) bumpArtworkRevision(libraryId, nowMs)
+        return changed
     }
 }
 
@@ -247,8 +316,9 @@ interface ArtistEnrichmentDao {
         ArtistArtworkAssetRecord::class,
         ArtistArtworkSelectionRecord::class,
         ArtistArtworkLinkRecord::class,
+        ArtistArtworkRevisionRecord::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -346,6 +416,24 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                 INNER JOIN `artist_artwork_asset` a ON a.`assetId` = s.`assetId`
             """.trimIndent())
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_artwork_link_assetId` ON `artist_artwork_link` (`assetId`)")
+        }
+
+        /** R11.5: monotonic per-library artwork revision, independent of wall-clock time. */
+        val MIGRATION_4_5 = Migration(4, 5) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_revision` (
+                    `libraryId` TEXT NOT NULL,
+                    `revision` INTEGER NOT NULL,
+                    `updatedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                INSERT OR IGNORE INTO `artist_artwork_revision` (`libraryId`, `revision`, `updatedAtMs`)
+                SELECT `libraryId`, COUNT(*), COALESCE(MAX(`updatedAtMs`), 0)
+                FROM `artist_artwork_selection`
+                GROUP BY `libraryId`
+            """.trimIndent())
         }
     }
 }

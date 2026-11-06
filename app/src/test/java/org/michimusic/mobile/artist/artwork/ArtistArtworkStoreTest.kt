@@ -10,6 +10,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -46,14 +47,78 @@ class ArtistArtworkStoreTest {
         val flow = store.observeLibraryRevision("lib")
         assertEquals(0L, withTimeout(5_000) { flow.first() })
 
-        database.artistEnrichmentDao().putArtworkSelection(ArtistArtworkSelectionRecord(
-            libraryId = "lib", creditKey = "midnight oil", albumGroupKey = "group",
-            slot = "ARTIST_THUMB", assetId = "sha256:${"a".repeat(64)}",
-            confirmedMbid = mbid, focusX = 0.5f, focusY = 0.5f,
-            manuallyChosen = false, revision = 42L, updatedAtMs = 42L,
-        ))
+        val anchor = ArtistIdentityAnchor("lib", "midnight oil", "group", mbid, "Q48284", "Midnight Oil")
+        store.save(
+            anchor = anchor,
+            candidate = ArtistArtworkCandidate(
+                source = ArtworkSource.COMMONS_P18,
+                stableAssetId = "commons:midnight-oil.jpg",
+                confirmedMbid = mbid,
+                verifiedQid = "Q48284",
+                canonicalSourcePage = "https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg",
+                imageUrl = "https://thumb.wikimedia.org/Midnight_Oil.jpg",
+                originalWidth = 1920,
+                originalHeight = 1280,
+                mimeType = "image/jpeg",
+                licenseId = "CC BY-SA 2.0",
+                licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+                author = "Author",
+                attribution = "Author",
+                evidence = ArtworkEvidence.VERIFIED_QID_REFERENCE,
+                rights = ArtworkRights.VERIFIED_ALLOWED,
+            ),
+            slot = ArtworkSlot.ARTIST_THUMB,
+            downloaded = DownloadedArtwork(
+                relativePath = "artist-artwork/a.jpg",
+                sha256 = "a".repeat(64),
+                width = 1920,
+                height = 1280,
+                mimeType = "image/jpeg",
+            ),
+            focus = ArtworkFocus(),
+            manuallyChosen = false,
+        )
 
-        assertEquals(42L, withTimeout(5_000) { flow.first { it == 42L } })
+        assertEquals(1L, withTimeout(5_000) { flow.first { it == 1L } })
+    }
+
+    @Test
+    fun aRoomSelectionWhoseFileDisappearedIsReportedAsInvalid() = runBlocking {
+        val root = File(context.filesDir, "artist-artwork").apply { mkdirs() }
+        val file = File(root, "disappears.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val anchor = ArtistIdentityAnchor("lib", "midnight oil", "group", mbid, "Q48284", "Midnight Oil")
+        val saved = store.save(
+            anchor = anchor,
+            candidate = ArtistArtworkCandidate(
+                source = ArtworkSource.COMMONS_P18,
+                stableAssetId = "commons:midnight-oil.jpg",
+                confirmedMbid = mbid,
+                verifiedQid = "Q48284",
+                canonicalSourcePage = "https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg",
+                imageUrl = "https://thumb.wikimedia.org/Midnight_Oil.jpg",
+                originalWidth = 1920,
+                originalHeight = 1280,
+                mimeType = "image/jpeg",
+                licenseId = "CC BY-SA 2.0",
+                licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+                author = "Author",
+                attribution = "Author",
+                evidence = ArtworkEvidence.VERIFIED_QID_REFERENCE,
+                rights = ArtworkRights.VERIFIED_ALLOWED,
+            ),
+            slot = ArtworkSlot.ARTIST_THUMB,
+            downloaded = DownloadedArtwork("artist-artwork/disappears.jpg", "a".repeat(64), 1920, 1280, "image/jpeg"),
+            focus = ArtworkFocus(),
+            manuallyChosen = false,
+        )
+        assertEquals(ArtworkLoadStatus.READY, saved.status)
+
+        file.delete()
+
+        val loaded = store.load(anchor).single()
+        assertEquals(ArtworkLoadStatus.CACHE_ERROR, loaded.status)
+        assertNull(loaded.localImagePath)
+        assertEquals(1, database.artistEnrichmentDao().countArtworkSelectionsForLibrary("lib"))
     }
 
     @Test
