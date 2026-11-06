@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -424,8 +425,8 @@ private fun ArtistArtworkManualSection(
                 modifier = if (selection.slot == ArtworkSlot.ARTIST_THUMB) {
                     Modifier.size(144.dp).clip(CircleShape)
                 } else {
-                    Modifier.fillMaxWidth().heightIn(max = 150.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                    Modifier.fillMaxWidth().height(248.dp)
+                        .clip(RoundedCornerShape(24.dp))
                 }.testTag("artist_artwork_saved_${selection.slot.name}"),
             )
             Text("${if (selection.slot == ArtworkSlot.ARTIST_THUMB) "Mosaico" else "Ficha"}: " +

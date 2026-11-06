@@ -2,6 +2,9 @@ package org.michimusic.mobile.artist.artwork
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.michimusic.data.artist.ArtistArtworkAssetRecord
 import org.michimusic.data.artist.ArtistArtworkLinkRecord
@@ -26,6 +29,9 @@ interface ArtistArtworkStore {
     suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean
     suspend fun clear(anchor: ArtistIdentityAnchor)
     suspend fun counts(): Pair<Int, Int>
+
+    /** Emits whenever a selection in this library changes, so a composed mosaic can reload. */
+    fun observeLibraryRevision(libraryId: String): Flow<Long> = flowOf(0L)
 
     /** Removes orphan files only; referenced artwork is never deleted by quota enforcement. */
     suspend fun pruneCache(): Long = 0L
@@ -147,6 +153,9 @@ class RoomArtistArtworkStore(
             anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, anchor.confirmedMbid,
         )
     }
+
+    override fun observeLibraryRevision(libraryId: String): Flow<Long> =
+        dao.observeLibraryArtworkRevision(libraryId).map { it ?: 0L }
 
     override suspend fun counts(): Pair<Int, Int> =
         dao.countArtworkSelections() to dao.countArtworkAssets()

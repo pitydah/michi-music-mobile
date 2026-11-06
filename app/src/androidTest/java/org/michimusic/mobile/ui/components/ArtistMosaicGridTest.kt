@@ -29,6 +29,15 @@ import org.michimusic.mobile.artist.ArtistExternalProfile
 import org.michimusic.mobile.artist.ArtistProfileScope
 import org.michimusic.mobile.artist.CommonsPortrait
 import org.michimusic.mobile.artist.PersistedArtistProfile
+import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
+import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
+import org.michimusic.mobile.artist.artwork.ArtworkFocus
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.ArtworkSource
+import org.michimusic.mobile.artist.artwork.DownloadedArtwork
 
 @RunWith(AndroidJUnit4::class)
 class ArtistMosaicGridTest {
@@ -118,6 +127,66 @@ class ArtistMosaicGridTest {
         compose.onNodeWithText("Revisar identidad").assertDoesNotExist()
         compose.onNodeWithTag("artist_mosaic_tile_Midnight Oil").performClick()
         compose.runOnIdle { assertEquals("Midnight Oil", opened) }
+    }
+
+    @Test fun artworkRevisionReloadsTheMosaicWithoutLeavingTheScreen() {
+        val mbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val profileStore = object : ArtistEnrichmentSelectionStore {
+            override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                PersistedArtistProfile(
+                    ArtistExternalProfile(mbid, "Midnight Oil", wikidataQid = "Q48284"),
+                    stale = false,
+                )
+            override suspend fun save(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                profile: ArtistExternalProfile,
+            ) {}
+            override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) {}
+        }
+        val artworkStore = object : ArtistArtworkStore {
+            var loads = 0
+            override suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> {
+                loads++
+                return listOf(ArtistArtworkSelection(
+                    slot = ArtworkSlot.ARTIST_THUMB,
+                    assetId = "sha256:${"a".repeat(64)}",
+                    confirmedMbid = anchor.confirmedMbid,
+                    localImagePath = "/tmp/michi-artwork.png",
+                    focus = ArtworkFocus(),
+                    manuallyChosen = false,
+                    revision = 1L,
+                    source = ArtworkSource.COMMONS_P18,
+                    status = ArtworkLoadStatus.READY,
+                ))
+            }
+            override suspend fun loadAsset(assetId: String) = null
+            override suspend fun save(
+                anchor: ArtistIdentityAnchor,
+                candidate: ArtistArtworkCandidate,
+                slot: ArtworkSlot,
+                downloaded: DownloadedArtwork,
+                focus: ArtworkFocus,
+                manuallyChosen: Boolean,
+            ): ArtistArtworkSelection = error("not used")
+            override suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus) = false
+            override suspend fun clear(anchor: ArtistIdentityAnchor) {}
+            override suspend fun counts() = 0 to 0
+        }
+        var revision by mutableStateOf(0L)
+        compose.setContent {
+            ArtistMosaicGrid(
+                artists = entries.take(1), libraryId = "library-1", refreshToken = 0,
+                artworkRevision = revision, onOpenArtist = {}, selectionStore = profileStore,
+                artworkStore = artworkStore,
+            )
+        }
+        compose.waitUntil(5000) { artworkStore.loads == 1 }
+        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
+            .assertExists()
+        compose.runOnIdle { revision = 1L }
+        compose.waitUntil(5000) { artworkStore.loads == 2 }
     }
 
     @Test fun recompositionDoesNotRepeatTheCacheRead() {

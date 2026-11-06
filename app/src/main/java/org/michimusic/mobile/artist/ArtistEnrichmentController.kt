@@ -37,6 +37,17 @@ data class ArtistEnrichmentState(
 )
 
 /**
+ * A provider failure must not erase images already verified for the same identity.
+ * Only an explicit identity change (or an explicit clear) may replace the whole map.
+ */
+internal fun mergeEnrichmentSelections(
+    current: Map<ArtworkSlot, ArtistArtworkSelection>,
+    incoming: Map<ArtworkSlot, ArtistArtworkSelection>,
+    identityChanged: Boolean,
+): Map<ArtworkSlot, ArtistArtworkSelection> =
+    if (identityChanged) incoming else current + incoming
+
+/**
  * Single owner of identity, biography and artwork work. It keeps the last verified
  * profile visible while a refresh is running and never confirms an identity by name.
  * Detail and panel observe the same state instead of launching their own pipeline.
@@ -308,19 +319,27 @@ class ArtistEnrichmentController(
         epoch: Int,
     ) {
         if (epoch != requestEpoch) return
+        val current = _state.value
         val profile = result.profile ?: previous
+        val identityChanged = previous?.mbid != null && profile?.mbid != null &&
+            !previous.mbid.equals(profile.mbid, ignoreCase = true)
         val status = if (profile == null) ArtistEnrichmentStatus.FAILED
         else ArtistEnrichmentStatus.VERIFIED
         _state.value = ArtistEnrichmentState(
             status = status,
             profile = profile,
-            persisted = result.persisted || _state.value.persisted,
+            persisted = result.persisted || current.persisted,
             stale = false,
             refreshing = false,
-            refreshFailed = previous != null && profile === previous && result.phase == ArtistEnrichmentPhase.PARTIAL,
+            refreshFailed = previous != null && profile?.mbid == previous.mbid &&
+                result.phase == ArtistEnrichmentPhase.PARTIAL,
             message = result.message,
             pendingPortraits = result.pendingPortraits,
-            selections = result.selections,
+            selections = mergeEnrichmentSelections(
+                current = current.selections,
+                incoming = result.selections,
+                identityChanged = identityChanged,
+            ),
         )
     }
 }

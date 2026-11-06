@@ -77,6 +77,7 @@ fun ArtistMosaicGrid(
     modifier: Modifier = Modifier,
     selectionStore: ArtistEnrichmentSelectionStore? = null,
     artworkStore: ArtistArtworkStore? = null,
+    artworkRevision: Long = 0L,
 ) {
     val context = LocalContext.current
     val store = remember(context, selectionStore) {
@@ -102,7 +103,7 @@ fun ArtistMosaicGrid(
                 mutableStateOf<ArtistArtworkSelection?>(null)
             }
             LaunchedEffect(store, artworkStore, artist.credit, libraryId, albumIds,
-                artist.profileScopes, refreshToken) {
+                artist.profileScopes, refreshToken, artworkRevision) {
                 // A cached portrait is only a hint: clear it before reading the scoped key so
                 // a library or album-fingerprint change can never keep a stale face.
                 portrait = null

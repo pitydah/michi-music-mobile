@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,6 +39,21 @@ class ArtistArtworkStoreTest {
     @After fun tearDown() {
         database.close()
         File(context.filesDir, "artist-artwork").deleteRecursively()
+    }
+
+    @Test
+    fun libraryRevisionFlowEmitsAfterSelectionChanges() = runBlocking {
+        val flow = store.observeLibraryRevision("lib")
+        assertEquals(0L, withTimeout(5_000) { flow.first() })
+
+        database.artistEnrichmentDao().putArtworkSelection(ArtistArtworkSelectionRecord(
+            libraryId = "lib", creditKey = "midnight oil", albumGroupKey = "group",
+            slot = "ARTIST_THUMB", assetId = "sha256:${"a".repeat(64)}",
+            confirmedMbid = mbid, focusX = 0.5f, focusY = 0.5f,
+            manuallyChosen = false, revision = 42L, updatedAtMs = 42L,
+        ))
+
+        assertEquals(42L, withTimeout(5_000) { flow.first { it == 42L } })
     }
 
     @Test

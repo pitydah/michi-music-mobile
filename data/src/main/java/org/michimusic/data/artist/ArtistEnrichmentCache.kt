@@ -10,6 +10,7 @@ import androidx.room.Index
 import androidx.room.Transaction
 import androidx.room.migration.Migration
 import androidx.room.RoomDatabase
+import kotlinx.coroutines.flow.Flow
 
 /**
  * A deliberately separate Room database: upgrading Artist Enrichment does not change
@@ -159,6 +160,9 @@ interface ArtistEnrichmentDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putArtworkAsset(asset: ArtistArtworkAssetRecord)
+
+    @Query("SELECT MAX(updatedAtMs) FROM artist_artwork_selection WHERE libraryId = :libraryId")
+    fun observeLibraryArtworkRevision(libraryId: String): Flow<Long?>
 
     @Query("SELECT * FROM artist_artwork_selection WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND confirmedMbid = :confirmedMbid")
     suspend fun getArtworkSelections(

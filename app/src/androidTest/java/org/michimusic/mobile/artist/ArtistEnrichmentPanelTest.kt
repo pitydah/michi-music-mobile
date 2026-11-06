@@ -109,7 +109,7 @@ class ArtistEnrichmentPanelTest {
 
         refreshGate.complete(profile())
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Datos guardados para este crédito y biblioteca.")
+            compose.onAllNodesWithText("Ficha actualizada sin fotografías verificables.")
                 .fetchSemanticsNodes().isNotEmpty()
         }
     }

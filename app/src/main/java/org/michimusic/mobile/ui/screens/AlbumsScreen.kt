@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.mobile.R
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -898,15 +899,21 @@ fun AlbumsScreen(
                                         color = TextSecondary, modifier = Modifier.padding(20.dp))
                                 }
                             } else {
+                                val artworkStore = remember(context) {
+                                    ArtistArtworkPersistence.from(context)
+                                }
+                                val artworkRevision by remember(artworkStore, scoped.identityLibraryId) {
+                                    scoped.identityLibraryId?.let(artworkStore::observeLibraryRevision)
+                                        ?: flowOf(0L)
+                                }.collectAsStateWithLifecycle(initialValue = 0L)
                                 ArtistMosaicGrid(
                                     artists = artistEntries,
                                     libraryId = scoped.identityLibraryId,
                                     refreshToken = 0,
+                                    artworkRevision = artworkRevision,
                                     onOpenArtist = onNavigateToArtist,
                                     modifier = Modifier.fillMaxSize(),
-                                    artworkStore = remember(context) {
-                                        ArtistArtworkPersistence.from(context)
-                                    },
+                                    artworkStore = artworkStore,
                                 )
                             }
                         }

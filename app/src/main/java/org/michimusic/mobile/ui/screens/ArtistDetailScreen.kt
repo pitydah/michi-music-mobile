@@ -268,8 +268,11 @@ fun ArtistDetailScreen(
     val effectiveProfile = enrichmentState.profile ?: savedProfile
     val effectiveStale = enrichmentState.stale || cachedProfileIsStale
     val effectivePortrait = effectiveProfile?.portrait?.takeIf(::allowedCommonsPortrait)
-    val effectiveHeroArtwork = enrichmentState.selections[ArtworkSlot.ARTIST_HERO]
-        ?.takeIf { it.status == ArtworkLoadStatus.READY } ?: heroArtwork
+    val effectiveHeroArtwork = selectEffectiveHeroArtwork(
+        profileMbid = effectiveProfile?.mbid,
+        fromController = enrichmentState.selections[ArtworkSlot.ARTIST_HERO],
+        fromRoom = heroArtwork,
+    )
     // State lives above LazyColumn so every remote discography row is its own lazy item.
     fun retryLibrary() {
         scopeRetry++

@@ -115,6 +115,27 @@ class ArtistEnrichmentOrchestrator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            // Identity and artwork are independent stages. When a cached profile still
+            // carries a verified QID, a MusicBrainz outage must not block Commons from
+            // repairing a missing or corrupt slot. Only the profile refresh is reported
+            // as pending; the stored identity is never discarded.
+            if (cached != null &&
+                canonicalArtistMbid(cached.mbid) == mbid &&
+                cached.wikidataQid != null
+            ) {
+                val repaired = finish(
+                    artistCredit = artistCredit,
+                    libraryId = libraryId,
+                    albumIds = albumIds,
+                    profile = cached,
+                    forceRefresh = true,
+                    persisted = false,
+                )
+                return repaired.copy(
+                    phase = ArtistEnrichmentPhase.PARTIAL,
+                    message = "No fue posible actualizar el perfil; se reintentó la artwork con la identidad guardada.",
+                )
+            }
             return ArtistEnrichmentResult(
                 phase = if (cached == null) ArtistEnrichmentPhase.ERROR else ArtistEnrichmentPhase.PARTIAL,
                 profile = cached,
