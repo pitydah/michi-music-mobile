@@ -86,3 +86,14 @@ verified profile. The mosaic shows the monogram and never starts a network reque
   legacy `CommonsPortrait.imageUrl` downloads in the mosaic.
 - Do not change the hero revision contract without a migration/backfill plan.
 - Do not widen persistence to `LibraryScope.All` or a library-less context.
+
+## R11.5.2-R durable identity amendment
+
+The canonical association is the persisted `albumGroupKey`, not the current album
+fingerprint. `artist_enrichment.membershipFingerprint` maps today's visible album
+set to that canonical association; adding, removing or reordering albums updates
+membership evidence without creating a second profile or orphaning artwork.
+Startup is local hydration only: no provider call is made for a valid saved
+identity, biography or artwork. External refresh is explicit. See
+`docs/contracts/R11_5_2_R_DURABLE_IDENTITY_CONTRACT.md` for the full contract.
+
