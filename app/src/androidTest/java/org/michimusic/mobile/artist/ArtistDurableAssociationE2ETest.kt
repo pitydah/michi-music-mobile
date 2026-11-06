@@ -190,6 +190,41 @@ class ArtistDurableAssociationE2ETest {
     }
 
     @Test
+    fun removingAnAlbumAlsoKeepsTheCanonicalAssociationAndBothSlots() = runBlocking {
+        store.save(libraryId, credit, albumsB, profile())
+        val canonical = requireNotNull(store.load(libraryId, credit, albumsB)?.associationGroupKey)
+        val anchor = requireNotNull(
+            artistIdentityAnchor(libraryId, credit, albumsB, profile(), canonical),
+        )
+        saveBothSlots(anchor)
+
+        database.close()
+        open()
+
+        val removed = requireNotNull(store.load(libraryId, credit, albumsA))
+        assertEquals(mbid, removed.profile.mbid)
+        assertEquals(canonical, removed.associationGroupKey)
+        assertTrue(removed.needsConfirmation)
+        val removedAnchor = requireNotNull(
+            artistIdentityAnchor(
+                libraryId, credit, albumsA, removed.profile, removed.associationGroupKey,
+            ),
+        )
+        val removedSlots = artworkStore.load(removedAnchor).associateBy { it.slot }
+        assertEquals(ArtworkLoadStatus.READY, removedSlots.getValue(ArtworkSlot.ARTIST_THUMB).status)
+        assertEquals(ArtworkLoadStatus.READY, removedSlots.getValue(ArtworkSlot.ARTIST_HERO).status)
+        assertTrue(removedSlots.getValue(ArtworkSlot.ARTIST_HERO).manuallyChosen)
+
+        store.save(libraryId, credit, albumsA, profile(), canonical)
+        database.close()
+        open()
+
+        val exact = requireNotNull(store.load(libraryId, credit, albumsA))
+        assertEquals(canonical, exact.associationGroupKey)
+        assertFalse(exact.needsConfirmation)
+    }
+
+    @Test
     fun clearingAfterAlbumChangeDeletesOnlyTheCanonicalAssociation() = runBlocking {
         store.save(libraryId, credit, albumsA, profile())
         val canonical = requireNotNull(store.load(libraryId, credit, albumsA)?.associationGroupKey)

@@ -54,6 +54,7 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
+import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistArtworkService
@@ -61,6 +62,7 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
 import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
 import org.michimusic.mobile.artist.artwork.ArtworkFocus
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkResolutionReport
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.ProviderArtworkResult
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
@@ -415,7 +417,7 @@ fun ArtistEnrichmentPanel(
  * candidate must pass the Flickr origin-licence check before bytes are downloaded.
  */
 @Composable
-private fun ArtistArtworkManualSection(
+fun ArtistArtworkManualSection(
     profile: ArtistExternalProfile,
     artistCredit: String,
     libraryId: String?,
@@ -424,11 +426,14 @@ private fun ArtistArtworkManualSection(
     pendingCandidates: List<ArtistArtworkCandidate>,
     associationGroupKey: String?,
     onSelectionsChanged: (Map<ArtworkSlot, ArtistArtworkSelection>) -> Unit,
+    chooser: (suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport)? = null,
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val coordinator = remember(context) { ArtistArtworkService.from(context) }
+    val choose: suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport =
+        chooser ?: { anchor, candidate, slot -> coordinator.chooseManual(anchor, candidate, slot) }
     val anchor = remember(libraryId, artistCredit, albumIds, profile.mbid,
         profile.wikidataQid, associationGroupKey) {
         artistIdentityAnchor(libraryId, artistCredit, albumIds, profile, associationGroupKey)
@@ -601,7 +606,7 @@ private fun ArtistArtworkManualSection(
                             message = null
                             scope.launch {
                                 try {
-                                    val report = coordinator.chooseManual(anchor, candidate, slot)
+                                    val report = choose(anchor, candidate, slot)
                                     selections = report.selections
                                     onSelectionsChanged(report.selections)
                                     message = when (report.status) {
