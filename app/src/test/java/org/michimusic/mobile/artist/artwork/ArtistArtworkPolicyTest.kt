@@ -156,6 +156,20 @@ class ArtistArtworkPolicyTest {
             vanityPage,
         ))
 
+        // A longer numeric id that merely contains the expected id is a different
+        // photograph. Exact path/filename boundaries are mandatory.
+        val longerId = "<!DOCTYPE html><html><script type=\"application/ld+json\">" +
+            "{\"@graph\":[{\"@type\":\"ImageObject\"," +
+            "\"contentUrl\":\"https://live.staticflickr.com/65535/519041923250_00abed41a8_b.jpg\"," +
+            "\"license\":\"https://creativecommons.org/licenses/by/2.0/\"," +
+            "\"acquireLicensePage\":\"https://www.flickr.com/photos/130010035@N04/519041923250\"}]}" +
+            "</script></html>"
+        assertFalse(originPageConfirmsLicense(
+            "https://www.flickr.com/photos/130010035@N04/51904192325",
+            "https://creativecommons.org/licenses/by/2.0/",
+            longerId,
+        ))
+
         // A correct licence for a different ImageObject in the same @graph is not
         // evidence for this photo.
         val otherPhoto = "<!DOCTYPE html><html><script type=\"application/ld+json\">" +

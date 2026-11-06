@@ -13,9 +13,11 @@ import java.security.MessageDigest
 import java.util.Locale
 
 /**
- * The key represents one observed credit within one named library and its currently visible
- * album grouping. It does NOT claim that equal names identify one musician. If albums change,
- * the cached association fails closed and user selection is required again.
+ * The fingerprint represents the currently visible album membership of one credit inside one
+ * named library. It is membership evidence, not the durable association identity: a rescan may
+ * legitimately add or remove albums. Stored rows keep the association group that was confirmed,
+ * and [RoomArtistEnrichmentSelectionStore.load] may recover it only when the overlap is unique.
+ * It does NOT claim that equal names identify one musician.
  * ALL-libraries scope is intentionally not persisted: it may combine two unrelated homonyms.
  */
 fun scopedArtistCreditKey(libraryId: String?, credit: String, albumIds: List<String>): Pair<String, String>? {
@@ -46,7 +48,31 @@ data class PersistedArtistProfile(
 interface ArtistEnrichmentSelectionStore {
     suspend fun load(libraryId: String, credit: String, albumIds: List<String>): PersistedArtistProfile?
     suspend fun save(libraryId: String, credit: String, albumIds: List<String>, profile: ArtistExternalProfile)
+
+    /**
+     * Persists the profile under the association that already owns it. [associationGroupKey]
+     * comes from a unique recovery after an album-set change, so the profile and its artwork
+     * keep pointing at the same association instead of splitting across two fingerprints.
+     * The default preserves simple test stores; the Room store uses the historical key.
+     */
+    suspend fun save(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        profile: ArtistExternalProfile,
+        associationGroupKey: String?,
+    ) = save(libraryId, credit, albumIds, profile)
+
     suspend fun clear(libraryId: String, credit: String, albumIds: List<String>)
+
+    /** Clears the exact association, including when the current album fingerprint changed. */
+    suspend fun clear(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        associationGroupKey: String?,
+    ) = clear(libraryId, credit, albumIds)
+
     /** A fake store may omit evidence recording; the production Room store overrides this. */
     suspend fun saveLocalTagEvidence(libraryId: String, trackId: String, tags: EmbeddedArtistTags) {}
 }
@@ -60,10 +86,19 @@ class RoomArtistEnrichmentSelectionStore(
 
     override suspend fun load(libraryId: String, credit: String, albumIds: List<String>): PersistedArtistProfile? {
         val (creditKey, groupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return null
+        // canonical row key (albumGroupKey) is immutable; membershipFingerprint is the
+        // mutable evidence that maps today's visible albums back to that association.
+        val byMembership = dao.getByMembership(libraryId, creditKey, groupKey)
         val exact = dao.get(libraryId, creditKey, groupKey)
-        val recovered = exact ?: recoverUniqueAssociation(libraryId, creditKey, albumIds)
-        val record = recovered ?: return null
+        val recovered = if (byMembership == null && exact == null) {
+            recoverUniqueAssociation(libraryId, creditKey, albumIds)
+        } else {
+            null
+        }
+        val record = byMembership ?: exact ?: recovered ?: return null
         if (canonicalArtistMbid(record.confirmedMbid) != record.confirmedMbid) return null
+        val ambiguous = byMembership != null && exact != null &&
+            byMembership.albumGroupKey != exact.albumGroupKey
         return try {
             val profile = json.decodeFromString<ArtistExternalProfile>(record.profileJson)
             if (canonicalArtistMbid(profile.mbid) != record.confirmedMbid ||
@@ -73,7 +108,7 @@ class RoomArtistEnrichmentSelectionStore(
                 profile = profile,
                 stale = clock() >= record.staleAfterMs,
                 associationGroupKey = record.albumGroupKey,
-                needsConfirmation = exact == null,
+                needsConfirmation = recovered != null || ambiguous,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -111,10 +146,29 @@ class RoomArtistEnrichmentSelectionStore(
         }
     }
 
-    override suspend fun save(libraryId: String, credit: String, albumIds: List<String>, profile: ArtistExternalProfile) {
-        val (creditKey, groupKey) = requireNotNull(scopedArtistCreditKey(libraryId, credit, albumIds)) {
+    override suspend fun save(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        profile: ArtistExternalProfile,
+    ) = save(libraryId, credit, albumIds, profile, associationGroupKey = null)
+
+    override suspend fun save(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        profile: ArtistExternalProfile,
+        associationGroupKey: String?,
+    ) {
+        val (creditKey, currentGroupKey) = requireNotNull(
+            scopedArtistCreditKey(libraryId, credit, albumIds),
+        ) {
             "No se puede asociar un artista sin biblioteca y grupo local concretos"
         }
+        // A unique recovery already proved which stored association owns this artist.
+        // Updating the membership evidence must not create a second profile row under
+        // the new fingerprint, because artwork remains attached to the historical group.
+        val groupKey = associationGroupKey?.takeIf(String::isNotBlank) ?: currentGroupKey
         val id = requireNotNull(canonicalArtistMbid(profile.mbid)) { "MBID inválido" }
         require(id == profile.mbid) { "MBID sin normalizar" }
         require(profile.portrait == null || allowedCommonsPortrait(profile.portrait)) { "Retrato no autorizado" }
@@ -130,6 +184,7 @@ class RoomArtistEnrichmentSelectionStore(
             portraitLicenseUrl = profile.portrait?.licenseUrl,
             portraitAttribution = profile.portrait?.attribution,
             albumIdsJson = json.encodeToString(albumIds.filter(String::isNotBlank).toSortedSet().toList()),
+            membershipFingerprint = currentGroupKey,
         ))
     }
 
@@ -151,11 +206,26 @@ class RoomArtistEnrichmentSelectionStore(
         dao.replaceTrackEvidence(libraryId, trackId, observations)
     }
 
-    override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) {
-        val (creditKey, groupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return
-        val exact = dao.get(libraryId, creditKey, groupKey)
-        val recovered = exact ?: recoverUniqueAssociation(libraryId, creditKey, albumIds)
-        recovered?.let { dao.delete(libraryId, creditKey, it.albumGroupKey) }
+    override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) =
+        clear(libraryId, credit, albumIds, associationGroupKey = null)
+
+    override suspend fun clear(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        associationGroupKey: String?,
+    ) {
+        val (creditKey, currentGroupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return
+        val preferredGroup = associationGroupKey?.takeIf(String::isNotBlank)
+        val target = when {
+            preferredGroup != null -> preferredGroup
+            else -> {
+                val exact = dao.get(libraryId, creditKey, currentGroupKey)
+                val recovered = exact ?: recoverUniqueAssociation(libraryId, creditKey, albumIds)
+                recovered?.albumGroupKey ?: return
+            }
+        }
+        dao.delete(libraryId, creditKey, target)
     }
 }
 
@@ -177,6 +247,7 @@ object ArtistEnrichmentPersistence {
                     ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                     ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
                     ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                 )
                 .build().also { databaseInstance = it }
         }

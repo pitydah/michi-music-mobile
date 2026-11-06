@@ -142,12 +142,11 @@ private fun JsonElement.hasImageObjectFor(photoId: String, expectedLicense: Stri
             val license = this["license"]?.stringValue()
             val acquire = this["acquireLicensePage"]?.stringValue()
             val content = this["contentUrl"]?.stringValue()
-            // bind the licence to the canonical photo page; CDN contentUrl may omit it.
-            val sameImage = if (acquire != null) {
-                acquire.contains(photoId)
-            } else {
-                content?.contains(photoId) == true
-            }
+            // Bind the licence to the canonical photo page; CDN contentUrl may omit it.
+            // Matching a substring would accept `519041923250` for photo `51904192325`.
+            val sameImage = acquire?.let { flickrPageHasExactPhoto(it, photoId) }
+                ?: content?.let { flickrContentHasExactPhoto(it, photoId) }
+                ?: false
             (type == "ImageObject" && sameImage && license?.let(::licenseKey) == expectedLicense) ||
                 values.any { it.hasImageObjectFor(photoId, expectedLicense) }
         }
@@ -155,6 +154,23 @@ private fun JsonElement.hasImageObjectFor(photoId: String, expectedLicense: Stri
         is JsonArray -> any { it.hasImageObjectFor(photoId, expectedLicense) }
         else -> false
     }
+
+private fun flickrPageHasExactPhoto(raw: String, photoId: String): Boolean {
+    val uri = httpsUri(raw) ?: return false
+    if (uri.host != "www.flickr.com" && uri.host != "flickr.com") return false
+    val segments = uri.rawPath.orEmpty().trim('/').split('/').filter(String::isNotBlank)
+    return segments.lastOrNull() == photoId
+}
+
+private fun flickrContentHasExactPhoto(raw: String, photoId: String): Boolean {
+    val uri = httpsUri(raw) ?: return false
+    if (uri.host != "live.staticflickr.com" && uri.host != "staticflickr.com") return false
+    val file = uri.rawPath.orEmpty().trim('/').substringAfterLast('/')
+    return Regex(
+        "^${Regex.escape(photoId)}(?:_[A-Za-z0-9]+)*\\.(?:jpe?g|png|webp)$",
+        RegexOption.IGNORE_CASE,
+    ).matches(file)
+}
 
 private fun JsonElement.stringValue(): String? =
     (this as? JsonPrimitive)?.contentOrNull

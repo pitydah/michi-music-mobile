@@ -18,7 +18,11 @@ import kotlinx.coroutines.flow.Flow
  * Version 1 has no legacy enrichment rows to migrate. Future schema revisions MUST supply
  * explicit Room migrations; never fallbackToDestructiveMigration().
  */
-@Entity(tableName = "artist_enrichment", primaryKeys = ["libraryId", "creditKey", "albumGroupKey"])
+@Entity(
+    tableName = "artist_enrichment",
+    primaryKeys = ["libraryId", "creditKey", "albumGroupKey"],
+    indices = [Index(value = ["libraryId", "creditKey", "membershipFingerprint"])],
+)
 data class ArtistEnrichmentRecord(
     val libraryId: String,
     val creditKey: String,
@@ -39,6 +43,13 @@ data class ArtistEnrichmentRecord(
      * identity shortcut. Null on legacy rows; those remain exact-match only.
      */
     val albumIdsJson: String? = null,
+    /**
+     * Last visible membership fingerprint that resolved to this durable association.
+     * The primary key stays [albumGroupKey] so artwork keeps one canonical association
+     * even when albums are added or removed. This column is only a mutable index into
+     * that association; it is never an identity by name.
+     */
+    val membershipFingerprint: String? = null,
 )
 
 /** Raw observations, never automatic artist identity assignment or playback metadata rewrite. */
@@ -142,6 +153,13 @@ data class ArtistArtworkRevisionRecord(
 interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
     suspend fun get(libraryId: String, creditKey: String, albumGroupKey: String): ArtistEnrichmentRecord?
+
+    @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint LIMIT 1")
+    suspend fun getByMembership(
+        libraryId: String,
+        creditKey: String,
+        membershipFingerprint: String,
+    ): ArtistEnrichmentRecord?
 
     /** Recovery candidates for one local credit. Ambiguous results must fail closed. */
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey")
@@ -355,7 +373,7 @@ interface ArtistEnrichmentDao {
         ArtistArtworkLinkRecord::class,
         ArtistArtworkRevisionRecord::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -461,6 +479,40 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
          */
         val MIGRATION_5_6 = Migration(5, 6) { db ->
             db.execSQL("ALTER TABLE `artist_enrichment` ADD COLUMN `albumIdsJson` TEXT")
+        }
+
+        /**
+         * R11.5.2-R: separate the durable association key from the current membership
+         * fingerprint. The canonical albumGroupKey is preserved; only a mutable lookup
+         * column is added. Historical artwork revisions based on wall-clock timestamps
+         * are normalized to their relative order so a huge legacy timestamp cannot
+         * outrank every future transaction-assigned revision forever.
+         */
+        val MIGRATION_6_7 = Migration(6, 7) { db ->
+            db.execSQL("ALTER TABLE `artist_enrichment` ADD COLUMN `membershipFingerprint` TEXT")
+            db.execSQL(
+                "UPDATE `artist_enrichment` SET `membershipFingerprint` = `albumGroupKey` " +
+                    "WHERE `membershipFingerprint` IS NULL",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS " +
+                    "`index_artist_enrichment_libraryId_creditKey_membershipFingerprint` " +
+                    "ON `artist_enrichment` (`libraryId`, `creditKey`, `membershipFingerprint`)",
+            )
+            db.execSQL(
+                "UPDATE `artist_artwork_selection` SET `revision` = (" +
+                    "SELECT COUNT(*) FROM `artist_artwork_selection` s2 " +
+                    "WHERE s2.`libraryId` = `artist_artwork_selection`.`libraryId` " +
+                    "AND (s2.`updatedAtMs` < `artist_artwork_selection`.`updatedAtMs` " +
+                    "OR (s2.`updatedAtMs` = `artist_artwork_selection`.`updatedAtMs` " +
+                    "AND s2.`rowid` <= `artist_artwork_selection`.`rowid`)))",
+            )
+            db.execSQL("DELETE FROM `artist_artwork_revision`")
+            db.execSQL(
+                "INSERT INTO `artist_artwork_revision` (`libraryId`, `revision`, `updatedAtMs`) " +
+                    "SELECT `libraryId`, COUNT(*), COALESCE(MAX(`updatedAtMs`), 0) " +
+                    "FROM `artist_artwork_selection` GROUP BY `libraryId`",
+            )
         }
 
         /** R11.5: monotonic per-library artwork revision, independent of wall-clock time. */

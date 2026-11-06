@@ -167,7 +167,7 @@ class ArtistEnrichmentOrchestrator(
         if (libraryId != null && scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null) {
             ArtistEnrichmentDiagnostics.event("AE_SAVE_ATTEMPT")
             try {
-                store.save(libraryId, artistCredit, albumIds, profile)
+                store.save(libraryId, artistCredit, albumIds, profile, associationGroupKey)
                 persistenceStatus = ArtistPersistenceStatus.PERSISTED
                 ArtistEnrichmentDiagnostics.event("AE_SAVE_COMMITTED")
             } catch (cancelled: CancellationException) {

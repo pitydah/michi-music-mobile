@@ -294,8 +294,23 @@ fun ArtistEnrichmentPanel(
                     else -> "Solo esta consulta. Cambia a una biblioteca individual para guardar."
                 }, color = TextSecondary, fontSize = 11.sp)
                 if (result.stale) {
-                    Text("Datos guardados: revisión vencida. Actualizando en segundo plano…",
+                    Text("Datos guardados: revisión vencida. Actualiza solo cuando lo necesites.",
                         color = TextSecondary, fontSize = 11.sp)
+                }
+                TextButton(
+                    onClick = {
+                        activeController.refresh(
+                            artistCredit, libraryId, albumIds, force = true,
+                        )
+                    },
+                    enabled = !result.refreshing,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                        .testTag("artist_enrichment_refresh"),
+                ) {
+                    Text(
+                        if (result.refreshing) "Actualizando…" else "Actualizar datos externos",
+                        color = TertiaryCyan, fontSize = 12.sp,
+                    )
                 }
                 uiState.persistenceError?.let {
                     Text(it, color = TextSecondary, fontSize = 11.sp,
@@ -415,7 +430,7 @@ private fun ArtistArtworkManualSection(
     val uriHandler = LocalUriHandler.current
     val coordinator = remember(context) { ArtistArtworkService.from(context) }
     val anchor = remember(libraryId, artistCredit, albumIds, profile.mbid,
-        profile.wikidataQid) {
+        profile.wikidataQid, associationGroupKey) {
         artistIdentityAnchor(libraryId, artistCredit, albumIds, profile, associationGroupKey)
     }
     if (anchor == null) return

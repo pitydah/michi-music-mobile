@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -101,6 +102,11 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.onNodeWithText("MBID confirmado por selección", substring = true).assertExists()
         compose.onNodeWithTag("artist_enrichment_clear").assertExists()
@@ -143,8 +149,13 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
-        compose.onNodeWithTag("artist_enrichment_clear").performClick()
+        compose.onNodeWithTag("artist_enrichment_clear").performScrollTo().performClick()
 
         compose.waitUntil(5_000) { store.clears.get() == 1 }
         compose.onNodeWithText("Enriquecimiento borrado.").assertExists()
@@ -283,6 +294,11 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.runOnIdle { credit = "Second Artist" }
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }

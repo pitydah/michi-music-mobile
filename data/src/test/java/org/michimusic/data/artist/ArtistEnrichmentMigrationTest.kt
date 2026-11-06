@@ -51,7 +51,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
                 ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                 ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
-                ArtistEnrichmentCacheDatabase.MIGRATION_5_6)
+                ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
+                ArtistEnrichmentCacheDatabase.MIGRATION_6_7)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -103,7 +104,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
                 ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                 ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
-                ArtistEnrichmentCacheDatabase.MIGRATION_5_6)
+                ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
+                ArtistEnrichmentCacheDatabase.MIGRATION_6_7)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -215,6 +217,71 @@ class ArtistEnrichmentMigrationTest {
                 assertTrue(row.moveToFirst())
                 assertEquals(mbid, row.getString(0))
                 assertTrue(row.isNull(1))
+            }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun v6RowsGainMembershipFingerprintAndNormalizedRevisions() = runBlocking {
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val name = "artist-migration-6-7-${System.nanoTime()}.db"
+        helper.createDatabase(name, 6).apply {
+            execSQL("""
+                INSERT INTO `artist_enrichment`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`confirmedMbid`,`profileJson`,
+                     `savedAtMs`,`staleAfterMs`,`source`,`albumIdsJson`)
+                VALUES('lib-a','artist','group','$mbid','{}',1,2,'manual','["album-1"]')
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO `artist_artwork_selection`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`slot`,`assetId`,
+                     `confirmedMbid`,`focusX`,`focusY`,`manuallyChosen`,`revision`,`updatedAtMs`)
+                VALUES('lib-a','artist','group','ARTIST_THUMB','sha256:a',
+                       '$mbid',0.4,0.6,1,9999999999999,9)
+            """.trimIndent())
+            execSQL("""
+                INSERT INTO `artist_artwork_selection`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`slot`,`assetId`,
+                     `confirmedMbid`,`focusX`,`focusY`,`manuallyChosen`,`revision`,`updatedAtMs`)
+                VALUES('lib-a','artist','group','ARTIST_HERO','sha256:b',
+                       '$mbid',0.5,0.45,0,2,9)
+            """.trimIndent())
+            execSQL("INSERT INTO `artist_artwork_revision` VALUES('lib-a',9999999999999,9)")
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 7, true, ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
+        )
+        try {
+            upgraded.query(
+                "SELECT membershipFingerprint FROM artist_enrichment " +
+                    "WHERE libraryId=? AND creditKey=? AND albumGroupKey=?",
+                arrayOf("lib-a", "artist", "group"),
+            ).use { row ->
+                assertTrue(row.moveToFirst())
+                assertEquals("group", row.getString(0))
+            }
+            upgraded.query(
+                "SELECT revision, focusX, focusY, manuallyChosen FROM artist_artwork_selection " +
+                    "WHERE libraryId=? ORDER BY rowid",
+                arrayOf("lib-a"),
+            ).use { rows ->
+                assertTrue(rows.moveToFirst())
+                assertEquals(1L, rows.getLong(0))
+                assertEquals(0.4f, rows.getFloat(1), 0.0001f)
+                assertEquals(0.6f, rows.getFloat(2), 0.0001f)
+                assertEquals(1, rows.getInt(3))
+                assertTrue(rows.moveToNext())
+                assertEquals(2L, rows.getLong(0))
+            }
+            upgraded.query(
+                "SELECT revision FROM artist_artwork_revision WHERE libraryId=?",
+                arrayOf("lib-a"),
+            ).use { revision ->
+                assertTrue(revision.moveToFirst())
+                assertEquals(2L, revision.getLong(0))
             }
         } finally {
             upgraded.close()

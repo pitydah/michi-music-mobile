@@ -219,23 +219,49 @@ class ArtistEnrichmentController(
         requestJob?.cancel()
         ++requestEpoch
         autoDiscoveryAllowed = false
-        val anchor = _state.value.profile?.let {
-            artistIdentityAnchor(libraryId, artistCredit, albumIds, it)
+        val previous = _state.value
+        val groupKey = previous.associationGroupKey
+        val anchor = previous.profile?.let {
+            artistIdentityAnchor(libraryId, artistCredit, albumIds, it, groupKey)
         }
         _state.value = ArtistEnrichmentState(
             status = ArtistEnrichmentStatus.IDLE,
             message = "Enriquecimiento borrado.",
         )
         requestJob = scope.launch {
-            try {
-                if (libraryId != null) profileStore.clear(libraryId, artistCredit, albumIds)
-                if (anchor != null) artworkStore.clear(anchor)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    message = "No fue posible borrar todos los datos guardados.",
-                )
+            var profileCleared = false
+            var failure = false
+            if (libraryId != null) {
+                try {
+                    profileStore.clear(libraryId, artistCredit, albumIds, groupKey)
+                    profileCleared = true
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    failure = true
+                }
+            }
+            if (anchor != null) {
+                try {
+                    artworkStore.clear(anchor)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    failure = true
+                }
+            }
+            if (failure) {
+                _state.value = if (profileCleared) {
+                    // The identity row is gone, so showing the previous profile again would
+                    // be a lie. Keep the coherent empty state and disclose the file cleanup
+                    // failure; an explicit repair can retry the unreferenced files.
+                    ArtistEnrichmentState(
+                        status = ArtistEnrichmentStatus.IDLE,
+                        message = "Se borró la asociación, pero no todos los archivos de imagen.",
+                    )
+                } else {
+                    previous.copy(message = "No fue posible borrar todos los datos guardados.")
+                }
             }
         }
     }
@@ -343,10 +369,17 @@ class ArtistEnrichmentController(
             needsConfirmation = cached.needsConfirmation,
             stale = cached.stale,
             selections = selections,
+            message = when {
+                cached.needsConfirmation ->
+                    "Asociación recuperada de un grupo anterior; confirma si corresponde."
+                !complete ->
+                    "Datos guardados recuperados. Actualiza solo si lo necesitas."
+                else -> null
+            },
         )
-        if (!complete || cached.stale) {
-            refresh(artistCredit, libraryId, albumIds, force = cached.stale)
-        }
+        // Startup is a local hydration path. A stale biography or a missing optional
+        // image is not permission to query providers: the saved MBID, profile and
+        // verified files are already the durable truth until the user asks to update.
     }
 
     private suspend fun loadVerifiedSelections(
