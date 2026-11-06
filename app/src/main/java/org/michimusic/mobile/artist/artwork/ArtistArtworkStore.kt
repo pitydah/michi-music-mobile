@@ -10,6 +10,8 @@ import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import java.io.File
 
+private const val PRUNE_GRACE_MS = 15 * 60 * 1000L
+
 interface ArtistArtworkStore {
     suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection>
     suspend fun loadAsset(assetId: String): ArtistArtworkSelection?
@@ -165,9 +167,13 @@ class RoomArtistArtworkStore(
             // Downloads publish through a short-lived .tmp file. Only old temporaries are
             // orphans; deleting a fresh one would race an active download.
             val isTemp = file.name.endsWith(".tmp")
-            val staleTemp = isTemp &&
-                (System.currentTimeMillis() - file.lastModified() > 15 * 60 * 1000L)
-            val orphan = if (isTemp) staleTemp else relative !in referenced
+            val ageMs = System.currentTimeMillis() - file.lastModified()
+            val staleTemp = isTemp && ageMs > PRUNE_GRACE_MS
+            // A download publishes its final file before the asset row is committed.
+            // Keep fresh final files during that window so a concurrent prune belonging
+            // to another artist cannot delete them. Referenced files are never orphans.
+            val freshFinal = !isTemp && ageMs < PRUNE_GRACE_MS
+            val orphan = if (isTemp) staleTemp else relative !in referenced && !freshFinal
             if (orphan) {
                 val length = file.length()
                 if (file.delete()) freed += length

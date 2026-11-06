@@ -37,6 +37,8 @@ class CommonsImageInfoTest {
         assertTrue(requests.all { it.contains("commons.wikimedia.org") })
         assertTrue(requests.any { it.contains("pageid") || it.contains("prop=info") })
         assertTrue(requests.any { it.contains("ids=M123") })
+        assertTrue(requests.any { it.contains("props=claims") })
+        assertFalse(requests.any { it.contains("claims%7Cstatements") })
         assertFalse(requests.any { it.contains("www.wikidata.org") })
     }
 

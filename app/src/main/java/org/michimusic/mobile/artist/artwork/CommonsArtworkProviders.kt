@@ -85,7 +85,10 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
         val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
             .addQueryParameter("action", "wbgetentities")
             .addQueryParameter("ids", "M$pageId")
-            .addQueryParameter("props", "claims|statements")
+            // Commons MediaInfo exposes its structured data under `statements` even
+            // though `claims` is the selector that returns it; `props=statements` alone
+            // returns only id/type. Asking for both changes no data, so keep `claims`.
+            .addQueryParameter("props", "claims")
             .addQueryParameter("format", "json")
             .build()
         val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))

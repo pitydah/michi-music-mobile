@@ -133,8 +133,41 @@ class ArtistEnrichmentOrchestrator(
             }
         } else false
 
+        return finish(artistCredit, libraryId, albumIds, profile, forceRefresh, persisted)
+    }
+
+    /**
+     * Repairs artwork only. A complete verified profile must never be fetched again just
+     * because one local slot is missing or corrupt.
+     */
+    suspend fun resolveArtwork(
+        artistCredit: String,
+        libraryId: String?,
+        albumIds: List<String>,
+        profile: ArtistExternalProfile,
+        forceRefresh: Boolean = false,
+    ): ArtistEnrichmentResult = finish(
+        artistCredit = artistCredit,
+        libraryId = libraryId,
+        albumIds = albumIds,
+        profile = profile,
+        forceRefresh = forceRefresh,
+        persisted = false,
+    )
+
+    private suspend fun finish(
+        artistCredit: String,
+        libraryId: String?,
+        albumIds: List<String>,
+        profile: ArtistExternalProfile,
+        forceRefresh: Boolean,
+        persisted: Boolean,
+    ): ArtistEnrichmentResult {
         val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
-        val report = if (anchor != null) {
+        // Without a verified Wikidata QID no first-party provider can establish that a
+        // photo depicts this artist. Do not block the verified profile on artwork work
+        // that cannot succeed; the legacy portrait remains a separate adapter.
+        val report = if (anchor?.verifiedQid != null) {
             try {
                 artwork.resolve(anchor, forceRefresh = forceRefresh)
             } catch (cancelled: CancellationException) {

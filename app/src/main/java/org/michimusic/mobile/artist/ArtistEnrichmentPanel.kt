@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ButtonDefaults
@@ -27,9 +28,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.Job
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +55,8 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistArtworkService
+import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
+import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
 import org.michimusic.mobile.artist.artwork.ArtworkFocus
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
@@ -72,18 +75,6 @@ import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
-private sealed interface ArtistEnrichmentUi {
-    data object Idle : ArtistEnrichmentUi
-    data object LoadingCandidates : ArtistEnrichmentUi
-    data class Candidates(val found: List<ArtistLookupCandidate>) : ArtistEnrichmentUi
-    data object LoadingProfile : ArtistEnrichmentUi
-    data class Verified(val profile: ArtistExternalProfile, val persisted: Boolean = false,
-        val stale: Boolean = false, val refreshFailed: Boolean = false,
-        val message: String? = null,
-        val pendingPortraits: List<ArtistArtworkCandidate> = emptyList()) : ArtistEnrichmentUi
-    data object Failed : ArtistEnrichmentUi
-}
-
 /**
  * Optional remote artist facts. No request starts without a user action; a candidate must be
  * explicitly chosen before biography and portrait lookup. Presentation is independent of playback.
@@ -96,6 +87,8 @@ fun ArtistEnrichmentPanel(
     libraryId: String? = null,
     albumIds: List<String> = emptyList(),
     selectionStore: ArtistEnrichmentSelectionStore? = null,
+    artworkStore: ArtistArtworkStore? = null,
+    controller: ArtistEnrichmentController? = null,
     localAudioUris: List<String> = emptyList(),
     localTrackIds: List<String> = emptyList(),
     tagProbe: ArtistTagProbe? = null,
@@ -103,13 +96,36 @@ fun ArtistEnrichmentPanel(
     val context = LocalContext.current
     val store = remember(context, selectionStore) { selectionStore ?: ArtistEnrichmentPersistence.from(context) }
     val artworkCoordinator = remember(context) { ArtistArtworkService.from(context) }
+    val artworkCache = remember(context, artworkStore) {
+        artworkStore ?: ArtistArtworkPersistence.from(context)
+    }
     val orchestrator = remember(context, store, artworkCoordinator, gateway) {
         ArtistEnrichmentOrchestrator(gateway = gateway, artwork = artworkCoordinator, store = store)
     }
     val embeddedTags = remember(context, tagProbe) { tagProbe ?: LocalArtistTagProbe(context) }
     val scope = rememberCoroutineScope()
-    val uriHandler = LocalUriHandler.current
     val stableGroup = remember(albumIds) { albumIds.toSortedSet().joinToString("\u0000") }
+    val ownsController = controller == null
+    val ownedController = remember(
+        context, gateway, store, artworkCoordinator, artworkCache,
+    ) {
+        ArtistEnrichmentController(
+            orchestrator = orchestrator,
+            profileStore = store,
+            artworkStore = artworkCache,
+            verifySelection = { verifyCachedArtwork(context, it) },
+            scope = scope,
+        )
+    }
+    val activeController = controller ?: ownedController
+    LaunchedEffect(activeController, artistCredit, libraryId, stableGroup) {
+        activeController.bind(libraryId, artistCredit, albumIds)
+    }
+    DisposableEffect(activeController) {
+        onDispose { if (ownsController) activeController.release() }
+    }
+    val uiState by activeController.state.collectAsState()
+    val uriHandler = LocalUriHandler.current
     // Scanning a tag is user-initiated and must never initiate a remote provider call.
     // A URI alone is not a stable track/library identity: never reuse old tag evidence when
     // a library switches or the same URI is re-associated with another local track.
@@ -120,18 +136,6 @@ fun ArtistEnrichmentPanel(
     var tags by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<EmbeddedArtistReview?>(null) }
     var tagReading by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
     var tagJob by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<Job?>(null) }
-    var state by remember(artistCredit, libraryId, stableGroup) {
-        mutableStateOf<ArtistEnrichmentUi>(ArtistEnrichmentUi.Idle)
-    }
-    // Automatic artwork resolution finishes after the verified profile is shown.
-    // The manual section keys its Room read on this revision so persisted crops
-    // appear without requiring the user to leave and re-enter Enriquecer.
-    var artworkRevision by remember(artistCredit, libraryId, stableGroup) {
-        mutableIntStateOf(0)
-    }
-    var requestJob by remember(artistCredit, libraryId, stableGroup) { mutableStateOf<Job?>(null) }
-    var cacheLoaded by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
-    var autoStarted by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
     // Aero Content/Plain for the candidate rows: the same fill and hairline the rest of
     // the system uses, instead of a locally invented white alpha that read as a card.
@@ -142,133 +146,13 @@ fun ArtistEnrichmentPanel(
     val secondaryColors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryPurple)
     val secondaryBorder = BorderStroke(0.8.dp, SecondaryPurple.copy(alpha = 0.5f))
     DisposableEffect(artistCredit, libraryId, stableGroup, localEvidenceScope) {
-        onDispose { requestJob?.cancel(); tagJob?.cancel() }
+        onDispose { tagJob?.cancel() }
     }
-    LaunchedEffect(artistCredit, libraryId, stableGroup, store) {
-        if (canPersist && state == ArtistEnrichmentUi.Idle) {
-            try {
-                val cached = store.load(requireNotNull(libraryId), artistCredit, albumIds)
-                if (state == ArtistEnrichmentUi.Idle && cached != null) {
-                    state = ArtistEnrichmentUi.Verified(cached.profile, persisted = true, stale = cached.stale)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) { /* cache failure must not block local browsing */ }
-            finally { cacheLoaded = true }
-        } else {
-            cacheLoaded = true
-        }
-    }
-
-    fun lookup() {
-        if (state == ArtistEnrichmentUi.LoadingCandidates || state == ArtistEnrichmentUi.LoadingProfile) return
-        state = ArtistEnrichmentUi.LoadingCandidates
-        requestJob = scope.launch {
-            try {
-                state = ArtistEnrichmentUi.Candidates(gateway.findCandidates(artistCredit))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                state = ArtistEnrichmentUi.Failed
-            }
-        }
-    }
-    fun applyResult(result: ArtistEnrichmentResult, previous: ArtistEnrichmentUi.Verified?) {
-        val profile = result.profile
-        if (profile == null) {
-            state = previous?.copy(refreshFailed = true, message = result.message) ?: ArtistEnrichmentUi.Failed
-            return
-        }
-        state = ArtistEnrichmentUi.Verified(
-            profile = profile,
-            persisted = result.persisted,
-            stale = false,
-            refreshFailed = previous != null && result.phase == ArtistEnrichmentPhase.PARTIAL &&
-                result.message?.contains("actualizar") == true,
-            message = result.message,
-            pendingPortraits = result.pendingPortraits,
-        )
-        artworkRevision++
-    }
+    val profile = uiState.profile
 
     fun confirmExplicitly(id: String) {
         val verifiedId = canonicalArtistMbid(id) ?: return
-        // The automatic search job may still be unwinding after publishing candidates;
-        // replace it so an unambiguous candidate can continue the same journey.
-        requestJob?.cancel()
-        state = ArtistEnrichmentUi.LoadingProfile
-        requestJob = scope.launch {
-            try {
-                applyResult(
-                    orchestrator.enrich(
-                        artistCredit = artistCredit,
-                        libraryId = libraryId,
-                        albumIds = albumIds,
-                        mbid = verifiedId,
-                        forceRefresh = true,
-                    ),
-                    previous = null,
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                state = ArtistEnrichmentUi.Failed
-            }
-        }
-    }
-
-    fun refreshVerified(previous: ArtistEnrichmentUi.Verified) {
-        val verifiedId = canonicalArtistMbid(previous.profile.mbid) ?: return
-        if (requestJob?.isActive == true) return
-        state = ArtistEnrichmentUi.LoadingProfile
-        requestJob = scope.launch {
-            try {
-                applyResult(
-                    orchestrator.enrich(
-                        artistCredit = artistCredit,
-                        libraryId = libraryId,
-                        albumIds = albumIds,
-                        mbid = verifiedId,
-                        cached = previous.profile,
-                        forceRefresh = true,
-                    ),
-                    previous = previous,
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                state = previous.copy(refreshFailed = true,
-                    message = "No fue posible actualizar los datos externos")
-            }
-        }
-    }
-
-    LaunchedEffect(cacheLoaded, autoStarted, state) {
-        if (!cacheLoaded) return@LaunchedEffect
-        val snapshot = state
-        if (snapshot is ArtistEnrichmentUi.Candidates) {
-            autoStarted = true
-            val only = snapshot.found.singleOrNull()
-            if (only != null && only.name.equals(artistCredit, ignoreCase = true)) {
-                confirmExplicitly(only.mbid)
-            }
-            return@LaunchedEffect
-        }
-        if (autoStarted) return@LaunchedEffect
-        when (val current = snapshot) {
-            is ArtistEnrichmentUi.Verified -> {
-                autoStarted = true
-                if (current.stale || current.profile.biography.isNullOrBlank() ||
-                    current.profile.portrait == null) {
-                    refreshVerified(current)
-                }
-            }
-            ArtistEnrichmentUi.Idle -> {
-                autoStarted = true
-                lookup()
-            }
-            else -> Unit
-        }
+        activeController.confirm(artistCredit, libraryId, albumIds, verifiedId)
     }
 
     Column(
@@ -337,7 +221,7 @@ fun ArtistEnrichmentPanel(
                         color = TertiaryCyan, fontSize = 12.sp)
                     OutlinedButton(
                         onClick = { confirmExplicitly(requireNotNull(evidence.suggestedMbid)) },
-                        enabled = state != ArtistEnrichmentUi.LoadingProfile,
+                        enabled = !uiState.refreshing && uiState.profile == null,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .testTag("artist_embedded_mbid_confirm"),
                     ) { Text("Confirmar identidad y consultar MusicBrainz") }
@@ -346,36 +230,19 @@ fun ArtistEnrichmentPanel(
                     color = TextSecondary, fontSize = 12.sp)
             }
         }
-        when (val result = state) {
-            ArtistEnrichmentUi.Idle -> Row(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = TertiaryCyan)
-                Text("Verificando artista…", color = TextSecondary, fontSize = 12.sp)
-            }
-            ArtistEnrichmentUi.LoadingCandidates, ArtistEnrichmentUi.LoadingProfile -> Row(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = TertiaryCyan)
-                Text("Consultando datos verificados…", color = TextSecondary, fontSize = 12.sp)
-            }
-            ArtistEnrichmentUi.Failed -> {
-                Text("No fue posible completar la ficha ahora. Tu biblioteca permanece disponible sin conexión.",
-                    color = TextSecondary, fontSize = 12.sp)
-            }
-            is ArtistEnrichmentUi.Candidates -> {
-                if (result.found.isEmpty()) {
+        when {
+            uiState.status == ArtistEnrichmentStatus.CHOOSING -> {
+                val found = uiState.candidates
+                if (found.isEmpty()) {
                     Text("Sin coincidencias confiables. No se ha asociado ningún artista externo.",
                         color = TextSecondary, fontSize = 12.sp)
                 } else {
-                    Text("Selecciona el artista correcto · ${result.found.size} candidatos",
+                    Text("Selecciona el artista correcto · ${found.size} candidatos",
                         color = PureWhite, fontSize = 13.sp)
                     // One selectable group, Plain rows and a hairline between them: the plan
                     // rejects a locally invented card per candidate.
                     Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
-                        result.found.forEachIndexed { index, candidate ->
+                        found.forEachIndexed { index, candidate ->
                             if (index > 0) {
                                 HorizontalDivider(
                                     color = candidateSurface.outline.copy(alpha = 0.55f),
@@ -394,7 +261,7 @@ fun ArtistEnrichmentPanel(
                                         selected = false,
                                         role = Role.Button,
                                     ) {
-                                        val verifiedId = selectedArtistMbid(result.found, candidate.mbid)
+                                        val verifiedId = selectedArtistMbid(uiState.candidates, candidate.mbid)
                                         if (verifiedId != null) confirmExplicitly(verifiedId)
                                     }
                                     .heightIn(min = 48.dp)
@@ -413,8 +280,8 @@ fun ArtistEnrichmentPanel(
                     }
                 }
             }
-            is ArtistEnrichmentUi.Verified -> {
-                val profile = result.profile
+            profile != null -> {
+                val result = uiState
                 Text(profile.name, color = PureWhite, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text("MBID confirmado por selección: ${profile.mbid}", color = TextSecondary, fontSize = 11.sp)
                 Text(when {
@@ -431,17 +298,7 @@ fun ArtistEnrichmentPanel(
                 if (canPersist && result.persisted) {
                     OutlinedButton(
                         onClick = {
-                            if (requestJob?.isActive == true) return@OutlinedButton
-                            requestJob = scope.launch {
-                                try {
-                                    store.clear(requireNotNull(libraryId), artistCredit, albumIds)
-                                    state = ArtistEnrichmentUi.Idle
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (_: Exception) {
-                                    state = ArtistEnrichmentUi.Failed
-                                }
-                            }
+                            activeController.clear(artistCredit, libraryId, albumIds)
                         },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .testTag("artist_enrichment_clear"),
@@ -491,11 +348,25 @@ fun ArtistEnrichmentPanel(
                     artistCredit = artistCredit,
                     libraryId = libraryId,
                     albumIds = albumIds,
-                    artworkRevision = artworkRevision,
+                    initialSelections = uiState.selections,
                     pendingCandidates = result.pendingPortraits,
                 )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
+            }
+            uiState.status == ArtistEnrichmentStatus.FAILED -> {
+                Text(uiState.message ?: "No fue posible completar la ficha ahora. Tu biblioteca permanece disponible sin conexión.",
+                    color = TextSecondary, fontSize = 12.sp)
+            }
+            uiState.message != null -> {
+                Text(uiState.message.orEmpty(), color = TextSecondary, fontSize = 12.sp)
+            }
+            else -> Row(
+                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = TertiaryCyan)
+                Text("Consultando datos verificados…", color = TextSecondary, fontSize = 12.sp)
             }
         }
     }
@@ -512,13 +383,12 @@ private fun ArtistArtworkManualSection(
     artistCredit: String,
     libraryId: String?,
     albumIds: List<String>,
-    artworkRevision: Int,
+    initialSelections: Map<ArtworkSlot, ArtistArtworkSelection>,
     pendingCandidates: List<ArtistArtworkCandidate>,
 ) {
     if (libraryId == null) return
     val context = LocalContext.current
     val coordinator = remember(context) { ArtistArtworkService.from(context) }
-    val store = remember(context) { ArtistArtworkPersistence.from(context) }
     val anchor = remember(libraryId, artistCredit, albumIds, profile.mbid,
         profile.wikidataQid) {
         artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
@@ -527,22 +397,14 @@ private fun ArtistArtworkManualSection(
     val scope = rememberCoroutineScope()
     val secondaryColors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryPurple)
     val secondaryBorder = BorderStroke(0.8.dp, SecondaryPurple.copy(alpha = 0.5f))
-    var selections by remember(anchor) {
-        mutableStateOf<Map<ArtworkSlot, ArtistArtworkSelection>>(emptyMap())
+    var selections by remember(anchor) { mutableStateOf(initialSelections) }
+    LaunchedEffect(initialSelections) {
+        if (initialSelections.isNotEmpty()) selections = initialSelections
     }
     var busy by remember(anchor) { mutableStateOf(false) }
     var confirmedIdentity by remember(anchor, profile.mbid) { mutableStateOf(false) }
     var message by remember(anchor) { mutableStateOf<String?>(null) }
     val candidates = pendingCandidates
-    LaunchedEffect(anchor, store, artworkRevision) {
-        selections = try {
-            store.load(anchor).associateBy { it.slot }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
     Text("Retratos alternativos", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     Text("Se buscan automáticamente cuando hacen falta. La imagen elegida se descarga y se guarda para este artista.",
         color = TextSecondary, fontSize = 11.sp)
@@ -557,9 +419,12 @@ private fun ArtistArtworkManualSection(
                 else "Retrato alternativo para la ficha de $artistCredit",
                 contentScale = ContentScale.Crop,
                 alignment = BiasAlignment(live.focus.x * 2f - 1f, live.focus.y * 2f - 1f),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .testTag("artist_artwork_saved_${selection.slot.name}"),
+                modifier = if (selection.slot == ArtworkSlot.ARTIST_THUMB) {
+                    Modifier.size(144.dp).clip(CircleShape)
+                } else {
+                    Modifier.fillMaxWidth().heightIn(max = 150.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                }.testTag("artist_artwork_saved_${selection.slot.name}"),
             )
             Text("${if (selection.slot == ArtworkSlot.ARTIST_THUMB) "Mosaico" else "Ficha"}: " +
                 "${selection.attribution.orEmpty()} · ${selection.licenseId.orEmpty()}",

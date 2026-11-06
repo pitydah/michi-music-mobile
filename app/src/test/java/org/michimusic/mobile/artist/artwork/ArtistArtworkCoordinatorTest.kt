@@ -153,7 +153,11 @@ class ArtistArtworkCoordinatorTest {
         override suspend fun counts() = selections.size to selections.size
     }
 
-    private fun coordinator(client: OkHttpClient, store: ArtistArtworkStore): ArtistArtworkCoordinator {
+    private fun coordinator(
+        client: OkHttpClient,
+        store: ArtistArtworkStore,
+        verifySelection: suspend (ArtistArtworkSelection) -> ArtistArtworkSelection = { it },
+    ): ArtistArtworkCoordinator {
         val http = ArtworkHttp(client)
         return ArtistArtworkCoordinator(
             wikidata = WikidataArtworkLookup(http),
@@ -162,6 +166,7 @@ class ArtistArtworkCoordinatorTest {
             http = http,
             downloader = ArtworkDownloader(context, client),
             store = store,
+            verifySelection = verifySelection,
         )
     }
 
@@ -359,6 +364,27 @@ class ArtistArtworkCoordinatorTest {
         assertEquals(ArtworkLoadStatus.READY, report.status)
         assertEquals(2, store.saves)
         assertTrue(store.selections.values.all { it.confirmedMbid == anchor.confirmedMbid })
+    }
+
+    @Test
+    fun corruptThumbRecoversAloneWithoutReplacingTheValidHero() = runBlocking {
+        val store = MemoryStore(context)
+        val hero = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = false)
+        val corruptThumb = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = false)
+            .copy(localImagePath = File(context.filesDir, "artist-artwork/missing.png").absolutePath)
+        store.selections[ArtworkSlot.ARTIST_HERO] = hero
+        store.selections[ArtworkSlot.ARTIST_THUMB] = corruptThumb
+        val coordinator = coordinator(client(), store) { selection ->
+            if (selection.slot == ArtworkSlot.ARTIST_THUMB) selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
+            else selection
+        }
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.READY, report.status)
+        assertEquals(1, store.saves)
+        assertEquals(hero.assetId, store.selections.getValue(ArtworkSlot.ARTIST_HERO).assetId)
+        assertTrue(store.selections.containsKey(ArtworkSlot.ARTIST_THUMB))
     }
 
     @Test

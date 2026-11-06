@@ -54,7 +54,22 @@ class ArtistArtworkCoordinator internal constructor(
             return reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR,
                 "No se pudo leer la caché de artwork: ${error.message}")
         }
-        val existing = existingList.filter { it.status == ArtworkLoadStatus.READY }.associateBy { it.slot }
+        // A row with status READY only means the file existed when it was read. Verify
+        // the bytes before trusting the slot; otherwise a corrupt thumb would suppress
+        // recovery forever while a valid hero must still be preserved.
+        val verified = existingList.map { selection ->
+            if (selection.status != ArtworkLoadStatus.READY) selection
+            else try {
+                verifySelection(selection)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
+            }
+        }
+        val existing = verified
+            .filter { it.status == ArtworkLoadStatus.READY }
+            .associateBy { it.slot }
         val manualSlots = existing.filterValues { it.manuallyChosen }.keys
         val needThumb = ArtworkSlot.ARTIST_THUMB !in manualSlots &&
             (ArtworkSlot.ARTIST_THUMB !in existing || forceRefresh)

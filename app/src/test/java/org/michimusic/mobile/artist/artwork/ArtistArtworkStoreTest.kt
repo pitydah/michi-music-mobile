@@ -43,7 +43,12 @@ class ArtistArtworkStoreTest {
     fun pruneKeepsReferencedArtworkAndDeletesOnlyOrphans() = runBlocking {
         val root = File(context.filesDir, "artist-artwork").apply { mkdirs() }
         val referenced = File(root, "referenced.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }
-        val orphan = File(root, "orphan.jpg").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val orphan = File(root, "orphan.jpg").apply {
+            writeBytes(byteArrayOf(4, 5, 6))
+            // A fresh final file is protected from a concurrent prune; this one is old.
+            setLastModified(System.currentTimeMillis() - 20 * 60 * 1000L)
+        }
+        val freshFinal = File(root, "just-published.jpg").apply { writeBytes(byteArrayOf(13, 14)) }
         val activeTemp = File(root, "active-download.tmp").apply { writeBytes(byteArrayOf(7, 8)) }
         val staleTemp = File(root, "abandoned.tmp").apply {
             writeBytes(byteArrayOf(9, 10, 11, 12))
@@ -85,6 +90,10 @@ class ArtistArtworkStoreTest {
 
         assertTrue("Referenced artwork must survive pruning", referenced.isFile)
         assertFalse("Unreferenced artwork must be pruned", orphan.exists())
+        assertTrue(
+            "A just-published final file must survive a concurrent prune before its row commits",
+            freshFinal.isFile,
+        )
         assertTrue("A fresh download temporary must survive pruning", activeTemp.isFile)
         assertFalse("An abandoned download temporary must be pruned", staleTemp.exists())
         assertEquals(7L, freed)

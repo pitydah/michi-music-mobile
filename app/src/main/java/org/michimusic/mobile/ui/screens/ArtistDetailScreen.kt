@@ -28,12 +28,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,8 +58,9 @@ import org.koin.compose.koinInject
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.mobile.artist.ArtistEnrichmentPanel
-import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
+import org.michimusic.mobile.artist.ArtistEnrichmentController
 import org.michimusic.mobile.artist.ArtistEnrichmentOrchestrator
+import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.PersistedArtistProfile
 import org.michimusic.mobile.artist.ArtistProfileStatus
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
@@ -68,6 +71,7 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkService
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
+import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.library.LibraryScopeStore
 import org.michimusic.mobile.library.rememberArtistScopedCollection
@@ -212,7 +216,6 @@ fun ArtistDetailScreen(
     }
     val savedProfile = savedRecord?.profile
     val cachedProfileIsStale = savedRecord?.stale == true
-    val portrait = savedProfile?.portrait?.takeIf(::allowedCommonsPortrait)
     var heroArtwork by remember(artistCredit, libraryId, albumIds) {
         mutableStateOf<ArtistArtworkSelection?>(null)
     }
@@ -240,39 +243,33 @@ fun ArtistDetailScreen(
             artworkReadError = true
         }
     }
-    val orchestrator = remember(context, store) {
-        ArtistEnrichmentOrchestrator(artwork = ArtistArtworkService.from(context), store = store)
+    // One controller owns identity, biography and artwork for both this ficha and
+    // the Enriquecer panel. The cached profile stays visible while it refreshes.
+    val controllerScope = rememberCoroutineScope()
+    val enrichmentController = remember(context, store, artworkStore) {
+        ArtistEnrichmentController(
+            orchestrator = ArtistEnrichmentOrchestrator(
+                artwork = ArtistArtworkService.from(context),
+                store = store,
+            ),
+            profileStore = store,
+            artworkStore = artworkStore,
+            verifySelection = { verifyCachedArtwork(context, it) },
+            scope = controllerScope,
+        )
     }
-    var autoRefreshedMbid by remember(artistCredit, libraryId, albumIds) {
-        mutableStateOf<String?>(null)
+    LaunchedEffect(enrichmentController, artistCredit, libraryId, albumIds) {
+        enrichmentController.bind(libraryId, artistCredit, albumIds)
     }
-    // A confirmed MBID is enough to finish biography and artwork in the background.
-    // The cache is rendered first; this effect only fills missing or stale data once per artist.
-    LaunchedEffect(artistCredit, libraryId, albumIds, savedProfile?.mbid,
-        cachedProfileIsStale, heroArtwork, cacheRevision) {
-        val profile = savedProfile ?: return@LaunchedEffect
-        val mbid = profile.mbid
-        if (libraryId == null || autoRefreshedMbid == mbid) return@LaunchedEffect
-        if (!cachedProfileIsStale && !profile.biography.isNullOrBlank() && heroArtwork != null) {
-            return@LaunchedEffect
-        }
-        autoRefreshedMbid = mbid
-        try {
-            val result = orchestrator.enrich(
-                artistCredit = artistCredit,
-                libraryId = libraryId,
-                albumIds = albumIds,
-                mbid = mbid,
-                cached = profile,
-                forceRefresh = cachedProfileIsStale,
-            )
-            if (result.profile != null) cacheRevision++
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // Optional enrichment never blocks the local ficha or playback.
-        }
+    DisposableEffect(enrichmentController) {
+        onDispose { enrichmentController.release() }
     }
+    val enrichmentState by enrichmentController.state.collectAsStateWithLifecycle()
+    val effectiveProfile = enrichmentState.profile ?: savedProfile
+    val effectiveStale = enrichmentState.stale || cachedProfileIsStale
+    val effectivePortrait = effectiveProfile?.portrait?.takeIf(::allowedCommonsPortrait)
+    val effectiveHeroArtwork = enrichmentState.selections[ArtworkSlot.ARTIST_HERO]
+        ?.takeIf { it.status == ArtworkLoadStatus.READY } ?: heroArtwork
     // State lives above LazyColumn so every remote discography row is its own lazy item.
     fun retryLibrary() {
         scopeRetry++
@@ -394,6 +391,8 @@ fun ArtistDetailScreen(
                         artistCredit = artistCredit,
                         libraryId = libraryId,
                         albumIds = albumIds,
+                        controller = enrichmentController,
+                        artworkStore = artworkStore,
                         localAudioUris = localTracks.map { it.filepath },
                         localTrackIds = localTracks.map { it.id },
                         modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 20.dp),
@@ -455,10 +454,10 @@ fun ArtistDetailScreen(
                         item("artist_hero") {
                             ArtistDetailHero(
                                 artistCredit = artistCredit,
-                                portrait = portrait,
+                                portrait = effectivePortrait,
                                 albumCount = localAlbums.size,
                                 trackCount = tracks.size,
-                                artwork = heroArtwork,
+                                artwork = effectiveHeroArtwork,
                             )
                         }
                         if (profileStatus == ArtistProfileStatus.CONFLICT) {
@@ -500,10 +499,10 @@ fun ArtistDetailScreen(
                         item("artist_bio") {
                             ArtistBiographySection(
                                 artistCredit = artistCredit,
-                                profile = savedProfile,
-                                isStale = cachedProfileIsStale,
-                                portrait = portrait,
-                                artwork = heroArtwork,
+                                profile = effectiveProfile,
+                                isStale = effectiveStale,
+                                portrait = effectivePortrait,
+                                artwork = effectiveHeroArtwork,
                             )
                         }
                         if (artworkReadError) {
