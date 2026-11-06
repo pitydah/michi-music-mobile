@@ -144,10 +144,13 @@ class ArtistEnrichmentOrchestrator(
             }
         } else null
 
-        // Openverse runs automatically only when the verified providers left a visual
-        // slot uncovered. Its name-only results stay pending visual confirmation.
+        // Openverse runs automatically only when a verified identity let the
+        // first-party providers run and they still left a visual slot uncovered.
+        // Name-only searches without a verified QID stay explicit, never automatic.
         var pending: List<org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate> = emptyList()
-        if (anchor != null && (report == null || !report.selections.keys.containsAll(ArtworkSlot.entries))) {
+        if (anchor?.verifiedQid != null &&
+            (report == null || !report.selections.keys.containsAll(ArtworkSlot.entries))
+        ) {
             pending = try {
                 when (val result = artwork.searchManual(anchor, artistCredit)) {
                     is ProviderArtworkResult.Available -> result.items

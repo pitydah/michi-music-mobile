@@ -16,7 +16,21 @@ class ArtistEnrichmentPersistenceUiTest {
         val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
         var fetches = 0
         var cleared = 0
-        val profile = ArtistExternalProfile(mbid, "Midnight Oil", "", "Group", "Australia")
+        val profile = ArtistExternalProfile(
+            mbid = mbid,
+            name = "Midnight Oil",
+            type = "Group",
+            area = "Australia",
+            biography = "Midnight Oil es una banda australiana de rock.",
+            biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+            portrait = CommonsPortrait(
+                imageUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/midnight-oil.jpg/640px-midnight-oil.jpg",
+                commonsPageUrl = "https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg",
+                license = "CC BY-SA 2.0",
+                licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+                attribution = "Autor de la fotografía",
+            ),
+        )
         val gateway = object : ArtistEnrichmentGateway {
             override suspend fun findCandidates(localCredit: String): List<ArtistLookupCandidate> {
                 fetches++
@@ -37,8 +51,8 @@ class ArtistEnrichmentPersistenceUiTest {
             ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = gateway,
                 libraryId = "lib-one", albumIds = listOf("album-1"), selectionStore = store)
         }
-        rule.onNodeWithText("MBID confirmado", substring = true).assertExists()
-        assertEquals(1, fetches)
+        rule.onNodeWithText("MBID confirmado por selección", substring = true).assertExists()
+        assertEquals(0, fetches)
         rule.waitUntil(5000) {
             rule.onAllNodesWithTag("artist_enrichment_clear").fetchSemanticsNodes().isNotEmpty()
         }
