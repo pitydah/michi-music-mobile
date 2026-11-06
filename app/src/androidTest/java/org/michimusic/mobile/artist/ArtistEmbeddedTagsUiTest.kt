@@ -35,6 +35,8 @@ class ArtistEmbeddedTagsUiTest {
             ArtistEnrichmentPanel(
                 artistCredit = "Patti Austin & James Ingram",
                 gateway = gateway,
+                libraryId = "lib-local",
+                albumIds = listOf("album-local"),
                 localAudioUris = listOf("content://media/external/audio/media/12"),
                 tagProbe = probe,
                 selectionStore = object : ArtistEnrichmentSelectionStore {

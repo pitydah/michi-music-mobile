@@ -22,6 +22,14 @@ enum class ArtistEnrichmentPhase {
     ERROR,
 }
 
+/** Provider success is not persistence success. */
+enum class ArtistPersistenceStatus {
+    NOT_ATTEMPTED,
+    PERSISTED,
+    FAILED,
+    CONTEXT_UNAVAILABLE,
+}
+
 data class ArtistEnrichmentResult(
     val phase: ArtistEnrichmentPhase,
     val profile: ArtistExternalProfile? = null,
@@ -29,6 +37,9 @@ data class ArtistEnrichmentResult(
     val pendingPortraits: List<org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate> = emptyList(),
     val candidates: List<ArtistLookupCandidate> = emptyList(),
     val persisted: Boolean = false,
+    val persistenceStatus: ArtistPersistenceStatus = ArtistPersistenceStatus.NOT_ATTEMPTED,
+    val persistenceError: String? = null,
+    val associationGroupKey: String? = null,
     val stale: Boolean = false,
     val message: String? = null,
 ) {
@@ -64,6 +75,7 @@ class ArtistEnrichmentOrchestrator(
         mbid: String,
         cached: ArtistExternalProfile? = null,
         forceRefresh: Boolean = false,
+        associationGroupKey: String? = null,
     ): ArtistEnrichmentResult {
         val canonical = canonicalArtistMbid(mbid) ?: return ArtistEnrichmentResult(
             phase = ArtistEnrichmentPhase.ERROR,
@@ -84,7 +96,10 @@ class ArtistEnrichmentOrchestrator(
         }
         try {
             return ref.mutex.withLock {
-                enrichLocked(artistCredit, libraryId, albumIds, canonical, cached, forceRefresh)
+                enrichLocked(
+                    artistCredit, libraryId, albumIds, canonical, cached, forceRefresh,
+                    associationGroupKey,
+                )
             }
         } finally {
             synchronized(locks) {
@@ -101,6 +116,7 @@ class ArtistEnrichmentOrchestrator(
         mbid: String,
         cached: ArtistExternalProfile?,
         forceRefresh: Boolean,
+        associationGroupKey: String?,
     ): ArtistEnrichmentResult {
         val profile = try {
             val fetched = if (forceRefresh) gateway.refreshProfile(mbid) else gateway.confirmedProfile(mbid)
@@ -111,6 +127,7 @@ class ArtistEnrichmentOrchestrator(
                     message = "El proveedor devolvió otra identidad",
                 )
             }
+            ArtistEnrichmentDiagnostics.event("AE_PROFILE_FETCHED")
             fetched
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -129,7 +146,9 @@ class ArtistEnrichmentOrchestrator(
                     albumIds = albumIds,
                     profile = cached,
                     forceRefresh = true,
-                    persisted = false,
+                    persistenceStatus = ArtistPersistenceStatus.NOT_ATTEMPTED,
+                    persistenceError = null,
+                    associationGroupKey = associationGroupKey,
                 )
                 return repaired.copy(
                     phase = ArtistEnrichmentPhase.PARTIAL,
@@ -143,18 +162,30 @@ class ArtistEnrichmentOrchestrator(
             )
         }
 
-        val persisted = if (libraryId != null && scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null) {
+        var persistenceStatus = ArtistPersistenceStatus.CONTEXT_UNAVAILABLE
+        var persistenceError: String? = null
+        if (libraryId != null && scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null) {
+            ArtistEnrichmentDiagnostics.event("AE_SAVE_ATTEMPT")
             try {
                 store.save(libraryId, artistCredit, albumIds, profile)
-                true
+                persistenceStatus = ArtistPersistenceStatus.PERSISTED
+                ArtistEnrichmentDiagnostics.event("AE_SAVE_COMMITTED")
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
-                false
+            } catch (error: Exception) {
+                persistenceStatus = ArtistPersistenceStatus.FAILED
+                persistenceError = error.message ?: "No fue posible guardar el perfil."
+                ArtistEnrichmentDiagnostics.event("AE_SAVE_FAILED", persistenceError)
             }
-        } else false
+        } else {
+            persistenceError = "Contexto local incompleto; el perfil se muestra pero no quedó guardado."
+            ArtistEnrichmentDiagnostics.event("AE_SAVE_SKIPPED", "CONTEXT_INCOMPLETE")
+        }
 
-        return finish(artistCredit, libraryId, albumIds, profile, forceRefresh, persisted)
+        return finish(
+            artistCredit, libraryId, albumIds, profile, forceRefresh,
+            persistenceStatus, persistenceError, associationGroupKey,
+        )
     }
 
     /**
@@ -167,13 +198,16 @@ class ArtistEnrichmentOrchestrator(
         albumIds: List<String>,
         profile: ArtistExternalProfile,
         forceRefresh: Boolean = false,
+        associationGroupKey: String? = null,
     ): ArtistEnrichmentResult = finish(
         artistCredit = artistCredit,
         libraryId = libraryId,
         albumIds = albumIds,
         profile = profile,
         forceRefresh = forceRefresh,
-        persisted = false,
+        persistenceStatus = ArtistPersistenceStatus.NOT_ATTEMPTED,
+        persistenceError = null,
+        associationGroupKey = associationGroupKey,
     )
 
     private suspend fun finish(
@@ -182,9 +216,13 @@ class ArtistEnrichmentOrchestrator(
         albumIds: List<String>,
         profile: ArtistExternalProfile,
         forceRefresh: Boolean,
-        persisted: Boolean,
+        persistenceStatus: ArtistPersistenceStatus,
+        persistenceError: String?,
+        associationGroupKey: String?,
     ): ArtistEnrichmentResult {
-        val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
+        val anchor = artistIdentityAnchor(
+            libraryId, artistCredit, albumIds, profile, associationGroupKey,
+        )
         // Without a verified Wikidata QID no first-party provider can establish that a
         // photo depicts this artist. Do not block the verified profile on artwork work
         // that cannot succeed; the legacy portrait remains a separate adapter.
@@ -241,7 +279,10 @@ class ArtistEnrichmentOrchestrator(
             profile = profile,
             artwork = report,
             pendingPortraits = pending,
-            persisted = persisted,
+            persisted = persistenceStatus == ArtistPersistenceStatus.PERSISTED,
+            persistenceStatus = persistenceStatus,
+            persistenceError = persistenceError,
+            associationGroupKey = associationGroupKey,
             message = message,
         )
     }

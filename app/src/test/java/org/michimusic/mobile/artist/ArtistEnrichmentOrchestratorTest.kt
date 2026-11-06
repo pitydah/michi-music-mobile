@@ -139,6 +139,58 @@ class ArtistEnrichmentOrchestratorTest {
     }
 
     @Test
+    fun providerSuccessNeverBecomesPersistenceSuccessWhenRoomSaveFails() = runBlocking {
+        val http = ArtworkHttp(client())
+        val artworkStore = MemoryStore(context)
+        val coordinator = ArtistArtworkCoordinator(
+            wikidata = WikidataArtworkLookup(http),
+            commons = CommonsImageInfo(http),
+            openverse = OpenverseArtworkProvider(http),
+            http = http,
+            downloader = ArtworkDownloader(context, client()),
+            store = artworkStore,
+        )
+        val profile = ArtistExternalProfile(
+            mbid = mbid,
+            name = "Midnight Oil",
+            biography = "Banda australiana.",
+            biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+            biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+        )
+        val failingStore = object : ArtistEnrichmentSelectionStore {
+            override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) = null
+            override suspend fun save(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                profile: ArtistExternalProfile,
+            ) {
+                throw IllegalStateException("Room no disponible")
+            }
+            override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
+        }
+        val gateway = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String) = emptyList<ArtistLookupCandidate>()
+            override suspend fun confirmedProfile(mbid: String) = profile
+            override suspend fun refreshProfile(mbid: String) = profile
+        }
+        val orchestrator = ArtistEnrichmentOrchestrator(gateway, coordinator, failingStore)
+
+        val result = orchestrator.enrich(
+            artistCredit = "Midnight Oil",
+            libraryId = "lib",
+            albumIds = listOf("album"),
+            mbid = mbid,
+            forceRefresh = true,
+        )
+
+        assertEquals(ArtistPersistenceStatus.FAILED, result.persistenceStatus)
+        assertTrue(!result.persisted)
+        assertTrue(result.persistenceError.orEmpty().contains("Room no disponible"))
+        assertEquals(mbid, result.profile?.mbid)
+    }
+
+    @Test
     fun musicBrainzFailureStillRepairsArtworkWithTheCachedVerifiedQid() = runBlocking {
         val http = ArtworkHttp(client())
         val artworkStore = MemoryStore(context)

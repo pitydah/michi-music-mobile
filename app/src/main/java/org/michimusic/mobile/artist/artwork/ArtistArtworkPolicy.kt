@@ -1,11 +1,22 @@
 package org.michimusic.mobile.artist.artwork
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.michimusic.mobile.artist.allowedPortraitAttribution
 import org.michimusic.mobile.artist.allowedPortraitLicense
 import java.net.URI
 
 private val qidPattern = Regex("^Q[1-9][0-9]{0,10}$")
 private val allowedMime = setOf("image/jpeg", "image/png", "image/webp")
+private val jsonLdScript = Regex(
+    "<script[^>]*type\\s*=\\s*[\"']application/ld\\+json[\"'][^>]*>(.*?)</script>",
+    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+)
+private val jsonLd = Json { ignoreUnknownKeys = true }
 
 /**
  * Provider metadata is untrusted until every one of these gates passes.
@@ -110,33 +121,43 @@ fun originPageConfirmsLicense(
         return false
     }
     // A licence link anywhere on Flickr is not evidence for this photo. Require the
-    // licence, the photo id and the image URL to belong to the same schema.org
-    // ImageObject emitted for this exact page.
+    // licence and the photo id to belong to the same schema.org ImageObject emitted
+    // for this exact page. Parsing JSON-LD avoids accepting unrelated license links.
     val segments = origin.rawPath.orEmpty().trim('/').split('/')
     if (segments.size < 3) return false
     val photoId = segments[2]
     if (photoId.isBlank() || !photoId.all(Char::isDigit)) return false
-    val blocks = Regex(
-        "<script[^>]*type\\s*=\\s*[\"']application/ld\\+json[\"'][^>]*>(.*?)</script>",
-        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-    ).findAll(html)
-    for (block in blocks) {
-        val json = block.groupValues[1]
-        if (!Regex("\"@type\"\\s*:\\s*\"ImageObject\"").containsMatchIn(json)) continue
-        val license = Regex("\"license\"\\s*:\\s*\"([^\"]+)\"")
-            .find(json)?.groupValues?.get(1)?.replace("\\/", "/") ?: continue
-        if (licenseKey(license) != expected) continue
-        val acquire = Regex("\"acquireLicensePage\"\\s*:\\s*\"([^\"]+)\"")
-            .find(json)?.groupValues?.get(1)?.replace("\\/", "/")
-        val content = Regex("\"contentUrl\"\\s*:\\s*\"([^\"]+)\"")
-            .find(json)?.groupValues?.get(1)?.replace("\\/", "/")
-        val sameFile = listOfNotNull(acquire, content).any { url ->
-            url.contains("/photos/") && Regex("/${Regex.escape(photoId)}(?:[/?#]|$)").containsMatchIn(url)
-        }
-        if (sameFile) return true
+    return jsonLdScript.findAll(html).any { block ->
+        val root = runCatching {
+            jsonLd.parseToJsonElement(block.groupValues[1])
+        }.getOrNull() ?: return@any false
+        root.hasImageObjectFor(photoId, expected)
     }
-    return false
 }
+
+private fun JsonElement.hasImageObjectFor(photoId: String, expectedLicense: String): Boolean =
+    when (this) {
+        is JsonObject -> {
+            val type = this["@type"]?.stringValue()
+            val license = this["license"]?.stringValue()
+            val acquire = this["acquireLicensePage"]?.stringValue()
+            val content = this["contentUrl"]?.stringValue()
+            // bind the licence to the canonical photo page; CDN contentUrl may omit it.
+            val sameImage = if (acquire != null) {
+                acquire.contains(photoId)
+            } else {
+                content?.contains(photoId) == true
+            }
+            (type == "ImageObject" && sameImage && license?.let(::licenseKey) == expectedLicense) ||
+                values.any { it.hasImageObjectFor(photoId, expectedLicense) }
+        }
+
+        is JsonArray -> any { it.hasImageObjectFor(photoId, expectedLicense) }
+        else -> false
+    }
+
+private fun JsonElement.stringValue(): String? =
+    (this as? JsonPrimitive)?.contentOrNull
 
 fun licenseKey(raw: String?): String? {
     val uri = httpsUri(raw) ?: return null

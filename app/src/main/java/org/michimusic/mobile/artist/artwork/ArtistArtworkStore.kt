@@ -10,6 +10,7 @@ import org.michimusic.data.artist.ArtistArtworkAssetRecord
 import org.michimusic.data.artist.ArtistArtworkLinkRecord
 import org.michimusic.data.artist.ArtistArtworkSelectionRecord
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
+import org.michimusic.mobile.artist.ArtistEnrichmentDiagnostics
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import java.io.File
 
@@ -56,6 +57,15 @@ class RoomArtistArtworkStore(
                     anchor.libraryId, anchor.creditKey, anchor.albumGroupKey, row.slot,
                     anchor.confirmedMbid,
                 ),
+            )
+        }.onEach { selection ->
+            ArtistEnrichmentDiagnostics.event(
+                if (selection.status == ArtworkLoadStatus.READY) {
+                    "AE_ARTWORK_FILE_READY"
+                } else {
+                    "AE_ARTWORK_FILE_MISSING"
+                },
+                selection.status.name,
             )
         }
     }
@@ -126,8 +136,10 @@ class RoomArtistArtworkStore(
             evidence = candidate.evidence.name,
             linkedAtMs = now,
         )
-        dao.persistArtwork(asset, link, selection)
-        return requireNotNull(selection.toSelection(asset, link)) { "Selección de artwork no legible" }
+        val persistedRevision = dao.persistArtwork(asset, link, selection)
+        return requireNotNull(
+            selection.copy(revision = persistedRevision).toSelection(asset, link),
+        ) { "Selección de artwork no legible" }
     }
 
     override suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean {

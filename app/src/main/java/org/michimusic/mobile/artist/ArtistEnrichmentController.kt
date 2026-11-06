@@ -28,6 +28,12 @@ data class ArtistEnrichmentState(
     val profile: ArtistExternalProfile? = null,
     val candidates: List<ArtistLookupCandidate> = emptyList(),
     val persisted: Boolean = false,
+    /** MBID whose confirmed profile is actually present in Room, never inherited across identities. */
+    val persistedMbid: String? = null,
+    val persistenceStatus: ArtistPersistenceStatus = ArtistPersistenceStatus.NOT_ATTEMPTED,
+    val persistenceError: String? = null,
+    val associationGroupKey: String? = null,
+    val needsConfirmation: Boolean = false,
     val stale: Boolean = false,
     val refreshing: Boolean = false,
     val refreshFailed: Boolean = false,
@@ -179,6 +185,7 @@ class ArtistEnrichmentController(
                         mbid = profile.mbid,
                         cached = profile,
                         forceRefresh = force || current.stale,
+                        associationGroupKey = current.associationGroupKey,
                     )
                 } else {
                     orchestrator.resolveArtwork(
@@ -186,6 +193,7 @@ class ArtistEnrichmentController(
                         libraryId = libraryId,
                         albumIds = albumIds,
                         profile = profile,
+                        associationGroupKey = current.associationGroupKey,
                     )
                 }
                 if (epoch != requestEpoch) return@launch
@@ -274,36 +282,65 @@ class ArtistEnrichmentController(
         albumIds: List<String>,
         epoch: Int,
     ) {
+        if (albumIds.isEmpty()) {
+            ArtistEnrichmentDiagnostics.event("AE_CONTEXT_INVALID", "ALBUMS_LOADING")
+            _state.value = ArtistEnrichmentState(
+                status = ArtistEnrichmentStatus.IDLE,
+                message = "Esperando la biblioteca local para recuperar este artista.",
+            )
+            return
+        }
         var cached: PersistedArtistProfile? = null
         if (libraryId != null) {
+            ArtistEnrichmentDiagnostics.event("AE_CONTEXT_READY")
             cached = try {
                 profileStore.load(libraryId, artistCredit, albumIds)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 if (epoch != requestEpoch) return
+                ArtistEnrichmentDiagnostics.event("AE_LOAD_MISS", "STORE_ERROR")
                 _state.value = ArtistEnrichmentState(
                     status = ArtistEnrichmentStatus.FAILED,
                     message = "No se pudieron leer los datos guardados del artista.",
                 )
                 return
             }
+            ArtistEnrichmentDiagnostics.event(
+                if (cached == null) "AE_LOAD_MISS" else "AE_LOAD_HIT",
+            )
+        } else {
+            ArtistEnrichmentDiagnostics.event("AE_CONTEXT_INVALID", "NO_IDENTITY_LIBRARY")
         }
         if (epoch != requestEpoch) return
         if (cached == null) {
+            if (libraryId == null) {
+                ArtistEnrichmentDiagnostics.event("AE_CONTEXT_INVALID", "NO_LOCAL_LIBRARY")
+                _state.value = ArtistEnrichmentState(
+                    status = ArtistEnrichmentStatus.IDLE,
+                    message = "Selecciona una biblioteca local para enriquecer este artista.",
+                )
+                return
+            }
             _state.value = ArtistEnrichmentState(status = ArtistEnrichmentStatus.IDLE)
             if (autoDiscoveryAllowed) discover(artistCredit)
             return
         }
 
         val profile = cached.profile
-        val selections = loadVerifiedSelections(libraryId, artistCredit, albumIds, profile)
+        val selections = loadVerifiedSelections(
+            libraryId, artistCredit, albumIds, profile, cached.associationGroupKey,
+        )
         val complete = !profile.biography.isNullOrBlank() &&
             selections.keys.containsAll(ArtworkSlot.entries)
         _state.value = ArtistEnrichmentState(
             status = ArtistEnrichmentStatus.VERIFIED,
             profile = profile,
             persisted = true,
+            persistedMbid = profile.mbid,
+            persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+            associationGroupKey = cached.associationGroupKey,
+            needsConfirmation = cached.needsConfirmation,
             stale = cached.stale,
             selections = selections,
         )
@@ -317,9 +354,11 @@ class ArtistEnrichmentController(
         artistCredit: String,
         albumIds: List<String>,
         profile: ArtistExternalProfile,
+        associationGroupKey: String?,
     ): Map<ArtworkSlot, ArtistArtworkSelection> {
-        val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
-            ?: return emptyMap()
+        val anchor = artistIdentityAnchor(
+            libraryId, artistCredit, albumIds, profile, associationGroupKey,
+        ) ?: return emptyMap()
         return try {
             artworkStore.load(anchor)
                 .map { selection ->
@@ -350,12 +389,34 @@ class ArtistEnrichmentController(
         val profile = result.profile ?: previous
         val identityChanged = previous?.mbid != null && profile?.mbid != null &&
             !previous.mbid.equals(profile.mbid, ignoreCase = true)
+        val samePersistedIdentity = result.persistenceStatus == ArtistPersistenceStatus.NOT_ATTEMPTED &&
+            current.persisted &&
+            current.persistedMbid != null &&
+            profile?.mbid != null &&
+            current.persistedMbid.equals(profile.mbid, ignoreCase = true)
+        val persisted = result.persistenceStatus == ArtistPersistenceStatus.PERSISTED || samePersistedIdentity
         val status = if (profile == null) ArtistEnrichmentStatus.FAILED
         else ArtistEnrichmentStatus.VERIFIED
         _state.value = ArtistEnrichmentState(
             status = status,
             profile = profile,
-            persisted = result.persisted || current.persisted,
+            persisted = persisted,
+            persistedMbid = profile?.mbid?.takeIf { persisted },
+            persistenceStatus = if (samePersistedIdentity) {
+                ArtistPersistenceStatus.PERSISTED
+            } else {
+                result.persistenceStatus
+            },
+            persistenceError = result.persistenceError
+                ?: if (result.persistenceStatus == ArtistPersistenceStatus.FAILED) {
+                    "El perfil se muestra, pero no quedó guardado en este dispositivo."
+                } else null,
+            associationGroupKey = result.associationGroupKey ?: current.associationGroupKey,
+            needsConfirmation = if (result.persistenceStatus == ArtistPersistenceStatus.PERSISTED) {
+                false
+            } else {
+                current.needsConfirmation
+            },
             stale = false,
             refreshing = false,
             refreshFailed = previous != null && profile?.mbid == previous.mbid &&

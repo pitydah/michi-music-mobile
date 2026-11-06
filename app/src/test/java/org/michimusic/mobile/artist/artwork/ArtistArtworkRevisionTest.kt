@@ -83,13 +83,16 @@ class ArtistArtworkRevisionTest {
 
         save(slot = ArtworkSlot.ARTIST_THUMB)
         assertEquals(1L, withTimeout(5_000) { flow.first { it >= 1L } })
+        assertEquals(1L, store.load(anchor()).single().revision)
 
         // Same slot, same clock value: a MAX(updatedAtMs) query would stay at 1.
         save(slot = ArtworkSlot.ARTIST_THUMB, asset = "b")
         assertEquals(2L, withTimeout(5_000) { flow.first { it >= 2L } })
+        assertEquals(2L, store.load(anchor()).single().revision)
 
         assertTrue(store.updateFocus(anchor(), ArtworkSlot.ARTIST_THUMB, ArtworkFocus(0.2f, 0.8f)))
         assertEquals(3L, withTimeout(5_000) { flow.first { it >= 3L } })
+        assertEquals(3L, store.load(anchor()).single().revision)
     }
 
     @Test

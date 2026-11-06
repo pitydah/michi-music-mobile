@@ -51,7 +51,10 @@ suspend fun resolveArtistProfileConsensus(
         ?: profiles.first()
     return ArtistProfileConsensus(
         ArtistProfileStatus.CONFIRMED,
-        chosen.copy(stale = profiles.any { it.stale }),
+        chosen.copy(
+            stale = profiles.any { it.stale },
+            needsConfirmation = profiles.any { it.needsConfirmation },
+        ),
         contributingLibraries = normalized.size,
     )
 }

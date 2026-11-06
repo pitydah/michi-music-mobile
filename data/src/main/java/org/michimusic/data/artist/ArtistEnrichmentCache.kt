@@ -33,6 +33,12 @@ data class ArtistEnrichmentRecord(
     val portraitLicense: String?,
     val portraitLicenseUrl: String?,
     val portraitAttribution: String?,
+    /**
+     * JSON array of the album IDs visible when this association was confirmed. It is
+     * evidence for recovering a legitimate album-group change, never a name-based
+     * identity shortcut. Null on legacy rows; those remain exact-match only.
+     */
+    val albumIdsJson: String? = null,
 )
 
 /** Raw observations, never automatic artist identity assignment or playback metadata rewrite. */
@@ -137,6 +143,10 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
     suspend fun get(libraryId: String, creditKey: String, albumGroupKey: String): ArtistEnrichmentRecord?
 
+    /** Recovery candidates for one local credit. Ambiguous results must fail closed. */
+    @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey")
+    suspend fun getAllForCredit(libraryId: String, creditKey: String): List<ArtistEnrichmentRecord>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(record: ArtistEnrichmentRecord)
 
@@ -230,11 +240,22 @@ interface ArtistEnrichmentDao {
     @Query("UPDATE artist_artwork_revision SET revision = revision + 1, updatedAtMs = :nowMs WHERE libraryId = :libraryId")
     suspend fun incrementArtworkRevision(libraryId: String, nowMs: Long): Int
 
+    @Query("SELECT revision FROM artist_artwork_revision WHERE libraryId = :libraryId LIMIT 1")
+    suspend fun artworkRevision(libraryId: String): Long?
+
     /** Must run inside the same transaction as the selection mutation it describes. */
     @Transaction
     suspend fun bumpArtworkRevision(libraryId: String, nowMs: Long) {
         ensureArtworkRevision(libraryId, nowMs)
         incrementArtworkRevision(libraryId, nowMs)
+    }
+
+    /** Returns the transaction-assigned revision so selection rows never depend on wall-clock time. */
+    @Transaction
+    suspend fun bumpArtworkRevisionAndReturn(libraryId: String, nowMs: Long): Long {
+        ensureArtworkRevision(libraryId, nowMs)
+        incrementArtworkRevision(libraryId, nowMs)
+        return artworkRevision(libraryId) ?: 1L
     }
 
     @Query("SELECT COUNT(*) FROM artist_artwork_selection WHERE libraryId = :libraryId")
@@ -251,7 +272,7 @@ interface ArtistEnrichmentDao {
         asset: ArtistArtworkAssetRecord,
         link: ArtistArtworkLinkRecord,
         selection: ArtistArtworkSelectionRecord,
-    ) {
+    ): Long {
         putArtworkAsset(asset)
         deleteOtherArtworkLinks(
             libraryId = link.libraryId,
@@ -261,8 +282,9 @@ interface ArtistEnrichmentDao {
             confirmedMbid = link.confirmedMbid,
         )
         putArtworkLink(link)
-        putArtworkSelection(selection)
-        bumpArtworkRevision(selection.libraryId, selection.updatedAtMs)
+        val revision = bumpArtworkRevisionAndReturn(selection.libraryId, selection.updatedAtMs)
+        putArtworkSelection(selection.copy(revision = revision))
+        return revision
     }
 
     @Transaction
@@ -278,7 +300,7 @@ interface ArtistEnrichmentDao {
         bumpArtworkRevision(libraryId, nowMs)
     }
 
-    @Query("UPDATE artist_artwork_selection SET focusX = :focusX, focusY = :focusY, revision = :nowMs, updatedAtMs = :nowMs WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid = :confirmedMbid")
+    @Query("UPDATE artist_artwork_selection SET focusX = :focusX, focusY = :focusY, updatedAtMs = :nowMs WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid = :confirmedMbid")
     suspend fun updateArtworkFocusRow(
         libraryId: String,
         creditKey: String,
@@ -288,6 +310,16 @@ interface ArtistEnrichmentDao {
         focusX: Float,
         focusY: Float,
         nowMs: Long,
+    ): Int
+
+    @Query("UPDATE artist_artwork_selection SET revision = :revision WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey AND slot = :slot AND confirmedMbid = :confirmedMbid")
+    suspend fun setArtworkSelectionRevision(
+        libraryId: String,
+        creditKey: String,
+        albumGroupKey: String,
+        slot: String,
+        confirmedMbid: String,
+        revision: Long,
     ): Int
 
     @Transaction
@@ -304,7 +336,12 @@ interface ArtistEnrichmentDao {
         val changed = updateArtworkFocusRow(
             libraryId, creditKey, albumGroupKey, slot, confirmedMbid, focusX, focusY, nowMs,
         )
-        if (changed > 0) bumpArtworkRevision(libraryId, nowMs)
+        if (changed > 0) {
+            val revision = bumpArtworkRevisionAndReturn(libraryId, nowMs)
+            setArtworkSelectionRevision(
+                libraryId, creditKey, albumGroupKey, slot, confirmedMbid, revision,
+            )
+        }
         return changed
     }
 }
@@ -318,7 +355,7 @@ interface ArtistEnrichmentDao {
         ArtistArtworkLinkRecord::class,
         ArtistArtworkRevisionRecord::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -416,6 +453,14 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                 INNER JOIN `artist_artwork_asset` a ON a.`assetId` = s.`assetId`
             """.trimIndent())
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_artist_artwork_link_assetId` ON `artist_artwork_link` (`assetId`)")
+        }
+
+        /**
+         * R11.5.2: keep the album IDs that supported an association. Legacy rows stay
+         * exact-match only; the column is additive and never rewrites or deletes data.
+         */
+        val MIGRATION_5_6 = Migration(5, 6) { db ->
+            db.execSQL("ALTER TABLE `artist_enrichment` ADD COLUMN `albumIdsJson` TEXT")
         }
 
         /** R11.5: monotonic per-library artwork revision, independent of wall-clock time. */

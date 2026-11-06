@@ -44,8 +44,21 @@ class ArtistEnrichmentPersistenceTest {
         store.save("lib-a", credit, albums, profile())
         assertEquals(mbid, store.load("lib-a", credit, albums)?.profile?.mbid)
         assertNull(store.load("lib-b", credit, albums))
-        assertNull(store.load("lib-a", credit, listOf("album-a")))
+        val recovered = store.load("lib-a", credit, listOf("album-a"))
+        assertEquals(mbid, recovered?.profile?.mbid)
+        assertTrue(recovered?.needsConfirmation == true)
+        assertNull(store.load("lib-a", credit, listOf("album-z")))
         assertEquals(mbid, store.load("lib-a", credit, albums.reversed())?.profile?.mbid)
+    }
+
+    @Test fun ambiguousHistoricalAlbumOverlapIsNotRecovered() = runBlocking {
+        val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        store.save("lib-a", credit, listOf("album-a"), profile())
+        store.save(
+            "lib-a", credit, listOf("album-b"),
+            profile().copy(mbid = otherMbid, name = "Patti Austin"),
+        )
+        assertNull(store.load("lib-a", credit, listOf("album-a", "album-b")))
     }
 
     @Test fun expiryMarksFactsStaleButPreservesOfflineDetails() = runBlocking {

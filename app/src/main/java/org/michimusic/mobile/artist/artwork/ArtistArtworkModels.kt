@@ -152,10 +152,12 @@ fun artistIdentityAnchor(
     credit: String,
     albumIds: List<String>,
     profile: ArtistExternalProfile?,
+    associationGroupKey: String? = null,
 ): ArtistIdentityAnchor? {
     val mbid = canonicalArtistMbid(profile?.mbid) ?: return null
     if (profile == null || profile.mbid != mbid) return null
-    val (creditKey, groupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return null
+    val (creditKey, currentGroupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return null
+    val groupKey = associationGroupKey?.takeIf { it.isNotBlank() } ?: currentGroupKey
     val qid = profile.wikidataQid?.trim()?.takeIf(::validWikidataQid)
     val display = credit.trim().take(120).ifBlank { return null }
     return ArtistIdentityAnchor(

@@ -50,7 +50,8 @@ class ArtistEnrichmentMigrationTest {
             .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
                 ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
                 ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
-                ArtistEnrichmentCacheDatabase.MIGRATION_4_5)
+                ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
+                ArtistEnrichmentCacheDatabase.MIGRATION_5_6)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -101,7 +102,8 @@ class ArtistEnrichmentMigrationTest {
             .addMigrations(ArtistEnrichmentCacheDatabase.MIGRATION_1_2,
                 ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
                 ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
-                ArtistEnrichmentCacheDatabase.MIGRATION_4_5)
+                ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
+                ArtistEnrichmentCacheDatabase.MIGRATION_5_6)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -182,6 +184,37 @@ class ArtistEnrichmentMigrationTest {
                 assertTrue(link.moveToFirst())
                 assertEquals("Fab_Photo_29", link.getString(0))
                 assertEquals("CC BY-SA 2.0", link.getString(1))
+            }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun v5RowsGainAlbumEvidenceColumnWithoutLosingTheProfile() = runBlocking {
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val name = "artist-migration-5-6-${System.nanoTime()}.db"
+        helper.createDatabase(name, 5).apply {
+            execSQL("""
+                INSERT INTO `artist_enrichment`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`confirmedMbid`,`profileJson`,
+                     `savedAtMs`,`staleAfterMs`,`source`)
+                VALUES('lib-a','artist','group','$mbid','{}',1,2,'manual')
+            """.trimIndent())
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 6, true, ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
+        )
+        try {
+            upgraded.query(
+                "SELECT confirmedMbid, albumIdsJson FROM artist_enrichment " +
+                    "WHERE libraryId=? AND creditKey=? AND albumGroupKey=?",
+                arrayOf("lib-a", "artist", "group"),
+            ).use { row ->
+                assertTrue(row.moveToFirst())
+                assertEquals(mbid, row.getString(0))
+                assertTrue(row.isNull(1))
             }
         } finally {
             upgraded.close()

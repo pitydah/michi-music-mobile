@@ -110,6 +110,7 @@ fun ArtistMosaicGrid(
                 artwork = null
                 try {
                     var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
+                    var savedAssociationGroupKey: String? = null
                     if (artworkStore == null) {
                         if (libraryId == null) {
                             // ALL: only paint a photo if EVERY participating library has the same
@@ -118,11 +119,13 @@ fun ArtistMosaicGrid(
                             currentCoroutineContext().ensureActive()
                             portrait = result.portrait
                             savedProfile = result.saved?.profile
+                            savedAssociationGroupKey = result.saved?.associationGroupKey
                         } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
                             val saved = store.load(libraryId, artist.credit, albumIds)
                             currentCoroutineContext().ensureActive()
                             portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
                             savedProfile = saved?.profile
+                            savedAssociationGroupKey = saved?.associationGroupKey
                         }
                     } else if (libraryId != null &&
                         scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
@@ -132,10 +135,12 @@ fun ArtistMosaicGrid(
                         val saved = store.load(libraryId, artist.credit, albumIds)
                         currentCoroutineContext().ensureActive()
                         savedProfile = saved?.profile
+                        savedAssociationGroupKey = saved?.associationGroupKey
                     }
                     if (artworkStore != null && libraryId != null) {
                         val anchor = artistIdentityAnchor(
                             libraryId, artist.credit, albumIds, savedProfile,
+                            savedAssociationGroupKey,
                         )
                         if (anchor != null) {
                             artwork = artworkStore.load(anchor).firstOrNull {

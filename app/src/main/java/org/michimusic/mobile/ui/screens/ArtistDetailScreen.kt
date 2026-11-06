@@ -230,8 +230,10 @@ fun ArtistDetailScreen(
         artworkReadError = false
         if (libraryId == null) return@LaunchedEffect
         try {
-            val anchor = artistIdentityAnchor(libraryId, artistCredit, albumIds, savedProfile)
-                ?: return@LaunchedEffect
+            val anchor = artistIdentityAnchor(
+                libraryId, artistCredit, albumIds, savedProfile,
+                savedRecord?.associationGroupKey,
+            ) ?: return@LaunchedEffect
             val selections = artworkStore.load(anchor)
             currentCoroutineContext().ensureActive()
             heroArtwork = selections.firstOrNull {

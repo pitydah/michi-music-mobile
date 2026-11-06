@@ -155,6 +155,21 @@ class ArtistArtworkPolicyTest {
             "https://creativecommons.org/licenses/by/2.0/",
             vanityPage,
         ))
+
+        // A correct licence for a different ImageObject in the same @graph is not
+        // evidence for this photo.
+        val otherPhoto = "<!DOCTYPE html><html><script type=\"application/ld+json\">" +
+            "{\"@graph\":[" +
+            "{\"@type\":\"ImageObject\",\"contentUrl\":\"https://live.staticflickr.com/1/99999999999_b.jpg\"," +
+            "\"license\":\"https://creativecommons.org/licenses/by/2.0/\"}," +
+            "{\"@type\":\"ImageObject\",\"contentUrl\":\"https://live.staticflickr.com/1/51904192325_b.jpg\"," +
+            "\"license\":\"https://creativecommons.org/licenses/by-sa/2.0/\"}" +
+            "]}</script></html>"
+        assertFalse(originPageConfirmsLicense(
+            "https://www.flickr.com/photos/130010035@N04/51904192325",
+            "https://creativecommons.org/licenses/by/2.0/",
+            otherPhoto,
+        ))
     }
 
     @Test

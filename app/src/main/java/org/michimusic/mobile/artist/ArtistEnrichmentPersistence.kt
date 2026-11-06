@@ -29,7 +29,18 @@ fun scopedArtistCreditKey(libraryId: String?, credit: String, albumIds: List<Str
     return text to fingerprint
 }
 
-data class PersistedArtistProfile(val profile: ArtistExternalProfile, val stale: Boolean)
+data class PersistedArtistProfile(
+    val profile: ArtistExternalProfile,
+    val stale: Boolean,
+    /**
+     * The album group that owns the stored rows. It can differ from the currently visible
+     * album fingerprint after a legitimate add/remove/rescan; artwork must use this key
+     * instead of treating the changed collection as a new artist.
+     */
+    val associationGroupKey: String? = null,
+    /** True when the row was recovered by unique album overlap and should be confirmed. */
+    val needsConfirmation: Boolean = false,
+)
 
 /** Small seam for independently testable UI, with no lifecycle-independent coroutine owner. */
 interface ArtistEnrichmentSelectionStore {
@@ -49,20 +60,54 @@ class RoomArtistEnrichmentSelectionStore(
 
     override suspend fun load(libraryId: String, credit: String, albumIds: List<String>): PersistedArtistProfile? {
         val (creditKey, groupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return null
-        val record = dao.get(libraryId, creditKey, groupKey) ?: return null
+        val exact = dao.get(libraryId, creditKey, groupKey)
+        val recovered = exact ?: recoverUniqueAssociation(libraryId, creditKey, albumIds)
+        val record = recovered ?: return null
         if (canonicalArtistMbid(record.confirmedMbid) != record.confirmedMbid) return null
         return try {
             val profile = json.decodeFromString<ArtistExternalProfile>(record.profileJson)
             if (canonicalArtistMbid(profile.mbid) != record.confirmedMbid ||
                 (profile.portrait != null && !allowedCommonsPortrait(profile.portrait)) ||
                 !allowedArtistBiography(profile.biography, profile.biographySourceUrl)) null
-            else PersistedArtistProfile(profile, stale = clock() >= record.staleAfterMs)
+            else PersistedArtistProfile(
+                profile = profile,
+                stale = clock() >= record.staleAfterMs,
+                associationGroupKey = record.albumGroupKey,
+                needsConfirmation = exact == null,
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (e: Exception) {
             // Corrupt or legacy profile data must never be displayed as verified,
             // but it is a cache failure rather than "this artist has no profile".
             throw IllegalStateException("Perfil de artista corrupto o ilegible", e)
+        }
+    }
+
+    /**
+     * A legitimate rescan can change the album set without changing the artist. Recover
+     * only when exactly one stored profile for this library+credit shares at least one
+     * album with the visible set. Multiple candidates are ambiguous and stay untouched.
+     */
+    private suspend fun recoverUniqueAssociation(
+        libraryId: String,
+        creditKey: String,
+        albumIds: List<String>,
+    ): ArtistEnrichmentRecord? {
+        val visible = albumIds.filter(String::isNotBlank).toSet()
+        if (visible.isEmpty()) return null
+        val matches = dao.getAllForCredit(libraryId, creditKey).filter { row ->
+            decodeAlbumIds(row.albumIdsJson).any(visible::contains)
+        }
+        return matches.singleOrNull()
+    }
+
+    private fun decodeAlbumIds(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            json.decodeFromString<List<String>>(raw)
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
@@ -84,6 +129,7 @@ class RoomArtistEnrichmentSelectionStore(
             portraitLicense = profile.portrait?.license,
             portraitLicenseUrl = profile.portrait?.licenseUrl,
             portraitAttribution = profile.portrait?.attribution,
+            albumIdsJson = json.encodeToString(albumIds.filter(String::isNotBlank).toSortedSet().toList()),
         ))
     }
 
@@ -107,7 +153,9 @@ class RoomArtistEnrichmentSelectionStore(
 
     override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) {
         val (creditKey, groupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return
-        dao.delete(libraryId, creditKey, groupKey)
+        val exact = dao.get(libraryId, creditKey, groupKey)
+        val recovered = exact ?: recoverUniqueAssociation(libraryId, creditKey, albumIds)
+        recovered?.let { dao.delete(libraryId, creditKey, it.albumGroupKey) }
     }
 }
 
@@ -128,6 +176,7 @@ object ArtistEnrichmentPersistence {
                     ArtistEnrichmentCacheDatabase.MIGRATION_2_3,
                     ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                     ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
                 )
                 .build().also { databaseInstance = it }
         }

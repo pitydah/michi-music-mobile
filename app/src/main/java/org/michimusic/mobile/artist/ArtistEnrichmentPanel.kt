@@ -297,6 +297,16 @@ fun ArtistEnrichmentPanel(
                     Text("Datos guardados: revisión vencida. Actualizando en segundo plano…",
                         color = TextSecondary, fontSize = 11.sp)
                 }
+                uiState.persistenceError?.let {
+                    Text(it, color = TextSecondary, fontSize = 11.sp,
+                        modifier = Modifier.testTag("artist_enrichment_persistence_error"))
+                }
+                if (uiState.needsConfirmation) {
+                    Text("La asociación se recuperó de un grupo de álbumes anterior. " +
+                        "Confirma de nuevo la identidad si el artista cambió.",
+                        color = TextSecondary, fontSize = 11.sp,
+                        modifier = Modifier.testTag("artist_enrichment_needs_confirmation"))
+                }
                 if (canPersist && result.persisted) {
                     OutlinedButton(
                         onClick = {
@@ -352,6 +362,7 @@ fun ArtistEnrichmentPanel(
                     albumIds = albumIds,
                     initialSelections = uiState.selections,
                     pendingCandidates = result.pendingPortraits,
+                    associationGroupKey = uiState.associationGroupKey,
                     onSelectionsChanged = { selections ->
                         activeController.applySelections(
                             libraryId = libraryId,
@@ -396,6 +407,7 @@ private fun ArtistArtworkManualSection(
     albumIds: List<String>,
     initialSelections: Map<ArtworkSlot, ArtistArtworkSelection>,
     pendingCandidates: List<ArtistArtworkCandidate>,
+    associationGroupKey: String?,
     onSelectionsChanged: (Map<ArtworkSlot, ArtistArtworkSelection>) -> Unit,
 ) {
     if (libraryId == null) return
@@ -404,7 +416,7 @@ private fun ArtistArtworkManualSection(
     val coordinator = remember(context) { ArtistArtworkService.from(context) }
     val anchor = remember(libraryId, artistCredit, albumIds, profile.mbid,
         profile.wikidataQid) {
-        artistIdentityAnchor(libraryId, artistCredit, albumIds, profile)
+        artistIdentityAnchor(libraryId, artistCredit, albumIds, profile, associationGroupKey)
     }
     if (anchor == null) return
     val scope = rememberCoroutineScope()

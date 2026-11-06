@@ -3,6 +3,7 @@ package org.michimusic.mobile.artist.artwork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.michimusic.mobile.artist.ArtistEnrichmentDiagnostics
 
 /**
  * One owner for provider federation, ranking, download and persistence. No UI surface
@@ -49,6 +50,7 @@ class ArtistArtworkCoordinator internal constructor(
     }
 
     private suspend fun resolveLocked(anchor: ArtistIdentityAnchor, forceRefresh: Boolean): ArtworkResolutionReport {
+        ArtistEnrichmentDiagnostics.event("AE_RECOVERY_STARTED")
         val existingList = runCatching { store.load(anchor) }.getOrElse { error ->
             return reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR,
                 "No se pudo leer la caché de artwork: ${error.message}")
@@ -74,7 +76,10 @@ class ArtistArtworkCoordinator internal constructor(
             (ArtworkSlot.ARTIST_THUMB !in existing || forceRefresh)
         val needHero = ArtworkSlot.ARTIST_HERO !in manualSlots &&
             (ArtworkSlot.ARTIST_HERO !in existing || forceRefresh)
-        if (!needThumb && !needHero) return reportFromCache(anchor, existing)
+        if (!needThumb && !needHero) {
+            ArtistEnrichmentDiagnostics.event("AE_RECOVERY_COMPLETED", "CACHE")
+            return reportFromCache(anchor, existing)
+        }
 
         val outcomes = mutableListOf<ArtworkProviderOutcome>()
         val candidates = mutableListOf<ArtistArtworkCandidate>()
@@ -190,6 +195,7 @@ class ArtistArtworkCoordinator internal constructor(
             }
             else -> ArtworkLoadStatus.NO_IMAGE
         }
+        ArtistEnrichmentDiagnostics.event("AE_RECOVERY_COMPLETED", status.name)
         return ArtworkResolutionReport(
             status = status,
             outcomes = outcomes,
