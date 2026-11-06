@@ -120,9 +120,12 @@ class ArtistArtworkPolicyTest {
 
     @Test
     fun flickrOriginPageMustStateTheExactLicenseForTheSamePhoto() {
-        val page = "<!DOCTYPE html><html><link rel=\"canonical\" " +
-            "href=\"https://www.flickr.com/photos/130010035@N04/51904192325\">" +
-            "<a href=\"https://creativecommons.org/licenses/by/2.0/\">CC BY 2.0</a></html>"
+        val page = "<!DOCTYPE html><html><script type=\"application/ld+json\">" +
+            "{\"@graph\":[{\"@type\":\"ImageObject\"," +
+            "\"contentUrl\":\"https://live.staticflickr.com/65535/51904192325_00abed41a8_b.jpg\"," +
+            "\"license\":\"https://creativecommons.org/licenses/by/2.0/\"," +
+            "\"acquireLicensePage\":\"https://www.flickr.com/photos/130010035@N04/51904192325\"}]}" +
+            "</script></html>"
         assertTrue(originPageConfirmsLicense(
             "https://www.flickr.com/photos/130010035@N04/51904192325",
             "https://creativecommons.org/licenses/by/2.0/",
@@ -151,6 +154,41 @@ class ArtistArtworkPolicyTest {
             "https://www.flickr.com/photos/130010035@N04/51904192325",
             "https://creativecommons.org/licenses/by/2.0/",
             vanityPage,
+        ))
+    }
+
+    @Test
+    fun aLicenseLinkForAnotherFlickrPhotoDoesNotConfirmThisCandidate() {
+        // The page mentions the expected photo and a CC BY link, but the licence belongs
+        // to a different ImageObject. A broad URL grep must never accept this.
+        val page = "<!DOCTYPE html><html>" +
+            "<link rel=\"canonical\" href=\"https://www.flickr.com/photos/130010035@N04/51904192325\">" +
+            "<a href=\"https://creativecommons.org/licenses/by/2.0/\">CC BY 2.0</a>" +
+            "<script type=\"application/ld+json\">" +
+            "{\"@type\":\"ImageObject\"," +
+            "\"contentUrl\":\"https://live.staticflickr.com/65535/11111111111_x_b.jpg\"," +
+            "\"license\":\"https://creativecommons.org/licenses/by/2.0/\"," +
+            "\"acquireLicensePage\":\"https://www.flickr.com/photos/130010035@N04/11111111111\"}" +
+            "</script></html>"
+        assertFalse(originPageConfirmsLicense(
+            "https://www.flickr.com/photos/130010035@N04/51904192325",
+            "https://creativecommons.org/licenses/by/2.0/",
+            page,
+        ))
+    }
+
+    @Test
+    fun jsonLdWithoutThePhotoIdIsNotEnough() {
+        val page = "<!DOCTYPE html><html><script type=\"application/ld+json\">" +
+            "{\"@type\":\"ImageObject\"," +
+            "\"contentUrl\":\"https://live.staticflickr.com/65535/51904192325_x_b.jpg\"," +
+            "\"license\":\"https://creativecommons.org/licenses/by-sa/2.0/\"," +
+            "\"acquireLicensePage\":\"https://www.flickr.com/photos/130010035@N04/11111111111\"}" +
+            "</script></html>"
+        assertFalse(originPageConfirmsLicense(
+            "https://www.flickr.com/photos/130010035@N04/51904192325",
+            "https://creativecommons.org/licenses/by-sa/2.0/",
+            page,
         ))
     }
 

@@ -200,6 +200,69 @@ class ArtistArtworkCoordinatorTest {
     }
 
     @Test
+    fun p18DownloadFailureFallsBackToTheNextProviderForBothSlots() = runBlocking {
+        val store = MemoryStore(context)
+        val requests = mutableListOf<String>()
+        fun imageInfo(title: String, thumb: String): String = """{"query":{"pages":{"1":{"imageinfo":[{
+            "thumburl":"$thumb","width":"1600","height":"900","mime":"image/png",
+            "descriptionurl":"https://commons.wikimedia.org/wiki/File:${title.replace(' ', '_')}",
+            "extmetadata":{
+                "LicenseShortName":{"value":"CC BY-SA 2.0"},
+                "LicenseUrl":{"value":"https://creativecommons.org/licenses/by-sa/2.0/"},
+                "Attribution":{"value":"Fab_Photo_29"}
+            }
+        }]}}}}"""
+        val client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            val url = chain.request().url
+            requests += url.toString()
+            val body = when {
+                url.host == "www.wikidata.org" -> wikidata()
+                    .toResponseBody("application/json".toMediaType())
+                url.host == "commons.wikimedia.org" && url.queryParameter("list") == "search" ->
+                    """{"query":{"search":[{"title":"File:Midnight Oil P180.jpg"}]}}"""
+                        .toResponseBody("application/json".toMediaType())
+                url.host == "commons.wikimedia.org" && url.queryParameter("ids")?.startsWith("M") == true ->
+                    """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
+                        .toResponseBody("application/json".toMediaType())
+                url.host == "commons.wikimedia.org" && url.queryParameter("prop") == "info" ->
+                    """{"query":{"pages":{"1":{"pageid":1,"title":"File:Midnight Oil.jpg"}}}}"""
+                        .toResponseBody("application/json".toMediaType())
+                url.host == "commons.wikimedia.org" &&
+                    url.queryParameter("titles") == "File:Midnight Oil.jpg" ->
+                    imageInfo("Midnight Oil.jpg", "https://thumb.wikimedia.org/p18.png")
+                        .toResponseBody("application/json".toMediaType())
+                url.host == "commons.wikimedia.org" ->
+                    imageInfo("Midnight Oil P180.jpg", "https://thumb.wikimedia.org/p180.png")
+                        .toResponseBody("application/json".toMediaType())
+                url.host == "es.wikipedia.org" || url.host == "en.wikipedia.org" ->
+                    """{"query":{"pages":{"1":{}}}}""".toResponseBody("application/json".toMediaType())
+                url.host == "thumb.wikimedia.org" && url.encodedPath == "/p18.png" ->
+                    "blocked".toResponseBody("text/plain".toMediaType())
+                url.host == "thumb.wikimedia.org" ->
+                    imageBytes.toResponseBody(pngMime())
+                else -> """{"error":"unexpected"}""".toResponseBody("application/json".toMediaType())
+            }
+            val code = if (url.host == "thumb.wikimedia.org" && url.encodedPath == "/p18.png") 403 else 200
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
+                .code(code).message(if (code == 200) "OK" else "Forbidden")
+                .header("Content-Type", body.contentType().toString()).body(body).build()
+        }).build()
+        val coordinator = coordinator(client, store)
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals("$requests", ArtworkLoadStatus.READY, report.status)
+        assertEquals(2, store.saves)
+        assertEquals(ArtworkSource.COMMONS_P180,
+            report.selections.getValue(ArtworkSlot.ARTIST_THUMB).source)
+        assertEquals(ArtworkSource.COMMONS_P180,
+            report.selections.getValue(ArtworkSlot.ARTIST_HERO).source)
+        assertTrue(java.io.File(report.selections.getValue(ArtworkSlot.ARTIST_THUMB).localImagePath!!).isFile)
+        assertTrue(requests.any { it.contains("/p18.png") })
+        assertTrue(requests.any { it.contains("/p180.png") })
+    }
+
+    @Test
     fun rejectedLicenseNeverBecomesAnImageAndIsReportedAsRejected() = runBlocking {
         val store = MemoryStore(context)
         val requests = mutableListOf<String>()
@@ -423,7 +486,7 @@ class ArtistArtworkCoordinatorTest {
     }
 
     @Test
-    fun thumbOnlyEarlyCutSkipsLowerPriorityProviders() = runBlocking {
+    fun thumbOnlyResolutionStillQueriesLowerPriorityProvidersForFallback() = runBlocking {
         val store = MemoryStore(context)
         store.selections[ArtworkSlot.ARTIST_HERO] = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = false)
         val requests = mutableListOf<String>()
@@ -433,14 +496,8 @@ class ArtistArtworkCoordinatorTest {
 
         assertEquals(ArtworkLoadStatus.READY, report.status)
         assertEquals(1, store.saves)
-        assertTrue(report.outcomes.any {
-            it.source == ArtworkSource.COMMONS_P180 && it.status == ArtworkProviderStatus.SKIPPED
-        })
-        assertTrue(report.outcomes.any {
-            it.source == ArtworkSource.WIKIPEDIA_PAGEIMAGE && it.status == ArtworkProviderStatus.SKIPPED
-        })
-        assertFalse(requests.any { it.contains("list=search") })
-        assertFalse(requests.any { it.contains("wikipedia.org") })
+        assertTrue(report.outcomes.none { it.reason == "EARLY_CUT_THUMB_ONLY" })
+        assertTrue(requests.any { it.contains("list=search") })
     }
 
     @Test

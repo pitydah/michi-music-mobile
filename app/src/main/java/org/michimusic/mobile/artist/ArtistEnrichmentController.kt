@@ -73,11 +73,7 @@ class ArtistEnrichmentController(
     private var requestEpoch = 0
 
     fun bind(libraryId: String?, artistCredit: String, albumIds: List<String>) {
-        val key = listOf(
-            libraryId.orEmpty(),
-            artistCredit,
-            albumIds.toSortedSet().joinToString("\u0000"),
-        ).joinToString("\u0001")
+        val key = bindKeyFor(libraryId, artistCredit, albumIds)
         if (key == bindKey) return
         bindKey = key
         requestJob?.cancel()
@@ -236,12 +232,30 @@ class ArtistEnrichmentController(
         }
     }
 
+    private fun bindKeyFor(libraryId: String?, artistCredit: String, albumIds: List<String>): String =
+        listOf(
+            libraryId.orEmpty(),
+            artistCredit,
+            albumIds.toSortedSet().joinToString("\u0000"),
+        ).joinToString("\u0001")
+
     /**
      * A manual choice is persisted by the artwork repository; this publishes that
      * authoritative result to the shared UI state without creating a second controller.
+     *
+     * The full bind context is required: two libraries can legitimately contain the same
+     * artist and MBID. A late response from library A must never mutate library B.
      */
-    fun applySelections(selections: Map<ArtworkSlot, ArtistArtworkSelection>) {
+    fun applySelections(
+        libraryId: String?,
+        artistCredit: String,
+        albumIds: List<String>,
+        mbid: String,
+        selections: Map<ArtworkSlot, ArtistArtworkSelection>,
+    ) {
+        if (bindKeyFor(libraryId, artistCredit, albumIds) != bindKey) return
         val profile = _state.value.profile ?: return
+        if (!profile.mbid.equals(mbid, ignoreCase = true)) return
         val verified = selections.filterValues {
             it.status == ArtworkLoadStatus.READY &&
                 it.confirmedMbid.equals(profile.mbid, ignoreCase = true)

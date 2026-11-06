@@ -352,7 +352,15 @@ fun ArtistEnrichmentPanel(
                     albumIds = albumIds,
                     initialSelections = uiState.selections,
                     pendingCandidates = result.pendingPortraits,
-                    onSelectionsChanged = activeController::applySelections,
+                    onSelectionsChanged = { selections ->
+                        activeController.applySelections(
+                            libraryId = libraryId,
+                            artistCredit = artistCredit,
+                            albumIds = albumIds,
+                            mbid = profile.mbid,
+                            selections = selections,
+                        )
+                    },
                 )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
@@ -466,8 +474,16 @@ private fun ArtistArtworkManualSection(
                     val current = selections[selection.slot] ?: selection
                     scope.launch {
                         try {
-                            coordinator.updateFocus(anchor, selection.slot, current.focus)
-                            onSelectionsChanged(selections)
+                            if (coordinator.updateFocus(anchor, selection.slot, current.focus)) {
+                                onSelectionsChanged(selections)
+                            } else {
+                                val persisted = coordinator.loadSelections(anchor)
+                                    .filter { it.status == ArtworkLoadStatus.READY }
+                                    .associateBy { it.slot }
+                                selections = persisted
+                                onSelectionsChanged(persisted)
+                                message = "No fue posible guardar el encuadre; se restauró el valor persistido."
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {
@@ -490,8 +506,16 @@ private fun ArtistArtworkManualSection(
                     val current = selections[selection.slot] ?: selection
                     scope.launch {
                         try {
-                            coordinator.updateFocus(anchor, selection.slot, current.focus)
-                            onSelectionsChanged(selections)
+                            if (coordinator.updateFocus(anchor, selection.slot, current.focus)) {
+                                onSelectionsChanged(selections)
+                            } else {
+                                val persisted = coordinator.loadSelections(anchor)
+                                    .filter { it.status == ArtworkLoadStatus.READY }
+                                    .associateBy { it.slot }
+                                selections = persisted
+                                onSelectionsChanged(persisted)
+                                message = "No fue posible guardar el encuadre; se restauró el valor persistido."
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Exception) {

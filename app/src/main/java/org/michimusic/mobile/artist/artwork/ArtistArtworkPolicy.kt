@@ -109,32 +109,33 @@ fun originPageConfirmsLicense(
     if (html.contains("<!DOCTYPE", ignoreCase = true).not() && html.contains("<html", ignoreCase = true).not()) {
         return false
     }
-    // A licence link anywhere on Flickr is not evidence for this photo. The page must
-    // identify the exact photo from the origin URL before its licence can be trusted.
+    // A licence link anywhere on Flickr is not evidence for this photo. Require the
+    // licence, the photo id and the image URL to belong to the same schema.org
+    // ImageObject emitted for this exact page.
     val segments = origin.rawPath.orEmpty().trim('/').split('/')
     if (segments.size < 3) return false
     val photoId = segments[2]
     if (photoId.isBlank() || !photoId.all(Char::isDigit)) return false
-    // Flickr renders the photo owner as either the NSID from Openverse or the
-    // account's vanity name. The canonical URL may therefore change owner while the
-    // numeric photo id remains the stable identity of the same file. Bind the licence
-    // to that exact id, not to a name that Flickr is allowed to rewrite.
-    val samePhoto = Regex(
-        "https?://(?:www\\.)?flickr\\.com/photos/[^/\\s\"'<>]+/" +
-            Regex.escape(photoId) + "(?:[/?#\\s\"'<>]|$)",
-        RegexOption.IGNORE_CASE,
-    )
-    if (!samePhoto.containsMatchIn(html)) return false
-    val found = Regex(
-        "https?://(?:www\\.)?creativecommons\\.org/(licenses|publicdomain)/([a-z-]+)(?:/([0-9.]+))?",
-        RegexOption.IGNORE_CASE,
-    ).findAll(html).mapNotNull { match ->
-        val family = match.groupValues[1].lowercase()
-        val kind = match.groupValues[2].lowercase()
-        val version = match.groupValues[3].takeIf(String::isNotBlank)
-        licenseKeyFromParts(family, kind, version)
-    }.toSet()
-    return expected in found
+    val blocks = Regex(
+        "<script[^>]*type\\s*=\\s*[\"']application/ld\\+json[\"'][^>]*>(.*?)</script>",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+    ).findAll(html)
+    for (block in blocks) {
+        val json = block.groupValues[1]
+        if (!Regex("\"@type\"\\s*:\\s*\"ImageObject\"").containsMatchIn(json)) continue
+        val license = Regex("\"license\"\\s*:\\s*\"([^\"]+)\"")
+            .find(json)?.groupValues?.get(1)?.replace("\\/", "/") ?: continue
+        if (licenseKey(license) != expected) continue
+        val acquire = Regex("\"acquireLicensePage\"\\s*:\\s*\"([^\"]+)\"")
+            .find(json)?.groupValues?.get(1)?.replace("\\/", "/")
+        val content = Regex("\"contentUrl\"\\s*:\\s*\"([^\"]+)\"")
+            .find(json)?.groupValues?.get(1)?.replace("\\/", "/")
+        val sameFile = listOfNotNull(acquire, content).any { url ->
+            url.contains("/photos/") && Regex("/${Regex.escape(photoId)}(?:[/?#]|$)").containsMatchIn(url)
+        }
+        if (sameFile) return true
+    }
+    return false
 }
 
 fun licenseKey(raw: String?): String? {

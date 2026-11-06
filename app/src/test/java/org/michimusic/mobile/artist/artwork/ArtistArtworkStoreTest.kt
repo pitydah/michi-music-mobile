@@ -122,6 +122,13 @@ class ArtistArtworkStoreTest {
     }
 
     @Test
+    fun focusUpdateOnMissingRowReturnsFalseAndDoesNotInventASelection() = runBlocking {
+        val anchor = ArtistIdentityAnchor("lib", "midnight oil", "group", mbid, "Q48284", "Midnight Oil")
+        assertFalse(store.updateFocus(anchor, ArtworkSlot.ARTIST_THUMB, ArtworkFocus(0.2f, 0.8f)))
+        assertTrue(store.load(anchor).isEmpty())
+    }
+
+    @Test
     fun pruneKeepsReferencedArtworkAndDeletesOnlyOrphans() = runBlocking {
         val root = File(context.filesDir, "artist-artwork").apply { mkdirs() }
         val referenced = File(root, "referenced.jpg").apply { writeBytes(byteArrayOf(1, 2, 3)) }

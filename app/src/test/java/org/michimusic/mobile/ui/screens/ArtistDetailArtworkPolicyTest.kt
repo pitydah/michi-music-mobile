@@ -72,9 +72,30 @@ class ArtistDetailArtworkPolicyTest {
     }
 
     @Test
-    fun twoValidCandidatesKeepTheControllerAsThePrimarySelection() {
+    fun twoValidCandidatesWithTheSameRevisionKeepTheControllerAsThePrimarySelection() {
         val controller = selection(mbid).copy(assetId = "sha256:${"c".repeat(64)}")
         val room = selection(mbid).copy(assetId = "sha256:${"d".repeat(64)}")
         assertEquals(controller, selectEffectiveHeroArtwork(mbid, controller, room))
+    }
+
+    @Test
+    fun newerPersistedRoomSelectionWinsOverAStaleControllerSelection() {
+        val controller = selection(mbid).copy(
+            assetId = "sha256:${"c".repeat(64)}",
+            revision = 4L,
+        )
+        val room = selection(mbid).copy(
+            assetId = "sha256:${"d".repeat(64)}",
+            revision = 5L,
+        )
+        assertEquals(room, selectEffectiveHeroArtwork(mbid, controller, room))
+        assertEquals(
+            controller,
+            selectEffectiveHeroArtwork(
+                mbid,
+                controller,
+                room.copy(revision = 4L),
+            ),
+        )
     }
 }

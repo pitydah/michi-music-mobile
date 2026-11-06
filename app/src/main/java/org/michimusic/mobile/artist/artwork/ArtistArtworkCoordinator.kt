@@ -3,7 +3,6 @@ package org.michimusic.mobile.artist.artwork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.math.roundToLong
 
 /**
  * One owner for provider federation, ranking, download and persistence. No UI surface
@@ -79,16 +78,9 @@ class ArtistArtworkCoordinator internal constructor(
 
         val outcomes = mutableListOf<ArtworkProviderOutcome>()
         val candidates = mutableListOf<ArtistArtworkCandidate>()
-        var thumbOnlyEarlyCut = false
         for (provider in automaticProviders) {
             if (provider is DisabledArtworkProvider) {
                 outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.DISABLED, "Proveedor desactivado")
-                continue
-            }
-            if (thumbOnlyEarlyCut) {
-                outcomes += ArtworkProviderOutcome(
-                    provider.source, ArtworkProviderStatus.SKIPPED, "EARLY_CUT_THUMB_ONLY",
-                )
                 continue
             }
             val result = try {
@@ -108,14 +100,6 @@ class ArtistArtworkCoordinator internal constructor(
                         if (valid.isEmpty()) "Sin candidato que cumpla identidad y licencia" else null,
                         valid.size,
                     )
-                    // Thumb ranking is source-priority first (P18 > P180 > PageImage), so a
-                    // valid P18 thumb cannot be improved by querying lower-priority sources.
-                    // Hero ranking is resolution-first: keep querying so a better hero can win.
-                    if (provider.source == ArtworkSource.COMMONS_P18 &&
-                        needThumb && !needHero && valid.isNotEmpty()
-                    ) {
-                        thumbOnlyEarlyCut = true
-                    }
                 }
                 is ProviderArtworkResult.NoMatch ->
                     outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.NO_MATCH, "Sin coincidencias")
@@ -127,12 +111,6 @@ class ArtistArtworkCoordinator internal constructor(
         }
 
         val distinct = candidates.distinctBy { it.stableAssetId }
-        val chosenThumb = if (needThumb) {
-            distinct.sortedWith(artworkRankingComparator(ArtworkSlot.ARTIST_THUMB)).firstOrNull()
-        } else null
-        val chosenHero = if (needHero) {
-            distinct.sortedWith(heroComparator).firstOrNull()
-        } else null
         val downloads = mutableMapOf<String, Result<DownloadedArtwork>>()
         suspend fun download(candidate: ArtistArtworkCandidate): Result<DownloadedArtwork> {
             downloads[candidate.stableAssetId]?.let { return it }
@@ -149,25 +127,54 @@ class ArtistArtworkCoordinator internal constructor(
 
         val saved = existing.toMutableMap()
         var cacheError: String? = null
-        suspend fun saveSlot(candidate: ArtistArtworkCandidate, slot: ArtworkSlot, focus: ArtworkFocus) {
-            val downloaded = download(candidate)
-            if (downloaded.isSuccess) {
+
+        /**
+         * Downloads the best candidate that actually yields usable bytes. A provider is
+         * only a proposal: if P18 returns a URL but its download fails, the next ranked
+         * source must still be tried instead of leaving the slot empty.
+         */
+        suspend fun saveBestCandidate(
+            slot: ArtworkSlot,
+            focus: ArtworkFocus,
+            comparator: Comparator<ArtistArtworkCandidate>,
+        ): Boolean {
+            var lastError: String? = null
+            for (candidate in distinct.sortedWith(comparator)) {
+                val downloaded = download(candidate)
+                if (downloaded.isFailure) {
+                    lastError = downloaded.exceptionOrNull()?.message ?: lastError
+                    continue
+                }
                 val stored = try {
                     store.save(anchor, candidate, slot, downloaded.getOrThrow(), focus, manuallyChosen = false)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    cacheError = error.message
-                    null
+                    lastError = error.message ?: lastError
+                    continue
                 }
-                if (stored != null) saved[slot] = stored
-            } else {
-                cacheError = cacheError ?: downloaded.exceptionOrNull()?.message
+                saved[slot] = stored
+                return true
             }
+            if (lastError != null) cacheError = cacheError ?: lastError
+            return false
         }
-        if (chosenThumb != null) saveSlot(chosenThumb, ArtworkSlot.ARTIST_THUMB, ArtworkFocus(0.5f, 0.5f))
-        if (chosenHero != null) saveSlot(chosenHero, ArtworkSlot.ARTIST_HERO, ArtworkFocus(0.5f, 0.45f))
-        if (chosenThumb != null || chosenHero != null) {
+
+        if (needThumb) {
+            saveBestCandidate(
+                ArtworkSlot.ARTIST_THUMB,
+                ArtworkFocus(0.5f, 0.5f),
+                artworkRankingComparator(ArtworkSlot.ARTIST_THUMB),
+            )
+        }
+        if (needHero) {
+            saveBestCandidate(
+                ArtworkSlot.ARTIST_HERO,
+                ArtworkFocus(0.5f, 0.45f),
+                heroComparator,
+            )
+        }
+        if (needThumb || needHero) {
             runCatching { store.pruneCache() }
         }
 
@@ -255,6 +262,10 @@ class ArtistArtworkCoordinator internal constructor(
 
     suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean =
         store.updateFocus(anchor, slot, focus)
+
+    /** Re-reads persisted selections after a failed mutation; the UI never guesses saved state. */
+    suspend fun loadSelections(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> =
+        store.load(anchor)
 
     private suspend fun reportFromCache(
         anchor: ArtistIdentityAnchor,

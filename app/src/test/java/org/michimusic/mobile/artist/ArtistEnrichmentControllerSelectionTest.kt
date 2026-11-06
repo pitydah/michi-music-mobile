@@ -90,7 +90,11 @@ class ArtistEnrichmentControllerSelectionTest {
 
         val manualHero = selection(ArtworkSlot.ARTIST_HERO, "c").copy(manuallyChosen = true)
         controller.applySelections(
-            mapOf(
+            libraryId = "lib-a",
+            artistCredit = "Midnight Oil",
+            albumIds = listOf("album-1"),
+            mbid = mbid,
+            selections = mapOf(
                 ArtworkSlot.ARTIST_THUMB to selection(ArtworkSlot.ARTIST_THUMB, "a"),
                 ArtworkSlot.ARTIST_HERO to manualHero,
             ),
@@ -128,9 +132,84 @@ class ArtistEnrichmentControllerSelectionTest {
         advanceUntilIdle()
 
         controller.applySelections(
-            mapOf(ArtworkSlot.ARTIST_HERO to selection(ArtworkSlot.ARTIST_HERO, "d", other)),
+            libraryId = "lib-a",
+            artistCredit = "Midnight Oil",
+            albumIds = listOf("album-1"),
+            mbid = mbid,
+            selections = mapOf(ArtworkSlot.ARTIST_HERO to selection(ArtworkSlot.ARTIST_HERO, "d", other)),
         )
 
         assertTrue(controller.state.value.selections.isEmpty())
+    }
+
+    @Test
+    fun lateManualSelectionFromAnotherLibraryCannotMutateTheCurrentArtist() = runTest {
+        val controller = ArtistEnrichmentController(
+            orchestrator = mockk(relaxed = true),
+            profileStore = object : ArtistEnrichmentSelectionStore {
+                override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                    PersistedArtistProfile(profile(), stale = false)
+                override suspend fun save(
+                    libraryId: String,
+                    credit: String,
+                    albumIds: List<String>,
+                    profile: ArtistExternalProfile,
+                ) = Unit
+                override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
+            },
+            artworkStore = artworkStore(
+                listOf(
+                    selection(ArtworkSlot.ARTIST_THUMB, "a"),
+                    selection(ArtworkSlot.ARTIST_HERO, "b"),
+                ),
+            ),
+            verifySelection = { it },
+            scope = this,
+        )
+        controller.bind("lib-a", "Midnight Oil", listOf("album-1"))
+        advanceUntilIdle()
+        controller.applySelections(
+            libraryId = "lib-a",
+            artistCredit = "Midnight Oil",
+            albumIds = listOf("album-1"),
+            mbid = mbid,
+            selections = mapOf(
+                ArtworkSlot.ARTIST_HERO to selection(ArtworkSlot.ARTIST_HERO, "a"),
+            ),
+        )
+        assertEquals(
+            "sha256:${"a".repeat(64)}",
+            controller.state.value.selections[ArtworkSlot.ARTIST_HERO]?.assetId,
+        )
+
+        controller.bind("lib-b", "Midnight Oil", listOf("album-1"))
+        advanceUntilIdle()
+        controller.applySelections(
+            libraryId = "lib-a",
+            artistCredit = "Midnight Oil",
+            albumIds = listOf("album-1"),
+            mbid = mbid,
+            selections = mapOf(
+                ArtworkSlot.ARTIST_HERO to selection(ArtworkSlot.ARTIST_HERO, "e"),
+            ),
+        )
+        assertEquals(
+            "sha256:${"b".repeat(64)}",
+            controller.state.value.selections[ArtworkSlot.ARTIST_HERO]?.assetId,
+        )
+
+        controller.applySelections(
+            libraryId = "lib-b",
+            artistCredit = "Midnight Oil",
+            albumIds = listOf("album-1"),
+            mbid = mbid,
+            selections = mapOf(
+                ArtworkSlot.ARTIST_HERO to selection(ArtworkSlot.ARTIST_HERO, "c"),
+            ),
+        )
+        assertEquals(
+            "sha256:${"c".repeat(64)}",
+            controller.state.value.selections[ArtworkSlot.ARTIST_HERO]?.assetId,
+        )
     }
 }
