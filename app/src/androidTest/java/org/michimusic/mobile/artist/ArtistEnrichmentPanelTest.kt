@@ -13,6 +13,8 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -213,6 +215,89 @@ class ArtistEnrichmentPanelTest {
         assertEquals(0, gateway.refreshes.get())
     }
 
+    @Test
+    fun aProviderProfileWithAnotherMbidIsNeverAcceptedAsIdentity() {
+        val otherMbid = "aaa436da-b331-4e58-a0fd-3d64d090c120"
+        val gateway = FakeGateway(
+            candidates = listOf(
+                ArtistLookupCandidate(mbid, "Midnight Oil", "", "Group", "Australia"),
+            ),
+            profile = profile().copy(mbid = otherMbid),
+        )
+        val store = FakeProfileStore()
+        val artworkStore = FakeArtworkStore()
+
+        compose.setContent {
+            ArtistEnrichmentPanel(
+                artistCredit = "Midnight Oil",
+                gateway = gateway,
+                libraryId = "library-a",
+                albumIds = listOf("album-a"),
+                selectionStore = store,
+                artworkStore = artworkStore,
+            )
+        }
+
+        compose.waitUntil(5_000) { gateway.searches.get() == 1 }
+        compose.onNodeWithTag("artist_candidate_$mbid").performClick()
+        compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("El proveedor devolvió otra identidad")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(
+            "A mismatched provider MBID must not be accepted",
+            compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
+                .fetchSemanticsNodes().isEmpty(),
+        )
+    }
+
+    @Test
+    fun lateProfileForThePreviousArtistNeverOverwritesTheCurrentArtist() {
+        val gate = CompletableDeferred<ArtistExternalProfile>()
+        val gateway = FakeGateway(
+            candidates = listOf(
+                ArtistLookupCandidate(mbid, "Midnight Oil", "", "Group", "Australia"),
+            ),
+            profile = profile().copy(biography = null, biographySourceUrl = null),
+            refreshGate = gate,
+        )
+        val store = FakeProfileStore(
+            cached = PersistedArtistProfile(
+                profile = profile().copy(biography = null, biographySourceUrl = null),
+                stale = false,
+            ),
+            cacheCredit = "Midnight Oil",
+        )
+        val artworkStore = FakeArtworkStore()
+        var credit by mutableStateOf("Midnight Oil")
+
+        compose.setContent {
+            ArtistEnrichmentPanel(
+                artistCredit = credit,
+                gateway = gateway,
+                libraryId = "library-a",
+                albumIds = listOf("album-a"),
+                selectionStore = store,
+                artworkStore = artworkStore,
+            )
+        }
+
+        compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
+        compose.runOnIdle { credit = "Second Artist" }
+        compose.waitUntil(5_000) { gateway.searches.get() == 1 }
+        compose.runOnIdle {
+            gate.complete(profile().copy(name = "Midnight Oil"))
+        }
+        compose.waitForIdle()
+        assertTrue(
+            "A late response for the previous artist must not confirm the new one",
+            compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
+                .fetchSemanticsNodes().isEmpty(),
+        )
+        compose.onNodeWithTag("artist_candidate_$mbid").assertExists()
+    }
+
     private fun profile() = ArtistExternalProfile(
         mbid = mbid,
         name = "Midnight Oil",
@@ -246,12 +331,15 @@ class ArtistEnrichmentPanelTest {
 
         override suspend fun refreshProfile(mbid: String): ArtistExternalProfile {
             refreshes.incrementAndGet()
-            return refreshGate?.await() ?: profile
+            // Deliberately ignore cancellation: the controller must discard a late
+            // response by identity/request epoch, not merely rely on job cancellation.
+            return refreshGate?.let { withContext(NonCancellable) { it.await() } } ?: profile
         }
     }
 
     private class FakeProfileStore(
         var cached: PersistedArtistProfile? = null,
+        private val cacheCredit: String? = null,
     ) : ArtistEnrichmentSelectionStore {
         val clears = AtomicInteger()
 
@@ -259,7 +347,7 @@ class ArtistEnrichmentPanelTest {
             libraryId: String,
             artistCredit: String,
             albumIds: List<String>,
-        ): PersistedArtistProfile? = cached
+        ): PersistedArtistProfile? = cached?.takeIf { cacheCredit == null || cacheCredit == artistCredit }
 
         override suspend fun save(
             libraryId: String,

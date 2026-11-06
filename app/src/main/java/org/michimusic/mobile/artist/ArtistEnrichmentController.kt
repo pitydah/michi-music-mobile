@@ -55,6 +55,12 @@ class ArtistEnrichmentController(
     private var requestJob: Job? = null
     private var autoDiscoveryAllowed = true
 
+    /**
+     * Identity-scoped request epoch. A response from a previous artist, library or
+     * explicit action is discarded instead of overwriting the current screen.
+     */
+    private var requestEpoch = 0
+
     fun bind(libraryId: String?, artistCredit: String, albumIds: List<String>) {
         val key = listOf(
             libraryId.orEmpty(),
@@ -65,9 +71,10 @@ class ArtistEnrichmentController(
         bindKey = key
         requestJob?.cancel()
         autoDiscoveryAllowed = true
+        val epoch = ++requestEpoch
         _state.value = ArtistEnrichmentState()
         requestJob = scope.launch {
-            bootstrap(libraryId, artistCredit, albumIds)
+            bootstrap(libraryId, artistCredit, albumIds, epoch)
         }
     }
 
@@ -75,6 +82,7 @@ class ArtistEnrichmentController(
     fun discover(artistCredit: String) {
         if (!autoDiscoveryAllowed) return
         requestJob?.cancel()
+        val epoch = ++requestEpoch
         _state.value = _state.value.copy(
             status = ArtistEnrichmentStatus.SEARCHING,
             candidates = emptyList(),
@@ -83,6 +91,7 @@ class ArtistEnrichmentController(
         requestJob = scope.launch {
             try {
                 val found = orchestrator.discover(artistCredit)
+                if (epoch != requestEpoch) return@launch
                 _state.value = _state.value.copy(
                     status = if (found.isEmpty()) ArtistEnrichmentStatus.FAILED
                     else ArtistEnrichmentStatus.CHOOSING,
@@ -92,6 +101,7 @@ class ArtistEnrichmentController(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                if (epoch != requestEpoch) return@launch
                 _state.value = _state.value.copy(
                     status = ArtistEnrichmentStatus.FAILED,
                     message = "No fue posible consultar MusicBrainz.",
@@ -108,6 +118,7 @@ class ArtistEnrichmentController(
         mbid: String,
     ) {
         requestJob?.cancel()
+        val epoch = ++requestEpoch
         _state.value = _state.value.copy(
             status = ArtistEnrichmentStatus.VERIFIED,
             candidates = emptyList(),
@@ -126,10 +137,12 @@ class ArtistEnrichmentController(
                     cached = previous,
                     forceRefresh = true,
                 )
-                apply(result, previous)
+                if (epoch != requestEpoch) return@launch
+                apply(result, previous, epoch)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                if (epoch != requestEpoch) return@launch
                 _state.value = _state.value.copy(
                     status = if (previous == null) ArtistEnrichmentStatus.FAILED
                     else ArtistEnrichmentStatus.VERIFIED,
@@ -146,6 +159,7 @@ class ArtistEnrichmentController(
         val current = _state.value
         val profile = current.profile ?: return
         requestJob?.cancel()
+        val epoch = ++requestEpoch
         _state.value = current.copy(refreshing = true, refreshFailed = false, message = null)
         requestJob = scope.launch {
             try {
@@ -167,10 +181,12 @@ class ArtistEnrichmentController(
                         profile = profile,
                     )
                 }
-                apply(result, profile)
+                if (epoch != requestEpoch) return@launch
+                apply(result, profile, epoch)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                if (epoch != requestEpoch) return@launch
                 _state.value = _state.value.copy(
                     refreshing = false,
                     refreshFailed = true,
@@ -186,6 +202,7 @@ class ArtistEnrichmentController(
      */
     fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
         requestJob?.cancel()
+        ++requestEpoch
         autoDiscoveryAllowed = false
         val anchor = _state.value.profile?.let {
             artistIdentityAnchor(libraryId, artistCredit, albumIds, it)
@@ -209,10 +226,16 @@ class ArtistEnrichmentController(
     }
 
     fun release() {
+        ++requestEpoch
         requestJob?.cancel()
     }
 
-    private suspend fun bootstrap(libraryId: String?, artistCredit: String, albumIds: List<String>) {
+    private suspend fun bootstrap(
+        libraryId: String?,
+        artistCredit: String,
+        albumIds: List<String>,
+        epoch: Int,
+    ) {
         var cached: PersistedArtistProfile? = null
         if (libraryId != null) {
             cached = try {
@@ -220,6 +243,7 @@ class ArtistEnrichmentController(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                if (epoch != requestEpoch) return
                 _state.value = ArtistEnrichmentState(
                     status = ArtistEnrichmentStatus.FAILED,
                     message = "No se pudieron leer los datos guardados del artista.",
@@ -227,6 +251,7 @@ class ArtistEnrichmentController(
                 return
             }
         }
+        if (epoch != requestEpoch) return
         if (cached == null) {
             _state.value = ArtistEnrichmentState(status = ArtistEnrichmentStatus.IDLE)
             if (autoDiscoveryAllowed) discover(artistCredit)
@@ -277,7 +302,12 @@ class ArtistEnrichmentController(
         }
     }
 
-    private suspend fun apply(result: ArtistEnrichmentResult, previous: ArtistExternalProfile?) {
+    private suspend fun apply(
+        result: ArtistEnrichmentResult,
+        previous: ArtistExternalProfile?,
+        epoch: Int,
+    ) {
+        if (epoch != requestEpoch) return
         val profile = result.profile ?: previous
         val status = if (profile == null) ArtistEnrichmentStatus.FAILED
         else ArtistEnrichmentStatus.VERIFIED
