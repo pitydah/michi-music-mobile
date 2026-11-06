@@ -198,4 +198,64 @@ class ArtistDetailSectionsTest {
         compose.onNodeWithText("Consultar Artist Enrichment").assertDoesNotExist()
         compose.onNodeWithText("Revisar en Artist Enrichment").assertDoesNotExist()
     }
+
+    @Test
+    fun biographyDoesNotDisplayPhotoCreditsOrLicenseLinksInline() {
+        val art = org.michimusic.mobile.artist.artwork.ArtistArtworkSelection(
+            slot = org.michimusic.mobile.artist.artwork.ArtworkSlot.ARTIST_HERO,
+            assetId = "sha256:" + "a".repeat(64),
+            confirmedMbid = confirmedProfile.mbid,
+            localImagePath = "/private/cache/verified-photo.jpg",
+            focus = org.michimusic.mobile.artist.artwork.ArtworkFocus(),
+            manuallyChosen = false,
+            revision = 1L,
+            sourcePageUrl = "https://commons.wikimedia.org/wiki/File:Example.jpg",
+            licenseId = "CC BY-SA 2.0",
+            licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+            attribution = "MarkScottAustinTX",
+        )
+        compose.setContent {
+            Column {
+                ArtistBiographySection(
+                    artistCredit = "A Flock Of Seagulls",
+                    profile = confirmedProfile,
+                    isStale = false,
+                    portrait = null,
+                    artwork = art,
+                )
+                ArtistDetailSectionHeader("DISCOGRAFÍA")
+            }
+        }
+
+        compose.onNodeWithTag("artist_detail_biography").assertExists()
+        compose.onNodeWithText("Fuente: Wikipedia").assertExists()
+        compose.onNodeWithText("DISCOGRAFÍA").assertExists()
+        compose.onNodeWithTag("artist_detail_photo_attribution").assertDoesNotExist()
+        compose.onNodeWithTag("artist_detail_photo_license").assertDoesNotExist()
+        compose.onNodeWithText("Foto:", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Consultar licencia de la fotografía").assertDoesNotExist()
+        compose.onNodeWithTag("artist_detail_portrait_status").assertDoesNotExist()
+    }
+
+    @Test
+    fun legacyPortraitDoesNotReintroducePhotoButtonsIntoBiography() {
+        val portrait = org.michimusic.mobile.artist.CommonsPortrait(
+            imageUrl = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Example.jpg",
+            commonsPageUrl = "https://commons.wikimedia.org/wiki/File:Example.jpg",
+            license = "CC BY-SA 2.0",
+            licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+            attribution = "Author",
+        )
+        compose.setContent {
+            ArtistBiographySection(
+                artistCredit = "Midnight Oil",
+                profile = confirmedProfile.copy(portrait = portrait),
+                isStale = false,
+                portrait = portrait,
+            )
+        }
+
+        compose.onNodeWithTag("artist_detail_photo_attribution").assertDoesNotExist()
+        compose.onNodeWithTag("artist_detail_photo_license").assertDoesNotExist()
+    }
 }
