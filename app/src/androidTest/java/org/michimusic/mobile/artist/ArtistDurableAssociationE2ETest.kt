@@ -11,7 +11,6 @@ import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -176,13 +175,13 @@ class ArtistDurableAssociationE2ETest {
         database.close()
         open()
 
-        val exact = requireNotNull(store.load(libraryId, credit, albumsB))
-        assertEquals(canonical, exact.associationGroupKey)
-        assertEquals(mbid, exact.profile.mbid)
-        assertFalse(exact.needsConfirmation)
+        val refreshed = requireNotNull(store.load(libraryId, credit, albumsB))
+        assertEquals(canonical, refreshed.associationGroupKey)
+        assertEquals(mbid, refreshed.profile.mbid)
+        assertTrue(refreshed.needsConfirmation)
         val exactAnchor = requireNotNull(
             artistIdentityAnchor(
-                libraryId, credit, albumsB, exact.profile, exact.associationGroupKey,
+                libraryId, credit, albumsB, refreshed.profile, refreshed.associationGroupKey,
             ),
         )
         val exactSlots = artworkStore.load(exactAnchor).associateBy { it.slot }
@@ -220,9 +219,9 @@ class ArtistDurableAssociationE2ETest {
         database.close()
         open()
 
-        val exact = requireNotNull(store.load(libraryId, credit, albumsA))
-        assertEquals(canonical, exact.associationGroupKey)
-        assertFalse(exact.needsConfirmation)
+        val refreshed = requireNotNull(store.load(libraryId, credit, albumsA))
+        assertEquals(canonical, refreshed.associationGroupKey)
+        assertTrue(refreshed.needsConfirmation)
     }
 
     @Test
