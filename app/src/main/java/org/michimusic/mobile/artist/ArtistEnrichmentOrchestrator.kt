@@ -25,7 +25,10 @@ enum class ArtistEnrichmentPhase {
 /** Provider success is not persistence success. */
 enum class ArtistPersistenceStatus {
     NOT_ATTEMPTED,
-    PERSISTED,
+    /** The confirmed MBID and local association are durable; displayed provider facts may not be. */
+    IDENTITY_PERSISTED,
+    /** The displayed profile is the profile whose Room write completed. */
+    PROFILE_PERSISTED,
     FAILED,
     CONTEXT_UNAVAILABLE,
 }
@@ -43,6 +46,13 @@ data class ArtistEnrichmentResult(
     val stale: Boolean = false,
     val message: String? = null,
 ) {
+    val identityPersisted: Boolean
+        get() = persistenceStatus == ArtistPersistenceStatus.IDENTITY_PERSISTED ||
+            persistenceStatus == ArtistPersistenceStatus.PROFILE_PERSISTED
+
+    val profilePersisted: Boolean
+        get() = persistenceStatus == ArtistPersistenceStatus.PROFILE_PERSISTED
+
     val selections: Map<ArtworkSlot, ArtistArtworkSelection>
         get() = artwork?.selections.orEmpty()
 }
@@ -158,7 +168,7 @@ class ArtistEnrichmentOrchestrator(
                     phase = ArtistEnrichmentPhase.ERROR,
                     profile = identityProfile,
                     persisted = true,
-                    persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+                    persistenceStatus = ArtistPersistenceStatus.IDENTITY_PERSISTED,
                     associationGroupKey = effectiveAssociationGroupKey,
                     message = "El proveedor devolvió otra identidad",
                 )
@@ -180,7 +190,7 @@ class ArtistEnrichmentOrchestrator(
                     albumIds = albumIds,
                     profile = identityProfile,
                     forceRefresh = true,
-                    persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+                    persistenceStatus = ArtistPersistenceStatus.IDENTITY_PERSISTED,
                     persistenceError = null,
                     associationGroupKey = effectiveAssociationGroupKey,
                 )
@@ -193,13 +203,13 @@ class ArtistEnrichmentOrchestrator(
                 phase = ArtistEnrichmentPhase.PARTIAL,
                 profile = identityProfile,
                 persisted = true,
-                persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+                persistenceStatus = ArtistPersistenceStatus.IDENTITY_PERSISTED,
                 associationGroupKey = effectiveAssociationGroupKey,
                 message = "No fue posible actualizar los datos externos",
             )
         }
 
-        var persistenceStatus = ArtistPersistenceStatus.PERSISTED
+        var persistenceStatus = ArtistPersistenceStatus.PROFILE_PERSISTED
         var persistenceError: String? = null
         ArtistEnrichmentDiagnostics.event("AE_SAVE_ATTEMPT")
         try {
@@ -213,6 +223,7 @@ class ArtistEnrichmentOrchestrator(
             // The identity-first row remains authoritative even if optional profile
             // enrichment cannot be committed.
             persistenceError = error.message ?: "No fue posible guardar el perfil."
+            persistenceStatus = ArtistPersistenceStatus.IDENTITY_PERSISTED
             ArtistEnrichmentDiagnostics.event("AE_PROFILE_SAVE_FAILED", persistenceError)
         }
 
@@ -313,7 +324,8 @@ class ArtistEnrichmentOrchestrator(
             profile = profile,
             artwork = report,
             pendingPortraits = pending,
-            persisted = persistenceStatus == ArtistPersistenceStatus.PERSISTED,
+            persisted = persistenceStatus == ArtistPersistenceStatus.IDENTITY_PERSISTED ||
+                persistenceStatus == ArtistPersistenceStatus.PROFILE_PERSISTED,
             persistenceStatus = persistenceStatus,
             persistenceError = persistenceError,
             associationGroupKey = associationGroupKey,

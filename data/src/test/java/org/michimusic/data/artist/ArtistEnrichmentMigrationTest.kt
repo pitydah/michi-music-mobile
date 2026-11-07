@@ -52,7 +52,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                 ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
-                ArtistEnrichmentCacheDatabase.MIGRATION_6_7)
+                ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
+                ArtistEnrichmentCacheDatabase.MIGRATION_7_8)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -105,7 +106,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_3_4,
                 ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
-                ArtistEnrichmentCacheDatabase.MIGRATION_6_7)
+                ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
+                ArtistEnrichmentCacheDatabase.MIGRATION_7_8)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -282,6 +284,43 @@ class ArtistEnrichmentMigrationTest {
             ).use { revision ->
                 assertTrue(revision.moveToFirst())
                 assertEquals(2L, revision.getLong(0))
+            }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun v7RowsAndArtworkSurviveAddingExplicitAssociationResolutions() = runBlocking {
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val name = "artist-migration-7-8-${System.nanoTime()}.db"
+        helper.createDatabase(name, 7).apply {
+            execSQL(
+                """
+                INSERT INTO `artist_enrichment`
+                    (`libraryId`,`creditKey`,`albumGroupKey`,`confirmedMbid`,`profileJson`,
+                     `savedAtMs`,`staleAfterMs`,`source`,`albumIdsJson`,`membershipFingerprint`)
+                VALUES('lib-a','artist','historical-a','$mbid','{}',1,2,'manual',
+                       '["album-a"]','current-membership')
+                """.trimIndent(),
+            )
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 8, true, ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
+        )
+        try {
+            upgraded.query(
+                "SELECT confirmedMbid, albumGroupKey FROM artist_enrichment WHERE libraryId=?",
+                arrayOf("lib-a"),
+            ).use { row ->
+                assertTrue(row.moveToFirst())
+                assertEquals(mbid, row.getString(0))
+                assertEquals("historical-a", row.getString(1))
+            }
+            upgraded.query("SELECT COUNT(*) FROM artist_association_resolution").use { count ->
+                assertTrue(count.moveToFirst())
+                assertEquals(0, count.getInt(0))
             }
         } finally {
             upgraded.close()

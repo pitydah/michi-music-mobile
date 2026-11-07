@@ -100,6 +100,58 @@ class ArtistEnrichmentOrchestratorTest {
         override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) { saved = null }
     }
 
+    private class IdentityFirstStore(
+        private val failProfileSave: Boolean,
+    ) : ArtistEnrichmentSelectionStore, ArtistIdentitySelectionStore {
+        var durable: PersistedArtistProfile? = null
+        var identitySaves = 0
+        var profileSaves = 0
+
+        override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) = durable
+
+        override suspend fun saveIdentity(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+            mbid: String,
+            associationGroupKey: String?,
+        ): PersistedArtistProfile {
+            identitySaves++
+            return PersistedArtistProfile(
+                profile = durable?.profile ?: ArtistExternalProfile(mbid = mbid, name = credit),
+                stale = durable?.stale ?: false,
+                associationGroupKey = associationGroupKey ?: "canonical-group",
+            ).also { durable = it }
+        }
+
+        override suspend fun save(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+            profile: ArtistExternalProfile,
+        ) = save(libraryId, credit, albumIds, profile, null)
+
+        override suspend fun save(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+            profile: ArtistExternalProfile,
+            associationGroupKey: String?,
+        ) {
+            profileSaves++
+            if (failProfileSave) error("Room rechazó el perfil")
+            durable = PersistedArtistProfile(
+                profile = profile,
+                stale = false,
+                associationGroupKey = associationGroupKey ?: "canonical-group",
+            )
+        }
+
+        override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) {
+            durable = null
+        }
+    }
+
     private class MemoryStore(private val context: Context) : ArtistArtworkStore {
         val selections = linkedMapOf<ArtworkSlot, ArtistArtworkSelection>()
         var saves = 0
@@ -168,7 +220,7 @@ class ArtistEnrichmentOrchestratorTest {
             forceRefresh = true,
         )
 
-        assertEquals(ArtistPersistenceStatus.PERSISTED, result.persistenceStatus)
+        assertEquals(ArtistPersistenceStatus.IDENTITY_PERSISTED, result.persistenceStatus)
         assertTrue(result.persisted)
         assertEquals(mbid, result.profile?.mbid)
         assertNotNull("Explicit identity must reach persistence before HTTP", profileStore.saved)
@@ -234,6 +286,68 @@ class ArtistEnrichmentOrchestratorTest {
         assertTrue(result.persistenceError.orEmpty().contains("Room no disponible"))
         assertEquals("Provider work must not start when identity persistence fails", 0, providerCalls)
         assertTrue(result.profile == null)
+    }
+
+    @Test
+    fun identityCommitAndFailedProfileCommitReportIdentityOnlyPersistence() = runBlocking {
+        val profile = ArtistExternalProfile(
+            mbid = mbid,
+            name = "Midnight Oil",
+            biography = "Biografía recién descargada.",
+            biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+            biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+        )
+        val store = IdentityFirstStore(failProfileSave = true)
+        val gateway = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String) = emptyList<ArtistLookupCandidate>()
+            override suspend fun confirmedProfile(mbid: String) = profile
+            override suspend fun refreshProfile(mbid: String) = profile
+        }
+
+        val result = ArtistEnrichmentOrchestrator(gateway, coordinator(), store).enrich(
+            artistCredit = "Midnight Oil",
+            libraryId = "lib",
+            albumIds = listOf("album"),
+            mbid = mbid,
+            forceRefresh = true,
+        )
+
+        assertEquals(1, store.identitySaves)
+        assertEquals(1, store.profileSaves)
+        assertEquals(mbid, store.durable?.profile?.mbid)
+        assertTrue(store.durable?.profile?.biography == null)
+        assertEquals("Biografía recién descargada.", result.profile?.biography)
+        assertEquals("IDENTITY_PERSISTED", result.persistenceStatus.name)
+        assertTrue(result.persistenceError.orEmpty().contains("Room rechazó el perfil"))
+    }
+
+    @Test
+    fun successfulIdentityAndProfileCommitsReportFullProfilePersistence() = runBlocking {
+        val profile = ArtistExternalProfile(
+            mbid = mbid,
+            name = "Midnight Oil",
+            biography = "Biografía guardada.",
+            biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+            biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+        )
+        val store = IdentityFirstStore(failProfileSave = false)
+        val gateway = object : ArtistEnrichmentGateway {
+            override suspend fun findCandidates(localCredit: String) = emptyList<ArtistLookupCandidate>()
+            override suspend fun confirmedProfile(mbid: String) = profile
+            override suspend fun refreshProfile(mbid: String) = profile
+        }
+
+        val result = ArtistEnrichmentOrchestrator(gateway, coordinator(), store).enrich(
+            artistCredit = "Midnight Oil",
+            libraryId = "lib",
+            albumIds = listOf("album"),
+            mbid = mbid,
+            forceRefresh = true,
+        )
+
+        assertEquals("PROFILE_PERSISTED", result.persistenceStatus.name)
+        assertEquals("Biografía guardada.", store.durable?.profile?.biography)
+        assertTrue(result.persistenceError == null)
     }
 
     @Test

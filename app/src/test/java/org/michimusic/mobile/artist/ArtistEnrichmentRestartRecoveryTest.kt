@@ -63,9 +63,226 @@ class ArtistEnrichmentRestartRecoveryTest {
             assertEquals(canonicalGroup, reopened.associationGroupKey)
             assertTrue(reopened.profile.biography == null)
             assertTrue(reopened.profile.portrait == null)
+            assertTrue(!reopened.profilePersisted)
             database.close()
         } finally {
             context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun failedProfileUpdateReopensWithPreviousBiographyArtworkAndFocus() = runBlocking {
+        val name = "identity-profile-failure-${System.nanoTime()}.db"
+        val artworkFile = File(context.filesDir, "artist-artwork/profile-failure.jpg")
+        artworkFile.parentFile?.mkdirs()
+        artworkFile.writeBytes(byteArrayOf(9, 8, 7, 6))
+        try {
+            var database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            val durableStore = RoomArtistEnrichmentSelectionStore(database) { 100L }
+            val oldProfile = ArtistExternalProfile(
+                mbid = mbid,
+                name = credit,
+                biography = "Biografía anterior guardada.",
+                biographySourceUrl = "https://es.wikipedia.org/wiki/Midnight_Oil",
+                biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+                wikidataQid = "Q48284",
+            )
+            durableStore.save("lib_device_local", credit, albums, oldProfile)
+            val persisted = requireNotNull(durableStore.load("lib_device_local", credit, albums))
+            val anchor = requireNotNull(
+                org.michimusic.mobile.artist.artwork.artistIdentityAnchor(
+                    "lib_device_local", credit, albums, oldProfile, persisted.associationGroupKey,
+                ),
+            )
+            RoomArtistArtworkStore(database, context) { 100L }.save(
+                anchor = anchor,
+                candidate = ArtistArtworkCandidate(
+                    source = org.michimusic.mobile.artist.artwork.ArtworkSource.COMMONS_P18,
+                    stableAssetId = "commons:profile-failure.jpg",
+                    confirmedMbid = mbid,
+                    verifiedQid = "Q48284",
+                    canonicalSourcePage = "https://commons.wikimedia.org/wiki/File:Profile_failure.jpg",
+                    imageUrl = "https://thumb.wikimedia.org/profile-failure.jpg",
+                    originalWidth = 1600,
+                    originalHeight = 900,
+                    mimeType = "image/jpeg",
+                    licenseId = "CC BY-SA 2.0",
+                    licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+                    author = "Author",
+                    attribution = "Author",
+                    evidence = ArtworkEvidence.VERIFIED_QID_REFERENCE,
+                    rights = ArtworkRights.VERIFIED_ALLOWED,
+                ),
+                slot = ArtworkSlot.ARTIST_HERO,
+                downloaded = DownloadedArtwork(
+                    relativePath = "artist-artwork/profile-failure.jpg",
+                    sha256 = "b".repeat(64),
+                    width = 1600,
+                    height = 900,
+                    mimeType = "image/jpeg",
+                ),
+                focus = ArtworkFocus(0.35f, 0.7f),
+                manuallyChosen = true,
+            )
+
+            val failingProfileStore = object : ArtistEnrichmentSelectionStore,
+                ArtistIdentitySelectionStore {
+                override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                    durableStore.load(libraryId, credit, albumIds)
+
+                override suspend fun saveIdentity(
+                    libraryId: String,
+                    credit: String,
+                    albumIds: List<String>,
+                    mbid: String,
+                    associationGroupKey: String?,
+                ) = durableStore.saveIdentity(
+                    libraryId, credit, albumIds, mbid, associationGroupKey,
+                )
+
+                override suspend fun save(
+                    libraryId: String,
+                    credit: String,
+                    albumIds: List<String>,
+                    profile: ArtistExternalProfile,
+                ) = error("fallo de persistencia del perfil")
+
+                override suspend fun clear(
+                    libraryId: String,
+                    credit: String,
+                    albumIds: List<String>,
+                ) = Unit
+            }
+            failingProfileStore.saveIdentityFirst(
+                "lib_device_local", credit, albums, mbid, persisted.associationGroupKey,
+            )
+            val newProfile = oldProfile.copy(biography = "Biografía nueva no guardada.")
+            assertTrue(
+                runCatching {
+                    failingProfileStore.save("lib_device_local", credit, albums, newProfile)
+                }.isFailure,
+            )
+            database.close()
+
+            database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            val reopened = requireNotNull(
+                RoomArtistEnrichmentSelectionStore(database) { 200L }
+                    .load("lib_device_local", credit, albums),
+            )
+            assertEquals(mbid, reopened.profile.mbid)
+            assertEquals("Biografía anterior guardada.", reopened.profile.biography)
+            val hero = RoomArtistArtworkStore(database, context) { 200L }.load(anchor).single()
+            assertEquals(ArtworkSlot.ARTIST_HERO, hero.slot)
+            assertEquals(0.35f, hero.focus.x, 0.0001f)
+            assertEquals(0.7f, hero.focus.y, 0.0001f)
+            assertTrue(hero.manuallyChosen)
+            database.close()
+        } finally {
+            context.deleteDatabase(name)
+            artworkFile.delete()
+        }
+    }
+
+    @Test
+    fun explicitAmbiguityResolutionSurvivesReopenAndKeepsArtworkScopedToTheChosenGroup() = runBlocking {
+        val name = "association-resolution-recovery-${System.nanoTime()}.db"
+        val otherMbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val albumA = listOf("album-a")
+        val albumB = listOf("album-b")
+        val merged = albumA + albumB
+        val fileA = File(context.filesDir, "artist-artwork/resolution-a.jpg")
+        val fileB = File(context.filesDir, "artist-artwork/resolution-b.jpg")
+        fileA.parentFile?.mkdirs()
+        fileA.writeBytes(byteArrayOf(1, 1, 1))
+        fileB.writeBytes(byteArrayOf(2, 2, 2))
+        try {
+            var database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            val store = RoomArtistEnrichmentSelectionStore(database) { 100L }
+            val profileA = ArtistExternalProfile(mbid = mbid, name = credit, wikidataQid = "Q48284")
+            val profileB = ArtistExternalProfile(mbid = otherMbid, name = "$credit historical", wikidataQid = "Q5")
+            store.save("lib_device_local", credit, albumA, profileA)
+            store.save("lib_device_local", credit, albumB, profileB)
+            val groupA = requireNotNull(store.load("lib_device_local", credit, albumA)?.associationGroupKey)
+            val groupB = requireNotNull(store.load("lib_device_local", credit, albumB)?.associationGroupKey)
+            val artworkStore = RoomArtistArtworkStore(database, context) { 100L }
+            suspend fun saveArtwork(
+                profile: ArtistExternalProfile,
+                group: String,
+                albumIds: List<String>,
+                suffix: String,
+            ) {
+                val anchor = requireNotNull(
+                    org.michimusic.mobile.artist.artwork.artistIdentityAnchor(
+                        "lib_device_local", credit, albumIds, profile, group,
+                    ),
+                )
+                artworkStore.save(
+                    anchor = anchor,
+                    candidate = ArtistArtworkCandidate(
+                        source = ArtworkSource.COMMONS_P18,
+                        stableAssetId = "commons:resolution-$suffix.jpg",
+                        confirmedMbid = profile.mbid,
+                        verifiedQid = profile.wikidataQid,
+                        canonicalSourcePage = "https://commons.wikimedia.org/wiki/File:Resolution_$suffix.jpg",
+                        imageUrl = "https://thumb.wikimedia.org/resolution-$suffix.jpg",
+                        originalWidth = 1000,
+                        originalHeight = 1000,
+                        mimeType = "image/jpeg",
+                        licenseId = "CC BY-SA 2.0",
+                        licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+                        author = "Author $suffix",
+                        attribution = "Author $suffix",
+                        evidence = ArtworkEvidence.VERIFIED_QID_REFERENCE,
+                        rights = ArtworkRights.VERIFIED_ALLOWED,
+                    ),
+                    slot = ArtworkSlot.ARTIST_HERO,
+                    downloaded = DownloadedArtwork(
+                        relativePath = "artist-artwork/resolution-$suffix.jpg",
+                        sha256 = suffix.repeat(64),
+                        width = 1000,
+                        height = 1000,
+                        mimeType = "image/jpeg",
+                    ),
+                    focus = ArtworkFocus(if (suffix == "a") 0.25f else 0.75f, 0.5f),
+                    manuallyChosen = true,
+                )
+            }
+            saveArtwork(profileA, groupA, albumA, "a")
+            saveArtwork(profileB, groupB, albumB, "b")
+
+            assertEquals(2, store.ambiguousAssociations("lib_device_local", credit, merged).size)
+            store.resolveAssociation("lib_device_local", credit, merged, groupB, otherMbid)
+            database.close()
+
+            database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            val reopenedStore = RoomArtistEnrichmentSelectionStore(database) { 200L }
+            val selected = requireNotNull(reopenedStore.load("lib_device_local", credit, merged))
+            assertEquals(otherMbid, selected.profile.mbid)
+            assertEquals(groupB, selected.associationGroupKey)
+            val selectedAnchor = requireNotNull(
+                org.michimusic.mobile.artist.artwork.artistIdentityAnchor(
+                    "lib_device_local", credit, merged, selected.profile, selected.associationGroupKey,
+                ),
+            )
+            val selectedArtwork = RoomArtistArtworkStore(database, context) { 200L }.load(selectedAnchor)
+            assertEquals(1, selectedArtwork.size)
+            assertEquals("Author b", selectedArtwork.single().attribution)
+            assertEquals(0.75f, selectedArtwork.single().focus.x, 0.0001f)
+            val creditKey = requireNotNull(scopedArtistCreditKey("lib_device_local", credit, merged)).first
+            assertEquals(2, database.artistEnrichmentDao().getAllForCredit("lib_device_local", creditKey).size)
+            database.close()
+        } finally {
+            context.deleteDatabase(name)
+            fileA.delete()
+            fileB.delete()
         }
     }
 

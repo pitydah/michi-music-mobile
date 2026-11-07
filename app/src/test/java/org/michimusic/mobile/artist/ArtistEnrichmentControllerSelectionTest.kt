@@ -1,10 +1,14 @@
 package org.michimusic.mobile.artist
 
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -211,5 +215,68 @@ class ArtistEnrichmentControllerSelectionTest {
             "sha256:${"c".repeat(64)}",
             controller.state.value.selections[ArtworkSlot.ARTIST_HERO]?.assetId,
         )
+    }
+
+    @Test
+    fun lateExplicitResolutionFromPreviousLibraryCannotOverwriteTheNewLibrary() = runTest {
+        val resolutionGate = CompletableDeferred<Unit>()
+        val resolvedLibraries = mutableListOf<String>()
+        val profileB = profile().copy(name = "Midnight Oil B")
+        val store = object : ArtistEnrichmentSelectionStore, ArtistAssociationResolutionStore {
+            override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                if (libraryId == "lib-a") throw ArtistAssociationAmbiguousException()
+                else PersistedArtistProfile(profileB, stale = false, associationGroupKey = "group-b")
+
+            override suspend fun save(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                profile: ArtistExternalProfile,
+            ) = Unit
+
+            override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
+
+            override suspend fun ambiguousAssociations(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+            ) = listOf(
+                ArtistAssociationCandidate("group-a", mbid, "A", listOf("album-1"), "USER", 1L),
+                ArtistAssociationCandidate("group-a2", other, "A2", listOf("album-1"), "USER", 2L),
+            )
+
+            override suspend fun resolveAssociation(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                chosenAssociationGroupKey: String,
+                chosenMbid: String,
+            ): PersistedArtistProfile = withContext(NonCancellable) {
+                resolutionGate.await()
+                resolvedLibraries += libraryId
+                PersistedArtistProfile(profile(), stale = false, associationGroupKey = chosenAssociationGroupKey)
+            }
+        }
+        val controller = ArtistEnrichmentController(
+            orchestrator = mockk(relaxed = true),
+            profileStore = store,
+            artworkStore = artworkStore(emptyList()),
+            verifySelection = { it },
+            scope = this,
+        )
+        controller.bind("lib-a", "Midnight Oil", listOf("album-1"))
+        advanceUntilIdle()
+        assertEquals(ArtistEnrichmentStatus.CHOOSING, controller.state.value.status)
+
+        controller.resolveAssociation("Midnight Oil", "lib-a", listOf("album-1"), "group-a", mbid)
+        runCurrent()
+        controller.bind("lib-b", "Midnight Oil", listOf("album-1"))
+        resolutionGate.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(listOf("lib-a"), resolvedLibraries)
+        assertEquals("Midnight Oil B", controller.state.value.profile?.name)
+        assertEquals("group-b", controller.state.value.associationGroupKey)
+        assertEquals(ArtistEnrichmentStatus.VERIFIED, controller.state.value.status)
     }
 }

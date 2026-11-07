@@ -8,6 +8,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Index
 import androidx.room.Transaction
+import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
@@ -50,6 +51,22 @@ data class ArtistEnrichmentRecord(
      * that association; it is never an identity by name.
      */
     val membershipFingerprint: String? = null,
+)
+
+/** A user-confirmed choice among still-preserved historical associations for one membership. */
+@Entity(
+    tableName = "artist_association_resolution",
+    primaryKeys = ["libraryId", "creditKey", "membershipFingerprint"],
+    indices = [Index(value = ["libraryId", "creditKey", "chosenAlbumGroupKey"])],
+)
+data class ArtistAssociationResolutionRecord(
+    val libraryId: String,
+    val creditKey: String,
+    val membershipFingerprint: String,
+    val chosenAlbumGroupKey: String,
+    val chosenMbid: String,
+    val evidence: String,
+    val confirmedAtMs: Long,
 )
 
 /** Raw observations, never automatic artist identity assignment or playback metadata rewrite. */
@@ -165,7 +182,38 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey")
     suspend fun getAllForCredit(libraryId: String, creditKey: String): List<ArtistEnrichmentRecord>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Query("SELECT * FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint LIMIT 1")
+    suspend fun getAssociationResolution(
+        libraryId: String,
+        creditKey: String,
+        membershipFingerprint: String,
+    ): ArtistAssociationResolutionRecord?
+
+    @Query("SELECT * FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey")
+    suspend fun getAssociationResolutionsForCredit(
+        libraryId: String,
+        creditKey: String,
+    ): List<ArtistAssociationResolutionRecord>
+
+    @Upsert
+    suspend fun putAssociationResolution(resolution: ArtistAssociationResolutionRecord)
+
+    @Query("DELETE FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint")
+    suspend fun deleteAssociationResolution(
+        libraryId: String,
+        creditKey: String,
+        membershipFingerprint: String,
+    ): Int
+
+    @Query("DELETE FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey")
+    suspend fun deleteAssociationResolutionsForCredit(libraryId: String, creditKey: String): Int
+
+    /**
+     * Association rows must never use SQLite REPLACE: REPLACE is delete+insert and can
+     * silently substitute a confirmed MBID while cascading identity-scoped children.
+     * Callers enforce the MBID invariant inside a Room transaction before this upsert.
+     */
+    @Upsert
     suspend fun put(record: ArtistEnrichmentRecord)
 
     @Query("DELETE FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey")
@@ -367,13 +415,14 @@ interface ArtistEnrichmentDao {
 @Database(
     entities = [
         ArtistEnrichmentRecord::class,
+        ArtistAssociationResolutionRecord::class,
         ArtistTrackEvidenceRecord::class,
         ArtistArtworkAssetRecord::class,
         ArtistArtworkSelectionRecord::class,
         ArtistArtworkLinkRecord::class,
         ArtistArtworkRevisionRecord::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -512,6 +561,29 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                 "INSERT INTO `artist_artwork_revision` (`libraryId`, `revision`, `updatedAtMs`) " +
                     "SELECT `libraryId`, COUNT(*), COALESCE(MAX(`updatedAtMs`), 0) " +
                     "FROM `artist_artwork_selection` GROUP BY `libraryId`",
+            )
+        }
+
+        /** R11.5.2-R3: persist an explicit choice without deleting either historical row. */
+        val MIGRATION_7_8 = Migration(7, 8) { db ->
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `artist_association_resolution` (
+                    `libraryId` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL,
+                    `membershipFingerprint` TEXT NOT NULL,
+                    `chosenAlbumGroupKey` TEXT NOT NULL,
+                    `chosenMbid` TEXT NOT NULL,
+                    `evidence` TEXT NOT NULL,
+                    `confirmedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `creditKey`, `membershipFingerprint`)
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS " +
+                    "`index_artist_association_resolution_libraryId_creditKey_chosenAlbumGroupKey` " +
+                    "ON `artist_association_resolution` (`libraryId`, `creditKey`, `chosenAlbumGroupKey`)",
             )
         }
 

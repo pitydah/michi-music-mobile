@@ -27,7 +27,10 @@ data class ArtistEnrichmentState(
     val status: ArtistEnrichmentStatus = ArtistEnrichmentStatus.IDLE,
     val profile: ArtistExternalProfile? = null,
     val candidates: List<ArtistLookupCandidate> = emptyList(),
+    val associationCandidates: List<ArtistAssociationCandidate> = emptyList(),
     val persisted: Boolean = false,
+    /** True only when [profile] is the version confirmed by Room. */
+    val profilePersisted: Boolean = false,
     /** MBID whose confirmed profile is actually present in Room, never inherited across identities. */
     val persistedMbid: String? = null,
     val persistenceStatus: ArtistPersistenceStatus = ArtistPersistenceStatus.NOT_ATTEMPTED,
@@ -162,6 +165,38 @@ class ArtistEnrichmentController(
                     refreshing = false,
                     refreshFailed = true,
                     message = "No fue posible actualizar los datos externos.",
+                )
+            }
+        }
+    }
+
+    /** Persists one existing historical association; it never searches or confirms by name. */
+    fun resolveAssociation(
+        artistCredit: String,
+        libraryId: String?,
+        albumIds: List<String>,
+        associationGroupKey: String,
+        mbid: String,
+    ) {
+        val resolutionStore = profileStore as? ArtistAssociationResolutionStore ?: return
+        val scopedLibrary = libraryId ?: return
+        requestJob?.cancel()
+        val epoch = ++requestEpoch
+        _state.value = _state.value.copy(refreshing = true, message = null)
+        requestJob = scope.launch {
+            try {
+                resolutionStore.resolveAssociation(
+                    scopedLibrary, artistCredit, albumIds, associationGroupKey, mbid,
+                )
+                if (epoch != requestEpoch) return@launch
+                bootstrap(scopedLibrary, artistCredit, albumIds, epoch)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (epoch != requestEpoch) return@launch
+                _state.value = _state.value.copy(
+                    refreshing = false,
+                    message = error.message ?: "La asociación elegida ya no está disponible.",
                 )
             }
         }
@@ -326,9 +361,24 @@ class ArtistEnrichmentController(
             } catch (_: ArtistAssociationAmbiguousException) {
                 if (epoch != requestEpoch) return
                 ArtistEnrichmentDiagnostics.event("AE_ASSOCIATION_AMBIGUOUS")
+                val choices = try {
+                    (profileStore as? ArtistAssociationResolutionStore)
+                        ?.ambiguousAssociations(libraryId, artistCredit, albumIds)
+                        .orEmpty()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    emptyList()
+                }
                 _state.value = ArtistEnrichmentState(
-                    status = ArtistEnrichmentStatus.FAILED,
-                    message = "Hay asociaciones incompatibles; elige explícitamente la identidad correcta.",
+                    status = if (choices.isEmpty()) ArtistEnrichmentStatus.FAILED
+                    else ArtistEnrichmentStatus.CHOOSING,
+                    associationCandidates = choices,
+                    message = if (choices.isEmpty()) {
+                        "Hay asociaciones incompatibles, pero no fue posible recuperar alternativas válidas."
+                    } else {
+                        "Hay asociaciones históricas incompatibles; elige explícitamente la correcta."
+                    },
                 )
                 return
             } catch (_: Exception) {
@@ -372,7 +422,15 @@ class ArtistEnrichmentController(
             profile = profile,
             persisted = true,
             persistedMbid = profile.mbid,
-            persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+            persistenceStatus = if (cached.profilePersisted) {
+                ArtistPersistenceStatus.PROFILE_PERSISTED
+            } else {
+                ArtistPersistenceStatus.IDENTITY_PERSISTED
+            },
+            profilePersisted = cached.profilePersisted,
+            persistenceError = if (cached.profilePersisted) null else {
+                "La actualización de datos no quedó guardada en este dispositivo."
+            },
             associationGroupKey = cached.associationGroupKey,
             needsConfirmation = cached.needsConfirmation,
             stale = cached.stale,
@@ -435,7 +493,14 @@ class ArtistEnrichmentController(
             current.persistedMbid != null &&
             profile?.mbid != null &&
             current.persistedMbid.equals(profile.mbid, ignoreCase = true)
-        val persisted = result.persistenceStatus == ArtistPersistenceStatus.PERSISTED || samePersistedIdentity
+        val persisted = result.identityPersisted || samePersistedIdentity
+        val profilePersisted = when {
+            result.profilePersisted -> true
+            samePersistedIdentity -> current.profilePersisted
+            result.persistenceStatus == ArtistPersistenceStatus.IDENTITY_PERSISTED &&
+                previous == profile -> current.profilePersisted
+            else -> false
+        }
         val status = if (profile == null) ArtistEnrichmentStatus.FAILED
         else ArtistEnrichmentStatus.VERIFIED
         val refreshFailed = previous != null && profile?.mbid == previous.mbid &&
@@ -444,23 +509,29 @@ class ArtistEnrichmentController(
             status = status,
             profile = profile,
             persisted = persisted,
+            profilePersisted = profilePersisted,
             persistedMbid = profile?.mbid?.takeIf { persisted },
             persistenceStatus = if (samePersistedIdentity) {
-                ArtistPersistenceStatus.PERSISTED
+                current.persistenceStatus
             } else {
                 result.persistenceStatus
             },
-            persistenceError = result.persistenceError
-                ?: if (result.persistenceStatus == ArtistPersistenceStatus.FAILED) {
+            persistenceError = when {
+                result.persistenceStatus == ArtistPersistenceStatus.IDENTITY_PERSISTED &&
+                    !result.profilePersisted ->
+                    "La actualización de datos no quedó guardada en este dispositivo."
+                result.persistenceError != null -> result.persistenceError
+                result.persistenceStatus == ArtistPersistenceStatus.FAILED ->
                     "El perfil se muestra, pero no quedó guardado en este dispositivo."
-                } else null,
+                else -> null
+            },
             associationGroupKey = result.associationGroupKey ?: current.associationGroupKey,
-            needsConfirmation = if (result.persistenceStatus == ArtistPersistenceStatus.PERSISTED) {
+            needsConfirmation = if (result.profilePersisted) {
                 false
             } else {
                 current.needsConfirmation
             },
-            stale = if (refreshFailed) current.stale else false,
+            stale = if (result.profilePersisted) false else current.stale,
             refreshing = false,
             refreshFailed = refreshFailed,
             message = result.message,

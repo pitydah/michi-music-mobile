@@ -1,6 +1,5 @@
 package org.michimusic.mobile.artist
 
-import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -11,11 +10,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -25,6 +29,8 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
 import org.michimusic.mobile.artist.artwork.ArtworkFocus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
+import org.michimusic.data.artist.ArtistEnrichmentRecord
 
 @RunWith(AndroidJUnit4::class)
 class ArtistEnrichmentPanelTest {
@@ -261,6 +267,104 @@ class ArtistEnrichmentPanelTest {
     }
 
     @Test
+    fun identityOnlyPersistenceIsAnnouncedSeparatelyFromTheFailedProfileUpdate() {
+        val gateway = FakeGateway(
+            candidates = listOf(
+                ArtistLookupCandidate(mbid, "Midnight Oil", "", "Group", "Australia"),
+            ),
+            profile = profile(),
+        )
+        val store = IdentityOnlyStore()
+
+        compose.setContent {
+            ArtistEnrichmentPanel(
+                artistCredit = "Midnight Oil",
+                gateway = gateway,
+                libraryId = "library-a",
+                albumIds = listOf("album-a"),
+                selectionStore = store,
+                artworkStore = FakeArtworkStore(),
+            )
+        }
+
+        compose.waitUntil(5_000) { gateway.searches.get() == 1 }
+        compose.onNodeWithTag("artist_candidate_$mbid").performClick()
+        compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
+
+        compose.onNodeWithText("Identidad guardada para este crédito y biblioteca.").assertExists()
+        compose.onNodeWithText("La actualización de datos no quedó guardada en este dispositivo.")
+            .assertExists()
+    }
+
+    @Test
+    fun ambiguousHistoricalAssociationsExposeRealChoicesAndPersistTheExplicitSelection() {
+        val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val albums = listOf("album-a", "album-b")
+        val keys = requireNotNull(scopedArtistCreditKey("library-a", "Midnight Oil", albums))
+        val database = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            ArtistEnrichmentCacheDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        val store = RoomArtistEnrichmentSelectionStore(database)
+        runBlocking {
+            listOf(
+                Triple("historical-a", mbid, "Midnight Oil"),
+                Triple("historical-b", otherMbid, "Midnight Oil (historical credit)"),
+            ).forEach { (group, identity, name) ->
+                val saved = profile().copy(mbid = identity, name = name)
+                database.artistEnrichmentDao().put(
+                    ArtistEnrichmentRecord(
+                        libraryId = "library-a",
+                        creditKey = keys.first,
+                        albumGroupKey = group,
+                        confirmedMbid = identity,
+                        profileJson = Json.encodeToString(saved),
+                        savedAtMs = 1L,
+                        staleAfterMs = Long.MAX_VALUE,
+                        source = "historical-test",
+                        biographySourceUrl = saved.biographySourceUrl,
+                        portraitSourceUrl = null,
+                        portraitLicense = null,
+                        portraitLicenseUrl = null,
+                        portraitAttribution = null,
+                        albumIdsJson = "[\"album-${if (group.endsWith("a")) "a" else "b"}\"]",
+                        membershipFingerprint = keys.second,
+                    ),
+                )
+            }
+        }
+        val gateway = FakeGateway(candidates = emptyList(), profile = profile())
+
+        compose.setContent {
+            ArtistEnrichmentPanel(
+                artistCredit = "Midnight Oil",
+                gateway = gateway,
+                libraryId = "library-a",
+                albumIds = albums,
+                selectionStore = store,
+                artworkStore = FakeArtworkStore(),
+            )
+        }
+
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("artist_association_candidate_historical-b")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals("Historical resolution must not search by name", 0, gateway.searches.get())
+        compose.onNodeWithText("MBID: $mbid", substring = true).assertExists()
+        compose.onNodeWithText("MBID: $otherMbid", substring = true).assertExists()
+        compose.onNodeWithTag("artist_association_candidate_historical-b").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("MBID confirmado por selección: $otherMbid")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        runBlocking {
+            assertEquals(2, database.artistEnrichmentDao().getAllForCredit("library-a", keys.first).size)
+        }
+        database.close()
+    }
+
+    @Test
     fun lateProfileForThePreviousArtistNeverOverwritesTheCurrentArtist() {
         val gate = CompletableDeferred<ArtistExternalProfile>()
         val gateway = FakeGateway(
@@ -377,6 +481,39 @@ class ArtistEnrichmentPanelTest {
             clears.incrementAndGet()
             cached = null
         }
+    }
+
+    private inner class IdentityOnlyStore : ArtistEnrichmentSelectionStore, ArtistIdentitySelectionStore {
+        private var identity: PersistedArtistProfile? = null
+
+        override suspend fun load(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+        ) = identity
+
+        override suspend fun saveIdentity(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+            mbid: String,
+            associationGroupKey: String?,
+        ): PersistedArtistProfile = PersistedArtistProfile(
+            profile = ArtistExternalProfile(mbid = mbid, name = credit),
+            stale = false,
+            associationGroupKey = associationGroupKey ?: "canonical-group",
+        ).also { identity = it }
+
+        override suspend fun save(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+            profile: ArtistExternalProfile,
+        ) {
+            error("La actualización de datos no quedó guardada en este dispositivo.")
+        }
+
+        override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
     }
 
     private class FakeArtworkStore : ArtistArtworkStore {

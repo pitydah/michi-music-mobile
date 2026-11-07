@@ -237,7 +237,57 @@ fun ArtistEnrichmentPanel(
         when {
             uiState.status == ArtistEnrichmentStatus.CHOOSING -> {
                 val found = uiState.candidates
-                if (found.isEmpty()) {
+                val historical = uiState.associationCandidates
+                if (historical.isNotEmpty()) {
+                    Text(
+                        "Elige una identidad histórica para este crédito y biblioteca · ${historical.size} alternativas",
+                        color = PureWhite,
+                        fontSize = 13.sp,
+                    )
+                    Column(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                        historical.forEachIndexed { index, candidate ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    color = candidateSurface.outline.copy(alpha = 0.55f),
+                                    thickness = 0.5.dp,
+                                )
+                            }
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                                    .background(candidateSurface.fill)
+                                    .border(
+                                        candidateSurface.borderWidth,
+                                        candidateSurface.outline,
+                                        RoundedCornerShape(12.dp),
+                                    )
+                                    .selectable(selected = false, role = Role.Button) {
+                                        activeController.resolveAssociation(
+                                            artistCredit = artistCredit,
+                                            libraryId = libraryId,
+                                            albumIds = albumIds,
+                                            associationGroupKey = candidate.associationGroupKey,
+                                            mbid = candidate.confirmedMbid,
+                                        )
+                                    }
+                                    .heightIn(min = 48.dp)
+                                    .padding(12.dp)
+                                    .testTag("artist_association_candidate_${candidate.associationGroupKey}"),
+                            ) {
+                                Text(candidate.displayName, color = PureWhite, fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium)
+                                Text("MBID: ${candidate.confirmedMbid}", color = TertiaryCyan, fontSize = 10.sp)
+                                Text(
+                                    "Grupo histórico: ${candidate.associationGroupKey} · " +
+                                        candidate.albumIds.joinToString().ifBlank { "sin álbumes legibles" },
+                                    color = TextSecondary,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                } else if (found.isEmpty()) {
                     Text("Sin coincidencias confiables. No se ha asociado ningún artista externo.",
                         color = TextSecondary, fontSize = 12.sp)
                 } else {
@@ -291,7 +341,8 @@ fun ArtistEnrichmentPanel(
                 Text(when {
                     result.refreshFailed -> "No fue posible actualizar los datos externos. Se muestran los últimos datos verificados."
                     result.stale -> "Datos guardados: revisión vencida. Confirma nuevamente para actualizar."
-                    result.persisted -> "Datos guardados para este crédito y biblioteca."
+                    result.profilePersisted -> "Datos guardados para este crédito y biblioteca."
+                    result.persisted -> "Identidad guardada para este crédito y biblioteca."
                     canPersist -> "Datos consultados, pero no guardados; revisa disponibilidad del almacenamiento."
                     else -> "Solo esta consulta. Cambia a una biblioteca individual para guardar."
                 }, color = TextSecondary, fontSize = 11.sp)

@@ -111,8 +111,9 @@ class ArtistEnrichmentStartupHydrationTest {
         assertEquals(ArtistEnrichmentStatus.VERIFIED, state.status)
         assertEquals(mbid, state.profile?.mbid)
         assertEquals(mbid, state.persistedMbid)
-        assertEquals(ArtistPersistenceStatus.PERSISTED, state.persistenceStatus)
+        assertEquals(ArtistPersistenceStatus.PROFILE_PERSISTED, state.persistenceStatus)
         assertTrue(state.persisted)
+        assertTrue(state.profilePersisted)
         assertEquals("historical-group", state.associationGroupKey)
         assertEquals(setOf(ArtworkSlot.ARTIST_THUMB, ArtworkSlot.ARTIST_HERO), state.selections.keys)
         coVerify(exactly = 0) { orchestrator.discover(any()) }
@@ -159,7 +160,7 @@ class ArtistEnrichmentStartupHydrationTest {
             phase = ArtistEnrichmentPhase.PARTIAL,
             profile = cachedProfile,
             persisted = true,
-            persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+            persistenceStatus = ArtistPersistenceStatus.IDENTITY_PERSISTED,
             message = "No fue posible actualizar los datos externos",
         )
         val controller = ArtistEnrichmentController(
