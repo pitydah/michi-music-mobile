@@ -118,12 +118,48 @@ class ArtistEnrichmentOrchestrator(
         forceRefresh: Boolean,
         associationGroupKey: String?,
     ): ArtistEnrichmentResult {
+        if (libraryId == null || scopedArtistCreditKey(libraryId, artistCredit, albumIds) == null) {
+            return ArtistEnrichmentResult(
+                phase = ArtistEnrichmentPhase.ERROR,
+                profile = cached,
+                persistenceStatus = ArtistPersistenceStatus.CONTEXT_UNAVAILABLE,
+                persistenceError = "Contexto local incompleto; la identidad no quedó guardada.",
+                message = "Selecciona una biblioteca local antes de confirmar la identidad.",
+            )
+        }
+        val persistedIdentity = try {
+            ArtistEnrichmentDiagnostics.event("AE_IDENTITY_SAVE_ATTEMPT")
+            store.saveIdentityFirst(
+                libraryId, artistCredit, albumIds, mbid, associationGroupKey,
+            ).also {
+                ArtistEnrichmentDiagnostics.event("AE_IDENTITY_SAVE_COMMITTED")
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val detail = error.message ?: "No fue posible guardar la identidad."
+            ArtistEnrichmentDiagnostics.event("AE_IDENTITY_SAVE_FAILED", detail)
+            return ArtistEnrichmentResult(
+                phase = ArtistEnrichmentPhase.ERROR,
+                profile = cached,
+                persistenceStatus = ArtistPersistenceStatus.FAILED,
+                persistenceError = detail,
+                message = "No fue posible guardar la identidad confirmada.",
+            )
+        }
+        val effectiveAssociationGroupKey = persistedIdentity.associationGroupKey
+            ?: associationGroupKey
+        val identityProfile = cached?.takeIf { canonicalArtistMbid(it.mbid) == mbid }
+            ?: persistedIdentity.profile
         val profile = try {
             val fetched = if (forceRefresh) gateway.refreshProfile(mbid) else gateway.confirmedProfile(mbid)
             if (canonicalArtistMbid(fetched.mbid) != mbid) {
                 return ArtistEnrichmentResult(
                     phase = ArtistEnrichmentPhase.ERROR,
-                    profile = cached,
+                    profile = identityProfile,
+                    persisted = true,
+                    persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+                    associationGroupKey = effectiveAssociationGroupKey,
                     message = "El proveedor devolvió otra identidad",
                 )
             }
@@ -136,19 +172,17 @@ class ArtistEnrichmentOrchestrator(
             // carries a verified QID, a MusicBrainz outage must not block Commons from
             // repairing a missing or corrupt slot. Only the profile refresh is reported
             // as pending; the stored identity is never discarded.
-            if (cached != null &&
-                canonicalArtistMbid(cached.mbid) == mbid &&
-                cached.wikidataQid != null
+            if (identityProfile.wikidataQid != null
             ) {
                 val repaired = finish(
                     artistCredit = artistCredit,
                     libraryId = libraryId,
                     albumIds = albumIds,
-                    profile = cached,
+                    profile = identityProfile,
                     forceRefresh = true,
-                    persistenceStatus = ArtistPersistenceStatus.NOT_ATTEMPTED,
+                    persistenceStatus = ArtistPersistenceStatus.PERSISTED,
                     persistenceError = null,
-                    associationGroupKey = associationGroupKey,
+                    associationGroupKey = effectiveAssociationGroupKey,
                 )
                 return repaired.copy(
                     phase = ArtistEnrichmentPhase.PARTIAL,
@@ -156,35 +190,35 @@ class ArtistEnrichmentOrchestrator(
                 )
             }
             return ArtistEnrichmentResult(
-                phase = if (cached == null) ArtistEnrichmentPhase.ERROR else ArtistEnrichmentPhase.PARTIAL,
-                profile = cached,
+                phase = ArtistEnrichmentPhase.PARTIAL,
+                profile = identityProfile,
+                persisted = true,
+                persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+                associationGroupKey = effectiveAssociationGroupKey,
                 message = "No fue posible actualizar los datos externos",
             )
         }
 
-        var persistenceStatus = ArtistPersistenceStatus.CONTEXT_UNAVAILABLE
+        var persistenceStatus = ArtistPersistenceStatus.PERSISTED
         var persistenceError: String? = null
-        if (libraryId != null && scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null) {
-            ArtistEnrichmentDiagnostics.event("AE_SAVE_ATTEMPT")
-            try {
-                store.save(libraryId, artistCredit, albumIds, profile, associationGroupKey)
-                persistenceStatus = ArtistPersistenceStatus.PERSISTED
-                ArtistEnrichmentDiagnostics.event("AE_SAVE_COMMITTED")
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                persistenceStatus = ArtistPersistenceStatus.FAILED
-                persistenceError = error.message ?: "No fue posible guardar el perfil."
-                ArtistEnrichmentDiagnostics.event("AE_SAVE_FAILED", persistenceError)
-            }
-        } else {
-            persistenceError = "Contexto local incompleto; el perfil se muestra pero no quedó guardado."
-            ArtistEnrichmentDiagnostics.event("AE_SAVE_SKIPPED", "CONTEXT_INCOMPLETE")
+        ArtistEnrichmentDiagnostics.event("AE_SAVE_ATTEMPT")
+        try {
+            store.save(
+                libraryId, artistCredit, albumIds, profile, effectiveAssociationGroupKey,
+            )
+            ArtistEnrichmentDiagnostics.event("AE_SAVE_COMMITTED")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            // The identity-first row remains authoritative even if optional profile
+            // enrichment cannot be committed.
+            persistenceError = error.message ?: "No fue posible guardar el perfil."
+            ArtistEnrichmentDiagnostics.event("AE_PROFILE_SAVE_FAILED", persistenceError)
         }
 
         return finish(
             artistCredit, libraryId, albumIds, profile, forceRefresh,
-            persistenceStatus, persistenceError, associationGroupKey,
+            persistenceStatus, persistenceError, effectiveAssociationGroupKey,
         )
     }
 

@@ -339,13 +339,8 @@ fun ArtistEnrichmentPanel(
                     .filter(String::isNotBlank).joinToString(" · ").ifBlank { "Identidad registrada en MusicBrainz" },
                     color = TextSecondary, fontSize = 12.sp)
                 profile.portrait?.let { portrait ->
-                    AsyncImage(
-                        model = portrait.imageUrl,
-                        contentDescription = "Fotografía de ${profile.name}; fuente y licencia en atribución",
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 172.dp)
-                            .clip(RoundedCornerShape(14.dp)),
-                        contentScale = ContentScale.Fit,
-                    )
+                    // The remote URL is provenance only. Confirmed artwork is shown by
+                    // ArtistArtworkManualSection from filesDir after Room verification.
                     Text("Fotografía: ${portrait.attribution} · ${portrait.license}",
                         color = TextSecondary, fontSize = 11.sp)
                     Text("Ver fotografía y atribución en Commons", color = TertiaryCyan, fontSize = 12.sp,

@@ -35,6 +35,41 @@ class ArtistEnrichmentRestartRecoveryTest {
     private val albums = listOf("album-diesel-and-dust")
 
     @Test
+    fun identityOnlyConfirmationSurvivesRoomCloseAndOfflineReopen() = runBlocking {
+        val name = "identity-first-recovery-${System.nanoTime()}.db"
+        try {
+            var database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            val store = RoomArtistEnrichmentSelectionStore(database) { 100L }
+
+            val committed = store.saveIdentity(
+                "lib_device_local", credit, albums, mbid,
+            )
+            assertEquals(mbid, committed.profile.mbid)
+            assertTrue(committed.profile.biography == null)
+            assertTrue(committed.profile.portrait == null)
+            val canonicalGroup = requireNotNull(committed.associationGroupKey)
+            database.close()
+
+            database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            val reopened = requireNotNull(
+                RoomArtistEnrichmentSelectionStore(database) { 200L }
+                    .load("lib_device_local", credit, albums),
+            )
+            assertEquals(mbid, reopened.profile.mbid)
+            assertEquals(canonicalGroup, reopened.associationGroupKey)
+            assertTrue(reopened.profile.biography == null)
+            assertTrue(reopened.profile.portrait == null)
+            database.close()
+        } finally {
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
     fun confirmedProfileAndArtworkSurviveClosingAndReopeningTheDatabase() = runBlocking {
         val name = "restart-recovery-${System.nanoTime()}.db"
         val artworkFile = File(context.filesDir, "artist-artwork/restart-test.jpg")

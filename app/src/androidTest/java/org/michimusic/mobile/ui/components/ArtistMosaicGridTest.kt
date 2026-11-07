@@ -20,6 +20,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -97,15 +98,33 @@ class ArtistMosaicGridTest {
         compose.onNodeWithTag("artist_mosaic_retry_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
     }
 
-    @Test fun verifiedPortraitIsAvailableToTheVisibleTile() {
+    @Test fun verifiedPortraitMetadataWithoutPrivateArtworkUsesMonogram() {
         val fake = FakeStore(portrait)
         compose.setContent {
             ArtistMosaicGrid(entries.take(1), "library-1", 0, {}, selectionStore = fake)
         }
-        compose.waitUntil(5000) {
-            compose.onAllNodesWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        compose.waitUntil(5000) { fake.queries == 1 }
+        compose.onNodeWithTag("artist_mosaic_monogram_Midnight Oil", useUnmergedTree = true)
+            .assertExists()
+        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
+            .assertDoesNotExist()
+    }
+
+    @Test fun confirmedPortraitUrlNeverSubstitutesForMissingPrivateArtwork() {
+        val fake = FakeStore(portrait)
+        compose.setContent {
+            ArtistMosaicGrid(
+                entries.take(1), "library-1", 0, {},
+                selectionStore = fake,
+                artworkStore = null,
+            )
         }
-        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertExists()
+
+        compose.waitUntil(5_000) { fake.queries == 1 }
+        compose.onNodeWithTag("artist_mosaic_monogram_Midnight Oil", useUnmergedTree = true)
+            .assertExists()
+        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
+            .assertDoesNotExist()
     }
 
     @Test fun missingPortraitShowsNoSecondaryCtaAndStillOpensTheArtist() {
@@ -229,10 +248,9 @@ class ArtistMosaicGridTest {
         compose.setContent {
             ArtistMosaicGrid(entries, "library-1", 0, {}, selectionStore = creditAware)
         }
-        compose.waitUntil(5000) {
-            compose.onAllNodesWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
+        compose.waitUntil(5000) { creditAware.queries == 2 }
+        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
+            .assertDoesNotExist()
         compose.onNodeWithTag("artist_mosaic_photo_Patti Austin & James Ingram", useUnmergedTree = true)
             .assertDoesNotExist()
         compose.runOnIdle { assertEquals(2, creditAware.queries) }
@@ -259,9 +277,42 @@ class ArtistMosaicGridTest {
             ArtistProfileScope("nas", "Midnight Oil", listOf("b")),
         )
         val fake = FakeStore(portrait)
+        val artwork = object : ArtistArtworkStore {
+            var loads = 0
+            override suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> {
+                loads++
+                return listOf(ArtistArtworkSelection(
+                    slot = ArtworkSlot.ARTIST_THUMB,
+                    assetId = "sha256:${"b".repeat(64)}",
+                    confirmedMbid = anchor.confirmedMbid,
+                    localImagePath = "/tmp/aggregate-thumb.png",
+                    focus = ArtworkFocus(0.45f, 0.55f),
+                    manuallyChosen = anchor.libraryId == "nas",
+                    revision = if (anchor.libraryId == "nas") 4L else 2L,
+                    source = ArtworkSource.COMMONS_P18,
+                    status = ArtworkLoadStatus.READY,
+                ))
+            }
+            override suspend fun loadAsset(assetId: String) = null
+            override suspend fun save(
+                anchor: ArtistIdentityAnchor,
+                candidate: ArtistArtworkCandidate,
+                slot: ArtworkSlot,
+                downloaded: DownloadedArtwork,
+                focus: ArtworkFocus,
+                manuallyChosen: Boolean,
+            ): ArtistArtworkSelection = error("not used")
+            override suspend fun updateFocus(
+                anchor: ArtistIdentityAnchor,
+                slot: ArtworkSlot,
+                focus: ArtworkFocus,
+            ) = false
+            override suspend fun clear(anchor: ArtistIdentityAnchor) {}
+            override suspend fun counts() = 0 to 0
+        }
         compose.setContent {
             ArtistMosaicGrid(entries.take(1).map { it.copy(profileScopes = scopes) }, null, 0, {},
-                selectionStore = fake)
+                selectionStore = fake, artworkStore = artwork)
         }
         compose.waitUntil(5000) {
             compose.onAllNodesWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
@@ -269,6 +320,7 @@ class ArtistMosaicGridTest {
         }
         compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertExists()
         compose.runOnIdle { assertEquals(2, fake.queries) }
+        compose.runOnIdle { assertEquals(2, artwork.loads) }
     }
 
     @Test fun allLibrariesNeverShowsPhotoForConflictingMbids() {
@@ -294,6 +346,70 @@ class ArtistMosaicGridTest {
         compose.waitUntil(5000) { queries == 2 }
         compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithTag("artist_mosaic_enrich_Midnight Oil", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test fun allLibrariesReactsToPersistedArtworkWithoutNavigation() {
+        val scopes = listOf(
+            ArtistProfileScope("phone", "Midnight Oil", listOf("a")),
+            ArtistProfileScope("nas", "Midnight Oil", listOf("b")),
+        )
+        val profiles = FakeStore(portrait)
+        val revision = MutableStateFlow(0L)
+        val artwork = object : ArtistArtworkStore {
+            var available = false
+            var loads = 0
+            override fun observeLibraryRevision(libraryId: String) = revision
+            override suspend fun load(anchor: ArtistIdentityAnchor): List<ArtistArtworkSelection> {
+                loads++
+                if (!available) return emptyList()
+                return listOf(ArtistArtworkSelection(
+                    slot = ArtworkSlot.ARTIST_THUMB,
+                    assetId = "sha256:${"c".repeat(64)}",
+                    confirmedMbid = anchor.confirmedMbid,
+                    localImagePath = "/tmp/reactive-aggregate.png",
+                    focus = ArtworkFocus(),
+                    manuallyChosen = false,
+                    revision = revision.value,
+                    source = ArtworkSource.COMMONS_P18,
+                    status = ArtworkLoadStatus.READY,
+                ))
+            }
+            override suspend fun loadAsset(assetId: String) = null
+            override suspend fun save(
+                anchor: ArtistIdentityAnchor,
+                candidate: ArtistArtworkCandidate,
+                slot: ArtworkSlot,
+                downloaded: DownloadedArtwork,
+                focus: ArtworkFocus,
+                manuallyChosen: Boolean,
+            ): ArtistArtworkSelection = error("not used")
+            override suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus) = false
+            override suspend fun clear(anchor: ArtistIdentityAnchor) = Unit
+            override suspend fun counts() = 0 to 0
+        }
+        compose.setContent {
+            ArtistMosaicGrid(
+                entries.take(1).map { it.copy(profileScopes = scopes) },
+                libraryId = null,
+                refreshToken = 0,
+                onOpenArtist = {},
+                selectionStore = profiles,
+                artworkStore = artwork,
+            )
+        }
+        compose.waitUntil(5_000) { artwork.loads == 2 }
+        compose.onNodeWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
+            .assertDoesNotExist()
+
+        compose.runOnIdle {
+            artwork.available = true
+            revision.value = 1L
+        }
+
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("artist_mosaic_photo_Midnight Oil", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test fun allLibrariesNeverReusePortraitFromASingleLibrary() {

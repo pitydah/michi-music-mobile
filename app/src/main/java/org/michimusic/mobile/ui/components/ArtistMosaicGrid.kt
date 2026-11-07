@@ -47,6 +47,8 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.ArtistEnrichmentSelectionStore
 import org.michimusic.mobile.artist.CommonsPortrait
@@ -58,6 +60,7 @@ import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
+import org.michimusic.mobile.artist.resolveArtistArtworkConsensus
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -102,8 +105,25 @@ fun ArtistMosaicGrid(
             var artwork by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
                 mutableStateOf<ArtistArtworkSelection?>(null)
             }
+            var aggregateRevisions by remember(
+                artworkStore, artist.credit, libraryId, artist.profileScopes,
+            ) { mutableStateOf<List<Long>>(emptyList()) }
+            LaunchedEffect(artworkStore, libraryId, artist.profileScopes) {
+                aggregateRevisions = emptyList()
+                if (artworkStore != null && libraryId == null) {
+                    val revisionFlows = artist.profileScopes
+                        .map { it.libraryId }
+                        .distinct()
+                        .map(artworkStore::observeLibraryRevision)
+                    if (revisionFlows.isNotEmpty()) {
+                        combine(revisionFlows) { revisions -> revisions.toList() }
+                            .drop(1) // Initial hydration is already owned by the load effect.
+                            .collect { aggregateRevisions = it }
+                    }
+                }
+            }
             LaunchedEffect(store, artworkStore, artist.credit, libraryId, albumIds,
-                artist.profileScopes, refreshToken, artworkRevision) {
+                artist.profileScopes, refreshToken, artworkRevision, aggregateRevisions) {
                 // A cached portrait is only a hint: clear it before reading the scoped key so
                 // a library or album-fingerprint change can never keep a stale face.
                 portrait = null
@@ -111,24 +131,28 @@ fun ArtistMosaicGrid(
                 try {
                     var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
                     var savedAssociationGroupKey: String? = null
-                    if (artworkStore == null) {
-                        if (libraryId == null) {
+                    if (libraryId == null) {
+                        val result = resolveArtistProfileConsensus(artist.profileScopes, store)
+                        currentCoroutineContext().ensureActive()
+                        if (artworkStore == null) {
                             // ALL: only paint a photo if EVERY participating library has the same
                             // explicitly confirmed MBID. Unassigned/ambiguous credits fail closed.
-                            val result = resolveArtistProfileConsensus(artist.profileScopes, store)
-                            currentCoroutineContext().ensureActive()
                             portrait = result.portrait
                             savedProfile = result.saved?.profile
                             savedAssociationGroupKey = result.saved?.associationGroupKey
-                        } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                        } else {
+                            artwork = resolveArtistArtworkConsensus(result, artworkStore)
+                            currentCoroutineContext().ensureActive()
+                        }
+                    } else if (artworkStore == null) {
+                        if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
                             val saved = store.load(libraryId, artist.credit, albumIds)
                             currentCoroutineContext().ensureActive()
                             portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
                             savedProfile = saved?.profile
                             savedAssociationGroupKey = saved?.associationGroupKey
                         }
-                    } else if (libraryId != null &&
-                        scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                    } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
                         // Production mosaic never lets a legacy portrait URL reach Coil:
                         // only the persisted, decoded artwork file may paint a tile. Recovery
                         // lives in Enriquecer, not in a network request while scrolling.
@@ -180,7 +204,9 @@ internal fun ArtistMosaicTile(
     val name = artist.credit.ifBlank { "Artista desconocido" }
     val localArtwork = artwork?.localImagePath
         ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
-    val model: Any? = localArtwork?.let(::File) ?: portrait?.imageUrl
+    // Profile URLs remain attribution/provenance only. A production mosaic portrait
+    // is rendered exclusively from the verified private artwork selection.
+    val model: Any? = localArtwork?.let(::File)
     val albumDescription = if (artist.albumCount == 1) "1 álbum" else "${artist.albumCount} álbumes"
     val trackDescription = if (artist.trackCount == 1) "1 canción" else "${artist.trackCount} canciones"
     // One accessible target per artist: the whole tile opens the ficha. Cache retries and

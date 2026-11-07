@@ -1,21 +1,13 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.core.app.ApplicationProvider
-import coil3.ImageLoader
-import coil3.SingletonImageLoader
-import coil3.annotation.DelicateCoilApi
-import coil3.intercept.Interceptor
-import coil3.request.ErrorResult
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.mobile.artist.CommonsPortrait
-import java.io.IOException
 
 /** Source-grounded hero: missing enrichment renders a monogram, never fake photography. */
 @RunWith(AndroidJUnit4::class)
@@ -54,24 +46,26 @@ class ArtistDetailHeroTest {
         compose.onNodeWithTag("artist_detail_hero_monogram").assertExists()
     }
 
-    @OptIn(DelicateCoilApi::class)
-    @Test fun failedPortraitDownloadRestoresTheMonogram() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val failing = Interceptor { chain ->
-            ErrorResult(image = null, request = chain.request, throwable = IOException("decode failed"))
+    @Test fun confirmedPortraitUrlNeverSubstitutesForMissingPrivateArtwork() {
+        compose.setContent {
+            ArtistDetailHero(
+                artistCredit = "Midnight Oil",
+                portrait = allowed,
+                albumCount = 1,
+                trackCount = 1,
+                artwork = null,
+            )
         }
-        SingletonImageLoader.setUnsafe(
-            ImageLoader.Builder(context).components { add(failing) }.build(),
-        )
-        try {
-            compose.setContent { ArtistDetailHero("Midnight Oil", allowed, 1, 1) }
-            compose.waitUntil(5000) {
-                compose.onAllNodesWithTag("artist_detail_hero_monogram").fetchSemanticsNodes().isNotEmpty()
-            }
-            compose.onNodeWithTag("artist_detail_hero_monogram").assertExists()
-            compose.onNodeWithTag("artist_detail_hero_photo").assertExists()
-        } finally {
-            SingletonImageLoader.reset()
-        }
+
+        compose.onNodeWithTag("artist_detail_hero_monogram").assertExists()
+        compose.onNodeWithTag("artist_detail_hero_photo").assertDoesNotExist()
+        compose.onNodeWithTag("artist_detail_hero_artwork").assertDoesNotExist()
+    }
+
+    @Test fun remotePortraitMetadataDoesNotCreateAnImageRequest() {
+        compose.setContent { ArtistDetailHero("Midnight Oil", allowed, 1, 1) }
+        compose.onNodeWithTag("artist_detail_hero_monogram").assertExists()
+        compose.onNodeWithTag("artist_detail_hero_photo").assertDoesNotExist()
+        compose.onNodeWithTag("artist_detail_hero_artwork").assertDoesNotExist()
     }
 }

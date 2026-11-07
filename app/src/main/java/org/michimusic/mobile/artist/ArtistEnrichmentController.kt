@@ -323,6 +323,14 @@ class ArtistEnrichmentController(
                 profileStore.load(libraryId, artistCredit, albumIds)
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: ArtistAssociationAmbiguousException) {
+                if (epoch != requestEpoch) return
+                ArtistEnrichmentDiagnostics.event("AE_ASSOCIATION_AMBIGUOUS")
+                _state.value = ArtistEnrichmentState(
+                    status = ArtistEnrichmentStatus.FAILED,
+                    message = "Hay asociaciones incompatibles; elige explícitamente la identidad correcta.",
+                )
+                return
             } catch (_: Exception) {
                 if (epoch != requestEpoch) return
                 ArtistEnrichmentDiagnostics.event("AE_LOAD_MISS", "STORE_ERROR")

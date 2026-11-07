@@ -80,7 +80,9 @@ internal fun ArtistDetailHero(
     val fontScale = LocalDensity.current.fontScale
     val localArtwork = artwork?.localImagePath
         ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
-    val model: Any? = localArtwork?.let(::File) ?: portrait?.imageUrl
+    // A confirmed portrait URL is provenance, not durable artwork. The ficha renders
+    // only a verified private file; missing/corrupt files fall back to the monogram.
+    val model: Any? = localArtwork?.let(::File)
     // The monogram is the fallback, not wallpaper: it stays visible while the
     // image loads and returns if Coil reports a decode/network error.
     var photoVisible by remember(model) { mutableStateOf(false) }
@@ -101,7 +103,7 @@ internal fun ArtistDetailHero(
                 fontFamily = InterFontFamily,
             )
         }
-        if (model != null && (localArtwork != null || portrait != null && allowedCommonsPortrait(portrait))) {
+        if (model != null) {
             val alignment = artwork?.focus?.let {
                 BiasAlignment(it.x * 2f - 1f, it.y * 2f - 1f)
             } ?: Alignment.Center
@@ -113,7 +115,7 @@ internal fun ArtistDetailHero(
                 onSuccess = { photoVisible = true },
                 onError = { photoVisible = false },
                 modifier = Modifier.fillMaxSize()
-                    .testTag(if (localArtwork != null) "artist_detail_hero_artwork" else "artist_detail_hero_photo"),
+                    .testTag("artist_detail_hero_artwork"),
             )
             // Distinguishes "URL/path present" from "bytes decoded" for screenshot
             // evidence without changing the visible layout.

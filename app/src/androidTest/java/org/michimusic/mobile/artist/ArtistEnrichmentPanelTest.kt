@@ -256,11 +256,8 @@ class ArtistEnrichmentPanelTest {
             compose.onAllNodesWithText("El proveedor devolvió otra identidad")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        assertTrue(
-            "A mismatched provider MBID must not be accepted",
-            compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
-                .fetchSemanticsNodes().isEmpty(),
-        )
+        compose.onNodeWithText("MBID confirmado por selección: $mbid").assertExists()
+        compose.onNodeWithText("MBID confirmado por selección: $otherMbid").assertDoesNotExist()
     }
 
     @Test

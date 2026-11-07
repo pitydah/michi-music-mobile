@@ -154,12 +154,12 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
     suspend fun get(libraryId: String, creditKey: String, albumGroupKey: String): ArtistEnrichmentRecord?
 
-    @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint LIMIT 1")
-    suspend fun getByMembership(
+    @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint")
+    suspend fun getAllByMembership(
         libraryId: String,
         creditKey: String,
         membershipFingerprint: String,
-    ): ArtistEnrichmentRecord?
+    ): List<ArtistEnrichmentRecord>
 
     /** Recovery candidates for one local credit. Ambiguous results must fail closed. */
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey")

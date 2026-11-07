@@ -14,6 +14,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -138,6 +139,43 @@ class ArtistEnrichmentOrchestratorTest {
         override suspend fun counts() = selections.size to selections.size
     }
 
+    private fun coordinator(store: ArtistArtworkStore = MemoryStore(context)): ArtistArtworkCoordinator {
+        val http = ArtworkHttp(client())
+        return ArtistArtworkCoordinator(
+            wikidata = WikidataArtworkLookup(http),
+            commons = CommonsImageInfo(http),
+            openverse = OpenverseArtworkProvider(http),
+            http = http,
+            downloader = ArtworkDownloader(context, client()),
+            store = store,
+        )
+    }
+
+    @Test
+    fun confirmedIdentityIsPersistedBeforeAnImmediateProviderFailure() = runBlocking {
+        val profileStore = ProfileStore()
+        val orchestrator = ArtistEnrichmentOrchestrator(
+            gateway = Gateway(),
+            artwork = coordinator(),
+            store = profileStore,
+        )
+
+        val result = orchestrator.enrich(
+            artistCredit = "Midnight Oil",
+            libraryId = "lib",
+            albumIds = listOf("album"),
+            mbid = mbid,
+            forceRefresh = true,
+        )
+
+        assertEquals(ArtistPersistenceStatus.PERSISTED, result.persistenceStatus)
+        assertTrue(result.persisted)
+        assertEquals(mbid, result.profile?.mbid)
+        assertNotNull("Explicit identity must reach persistence before HTTP", profileStore.saved)
+        assertEquals(mbid, profileStore.saved?.profile?.mbid)
+        assertTrue(profileStore.saved?.profile?.biography == null)
+    }
+
     @Test
     fun providerSuccessNeverBecomesPersistenceSuccessWhenRoomSaveFails() = runBlocking {
         val http = ArtworkHttp(client())
@@ -169,10 +207,17 @@ class ArtistEnrichmentOrchestratorTest {
             }
             override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
         }
+        var providerCalls = 0
         val gateway = object : ArtistEnrichmentGateway {
             override suspend fun findCandidates(localCredit: String) = emptyList<ArtistLookupCandidate>()
-            override suspend fun confirmedProfile(mbid: String) = profile
-            override suspend fun refreshProfile(mbid: String) = profile
+            override suspend fun confirmedProfile(mbid: String): ArtistExternalProfile {
+                providerCalls++
+                return profile
+            }
+            override suspend fun refreshProfile(mbid: String): ArtistExternalProfile {
+                providerCalls++
+                return profile
+            }
         }
         val orchestrator = ArtistEnrichmentOrchestrator(gateway, coordinator, failingStore)
 
@@ -187,7 +232,8 @@ class ArtistEnrichmentOrchestratorTest {
         assertEquals(ArtistPersistenceStatus.FAILED, result.persistenceStatus)
         assertTrue(!result.persisted)
         assertTrue(result.persistenceError.orEmpty().contains("Room no disponible"))
-        assertEquals(mbid, result.profile?.mbid)
+        assertEquals("Provider work must not start when identity persistence fails", 0, providerCalls)
+        assertTrue(result.profile == null)
     }
 
     @Test

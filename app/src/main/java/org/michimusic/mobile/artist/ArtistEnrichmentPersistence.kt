@@ -44,6 +44,11 @@ data class PersistedArtistProfile(
     val needsConfirmation: Boolean = false,
 )
 
+/** Multiple durable associations fit the same visible membership; none may win by row order. */
+class ArtistAssociationAmbiguousException : IllegalStateException(
+    "Asociación artística ambigua; se requiere resolución explícita.",
+)
+
 /** Small seam for independently testable UI, with no lifecycle-independent coroutine owner. */
 interface ArtistEnrichmentSelectionStore {
     suspend fun load(libraryId: String, credit: String, albumIds: List<String>): PersistedArtistProfile?
@@ -77,28 +82,135 @@ interface ArtistEnrichmentSelectionStore {
     suspend fun saveLocalTagEvidence(libraryId: String, trackId: String, tags: EmbeddedArtistTags) {}
 }
 
+/** Optional production seam for an atomic identity-first Room commit. */
+interface ArtistIdentitySelectionStore {
+    suspend fun saveIdentity(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        mbid: String,
+        associationGroupKey: String? = null,
+    ): PersistedArtistProfile
+}
+
+/**
+ * Commits an explicit MBID before optional provider work. Simple test stores keep using
+ * their existing save contract; Room implements [ArtistIdentitySelectionStore] atomically.
+ */
+suspend fun ArtistEnrichmentSelectionStore.saveIdentityFirst(
+    libraryId: String,
+    credit: String,
+    albumIds: List<String>,
+    mbid: String,
+    associationGroupKey: String? = null,
+): PersistedArtistProfile {
+    if (this is ArtistIdentitySelectionStore) {
+        return saveIdentity(libraryId, credit, albumIds, mbid, associationGroupKey)
+    }
+    val profile = ArtistExternalProfile(mbid = mbid, name = credit.trim())
+    save(libraryId, credit, albumIds, profile, associationGroupKey)
+    return PersistedArtistProfile(
+        profile = profile,
+        stale = false,
+        associationGroupKey = associationGroupKey
+            ?: scopedArtistCreditKey(libraryId, credit, albumIds)?.second,
+    )
+}
+
 class RoomArtistEnrichmentSelectionStore(
     private val database: ArtistEnrichmentCacheDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
-) : ArtistEnrichmentSelectionStore {
+) : ArtistEnrichmentSelectionStore, ArtistIdentitySelectionStore {
     private val json = Json { ignoreUnknownKeys = true }
     private val dao get() = database.artistEnrichmentDao()
+
+    override suspend fun saveIdentity(
+        libraryId: String,
+        credit: String,
+        albumIds: List<String>,
+        mbid: String,
+        associationGroupKey: String?,
+    ): PersistedArtistProfile {
+        val (creditKey, currentGroupKey) = requireNotNull(
+            scopedArtistCreditKey(libraryId, credit, albumIds),
+        ) { "No se puede asociar un artista sin biblioteca y grupo local concretos" }
+        val canonicalMbid = requireNotNull(canonicalArtistMbid(mbid)) { "MBID inválido" }
+        require(canonicalMbid == mbid) { "MBID sin normalizar" }
+        val groupKey = associationGroupKey?.takeIf(String::isNotBlank) ?: currentGroupKey
+        val membershipMatches = dao.getAllByMembership(libraryId, creditKey, currentGroupKey)
+        if (membershipMatches.map { it.albumGroupKey }.distinct().size > 1) {
+            throw ArtistAssociationAmbiguousException()
+        }
+        val exact = dao.get(libraryId, creditKey, groupKey)
+        val directMatches = (membershipMatches + listOfNotNull(exact))
+            .distinctBy { it.albumGroupKey }
+        if (directMatches.size > 1) throw ArtistAssociationAmbiguousException()
+        val existing = directMatches.singleOrNull()
+        if (existing != null && existing.confirmedMbid != canonicalMbid) {
+            throw IllegalStateException(
+                "La asociación ya pertenece a otro MBID; desvincúlala antes de sustituirla.",
+            )
+        }
+
+        val now = clock()
+        val profile = existing?.let { record ->
+            try {
+                json.decodeFromString<ArtistExternalProfile>(record.profileJson)
+                    .takeIf { canonicalArtistMbid(it.mbid) == canonicalMbid }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } ?: ArtistExternalProfile(mbid = canonicalMbid, name = credit.trim())
+        val record = existing?.copy(
+            membershipFingerprint = currentGroupKey,
+            albumIdsJson = json.encodeToString(
+                albumIds.filter(String::isNotBlank).toSortedSet().toList(),
+            ),
+        ) ?: ArtistEnrichmentRecord(
+            libraryId = libraryId,
+            creditKey = creditKey,
+            albumGroupKey = groupKey,
+            confirmedMbid = canonicalMbid,
+            profileJson = json.encodeToString(profile),
+            savedAtMs = now,
+            staleAfterMs = Long.MAX_VALUE,
+            source = "musicbrainz-manual-selection-pending",
+            biographySourceUrl = null,
+            portraitSourceUrl = null,
+            portraitLicense = null,
+            portraitLicenseUrl = null,
+            portraitAttribution = null,
+            albumIdsJson = json.encodeToString(
+                albumIds.filter(String::isNotBlank).toSortedSet().toList(),
+            ),
+            membershipFingerprint = currentGroupKey,
+        )
+        dao.put(record)
+        return PersistedArtistProfile(
+            profile = profile,
+            stale = existing?.let { now >= it.staleAfterMs } ?: false,
+            associationGroupKey = record.albumGroupKey,
+        )
+    }
 
     override suspend fun load(libraryId: String, credit: String, albumIds: List<String>): PersistedArtistProfile? {
         val (creditKey, groupKey) = scopedArtistCreditKey(libraryId, credit, albumIds) ?: return null
         // canonical row key (albumGroupKey) is immutable; membershipFingerprint is the
         // mutable evidence that maps today's visible albums back to that association.
-        val byMembership = dao.getByMembership(libraryId, creditKey, groupKey)
+        val byMembership = dao.getAllByMembership(libraryId, creditKey, groupKey)
         val exact = dao.get(libraryId, creditKey, groupKey)
-        val recovered = if (byMembership == null && exact == null) {
-            recoverUniqueAssociation(libraryId, creditKey, albumIds)
+        val directMatches = (byMembership + listOfNotNull(exact))
+            .distinctBy { it.albumGroupKey }
+        if (directMatches.size > 1) throw ArtistAssociationAmbiguousException()
+        val recovered = if (directMatches.isEmpty()) {
+            recoverAssociation(libraryId, creditKey, albumIds)
         } else {
             null
         }
-        val record = byMembership ?: exact ?: recovered ?: return null
+        val record = directMatches.singleOrNull() ?: recovered ?: return null
         if (canonicalArtistMbid(record.confirmedMbid) != record.confirmedMbid) return null
-        val ambiguous = byMembership != null && exact != null &&
-            byMembership.albumGroupKey != exact.albumGroupKey
         return try {
             val profile = json.decodeFromString<ArtistExternalProfile>(record.profileJson)
             if (canonicalArtistMbid(profile.mbid) != record.confirmedMbid ||
@@ -108,7 +220,7 @@ class RoomArtistEnrichmentSelectionStore(
                 profile = profile,
                 stale = clock() >= record.staleAfterMs,
                 associationGroupKey = record.albumGroupKey,
-                needsConfirmation = recovered != null || ambiguous,
+                needsConfirmation = recovered != null,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -124,7 +236,7 @@ class RoomArtistEnrichmentSelectionStore(
      * only when exactly one stored profile for this library+credit shares at least one
      * album with the visible set. Multiple candidates are ambiguous and stay untouched.
      */
-    private suspend fun recoverUniqueAssociation(
+    private suspend fun recoverAssociation(
         libraryId: String,
         creditKey: String,
         albumIds: List<String>,
@@ -134,6 +246,7 @@ class RoomArtistEnrichmentSelectionStore(
         val matches = dao.getAllForCredit(libraryId, creditKey).filter { row ->
             decodeAlbumIds(row.albumIdsJson).any(visible::contains)
         }
+        if (matches.size > 1) throw ArtistAssociationAmbiguousException()
         return matches.singleOrNull()
     }
 
@@ -171,6 +284,12 @@ class RoomArtistEnrichmentSelectionStore(
         val groupKey = associationGroupKey?.takeIf(String::isNotBlank) ?: currentGroupKey
         val id = requireNotNull(canonicalArtistMbid(profile.mbid)) { "MBID inválido" }
         require(id == profile.mbid) { "MBID sin normalizar" }
+        val existing = dao.get(libraryId, creditKey, groupKey)
+        if (existing != null && existing.confirmedMbid != id) {
+            throw IllegalStateException(
+                "La asociación ya pertenece a otro MBID; desvincúlala antes de sustituirla.",
+            )
+        }
         require(profile.portrait == null || allowedCommonsPortrait(profile.portrait)) { "Retrato no autorizado" }
         require(allowedArtistBiography(profile.biography, profile.biographySourceUrl)) { "Biografía sin fuente verificable" }
         val now = clock()
@@ -221,7 +340,7 @@ class RoomArtistEnrichmentSelectionStore(
             preferredGroup != null -> preferredGroup
             else -> {
                 val exact = dao.get(libraryId, creditKey, currentGroupKey)
-                val recovered = exact ?: recoverUniqueAssociation(libraryId, creditKey, albumIds)
+                val recovered = exact ?: recoverAssociation(libraryId, creditKey, albumIds)
                 recovered?.albumGroupKey ?: return
             }
         }
