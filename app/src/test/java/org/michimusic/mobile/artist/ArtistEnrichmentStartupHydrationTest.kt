@@ -1,5 +1,6 @@
 package org.michimusic.mobile.artist
 
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -146,6 +147,44 @@ class ArtistEnrichmentStartupHydrationTest {
         assertEquals(mbid, state.profile?.mbid)
         coVerify(exactly = 0) { orchestrator.discover(any()) }
         coVerify(exactly = 0) { orchestrator.enrich(any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun failedRefreshKeepsCachedProfileMarkedStale() = runTest {
+        val cachedProfile = profile()
+        val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
+        coEvery {
+            orchestrator.enrich(any(), any(), any(), any(), any(), any(), any())
+        } returns ArtistEnrichmentResult(
+            phase = ArtistEnrichmentPhase.PARTIAL,
+            profile = cachedProfile,
+            persisted = true,
+            persistenceStatus = ArtistPersistenceStatus.PERSISTED,
+            message = "No fue posible actualizar los datos externos",
+        )
+        val controller = ArtistEnrichmentController(
+            orchestrator = orchestrator,
+            profileStore = profileStore(
+                PersistedArtistProfile(
+                    profile = cachedProfile,
+                    stale = true,
+                    associationGroupKey = "historical-group",
+                ),
+            ),
+            artworkStore = artworkStore(emptyList()),
+            verifySelection = { it },
+            scope = this,
+        )
+        bindAndSettle(controller)
+
+        controller.refresh(credit, "lib_device_local", albums)
+        advanceUntilIdle()
+
+        val state = controller.state.value
+        assertEquals(mbid, state.profile?.mbid)
+        assertTrue(state.stale)
+        assertTrue(state.refreshFailed)
+        assertTrue(!state.refreshing)
     }
 
     @Test

@@ -438,6 +438,8 @@ class ArtistEnrichmentController(
         val persisted = result.persistenceStatus == ArtistPersistenceStatus.PERSISTED || samePersistedIdentity
         val status = if (profile == null) ArtistEnrichmentStatus.FAILED
         else ArtistEnrichmentStatus.VERIFIED
+        val refreshFailed = previous != null && profile?.mbid == previous.mbid &&
+            result.phase == ArtistEnrichmentPhase.PARTIAL
         _state.value = ArtistEnrichmentState(
             status = status,
             profile = profile,
@@ -458,10 +460,9 @@ class ArtistEnrichmentController(
             } else {
                 current.needsConfirmation
             },
-            stale = false,
+            stale = if (refreshFailed) current.stale else false,
             refreshing = false,
-            refreshFailed = previous != null && profile?.mbid == previous.mbid &&
-                result.phase == ArtistEnrichmentPhase.PARTIAL,
+            refreshFailed = refreshFailed,
             message = result.message,
             pendingPortraits = result.pendingPortraits,
             selections = mergeEnrichmentSelections(
