@@ -23,6 +23,14 @@ nullable `contextAlbumKeysJson`. The exported schema is
 No destructive fallback, name inference, identity replacement, or historical-row deletion is
 used.
 
+Pre-v9 exact resolutions cannot recover their original album-key list from the one-way
+context fingerprint, so migrated rows have `contextAlbumKeysJson = NULL`. A later explicit
+binding replacement can invalidate such a legacy decision only when it chose the association
+being replaced. It cannot prove an otherwise unknowable context intersection. The row remains
+historical evidence, and runtime candidate validation still fails closed when its chosen
+association is not present; migration does not invent album keys to make invalidation appear
+more precise.
+
 ## Executable evidence
 
 `ArtistEnrichmentMigrationTest` has eight passing tests. The v8→v9 case constructs a real v8

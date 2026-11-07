@@ -1,5 +1,11 @@
 # R11.5.2-R4 final local certification
 
+> **Historical certification — superseded.** This report certifies the earlier Room v8
+> candidate `5dcaddedfd4774a04569025f5f07e3b88926a5dc`. The final Room v9 structural
+> architecture and current gate decisions are defined by
+> `ARTIST_FINAL_CERTIFICATION.md` and `docs/contracts/ARTIST_ENRICHMENT_DOMAIN_FINAL.md`.
+> In particular, the v8 overlap model below is not current authority.
+
 ## Scope and heads
 
 - Initial R4 HEAD: `6cb5a19311158f3707f76db667a41fde2268f91f`.

@@ -1,6 +1,12 @@
 # R11.5.2-R — Durable artist identity and persistent enrichment contract
 
-Status: implemented and verified on `feat/ui2-r11-artist-artwork-federation`.
+> **Historical contract — superseded.** The overlap-recovery model in this document is
+> retained only for audit history. Current authority is
+> `ARTIST_ENRICHMENT_DOMAIN_FINAL.md`, which separates verified identity, stable local
+> association, and authoritative album-credit bindings in Room v9. Names and album overlap
+> are never membership authority.
+
+Historical status: implemented and verified for the earlier pre-v9 candidate.
 Baseline: `9334aa4`. Date: 2026-11-06.
 
 ## 1. Identity is not enrichment

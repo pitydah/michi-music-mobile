@@ -7,7 +7,7 @@ First independent review: `ses_e49d89efeffe5ArX13CtdHHgQc` — `SHIP`, no P0/P1.
 | Invariant | Result | Executable evidence |
 |---|---|---|
 | INV-01 Explicit MBID changes only | PASS | `aDifferentMbidCannotSilentlyReplaceAnExistingAssociation`; `concurrentDifferentMbidConfirmationsCannotReplaceTheSameAssociation` |
-| INV-02 Biography/READY artwork match identity | PASS | `decodePersisted`; `anAssetFromAnotherMbidNeverReachesThisArtistStore`; `crossMbidSelectionNeverSatisfiesAnotherArtist` |
+| INV-02 Biography/READY artwork match identity | PASS | `anAssetFromAnotherMbidNeverReachesThisArtistStore`; `crossMbidSelectionNeverSatisfiesAnotherArtist` |
 | INV-03 Visible membership cannot mutate identity | PASS | `profileRefreshCannotCreateMembershipForANewAlbum`; `explicitMembershipBindingPreservesOneCanonicalAssociationAcrossDisjointViews` |
 | INV-04 No name homonym inheritance | PASS | `unboundAlbumNeverInheritsIdentityFromNameOrPriorContext`; `homonymBindingsOwnSubsetsAndCombinedResolutionNeverTransfersOwnership` |
 | INV-05 Exact decision does not propagate | PASS | `durableExplicitResolutionSelectsOneHistoricalAssociationWithoutDeletingTheOther`; generated probes include subsets, supersets, and permutations |
