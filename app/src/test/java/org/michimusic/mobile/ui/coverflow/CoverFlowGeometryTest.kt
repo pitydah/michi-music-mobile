@@ -25,9 +25,9 @@ class CoverFlowGeometryTest {
 
     @Test fun extremesAreClamped() {
         val visual = coverFlowGeometry(10f, reducedMotion = false)
-        assertEquals(45f, visual.rotationY, 0.001f)
-        assertTrue(visual.scale > 0.7f)
-        assertTrue(visual.opacity >= 0.55f)
+        assertEquals(30f, visual.rotationY, 0.001f)
+        assertTrue(visual.scale > 0.8f)
+        assertTrue(visual.opacity >= 0.68f)
     }
 
     @Test fun reducedMotionEliminatesPerspectiveAndDimming() {
@@ -47,10 +47,10 @@ class CoverFlowGeometryTest {
         assertEquals(0f, coverFlowPageWidthDp(0f), 0.001f)
         assertEquals(0f, coverFlowPageWidthDp(Float.NaN), 0.001f)
         assertEquals(100f, coverFlowPageWidthDp(100f), 0.001f)
-        assertEquals(192f, coverFlowPageWidthDp(320f), 0.001f)
-        assertEquals(216f, coverFlowPageWidthDp(360f), 0.001f)
-        assertEquals(247.2f, coverFlowPageWidthDp(412f), 0.01f)
-        assertEquals(248f, coverFlowPageWidthDp(900f), 0.001f)
+        assertEquals(217.6f, coverFlowPageWidthDp(320f), 0.01f)
+        assertEquals(244.8f, coverFlowPageWidthDp(360f), 0.01f)
+        assertEquals(272f, coverFlowPageWidthDp(412f), 0.01f)
+        assertEquals(272f, coverFlowPageWidthDp(900f), 0.01f)
     }
 
     @Test fun restoredIndexClampsForShrinkingLibrary() {
@@ -81,6 +81,37 @@ class CoverFlowGeometryTest {
         val indexInExtended = extended.indexOfFirst { it.id == selectedId }
         assertEquals(2, indexInExtended) // Index changed from 1 to 2, but ID selection remains "album_b"
         assertEquals("Beta", extended[indexInExtended].title)
+    }
+
+    @Test fun stageSizeAlwaysContainsArtworkWithoutHardcodedHeight() {
+        assertEquals(0f, coverFlowStageHeightDp(Float.NaN), 0.001f)
+        assertEquals(0f, coverFlowStageHeightDp(0f), 0.001f)
+        assertEquals(245.6f, coverFlowStageHeightDp(320f), 0.01f)
+        assertEquals(272.8f, coverFlowStageHeightDp(360f), 0.01f)
+        assertEquals(300f, coverFlowStageHeightDp(412f), 0.01f)
+    }
+
+    @Test fun progressAndPagerKeysHaveUnambiguousSemantics() {
+        assertEquals(null, coverFlowPositionLabel(0, 1))
+        assertEquals(null, coverFlowPositionLabel(-1, 3))
+        assertEquals("2 de 6", coverFlowPositionLabel(1, 6))
+        assertTrue(coverFlowPageKey("same", 0) != coverFlowPageKey("same", 1))
+    }
+
+    @Test fun stableKeysSurviveReorderAndInsertionWithoutRelabellingEveryCover() {
+        val initial = coverFlowStablePageKeys(listOf("album_a", "album_b", "album_c"))
+        val reordered = coverFlowStablePageKeys(listOf("album_c", "album_a", "album_b"))
+        assertEquals(listOf("album_a", "album_b", "album_c"), initial)
+        assertEquals(listOf("album_c", "album_a", "album_b"), reordered)
+        assertEquals("album_b", coverFlowStablePageKeys(listOf("new", "album_b"))[1])
+    }
+
+    @Test fun repeatedIdsRemainUniqueAndDoNotPolluteUniqueNeighbors() {
+        val ids = coverFlowStablePageKeys(listOf("same", "distinct", "same", "other"))
+        assertEquals(4, ids.toSet().size)
+        assertEquals("distinct", ids[1])
+        assertEquals("other", ids[3])
+        assertTrue(ids[0] != ids[2])
     }
 }
 
