@@ -1,0 +1,10 @@
+phase	skill_id	state	evidence_reference
+bootstrap	using-chrisbanes-skills	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call in current R11.5.2-R2 session
+plan	to-plan	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; conversation plan .scratch/to-plan/r11-5-2-r2-permanence-seal.md
+implement	deliver-spec	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call in current R11.5.2-R2 session
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; aggregate revision Flow and cancellation review
+api	kotlin-api-design	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; identity-first and consensus domain APIs
+ui-state	compose-state-and-effects	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; controller hydration and mosaic effects
+ui-component	compose-component-design	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; panel/mosaic/hero rendering contract
+ui-test	compose-ui-testing-patterns	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; deterministic Compose contracts
+gradle	gradle-run	LOADED	opencode-log:R11.5.2-R2 current session; workflow 517b489279efd2d2e9d3af3f08c25a24 runs 0001-0014
