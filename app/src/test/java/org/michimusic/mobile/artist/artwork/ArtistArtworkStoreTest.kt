@@ -1,9 +1,12 @@
 package org.michimusic.mobile.artist.artwork
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -126,6 +129,56 @@ class ArtistArtworkStoreTest {
         val anchor = ArtistIdentityAnchor("lib", "midnight oil", "group", mbid, "Q48284", "Midnight Oil")
         assertFalse(store.updateFocus(anchor, ArtworkSlot.ARTIST_THUMB, ArtworkFocus(0.2f, 0.8f)))
         assertTrue(store.load(anchor).isEmpty())
+    }
+
+    @Test
+    fun clearingOneGroupPreservesSharedArtworkBytesReferencedByAnotherGroup() = runBlocking {
+        val file = File(context.filesDir, "artist-artwork/shared.png").apply {
+            parentFile?.mkdirs()
+            outputStream().use { output ->
+                Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply {
+                    eraseColor(Color.MAGENTA)
+                }.compress(Bitmap.CompressFormat.PNG, 100, output)
+            }
+        }
+        val sha = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val downloaded = DownloadedArtwork(
+            relativePath = "artist-artwork/shared.png",
+            sha256 = sha,
+            width = 2,
+            height = 2,
+            mimeType = "image/png",
+        )
+        val candidate = ArtistArtworkCandidate(
+            source = ArtworkSource.COMMONS_P18,
+            stableAssetId = "commons:shared.png",
+            confirmedMbid = mbid,
+            verifiedQid = "Q48284",
+            canonicalSourcePage = "https://commons.wikimedia.org/wiki/File:Shared.png",
+            imageUrl = "https://upload.wikimedia.org/shared.png",
+            originalWidth = 2,
+            originalHeight = 2,
+            mimeType = "image/png",
+            licenseId = "CC BY-SA 2.0",
+            licenseUrl = "https://creativecommons.org/licenses/by-sa/2.0/",
+            author = "Author",
+            attribution = "Author",
+            evidence = ArtworkEvidence.VERIFIED_QID_REFERENCE,
+            rights = ArtworkRights.VERIFIED_ALLOWED,
+        )
+        val first = ArtistIdentityAnchor("lib", "midnight oil", "group-a", mbid, "Q48284", "Midnight Oil")
+        val second = ArtistIdentityAnchor("lib", "midnight oil", "group-b", mbid, "Q48284", "Midnight Oil")
+        store.save(first, candidate, ArtworkSlot.ARTIST_THUMB, downloaded, ArtworkFocus(), false)
+        store.save(second, candidate, ArtworkSlot.ARTIST_THUMB, downloaded, ArtworkFocus(0.4f, 0.6f), true)
+
+        store.clear(first)
+
+        assertTrue(store.load(first).isEmpty())
+        assertEquals(ArtworkLoadStatus.READY, store.load(second).single().status)
+        assertEquals(0.6f, store.load(second).single().focus.y, 0.0001f)
+        assertTrue("A still-referenced private image must survive selective clear", file.isFile)
+        assertEquals(1, database.artistEnrichmentDao().countArtworkAssets())
     }
 
     @Test

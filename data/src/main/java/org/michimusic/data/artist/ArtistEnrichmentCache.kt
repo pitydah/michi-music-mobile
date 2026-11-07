@@ -39,16 +39,15 @@ data class ArtistEnrichmentRecord(
     val portraitLicenseUrl: String?,
     val portraitAttribution: String?,
     /**
-     * JSON array of the album IDs visible when this association was confirmed. It is
-     * evidence for recovering a legitimate album-group change, never a name-based
-     * identity shortcut. Null on legacy rows; those remain exact-match only.
+     * Immutable JSON array of the album IDs that formed this canonical association.
+     * It may support a unique local recovery, but a temporary view or profile refresh
+     * must never broaden it. Null on legacy rows; those remain exact-match only.
      */
     val albumIdsJson: String? = null,
     /**
-     * Last visible membership fingerprint that resolved to this durable association.
-     * The primary key stays [albumGroupKey] so artwork keeps one canonical association
-     * even when albums are added or removed. This column is only a mutable index into
-     * that association; it is never an identity by name.
+     * Legacy observed membership retained for non-destructive compatibility. It is not
+     * an identity or lookup authority; exact-context choices live in
+     * [ArtistAssociationResolutionRecord].
      */
     val membershipFingerprint: String? = null,
 )
@@ -171,13 +170,6 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumGroupKey = :albumGroupKey LIMIT 1")
     suspend fun get(libraryId: String, creditKey: String, albumGroupKey: String): ArtistEnrichmentRecord?
 
-    @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint")
-    suspend fun getAllByMembership(
-        libraryId: String,
-        creditKey: String,
-        membershipFingerprint: String,
-    ): List<ArtistEnrichmentRecord>
-
     /** Recovery candidates for one local credit. Ambiguous results must fail closed. */
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey")
     suspend fun getAllForCredit(libraryId: String, creditKey: String): List<ArtistEnrichmentRecord>
@@ -189,24 +181,15 @@ interface ArtistEnrichmentDao {
         membershipFingerprint: String,
     ): ArtistAssociationResolutionRecord?
 
-    @Query("SELECT * FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey")
-    suspend fun getAssociationResolutionsForCredit(
-        libraryId: String,
-        creditKey: String,
-    ): List<ArtistAssociationResolutionRecord>
-
     @Upsert
     suspend fun putAssociationResolution(resolution: ArtistAssociationResolutionRecord)
 
-    @Query("DELETE FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint")
-    suspend fun deleteAssociationResolution(
+    @Query("DELETE FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey AND chosenAlbumGroupKey = :albumGroupKey")
+    suspend fun deleteAssociationResolutionsForGroup(
         libraryId: String,
         creditKey: String,
-        membershipFingerprint: String,
+        albumGroupKey: String,
     ): Int
-
-    @Query("DELETE FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey")
-    suspend fun deleteAssociationResolutionsForCredit(libraryId: String, creditKey: String): Int
 
     /**
      * Association rows must never use SQLite REPLACE: REPLACE is delete+insert and can

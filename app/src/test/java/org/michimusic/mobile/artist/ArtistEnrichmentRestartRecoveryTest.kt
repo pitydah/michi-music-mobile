@@ -443,8 +443,8 @@ class ArtistEnrichmentRestartRecoveryTest {
             assertEquals(canonicalGroup, recovered.associationGroupKey)
             assertTrue(recovered.needsConfirmation)
 
-            // Persisting the refreshed profile updates membership evidence on the SAME
-            // canonical row; it must not create a second association that hides artwork.
+            // Persisting refreshed provider facts updates the SAME canonical row without
+            // turning the temporary expanded library view into ownership evidence.
             reopened.save(
                 "lib_device_local", credit, changedAlbums, recovered.profile,
                 associationGroupKey = recovered.associationGroupKey,
@@ -457,7 +457,7 @@ class ArtistEnrichmentRestartRecoveryTest {
             val afterRefresh = RoomArtistEnrichmentSelectionStore(database) { 100L }
             val exact = requireNotNull(afterRefresh.load("lib_device_local", credit, changedAlbums))
             assertEquals(canonicalGroup, exact.associationGroupKey)
-            assertTrue(!exact.needsConfirmation)
+            assertTrue(exact.needsConfirmation)
             val recoveredAnchor = requireNotNull(
                 org.michimusic.mobile.artist.artwork.artistIdentityAnchor(
                     "lib_device_local", credit, changedAlbums, exact.profile,

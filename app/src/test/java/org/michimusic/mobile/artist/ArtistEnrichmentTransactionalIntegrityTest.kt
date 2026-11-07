@@ -200,7 +200,7 @@ class ArtistEnrichmentTransactionalIntegrityTest {
     }
 
     @Test
-    fun albumMembershipChangesUpdateOneHistoricalAssociation() = runBlocking {
+    fun albumMembershipChangesPreserveOneCanonicalHistoricalAssociation() = runBlocking {
         val name = "identity-membership-${System.nanoTime()}.db"
         try {
             val database = open(name)
@@ -215,6 +215,8 @@ class ArtistEnrichmentTransactionalIntegrityTest {
             assertEquals(1, rows.size)
             assertEquals(group, rows.single().albumGroupKey)
             assertEquals(mbidA, rows.single().confirmedMbid)
+            assertEquals("[\"album-diesel-and-dust\"]", rows.single().albumIdsJson)
+            assertEquals(group, rows.single().membershipFingerprint)
             database.close()
         } finally {
             context.deleteDatabase(name)
