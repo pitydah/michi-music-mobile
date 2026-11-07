@@ -1,5 +1,9 @@
 # R11.5.2-R2 — Artist Enrichment permanence seal
 
+> **Deprecated:** Historical R2 record only. The normative contract is now
+> [`ARTIST_ENRICHMENT_FINAL_DOMAIN_CONTRACT.md`](ARTIST_ENRICHMENT_FINAL_DOMAIN_CONTRACT.md),
+> with separate identity, persistence/artwork, and UI-consumer references in this directory.
+
 Status: implemented locally on `feat/ui2-r11-artist-artwork-federation`.
 Baseline: `f45669ac82a6c678c3c5db98e223dd9cfb95a795`.
 
