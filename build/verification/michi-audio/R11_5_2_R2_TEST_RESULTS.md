@@ -41,6 +41,16 @@
   0021–0022. Skill inventory executed; receipt format check PASS. Independent
   review of native skill logs remains a release-process check, not a product defect.
 
+## Remote CI
+
+- Published candidate: `41f9a65c24d4c3988319ddabb600f1ce8c3658c5`.
+- GitHub Actions run: `42321152896`.
+- **8/8 PASS**: lint, Normal/F-Droid unit tests, Room migrations/schemas,
+  Normal/F-Droid builds, API 36 instrumented tests, and release-candidate
+  quality gate.
+- Non-blocking runner annotations: Node.js 20 action compatibility warnings,
+  `setup-java@v4` deprecation, and the announced `ubuntu-latest` image migration.
+
 APK hashes for the final source candidate (regenerate only if source changes):
 
 - Normal debug: `555fdc9373d84218b28427a23d6a798dd424c4458de06c1d3dac3cbec77f3845`
