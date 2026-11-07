@@ -370,10 +370,22 @@ fun ArtistEnrichmentPanel(
                         modifier = Modifier.testTag("artist_enrichment_persistence_error"))
                 }
                 if (uiState.needsConfirmation) {
-                    Text("La asociación se recuperó de un grupo de álbumes anterior. " +
-                        "Confirma de nuevo la identidad si el artista cambió.",
+                    Text("Algunos álbumes visibles todavía no pertenecen a esta asociación. " +
+                        "Vincúlalos solo si corresponden al MBID mostrado.",
                         color = TextSecondary, fontSize = 11.sp,
                         modifier = Modifier.testTag("artist_enrichment_needs_confirmation"))
+                    OutlinedButton(
+                        onClick = {
+                            activeController.bindVisibleAlbums(artistCredit, libraryId, albumIds)
+                        },
+                        enabled = canPersist && !result.refreshing,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .testTag("artist_enrichment_bind_albums"),
+                        colors = secondaryColors,
+                        border = secondaryBorder,
+                    ) {
+                        Text("Vincular estos álbumes al MBID confirmado")
+                    }
                 }
                 if (canPersist && result.persisted) {
                     OutlinedButton(

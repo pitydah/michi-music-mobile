@@ -19,7 +19,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -30,7 +29,6 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
 import org.michimusic.mobile.artist.artwork.ArtworkFocus
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
-import org.michimusic.data.artist.ArtistEnrichmentRecord
 
 @RunWith(AndroidJUnit4::class)
 class ArtistEnrichmentPanelTest {
@@ -125,6 +123,36 @@ class ArtistEnrichmentPanelTest {
             compose.onAllNodesWithText("Ficha actualizada sin fotografías verificables.")
                 .fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    @Test
+    fun recoveredAssociationOffersExplicitLocalBindingWithoutProviderRequest() {
+        val gateway = FakeGateway(candidates = emptyList(), profile = profile())
+        val store = FakeProfileStore(
+            cached = PersistedArtistProfile(
+                profile = profile(),
+                stale = false,
+                associationGroupKey = "association-a",
+                needsConfirmation = true,
+            ),
+        )
+
+        compose.setContent {
+            ArtistEnrichmentPanel(
+                artistCredit = "Midnight Oil",
+                gateway = gateway,
+                libraryId = "library-a",
+                albumIds = listOf("album-a", "album-b"),
+                selectionStore = store,
+                artworkStore = FakeArtworkStore(),
+            )
+        }
+
+        compose.onNodeWithTag("artist_enrichment_bind_albums").performScrollTo().performClick()
+        compose.waitUntil(5_000) { store.bindings.get() == 1 }
+        compose.onNodeWithTag("artist_enrichment_needs_confirmation").assertDoesNotExist()
+        assertEquals(0, gateway.searches.get())
+        assertEquals(0, gateway.refreshes.get())
     }
 
     @Test
@@ -319,28 +347,16 @@ class ArtistEnrichmentPanelTest {
         val store = RoomArtistEnrichmentSelectionStore(database)
         runBlocking {
             listOf(
-                Triple(groupA, mbid, "Midnight Oil"),
-                Triple(groupB, otherMbid, "Midnight Oil (historical credit)"),
-            ).forEach { (group, identity, name) ->
+                Triple("album-a", mbid, "Midnight Oil"),
+                Triple("album-b", otherMbid, "Midnight Oil (historical credit)"),
+            ).forEach { (album, identity, name) ->
                 val saved = profile().copy(mbid = identity, name = name)
-                database.artistEnrichmentDao().put(
-                    ArtistEnrichmentRecord(
-                        libraryId = "library-a",
-                        creditKey = keys.first,
-                        albumGroupKey = group,
-                        confirmedMbid = identity,
-                        profileJson = Json.encodeToString(saved),
-                        savedAtMs = 1L,
-                        staleAfterMs = Long.MAX_VALUE,
-                        source = "historical-test",
-                        biographySourceUrl = saved.biographySourceUrl,
-                        portraitSourceUrl = null,
-                        portraitLicense = null,
-                        portraitLicenseUrl = null,
-                        portraitAttribution = null,
-                        albumIdsJson = "[\"album-${if (group == groupA) "a" else "b"}\"]",
-                        membershipFingerprint = keys.second,
-                    ),
+                val confirmed = store.confirmNewIdentity(
+                    "library-a", "Midnight Oil", listOf(album), identity,
+                )
+                store.refreshProfile(
+                    "library-a", "Midnight Oil",
+                    requireNotNull(confirmed.associationGroupKey), saved,
                 )
             }
         }
@@ -469,8 +485,9 @@ class ArtistEnrichmentPanelTest {
     private class FakeProfileStore(
         var cached: PersistedArtistProfile? = null,
         private val cacheCredit: String? = null,
-    ) : ArtistEnrichmentSelectionStore {
+    ) : ArtistEnrichmentSelectionStore, ArtistMembershipBindingStore {
         val clears = AtomicInteger()
+        val bindings = AtomicInteger()
 
         override suspend fun load(
             libraryId: String,
@@ -492,6 +509,18 @@ class ArtistEnrichmentPanelTest {
         ) {
             clears.incrementAndGet()
             cached = null
+        }
+
+        override suspend fun bindAlbumsToAssociation(
+            libraryId: String,
+            credit: String,
+            albumIds: List<String>,
+            associationId: String,
+            expectedMbid: String,
+            evidenceType: ArtistMembershipEvidenceType,
+        ): PersistedArtistProfile {
+            bindings.incrementAndGet()
+            return requireNotNull(cached).copy(needsConfirmation = false).also { cached = it }
         }
     }
 

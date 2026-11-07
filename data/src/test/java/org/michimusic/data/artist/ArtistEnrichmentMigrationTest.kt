@@ -12,6 +12,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.security.MessageDigest
 
 /** v1 -> v2 preserves previously selected artists; no destructive migration is permitted. */
 @RunWith(RobolectricTestRunner::class)
@@ -53,7 +54,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
-                ArtistEnrichmentCacheDatabase.MIGRATION_7_8)
+                ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
+                ArtistEnrichmentCacheDatabase.MIGRATION_8_9)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -107,7 +109,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_4_5,
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
-                ArtistEnrichmentCacheDatabase.MIGRATION_7_8)
+                ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
+                ArtistEnrichmentCacheDatabase.MIGRATION_8_9)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -325,6 +328,126 @@ class ArtistEnrichmentMigrationTest {
         } finally {
             upgraded.close()
         }
+    }
+
+    @Test
+    fun v8FactsSurviveAndOnlyReproducibleExplicitMembershipBecomesAuthoritative() = runBlocking {
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val trustedAssociation = membershipFingerprint("album-a")
+        val uncertainAssociation = "legacy-uncertain-b"
+        val combinedContext = membershipFingerprint("album-a", "album-b")
+        val name = "artist-migration-8-9-${System.nanoTime()}.db"
+        helper.createDatabase(name, 8).apply {
+            execSQL(
+                """
+                INSERT INTO artist_enrichment
+                    (libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,
+                     savedAtMs,staleAfterMs,source,albumIdsJson,membershipFingerprint)
+                VALUES('lib-a','artist','$trustedAssociation','$mbid','{}',11,22,
+                       'musicbrainz-manual-selection','["album-a"]','$trustedAssociation')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_enrichment
+                    (libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,
+                     savedAtMs,staleAfterMs,source,albumIdsJson,membershipFingerprint)
+                VALUES('lib-a','artist','$uncertainAssociation','$otherMbid','{}',12,23,
+                       'musicbrainz-manual-selection','["album-b"]','$combinedContext')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_association_resolution
+                    (libraryId,creditKey,membershipFingerprint,chosenAlbumGroupKey,
+                     chosenMbid,evidence,confirmedAtMs)
+                VALUES('lib-a','artist','$combinedContext','$trustedAssociation',
+                       '$mbid','USER_EXPLICIT_CHOICE',13)
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_artwork_asset
+                    (assetId,confirmedMbid,verifiedQid,source,sourcePageUrl,imageUrl,
+                     localRelativePath,sha256,mimeType,width,height,licenseId,licenseUrl,
+                     attribution,evidence,downloadedAtMs)
+                VALUES('sha256:abc','$mbid','Q1','COMMONS_P18','https://commons/a',
+                       'https://images/a','artist-artwork/a.png','abc','image/png',2,2,
+                       'CC0','https://creativecommons.org/publicdomain/zero/1.0/',
+                       'Artist','VERIFIED_QID_REFERENCE',10)
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_artwork_link
+                    (libraryId,creditKey,albumGroupKey,slot,confirmedMbid,assetId,
+                     verifiedQid,source,sourcePageUrl,imageUrl,licenseId,licenseUrl,
+                     attribution,evidence,linkedAtMs)
+                VALUES('lib-a','artist','$trustedAssociation','ARTIST_THUMB','$mbid',
+                       'sha256:abc','Q1','COMMONS_P18','https://commons/a','https://images/a',
+                       'CC0','https://creativecommons.org/publicdomain/zero/1.0/',
+                       'Artist','VERIFIED_QID_REFERENCE',10)
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_artwork_selection
+                    (libraryId,creditKey,albumGroupKey,slot,assetId,confirmedMbid,
+                     focusX,focusY,manuallyChosen,revision,updatedAtMs)
+                VALUES('lib-a','artist','$trustedAssociation','ARTIST_THUMB','sha256:abc',
+                       '$mbid',0.25,0.75,1,4,10)
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 9, true, ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+        )
+        try {
+            fun count(sql: String, args: Array<Any?> = emptyArray()): Int =
+                upgraded.query(sql, args).use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    cursor.getInt(0)
+                }
+
+            assertEquals(2, count("SELECT COUNT(*) FROM artist_enrichment"))
+            assertEquals(2, count("SELECT COUNT(*) FROM durable_artist_association"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_album_credit_binding"))
+            assertEquals(
+                1,
+                count(
+                    "SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey=? AND associationId=?",
+                    arrayOf("album-a", trustedAssociation),
+                ),
+            )
+            assertEquals(
+                1,
+                count(
+                    "SELECT COUNT(*) FROM artist_membership_evidence WHERE albumKey=? AND status='INSUFFICIENT'",
+                    arrayOf("album-b"),
+                ),
+            )
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_association_resolution"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_artwork_asset"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_artwork_link"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_artwork_selection"))
+            assertEquals(0, count("SELECT COUNT(*) FROM pragma_foreign_key_check"))
+            upgraded.query("PRAGMA integrity_check").use { integrity ->
+                assertTrue(integrity.moveToFirst())
+                assertEquals("ok", integrity.getString(0))
+            }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    private fun membershipFingerprint(vararg albumKeys: String): String {
+        val group = albumKeys.toSortedSet().joinToString("\u0000")
+        return MessageDigest.getInstance("SHA-256")
+            .digest(group.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
     @Test

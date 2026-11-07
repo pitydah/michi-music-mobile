@@ -3,6 +3,7 @@ package org.michimusic.data.artist
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -12,6 +13,8 @@ import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.room.RoomDatabase
 import kotlinx.coroutines.flow.Flow
+import org.json.JSONArray
+import java.security.MessageDigest
 
 /**
  * A deliberately separate Room database: upgrading Artist Enrichment does not change
@@ -39,10 +42,9 @@ data class ArtistEnrichmentRecord(
     val portraitLicenseUrl: String?,
     val portraitAttribution: String?,
     /**
-     * Immutable JSON array of the album IDs that formed this canonical association.
-     * It may support a unique local recovery only when its hash reproduces albumGroupKey;
-     * a temporary view or profile refresh must never broaden it. Null or inconsistent
-     * legacy rows remain exact-match only.
+     * Immutable legacy creation context. Runtime lookup never treats this JSON as membership;
+     * v8→v9 uses a reproducible hash only to classify migration evidence conservatively.
+     * A temporary view or profile refresh must never broaden it.
      */
     val albumIdsJson: String? = null,
     /**
@@ -53,7 +55,83 @@ data class ArtistEnrichmentRecord(
     val membershipFingerprint: String? = null,
 )
 
-/** A user-confirmed choice among still-preserved historical associations for one membership. */
+/** Stable library-local aggregate. albumGroupKey is retained as the association id column. */
+@Entity(
+    tableName = "durable_artist_association",
+    primaryKeys = ["libraryId", "creditKey", "associationId"],
+    indices = [Index(value = ["libraryId", "creditKey", "identityAssociationId"])],
+    foreignKeys = [
+        ForeignKey(
+            entity = ArtistEnrichmentRecord::class,
+            parentColumns = ["libraryId", "creditKey", "albumGroupKey"],
+            childColumns = ["libraryId", "creditKey", "identityAssociationId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class DurableArtistAssociationRecord(
+    val libraryId: String,
+    val creditKey: String,
+    val associationId: String,
+    val identityAssociationId: String,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+)
+
+/** Sole authoritative ownership of one album + credited component. */
+@Entity(
+    tableName = "artist_album_credit_binding",
+    primaryKeys = ["libraryId", "albumKey", "creditKey"],
+    indices = [Index(value = ["libraryId", "creditKey", "associationId"])],
+    foreignKeys = [
+        ForeignKey(
+            entity = DurableArtistAssociationRecord::class,
+            parentColumns = ["libraryId", "creditKey", "associationId"],
+            childColumns = ["libraryId", "creditKey", "associationId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ArtistAlbumCreditBindingRecord(
+    val libraryId: String,
+    val albumKey: String,
+    val creditKey: String,
+    val associationId: String,
+    val evidenceType: String,
+    val confirmedAtMs: Long,
+)
+
+/** Observation supporting a possible binding. Non-confirmed rows never assign identity. */
+@Entity(
+    tableName = "artist_membership_evidence",
+    primaryKeys = ["libraryId", "albumKey", "creditKey", "associationId", "evidenceType", "evidenceKey"],
+    indices = [
+        Index(value = ["libraryId", "albumKey", "creditKey"]),
+        Index(value = ["libraryId", "creditKey", "associationId"]),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = DurableArtistAssociationRecord::class,
+            parentColumns = ["libraryId", "creditKey", "associationId"],
+            childColumns = ["libraryId", "creditKey", "associationId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ArtistMembershipEvidenceRecord(
+    val libraryId: String,
+    val albumKey: String,
+    val creditKey: String,
+    val associationId: String,
+    val evidenceType: String,
+    val evidenceKey: String,
+    val status: String,
+    val source: String,
+    val observedAtMs: Long,
+    val confirmedAtMs: Long?,
+)
+
+/** A user-confirmed choice among bindings visible in one exact context fingerprint. */
 @Entity(
     tableName = "artist_association_resolution",
     primaryKeys = ["libraryId", "creditKey", "membershipFingerprint"],
@@ -67,6 +145,8 @@ data class ArtistAssociationResolutionRecord(
     val chosenMbid: String,
     val evidence: String,
     val confirmedAtMs: Long,
+    /** Sorted album keys for precise invalidation; null only for pre-v9 legacy decisions. */
+    val contextAlbumKeysJson: String? = null,
 )
 
 /** Raw observations, never automatic artist identity assignment or playback metadata rewrite. */
@@ -175,12 +255,76 @@ interface ArtistEnrichmentDao {
     @Query("SELECT * FROM artist_enrichment WHERE libraryId = :libraryId AND creditKey = :creditKey")
     suspend fun getAllForCredit(libraryId: String, creditKey: String): List<ArtistEnrichmentRecord>
 
+    @Query("SELECT * FROM durable_artist_association WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId LIMIT 1")
+    suspend fun getDurableAssociation(
+        libraryId: String,
+        creditKey: String,
+        associationId: String,
+    ): DurableArtistAssociationRecord?
+
+    @Query("SELECT * FROM durable_artist_association WHERE libraryId = :libraryId AND creditKey = :creditKey")
+    suspend fun getDurableAssociationsForCredit(
+        libraryId: String,
+        creditKey: String,
+    ): List<DurableArtistAssociationRecord>
+
+    @Upsert
+    suspend fun putDurableAssociation(record: DurableArtistAssociationRecord)
+
+    @Query("SELECT * FROM artist_album_credit_binding WHERE libraryId = :libraryId AND creditKey = :creditKey AND albumKey IN (:albumKeys)")
+    suspend fun getAlbumCreditBindings(
+        libraryId: String,
+        creditKey: String,
+        albumKeys: List<String>,
+    ): List<ArtistAlbumCreditBindingRecord>
+
+    @Query("SELECT * FROM artist_album_credit_binding WHERE libraryId = :libraryId AND albumKey = :albumKey AND creditKey = :creditKey LIMIT 1")
+    suspend fun getAlbumCreditBinding(
+        libraryId: String,
+        albumKey: String,
+        creditKey: String,
+    ): ArtistAlbumCreditBindingRecord?
+
+    @Upsert
+    suspend fun putAlbumCreditBinding(record: ArtistAlbumCreditBindingRecord)
+
+    @Upsert
+    suspend fun putMembershipEvidence(record: ArtistMembershipEvidenceRecord)
+
+    @Query("SELECT * FROM artist_membership_evidence WHERE libraryId = :libraryId AND albumKey = :albumKey AND creditKey = :creditKey")
+    suspend fun getMembershipEvidence(
+        libraryId: String,
+        albumKey: String,
+        creditKey: String,
+    ): List<ArtistMembershipEvidenceRecord>
+
+    @Query("UPDATE artist_membership_evidence SET status = 'SUPERSEDED', confirmedAtMs = NULL WHERE libraryId = :libraryId AND albumKey = :albumKey AND creditKey = :creditKey AND associationId = :associationId AND status = 'CONFIRMED'")
+    suspend fun supersedeConfirmedMembershipEvidence(
+        libraryId: String,
+        albumKey: String,
+        creditKey: String,
+        associationId: String,
+    )
+
     @Query("SELECT * FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint LIMIT 1")
     suspend fun getAssociationResolution(
         libraryId: String,
         creditKey: String,
         membershipFingerprint: String,
     ): ArtistAssociationResolutionRecord?
+
+    @Query("SELECT * FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey")
+    suspend fun getAssociationResolutionsForCredit(
+        libraryId: String,
+        creditKey: String,
+    ): List<ArtistAssociationResolutionRecord>
+
+    @Query("DELETE FROM artist_association_resolution WHERE libraryId = :libraryId AND creditKey = :creditKey AND membershipFingerprint = :membershipFingerprint")
+    suspend fun deleteAssociationResolution(
+        libraryId: String,
+        creditKey: String,
+        membershipFingerprint: String,
+    )
 
     @Upsert
     suspend fun putAssociationResolution(resolution: ArtistAssociationResolutionRecord)
@@ -399,6 +543,9 @@ interface ArtistEnrichmentDao {
 @Database(
     entities = [
         ArtistEnrichmentRecord::class,
+        DurableArtistAssociationRecord::class,
+        ArtistAlbumCreditBindingRecord::class,
+        ArtistMembershipEvidenceRecord::class,
         ArtistAssociationResolutionRecord::class,
         ArtistTrackEvidenceRecord::class,
         ArtistArtworkAssetRecord::class,
@@ -406,7 +553,7 @@ interface ArtistEnrichmentDao {
         ArtistArtworkLinkRecord::class,
         ArtistArtworkRevisionRecord::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -569,6 +716,142 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                     "`index_artist_association_resolution_libraryId_creditKey_chosenAlbumGroupKey` " +
                     "ON `artist_association_resolution` (`libraryId`, `creditKey`, `chosenAlbumGroupKey`)",
             )
+        }
+
+        /**
+         * Final domain split: identity facts stay in artist_enrichment, while stable
+         * associations, authoritative album-credit bindings and non-authoritative evidence
+         * become distinct persisted concepts. No row, profile or artwork table is rewritten.
+         */
+        val MIGRATION_8_9 = Migration(8, 9) { db ->
+            db.execSQL(
+                "ALTER TABLE `artist_association_resolution` ADD COLUMN `contextAlbumKeysJson` TEXT",
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `durable_artist_association` (
+                    `libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL,
+                    `associationId` TEXT NOT NULL, `identityAssociationId` TEXT NOT NULL,
+                    `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `creditKey`, `associationId`),
+                    FOREIGN KEY(`libraryId`, `creditKey`, `identityAssociationId`)
+                        REFERENCES `artist_enrichment`(`libraryId`, `creditKey`, `albumGroupKey`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_durable_artist_association_libraryId_creditKey_identityAssociationId` " +
+                    "ON `durable_artist_association` (`libraryId`, `creditKey`, `identityAssociationId`)",
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `artist_album_credit_binding` (
+                    `libraryId` TEXT NOT NULL, `albumKey` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL, `associationId` TEXT NOT NULL,
+                    `evidenceType` TEXT NOT NULL, `confirmedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `albumKey`, `creditKey`),
+                    FOREIGN KEY(`libraryId`, `creditKey`, `associationId`)
+                        REFERENCES `durable_artist_association`(`libraryId`, `creditKey`, `associationId`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_artist_album_credit_binding_libraryId_creditKey_associationId` " +
+                    "ON `artist_album_credit_binding` (`libraryId`, `creditKey`, `associationId`)",
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `artist_membership_evidence` (
+                    `libraryId` TEXT NOT NULL, `albumKey` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL, `associationId` TEXT NOT NULL,
+                    `evidenceType` TEXT NOT NULL, `evidenceKey` TEXT NOT NULL,
+                    `status` TEXT NOT NULL, `source` TEXT NOT NULL,
+                    `observedAtMs` INTEGER NOT NULL, `confirmedAtMs` INTEGER,
+                    PRIMARY KEY(`libraryId`, `albumKey`, `creditKey`, `associationId`, `evidenceType`, `evidenceKey`),
+                    FOREIGN KEY(`libraryId`, `creditKey`, `associationId`)
+                        REFERENCES `durable_artist_association`(`libraryId`, `creditKey`, `associationId`)
+                        ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_artist_membership_evidence_libraryId_albumKey_creditKey` " +
+                    "ON `artist_membership_evidence` (`libraryId`, `albumKey`, `creditKey`)",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_artist_membership_evidence_libraryId_creditKey_associationId` " +
+                    "ON `artist_membership_evidence` (`libraryId`, `creditKey`, `associationId`)",
+            )
+
+            val rows = db.query(
+                "SELECT libraryId, creditKey, albumGroupKey, savedAtMs, source, albumIdsJson " +
+                    "FROM artist_enrichment",
+            )
+            rows.use { cursor ->
+                val libraryColumn = cursor.getColumnIndexOrThrow("libraryId")
+                val creditColumn = cursor.getColumnIndexOrThrow("creditKey")
+                val associationColumn = cursor.getColumnIndexOrThrow("albumGroupKey")
+                val savedColumn = cursor.getColumnIndexOrThrow("savedAtMs")
+                val sourceColumn = cursor.getColumnIndexOrThrow("source")
+                val albumsColumn = cursor.getColumnIndexOrThrow("albumIdsJson")
+                while (cursor.moveToNext()) {
+                    val libraryId = cursor.getString(libraryColumn)
+                    val creditKey = cursor.getString(creditColumn)
+                    val associationId = cursor.getString(associationColumn)
+                    val savedAt = cursor.getLong(savedColumn)
+                    val source = cursor.getString(sourceColumn)
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO durable_artist_association " +
+                            "(libraryId,creditKey,associationId,identityAssociationId,createdAtMs,updatedAtMs) " +
+                            "VALUES(?,?,?,?,?,?)",
+                        arrayOf(libraryId, creditKey, associationId, associationId, savedAt, savedAt),
+                    )
+                    if (cursor.isNull(albumsColumn)) continue
+                    val albumKeys = runCatching {
+                        val array = JSONArray(cursor.getString(albumsColumn))
+                        List(array.length()) { index -> array.getString(index) }
+                            .filter(String::isNotBlank)
+                            .distinct()
+                            .sorted()
+                    }.getOrDefault(emptyList())
+                    val trustworthy = albumKeys.isNotEmpty() &&
+                        membershipFingerprint(albumKeys) == associationId &&
+                        source.startsWith("musicbrainz-manual-selection")
+                    albumKeys.forEach { albumKey ->
+                        val status = if (trustworthy) "CONFIRMED" else "INSUFFICIENT"
+                        db.execSQL(
+                            "INSERT OR IGNORE INTO artist_membership_evidence " +
+                                "(libraryId,albumKey,creditKey,associationId,evidenceType,evidenceKey,status,source,observedAtMs,confirmedAtMs) " +
+                                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                            arrayOf<Any?>(
+                                libraryId, albumKey, creditKey, associationId,
+                                "LEGACY_EXPLICIT_CONTEXT", albumKey, status, "MIGRATION_V8", savedAt,
+                                if (trustworthy) savedAt else null,
+                            ),
+                        )
+                        if (trustworthy) {
+                            db.execSQL(
+                                "INSERT OR IGNORE INTO artist_album_credit_binding " +
+                                    "(libraryId,albumKey,creditKey,associationId,evidenceType,confirmedAtMs) " +
+                                    "VALUES(?,?,?,?,?,?)",
+                                arrayOf(
+                                    libraryId, albumKey, creditKey, associationId,
+                                    "LEGACY_EXPLICIT_CONTEXT", savedAt,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        private fun membershipFingerprint(albumKeys: Collection<String>): String {
+            val group = albumKeys.toSortedSet().joinToString("\u0000")
+            return MessageDigest.getInstance("SHA-256")
+                .digest(group.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
         }
 
         /** R11.5: monotonic per-library artwork revision, independent of wall-clock time. */

@@ -200,15 +200,17 @@ class ArtistEnrichmentTransactionalIntegrityTest {
     }
 
     @Test
-    fun albumMembershipChangesPreserveOneCanonicalHistoricalAssociation() = runBlocking {
+    fun explicitMembershipBindingPreservesOneCanonicalAssociationAcrossDisjointViews() = runBlocking {
         val name = "identity-membership-${System.nanoTime()}.db"
         try {
             val database = open(name)
             val store = RoomArtistEnrichmentSelectionStore(database) { 100L }
             val original = store.saveIdentity("lib-a", credit, albums, mbidA)
             val group = requireNotNull(original.associationGroupKey)
-            store.saveIdentity("lib-a", credit, albums + "album-red-sails", mbidA, group)
-            store.saveIdentity("lib-a", credit, listOf("album-red-sails"), mbidA, group)
+            store.bindAlbumsToAssociation(
+                "lib-a", credit, listOf("album-red-sails"), group, mbidA,
+                ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+            )
 
             val keys = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums))
             val rows = database.artistEnrichmentDao().getAllForCredit("lib-a", keys.first)
@@ -217,6 +219,46 @@ class ArtistEnrichmentTransactionalIntegrityTest {
             assertEquals(mbidA, rows.single().confirmedMbid)
             assertEquals("[\"album-diesel-and-dust\"]", rows.single().albumIdsJson)
             assertEquals(group, rows.single().membershipFingerprint)
+            assertEquals(
+                group,
+                store.load("lib-a", credit, listOf("album-red-sails"))?.associationGroupKey,
+            )
+            database.close()
+        } finally {
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun concurrentBindingAndClearCannotResurrectADeletedAssociation() = runBlocking {
+        val name = "identity-binding-clear-race-${System.nanoTime()}.db"
+        try {
+            val database = open(name)
+            val store = RoomArtistEnrichmentSelectionStore(database) { 100L }
+            val associationId = requireNotNull(
+                store.confirmNewIdentity("lib-a", credit, albums, mbidA).associationGroupKey,
+            )
+
+            val outcomes = listOf(
+                async(Dispatchers.IO) {
+                    runCatching {
+                        store.bindAlbumsToAssociation(
+                            "lib-a", credit, listOf("album-red-sails"), associationId, mbidA,
+                            ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+                        )
+                    }
+                },
+                async(Dispatchers.IO) {
+                    runCatching { store.clear("lib-a", credit, albums, associationId) }
+                },
+            ).awaitAll()
+
+            assertTrue(outcomes.any { it.isSuccess })
+            assertNull(store.load("lib-a", credit, albums))
+            assertNull(store.load("lib-a", credit, listOf("album-red-sails")))
+            database.openHelper.writableDatabase.query("PRAGMA foreign_key_check").use { cursor ->
+                assertEquals(0, cursor.count)
+            }
             database.close()
         } finally {
             context.deleteDatabase(name)

@@ -198,6 +198,48 @@ class ArtistEnrichmentController(
         }
     }
 
+    /**
+     * Explicitly makes the currently visible album-credit rows members of the already verified
+     * local association. This is a local Room operation: it never searches or refreshes a
+     * provider and it never changes the association's MBID.
+     */
+    fun bindVisibleAlbums(
+        artistCredit: String,
+        libraryId: String?,
+        albumIds: List<String>,
+    ) {
+        val bindingStore = profileStore as? ArtistMembershipBindingStore ?: return
+        val scopedLibrary = libraryId ?: return
+        val current = _state.value
+        val associationId = current.associationGroupKey ?: return
+        val mbid = current.profile?.mbid ?: return
+        requestJob?.cancel()
+        val epoch = ++requestEpoch
+        _state.value = current.copy(refreshing = true, message = null)
+        requestJob = scope.launch {
+            try {
+                bindingStore.bindAlbumsToAssociation(
+                    libraryId = scopedLibrary,
+                    credit = artistCredit,
+                    albumIds = albumIds,
+                    associationId = associationId,
+                    expectedMbid = mbid,
+                    evidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+                )
+                if (epoch != requestEpoch) return@launch
+                bootstrap(scopedLibrary, artistCredit, albumIds, epoch)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (epoch != requestEpoch) return@launch
+                _state.value = _state.value.copy(
+                    refreshing = false,
+                    message = error.message ?: "No fue posible vincular estos álbumes.",
+                )
+            }
+        }
+    }
+
     /** Explicit retry keeps the verified profile visible while the refresh runs. */
     fun refresh(artistCredit: String, libraryId: String?, albumIds: List<String>, force: Boolean = true) {
         val current = _state.value

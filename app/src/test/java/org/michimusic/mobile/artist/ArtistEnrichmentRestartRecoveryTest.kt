@@ -443,6 +443,17 @@ class ArtistEnrichmentRestartRecoveryTest {
             assertEquals(canonicalGroup, recovered.associationGroupKey)
             assertTrue(recovered.needsConfirmation)
 
+            // The user explicitly reuses the already verified local association for the
+            // newly observed album. This is local Room work and does not re-search identity.
+            reopened.bindAlbumsToAssociation(
+                libraryId = "lib_device_local",
+                credit = credit,
+                albumIds = listOf("album-new-recording"),
+                associationId = canonicalGroup,
+                expectedMbid = mbid,
+                evidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+            )
+
             // Persisting refreshed provider facts updates the SAME canonical row without
             // turning the temporary expanded library view into ownership evidence.
             reopened.save(
@@ -457,7 +468,13 @@ class ArtistEnrichmentRestartRecoveryTest {
             val afterRefresh = RoomArtistEnrichmentSelectionStore(database) { 100L }
             val exact = requireNotNull(afterRefresh.load("lib_device_local", credit, changedAlbums))
             assertEquals(canonicalGroup, exact.associationGroupKey)
-            assertTrue(exact.needsConfirmation)
+            assertTrue(!exact.needsConfirmation)
+            val newAlbumOnly = requireNotNull(
+                afterRefresh.load("lib_device_local", credit, listOf("album-new-recording")),
+            )
+            assertEquals(mbid, newAlbumOnly.profile.mbid)
+            assertEquals(canonicalGroup, newAlbumOnly.associationGroupKey)
+            assertTrue(!newAlbumOnly.needsConfirmation)
             val recoveredAnchor = requireNotNull(
                 org.michimusic.mobile.artist.artwork.artistIdentityAnchor(
                     "lib_device_local", credit, changedAlbums, exact.profile,

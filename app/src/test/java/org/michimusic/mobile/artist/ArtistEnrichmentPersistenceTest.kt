@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.After
@@ -17,6 +18,9 @@ import org.junit.Before
 import org.junit.runner.RunWith
 import org.michimusic.data.artist.ArtistEnrichmentCacheDatabase
 import org.michimusic.data.artist.ArtistEnrichmentRecord
+import org.michimusic.data.artist.ArtistAlbumCreditBindingRecord
+import org.michimusic.data.artist.ArtistMembershipEvidenceRecord
+import org.michimusic.data.artist.DurableArtistAssociationRecord
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -74,6 +78,45 @@ class ArtistEnrichmentPersistenceTest {
                 membershipFingerprint = membershipFingerprint,
             ),
         )
+        database.artistEnrichmentDao().putDurableAssociation(
+            DurableArtistAssociationRecord(
+                libraryId = "lib-a",
+                creditKey = creditKey,
+                associationId = albumGroupKey,
+                identityAssociationId = albumGroupKey,
+                createdAtMs = 1L,
+                updatedAtMs = 1L,
+            ),
+        )
+        val historicalAlbums = Json.decodeFromString<List<String>>(albumIdsJson)
+        if (groupFor(*historicalAlbums.toTypedArray()) == albumGroupKey) {
+            historicalAlbums.forEach { albumId ->
+                database.artistEnrichmentDao().putAlbumCreditBinding(
+                    ArtistAlbumCreditBindingRecord(
+                        libraryId = "lib-a",
+                        albumKey = albumId,
+                        creditKey = creditKey,
+                        associationId = albumGroupKey,
+                        evidenceType = "HISTORICAL_TEST",
+                        confirmedAtMs = 1L,
+                    ),
+                )
+                database.artistEnrichmentDao().putMembershipEvidence(
+                    ArtistMembershipEvidenceRecord(
+                        libraryId = "lib-a",
+                        albumKey = albumId,
+                        creditKey = creditKey,
+                        associationId = albumGroupKey,
+                        evidenceType = "HISTORICAL_TEST",
+                        evidenceKey = albumId,
+                        status = "CONFIRMED",
+                        source = "TEST",
+                        observedAtMs = 1L,
+                        confirmedAtMs = 1L,
+                    ),
+                )
+            }
+        }
     }
 
     @Test fun oneLibraryNeverAliasesAnother() = runBlocking {
@@ -82,7 +125,7 @@ class ArtistEnrichmentPersistenceTest {
         assertNull(store.load("lib-b", credit, albums))
         val recovered = store.load("lib-a", credit, listOf("album-a"))
         assertEquals(mbid, recovered?.profile?.mbid)
-        assertTrue(recovered?.needsConfirmation == true)
+        assertFalse(requireNotNull(recovered).needsConfirmation)
         assertNull(store.load("lib-a", credit, listOf("album-z")))
         assertEquals(mbid, store.load("lib-a", credit, albums.reversed())?.profile?.mbid)
     }
@@ -263,7 +306,10 @@ class ArtistEnrichmentPersistenceTest {
             "Evidence that no longer hashes to its canonical group cannot claim album B",
             store.load("lib-a", credit, albumB),
         )
-        assertEquals(mbid, store.load("lib-a", credit, albumA)?.profile?.mbid)
+        assertNull(
+            "Malformed legacy evidence remains insufficient even for a listed album",
+            store.load("lib-a", credit, albumA),
+        )
     }
 
     @Test fun explicitResolutionRejectsACandidateRemovedBeforeConfirmation() = runBlocking {
@@ -321,16 +367,17 @@ class ArtistEnrichmentPersistenceTest {
         )
     }
 
-    @Test fun exactAssociationCannotOverrideAConflictingMembershipIdentity() = runBlocking {
+    @Test fun insufficientExactLegacyRowCannotOverrideAConfirmedBinding() = runBlocking {
         val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
         val current = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums)).second
         putHistorical(current, "legacy-membership", mbid, "[\"album-a\"]")
         putHistorical(groupFor("album-b"), current, otherMbid, "[\"album-b\"]")
 
-        val failure = runCatching { store.load("lib-a", credit, albums) }.exceptionOrNull()
+        val loaded = requireNotNull(store.load("lib-a", credit, albums))
 
-        assertNotNull("Exact and membership identities conflict; neither may win", failure)
-        assertTrue(failure?.message.orEmpty().contains("ambigua", ignoreCase = true))
+        assertEquals(otherMbid, loaded.profile.mbid)
+        assertEquals(groupFor("album-b"), loaded.associationGroupKey)
+        assertTrue("Album A remains unbound and must not be claimed", loaded.needsConfirmation)
     }
 
     @Test fun aDifferentMbidCannotSilentlyReplaceAnExistingAssociation() = runBlocking {
@@ -416,9 +463,9 @@ class ArtistEnrichmentPersistenceTest {
 
     @Test fun corruptJsonIsReportedAsACacheFailureInsteadOfRenderedAsConfirmed() = runBlocking {
         val keys = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums))
-        database.artistEnrichmentDao().put(org.michimusic.data.artist.ArtistEnrichmentRecord(
-            "lib-a", keys.first, keys.second, mbid, "{not-json", 1, 2, "test", null, null, null, null, null
-        ))
+        store.confirmNewIdentity("lib-a", credit, albums, mbid)
+        val valid = requireNotNull(database.artistEnrichmentDao().get("lib-a", keys.first, keys.second))
+        database.artistEnrichmentDao().put(valid.copy(profileJson = "{not-json"))
         val failure = try {
             store.load("lib-a", credit, albums)
             null

@@ -279,4 +279,61 @@ class ArtistEnrichmentControllerSelectionTest {
         assertEquals("group-b", controller.state.value.associationGroupKey)
         assertEquals(ArtistEnrichmentStatus.VERIFIED, controller.state.value.status)
     }
+
+    @Test
+    fun explicitLocalBindingPersistsVisibleAlbumsWithoutProviderSearch() = runTest {
+        var bound = false
+        var bindingCalls = 0
+        val store = object : ArtistEnrichmentSelectionStore, ArtistMembershipBindingStore {
+            override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                PersistedArtistProfile(
+                    profile = profile(),
+                    stale = false,
+                    associationGroupKey = "association-a",
+                    needsConfirmation = !bound,
+                )
+
+            override suspend fun save(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                profile: ArtistExternalProfile,
+            ) = Unit
+
+            override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
+
+            override suspend fun bindAlbumsToAssociation(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                associationId: String,
+                expectedMbid: String,
+                evidenceType: ArtistMembershipEvidenceType,
+            ): PersistedArtistProfile {
+                bindingCalls++
+                assertEquals("association-a", associationId)
+                assertEquals(mbid, expectedMbid)
+                assertEquals(ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING, evidenceType)
+                bound = true
+                return requireNotNull(load(libraryId, credit, albumIds))
+            }
+        }
+        val controller = ArtistEnrichmentController(
+            orchestrator = mockk(relaxed = true),
+            profileStore = store,
+            artworkStore = artworkStore(emptyList()),
+            verifySelection = { it },
+            scope = this,
+        )
+        controller.bind("lib-a", "Midnight Oil", listOf("album-a", "album-b"))
+        advanceUntilIdle()
+        assertTrue(controller.state.value.needsConfirmation)
+
+        controller.bindVisibleAlbums("Midnight Oil", "lib-a", listOf("album-a", "album-b"))
+        advanceUntilIdle()
+
+        assertEquals(1, bindingCalls)
+        assertTrue(!controller.state.value.needsConfirmation)
+        assertEquals(ArtistEnrichmentStatus.VERIFIED, controller.state.value.status)
+    }
 }

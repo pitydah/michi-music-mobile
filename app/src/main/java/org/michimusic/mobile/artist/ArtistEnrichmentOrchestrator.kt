@@ -213,8 +213,12 @@ class ArtistEnrichmentOrchestrator(
         var persistenceError: String? = null
         ArtistEnrichmentDiagnostics.event("AE_SAVE_ATTEMPT")
         try {
-            store.save(
-                libraryId, artistCredit, albumIds, profile, effectiveAssociationGroupKey,
+            store.refreshPersistedProfile(
+                libraryId = libraryId,
+                credit = artistCredit,
+                albumIds = albumIds,
+                associationId = requireNotNull(effectiveAssociationGroupKey),
+                profile = profile,
             )
             ArtistEnrichmentDiagnostics.event("AE_SAVE_COMMITTED")
         } catch (cancelled: CancellationException) {

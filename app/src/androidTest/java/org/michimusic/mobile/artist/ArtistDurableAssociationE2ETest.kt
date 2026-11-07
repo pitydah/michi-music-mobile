@@ -11,6 +11,7 @@ import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -74,6 +75,7 @@ class ArtistDurableAssociationE2ETest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
+                ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
             )
             .build()
         store = RoomArtistEnrichmentSelectionStore(database) { 100L }
@@ -171,14 +173,21 @@ class ArtistDurableAssociationE2ETest {
         assertEquals(0.45f, slots.getValue(ArtworkSlot.ARTIST_HERO).focus.y, 0.0001f)
         assertTrue(slots.getValue(ArtworkSlot.ARTIST_HERO).manuallyChosen)
 
-        store.save(libraryId, credit, albumsB, profile(), canonical)
+        store.bindAlbumsToAssociation(
+            libraryId = libraryId,
+            credit = credit,
+            albumIds = listOf("album-blue-sky-mining"),
+            associationId = canonical,
+            expectedMbid = mbid,
+        )
+        store.refreshProfile(libraryId, credit, canonical, profile())
         database.close()
         open()
 
         val refreshed = requireNotNull(store.load(libraryId, credit, albumsB))
         assertEquals(canonical, refreshed.associationGroupKey)
         assertEquals(mbid, refreshed.profile.mbid)
-        assertTrue(refreshed.needsConfirmation)
+        assertFalse(refreshed.needsConfirmation)
         val exactAnchor = requireNotNull(
             artistIdentityAnchor(
                 libraryId, credit, albumsB, refreshed.profile, refreshed.associationGroupKey,
@@ -204,7 +213,7 @@ class ArtistDurableAssociationE2ETest {
         val removed = requireNotNull(store.load(libraryId, credit, albumsA))
         assertEquals(mbid, removed.profile.mbid)
         assertEquals(canonical, removed.associationGroupKey)
-        assertTrue(removed.needsConfirmation)
+        assertFalse(removed.needsConfirmation)
         val removedAnchor = requireNotNull(
             artistIdentityAnchor(
                 libraryId, credit, albumsA, removed.profile, removed.associationGroupKey,
@@ -215,13 +224,13 @@ class ArtistDurableAssociationE2ETest {
         assertEquals(ArtworkLoadStatus.READY, removedSlots.getValue(ArtworkSlot.ARTIST_HERO).status)
         assertTrue(removedSlots.getValue(ArtworkSlot.ARTIST_HERO).manuallyChosen)
 
-        store.save(libraryId, credit, albumsA, profile(), canonical)
+        store.refreshProfile(libraryId, credit, canonical, profile())
         database.close()
         open()
 
         val refreshed = requireNotNull(store.load(libraryId, credit, albumsA))
         assertEquals(canonical, refreshed.associationGroupKey)
-        assertTrue(refreshed.needsConfirmation)
+        assertFalse(refreshed.needsConfirmation)
     }
 
     @Test
