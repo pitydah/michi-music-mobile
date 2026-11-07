@@ -43,6 +43,7 @@ data class ArtistEnrichmentState(
     val message: String? = null,
     val pendingPortraits: List<ArtistArtworkCandidate> = emptyList(),
     val selections: Map<ArtworkSlot, ArtistArtworkSelection> = emptyMap(),
+    val unboundAlbumIds: List<String> = emptyList(),
 )
 
 /**
@@ -207,24 +208,28 @@ class ArtistEnrichmentController(
         artistCredit: String,
         libraryId: String?,
         albumIds: List<String>,
+        albumIdToBind: String? = null,
     ) {
         val bindingStore = profileStore as? ArtistMembershipBindingStore ?: return
         val scopedLibrary = libraryId ?: return
         val current = _state.value
         val associationId = current.associationGroupKey ?: return
         val mbid = current.profile?.mbid ?: return
+        // Reject any implicit multi-album confirmation. The selected album must be
+        // pending in the last authoritative Room read AND visible in this context.
+        val chosenAlbum = albumIdToBind ?: current.unboundAlbumIds.singleOrNull() ?: return
+        if (chosenAlbum !in current.unboundAlbumIds || chosenAlbum !in albumIds) return
         requestJob?.cancel()
         val epoch = ++requestEpoch
         _state.value = current.copy(refreshing = true, message = null)
         requestJob = scope.launch {
             try {
-                bindingStore.bindAlbumsToAssociation(
+                bindingStore.bindUnboundAlbumsToAssociation(
                     libraryId = scopedLibrary,
                     credit = artistCredit,
-                    albumIds = albumIds,
+                    visibleAlbumIds = listOf(chosenAlbum),
                     associationId = associationId,
                     expectedMbid = mbid,
-                    evidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
                 )
                 if (epoch != requestEpoch) return@launch
                 bootstrap(scopedLibrary, artistCredit, albumIds, epoch)
@@ -469,6 +474,7 @@ class ArtistEnrichmentController(
             },
             associationGroupKey = cached.associationGroupKey,
             needsConfirmation = cached.needsConfirmation,
+            unboundAlbumIds = cached.unboundAlbumIds,
             stale = cached.stale,
             selections = selections,
             message = when {
@@ -562,11 +568,16 @@ class ArtistEnrichmentController(
                 else -> null
             },
             associationGroupKey = result.associationGroupKey ?: current.associationGroupKey,
-            needsConfirmation = if (result.profilePersisted) {
-                false
-            } else {
-                current.needsConfirmation
-            },
+            // Profile refresh cannot prove any missing album-credit binding.
+            // Only a membership operation or a change of association may clear this flag.
+            needsConfirmation = if (
+                identityChanged || current.associationGroupKey == null ||
+                (result.associationGroupKey != null && result.associationGroupKey != current.associationGroupKey)
+            ) false else current.needsConfirmation,
+            unboundAlbumIds = if (
+                identityChanged || current.associationGroupKey == null ||
+                (result.associationGroupKey != null && result.associationGroupKey != current.associationGroupKey)
+            ) emptyList() else current.unboundAlbumIds,
             stale = if (result.profilePersisted) false else current.stale,
             refreshing = false,
             refreshFailed = refreshFailed,

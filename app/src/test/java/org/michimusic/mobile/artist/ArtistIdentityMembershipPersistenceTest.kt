@@ -75,6 +75,53 @@ class ArtistIdentityMembershipPersistenceTest {
     }
 
     @Test
+    fun exactResolutionWithUnboundAlbumsMustStillRequireMembershipConfirmation() = runBlocking {
+        val associationX = requireNotNull(
+            store.confirmNewIdentity("lib-a", credit, listOf("album-a"), mbidX).associationGroupKey,
+        )
+        val associationY = requireNotNull(
+            store.confirmNewIdentity("lib-a", credit, listOf("album-b"), mbidY).associationGroupKey,
+        )
+        val mixed = listOf("album-a", "album-b", "album-c")
+        store.resolveAssociation("lib-a", credit, mixed, associationX, mbidX)
+
+        val before = requireNotNull(store.load("lib-a", credit, mixed))
+        assertEquals(mbidX, before.profile.mbid)
+        assertTrue("C has no album-credit binding yet", before.needsConfirmation)
+
+        // The panel action must bind C alone, not steal Y's existing album B.
+        store.bindUnboundAlbumsToAssociation(
+            libraryId = "lib-a",
+            credit = credit,
+            visibleAlbumIds = mixed,
+            associationId = associationX,
+            expectedMbid = mbidX,
+        )
+        val after = requireNotNull(store.load("lib-a", credit, mixed))
+        assertFalse(after.needsConfirmation)
+        assertEquals(mbidX, store.load("lib-a", credit, listOf("album-c"))?.profile?.mbid)
+        assertEquals(mbidY, store.load("lib-a", credit, listOf("album-b"))?.profile?.mbid)
+        assertEquals(associationY, store.load("lib-a", credit, listOf("album-b"))?.associationGroupKey)
+    }
+
+    @Test
+    fun mixedResolutionExposesOnlyTheUnboundAlbumIds() = runBlocking {
+        val x = requireNotNull(
+            store.confirmNewIdentity("lib-a", credit, listOf("album-a"), mbidX).associationGroupKey,
+        )
+        store.confirmNewIdentity("lib-a", credit, listOf("album-b"), mbidY)
+        val mixed = listOf("album-a", "album-b", "album-c", "album-d")
+        store.resolveAssociation("lib-a", credit, mixed, x, mbidX)
+        val loaded = requireNotNull(store.load("lib-a", credit, mixed))
+        assertTrue(loaded.needsConfirmation)
+        assertEquals(listOf("album-c", "album-d"), loaded.unboundAlbumIds)
+        store.bindUnboundAlbumsToAssociation("lib-a", credit, listOf("album-c"), x, mbidX)
+        val after = requireNotNull(store.load("lib-a", credit, mixed))
+        assertEquals(listOf("album-d"), after.unboundAlbumIds)
+        assertEquals(mbidY, store.load("lib-a", credit, listOf("album-b"))?.profile?.mbid)
+    }
+
+    @Test
     fun homonymBindingsOwnSubsetsAndCombinedResolutionNeverTransfersOwnership() = runBlocking {
         val associationX = requireNotNull(
             store.confirmNewIdentity("lib-a", credit, listOf("album-a"), mbidX).associationGroupKey,

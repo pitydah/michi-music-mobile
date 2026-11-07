@@ -9,8 +9,8 @@ The UI consumes `ArtistEnrichmentController.state`, persisted association IDs, v
 private artwork selections, and these semantic actions:
 
 - explicit provider discovery and identity confirmation;
-- explicit local `bindVisibleAlbums` when persisted identity is known but visible albums are
-  unbound;
+- explicit local `bindVisibleAlbums` for one selected `unboundAlbumIds` entry when persisted
+  identity is known;
 - exact-context ambiguity resolution;
 - explicit profile/artwork refresh;
 - scoped clear and artwork focus/selection;
@@ -27,6 +27,8 @@ Commons, Openverse, or tag scans.
 - `needsConfirmation=true` means some visible album-credit rows are unbound. Persisted
   identity/profile/artwork may remain visible, but the UI must offer explicit local binding
   rather than claiming automatic ownership.
+- Exact resolution does not clear pending membership. Each pending album gets its own local
+  action; choosing one must not bind another or start provider work.
 - Ambiguity shows actual stored associations and requires an explicit choice.
 - `NO_IMAGE`, legitimate no-photo, partial artwork, provider error, cache error, and identity
   mismatch remain distinguishable.

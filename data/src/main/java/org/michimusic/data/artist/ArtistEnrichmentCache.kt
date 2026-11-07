@@ -553,7 +553,7 @@ interface ArtistEnrichmentDao {
         ArtistArtworkLinkRecord::class,
         ArtistArtworkRevisionRecord::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
@@ -831,20 +831,71 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                                 if (trustworthy) savedAt else null,
                             ),
                         )
-                        if (trustworthy) {
-                            db.execSQL(
-                                "INSERT OR IGNORE INTO artist_album_credit_binding " +
-                                    "(libraryId,albumKey,creditKey,associationId,evidenceType,confirmedAtMs) " +
-                                    "VALUES(?,?,?,?,?,?)",
-                                arrayOf(
-                                    libraryId, albumKey, creditKey, associationId,
-                                    "LEGACY_EXPLICIT_CONTEXT", savedAt,
-                                ),
-                            )
-                        }
                     }
                 }
             }
+
+            // Group every historical claim before assigning ownership. A confirmed claim
+            // cannot win merely because a competing association was classified as
+            // INSUFFICIENT, and two local associations remain distinct even with one MBID.
+            db.execSQL(
+                "INSERT INTO artist_album_credit_binding " +
+                    "(libraryId,albumKey,creditKey,associationId,evidenceType,confirmedAtMs) " +
+                    "SELECT libraryId,albumKey,creditKey,MIN(associationId)," +
+                    "'LEGACY_EXPLICIT_CONTEXT',MAX(confirmedAtMs) " +
+                    "FROM artist_membership_evidence " +
+                    "WHERE evidenceType='LEGACY_EXPLICIT_CONTEXT' AND source='MIGRATION_V8' " +
+                    "GROUP BY libraryId,albumKey,creditKey " +
+                    "HAVING COUNT(DISTINCT associationId)=1 " +
+                    "AND SUM(CASE WHEN status='CONFIRMED' THEN 1 ELSE 0 END)>0",
+            )
+            db.execSQL(
+                "UPDATE artist_membership_evidence SET status='INSUFFICIENT',confirmedAtMs=NULL " +
+                    "WHERE evidenceType='LEGACY_EXPLICIT_CONTEXT' AND source='MIGRATION_V8' " +
+                    "AND EXISTS (SELECT 1 FROM artist_membership_evidence other " +
+                    "WHERE other.libraryId=artist_membership_evidence.libraryId " +
+                    "AND other.albumKey=artist_membership_evidence.albumKey " +
+                    "AND other.creditKey=artist_membership_evidence.creditKey " +
+                    "AND other.evidenceType='LEGACY_EXPLICIT_CONTEXT' " +
+                    "AND other.source='MIGRATION_V8' " +
+                    "AND other.associationId!=artist_membership_evidence.associationId)",
+            )
+        }
+
+        /**
+         * Repairs installations already migrated by v9. Only cursor-order legacy
+         * bindings are removed; later explicit or structured-evidence bindings remain
+         * authoritative. Historical competing claims are retained as insufficient
+         * evidence rather than deleted or converted into ownership.
+         */
+        val MIGRATION_9_10 = Migration(9, 10) { db ->
+            db.execSQL(
+                "DELETE FROM artist_album_credit_binding " +
+                    "WHERE evidenceType='LEGACY_EXPLICIT_CONTEXT' " +
+                    "AND EXISTS (SELECT 1 FROM artist_membership_evidence first " +
+                    "JOIN artist_membership_evidence other " +
+                    "ON other.libraryId=first.libraryId AND other.albumKey=first.albumKey " +
+                    "AND other.creditKey=first.creditKey " +
+                    "AND other.associationId!=first.associationId " +
+                    "WHERE first.libraryId=artist_album_credit_binding.libraryId " +
+                    "AND first.albumKey=artist_album_credit_binding.albumKey " +
+                    "AND first.creditKey=artist_album_credit_binding.creditKey " +
+                    "AND first.evidenceType='LEGACY_EXPLICIT_CONTEXT' " +
+                    "AND first.source='MIGRATION_V8' " +
+                    "AND other.evidenceType='LEGACY_EXPLICIT_CONTEXT' " +
+                    "AND other.source='MIGRATION_V8')",
+            )
+            db.execSQL(
+                "UPDATE artist_membership_evidence SET status='INSUFFICIENT',confirmedAtMs=NULL " +
+                    "WHERE evidenceType='LEGACY_EXPLICIT_CONTEXT' AND source='MIGRATION_V8' " +
+                    "AND EXISTS (SELECT 1 FROM artist_membership_evidence other " +
+                    "WHERE other.libraryId=artist_membership_evidence.libraryId " +
+                    "AND other.albumKey=artist_membership_evidence.albumKey " +
+                    "AND other.creditKey=artist_membership_evidence.creditKey " +
+                    "AND other.evidenceType='LEGACY_EXPLICIT_CONTEXT' " +
+                    "AND other.source='MIGRATION_V8' " +
+                    "AND other.associationId!=artist_membership_evidence.associationId)",
+            )
         }
 
         private fun membershipFingerprint(albumKeys: Collection<String>): String {

@@ -1,5 +1,8 @@
 # Artist Enrichment final local certification
 
+> Historical v9 certification. K10/K11 and Room v10 are certified by
+> `ARTIST_K10_K11_FINAL_CERTIFICATION.md`.
+
 Date: 2026-11-07
 
 ## Scope and candidates

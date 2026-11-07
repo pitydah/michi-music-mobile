@@ -55,7 +55,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
-                ArtistEnrichmentCacheDatabase.MIGRATION_8_9)
+                ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+                ArtistEnrichmentCacheDatabase.MIGRATION_9_10)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -110,7 +111,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_5_6,
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
-                ArtistEnrichmentCacheDatabase.MIGRATION_8_9)
+                ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+                ArtistEnrichmentCacheDatabase.MIGRATION_9_10)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -438,6 +440,316 @@ class ArtistEnrichmentMigrationTest {
                 assertTrue(integrity.moveToFirst())
                 assertEquals("ok", integrity.getString(0))
             }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun migratingOverlappingTrustedAssociationsMustNotAssignSharedAlbumArbitrarily() = runBlocking {
+        val x = membershipFingerprint("album-a", "album-b")
+        val y = membershipFingerprint("album-b", "album-c")
+        val mbidX = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val mbidY = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val name = "artist-migration-overlap-${System.nanoTime()}.db"
+        helper.createDatabase(name, 8).apply {
+            // Both rows individually pass the old fingerprint/source test.
+            // Neither may win ownership of shared album B by cursor ordering.
+            execSQL(
+                """
+                INSERT INTO artist_enrichment
+                    (libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,
+                     savedAtMs,staleAfterMs,source,albumIdsJson,membershipFingerprint)
+                VALUES('lib-a','artist','$x','$mbidX','{}',11,22,
+                       'musicbrainz-manual-selection','["album-a","album-b"]','$x')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_enrichment
+                    (libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,
+                     savedAtMs,staleAfterMs,source,albumIdsJson,membershipFingerprint)
+                VALUES('lib-a','artist','$y','$mbidY','{}',12,23,
+                       'musicbrainz-manual-selection','["album-b","album-c"]','$y')
+                """.trimIndent(),
+            )
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 10, true,
+            ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+            ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+        )
+        try {
+            fun count(sql: String): Int = upgraded.query(sql).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                cursor.getInt(0)
+            }
+            assertEquals(2, count("SELECT COUNT(*) FROM artist_enrichment"))
+            assertEquals(2, count("SELECT COUNT(*) FROM durable_artist_association"))
+            assertEquals(0, count(
+                "SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey='album-b'",
+            ))
+            assertEquals(2, count(
+                "SELECT COUNT(*) FROM artist_membership_evidence " +
+                    "WHERE albumKey='album-b' AND status='INSUFFICIENT'",
+            ))
+            assertEquals(0, count(
+                "SELECT COUNT(*) FROM artist_membership_evidence " +
+                    "WHERE albumKey='album-b' AND status='CONFIRMED'",
+            ))
+            assertEquals(1, count(
+                "SELECT COUNT(*) FROM artist_album_credit_binding " +
+                    "WHERE albumKey='album-a' AND associationId='$x'",
+            ))
+            assertEquals(1, count(
+                "SELECT COUNT(*) FROM artist_album_credit_binding " +
+                    "WHERE albumKey='album-c' AND associationId='$y'",
+            ))
+            assertEquals(0, count("SELECT COUNT(*) FROM pragma_foreign_key_check"))
+            upgraded.query("PRAGMA integrity_check").use { integrity ->
+                assertTrue(integrity.moveToFirst())
+                assertEquals("ok", integrity.getString(0))
+            }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun confirmedLegacyClaimCompetingWithInsufficientClaimMustNotCreateOwnership() = runBlocking {
+        val trusted = membershipFingerprint("album-a", "album-b")
+        val uncertain = membershipFingerprint("album-z")
+        val name = "artist-migration-mixed-confidence-${System.nanoTime()}.db"
+        helper.createDatabase(name, 8).apply {
+            execSQL(
+                """
+                INSERT INTO artist_enrichment
+                    (libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,
+                     savedAtMs,staleAfterMs,source,albumIdsJson,membershipFingerprint)
+                VALUES('lib-a','artist','$trusted','bd6d4f63-5cd0-4d78-a292-167997794c21','{}',11,22,
+                       'musicbrainz-manual-selection','["album-a","album-b"]','$trusted')
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO artist_enrichment
+                    (libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,
+                     savedAtMs,staleAfterMs,source,albumIdsJson,membershipFingerprint)
+                VALUES('lib-a','artist','$uncertain','05072650-4b05-4e8b-83d0-dba2576e306a','{}',12,23,
+                       'musicbrainz-manual-selection','["album-b","album-c"]','$uncertain')
+                """.trimIndent(),
+            )
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 10, true,
+            ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+            ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+        )
+        try {
+            fun count(sql: String): Int = upgraded.query(sql).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                cursor.getInt(0)
+            }
+            assertEquals(0, count(
+                "SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey='album-b'",
+            ))
+            assertEquals(2, count(
+                "SELECT COUNT(*) FROM artist_membership_evidence " +
+                    "WHERE albumKey='album-b' AND status='INSUFFICIENT'",
+            ))
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun sameMbidDistinctLegacyAssociationsMustNotCollapseIntoOneOwner() = runBlocking {
+        val first = membershipFingerprint("album-a", "album-b")
+        val second = membershipFingerprint("album-b", "album-c")
+        val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val name = "artist-migration-same-mbid-conflict-${System.nanoTime()}.db"
+        helper.createDatabase(name, 8).apply {
+            for ((association, albums) in listOf(
+                first to "[\"album-a\",\"album-b\"]",
+                second to "[\"album-b\",\"album-c\"]",
+            )) {
+                execSQL(
+                    "INSERT INTO artist_enrichment " +
+                        "(libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,savedAtMs," +
+                        "staleAfterMs,source,albumIdsJson,membershipFingerprint) " +
+                        "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", "artist", association, mbid, "{}", 10L, 100L,
+                        "musicbrainz-manual-selection", albums, association),
+                )
+            }
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 10, true,
+            ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+            ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+        )
+        try {
+            val bindings = upgraded.query(
+                "SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey='album-b'",
+            ).use { cursor -> assertTrue(cursor.moveToFirst()); cursor.getInt(0) }
+            assertEquals(0, bindings)
+        } finally {
+            upgraded.close()
+        }
+    }
+
+
+    @Test
+    fun v9AlreadyInstalledConflictingLegacyBindingIsRepairedOnUpgradeToV10() = runBlocking {
+        val x = membershipFingerprint("album-a", "album-b")
+        val y = membershipFingerprint("album-b", "album-c")
+        val mbidX = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val mbidY = "05072650-4b05-4e8b-83d0-dba2576e306a"
+        val name = "artist-migration-9-10-${System.nanoTime()}.db"
+        helper.createDatabase(name, 9).apply {
+            for ((id, mbid, albums) in listOf(
+                Triple(x, mbidX, "[\"album-a\",\"album-b\"]"),
+                Triple(y, mbidY, "[\"album-b\",\"album-c\"]"),
+            )) {
+                execSQL(
+                    "INSERT INTO artist_enrichment " +
+                        "(libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,savedAtMs," +
+                        "staleAfterMs,source,albumIdsJson,membershipFingerprint) " +
+                        "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", "artist", id, mbid, "{}", 10L, 100L,
+                        "musicbrainz-manual-selection", albums, id),
+                )
+                execSQL(
+                    "INSERT INTO durable_artist_association " +
+                        "(libraryId,creditKey,associationId,identityAssociationId,createdAtMs,updatedAtMs) " +
+                        "VALUES(?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", "artist", id, id, 10L, 10L),
+                )
+            }
+            for ((album, association) in listOf(
+                "album-a" to x, "album-b" to x, "album-c" to y,
+            )) {
+                execSQL(
+                    "INSERT INTO artist_album_credit_binding " +
+                        "(libraryId,albumKey,creditKey,associationId,evidenceType,confirmedAtMs) " +
+                        "VALUES(?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", album, "artist", association, "LEGACY_EXPLICIT_CONTEXT", 10L),
+                )
+            }
+            for ((album, association) in listOf(
+                "album-a" to x, "album-b" to x, "album-b" to y, "album-c" to y,
+            )) {
+                execSQL(
+                    "INSERT INTO artist_membership_evidence " +
+                        "(libraryId,albumKey,creditKey,associationId,evidenceType,evidenceKey," +
+                        "status,source,observedAtMs,confirmedAtMs) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", album, "artist", association, "LEGACY_EXPLICIT_CONTEXT",
+                        album, "CONFIRMED", "MIGRATION_V8", 10L, 10L),
+                )
+            }
+            // A legitimate v9 user decision must not be undone by v10 repair.
+            execSQL(
+                "INSERT INTO artist_album_credit_binding " +
+                    "(libraryId,albumKey,creditKey,associationId,evidenceType,confirmedAtMs) " +
+                    "VALUES(?,?,?,?,?,?)",
+                arrayOf<Any>("lib-a", "album-manual", "artist", x, "USER_EXPLICIT_BINDING", 20L),
+            )
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 10, true, ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+        )
+        try {
+            fun count(sql: String): Int = upgraded.query(sql).use { c ->
+                assertTrue(c.moveToFirst())
+                c.getInt(0)
+            }
+            assertEquals(2, count("SELECT COUNT(*) FROM artist_enrichment"))
+            assertEquals(2, count("SELECT COUNT(*) FROM durable_artist_association"))
+            assertEquals(0, count("SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey='album-b'"))
+            assertEquals(2, count("SELECT COUNT(*) FROM artist_membership_evidence " +
+                "WHERE albumKey='album-b' AND status='INSUFFICIENT'"))
+            assertEquals(0, count("SELECT COUNT(*) FROM artist_membership_evidence " +
+                "WHERE albumKey='album-b' AND status='CONFIRMED'"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey='album-a'"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_album_credit_binding WHERE albumKey='album-c'"))
+            assertEquals(1, count("SELECT COUNT(*) FROM artist_album_credit_binding " +
+                "WHERE albumKey='album-manual' AND evidenceType='USER_EXPLICIT_BINDING'"))
+            assertEquals(0, count("SELECT COUNT(*) FROM pragma_foreign_key_check"))
+            upgraded.query("PRAGMA integrity_check").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals("ok", c.getString(0))
+            }
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    @Test
+    fun v9ManualReplacementOfTheContestedAlbumSurvivesLegacyRepair() = runBlocking {
+        val x = membershipFingerprint("album-a", "album-b")
+        val y = membershipFingerprint("album-b", "album-c")
+        val name = "artist-migration-manual-conflict-${System.nanoTime()}.db"
+        helper.createDatabase(name, 9).apply {
+            for ((association, mbid) in listOf(
+                x to "bd6d4f63-5cd0-4d78-a292-167997794c21",
+                y to "05072650-4b05-4e8b-83d0-dba2576e306a",
+            )) {
+                execSQL(
+                    "INSERT INTO artist_enrichment " +
+                        "(libraryId,creditKey,albumGroupKey,confirmedMbid,profileJson,savedAtMs," +
+                        "staleAfterMs,source,albumIdsJson,membershipFingerprint) " +
+                        "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", "artist", association, mbid, "{}", 10L,
+                        100L, "musicbrainz-manual-selection", "[]", association),
+                )
+                execSQL(
+                    "INSERT INTO durable_artist_association " +
+                        "(libraryId,creditKey,associationId,identityAssociationId,createdAtMs,updatedAtMs) " +
+                        "VALUES(?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", "artist", association, association, 10L, 10L),
+                )
+                execSQL(
+                    "INSERT INTO artist_membership_evidence " +
+                        "(libraryId,albumKey,creditKey,associationId,evidenceType,evidenceKey," +
+                        "status,source,observedAtMs,confirmedAtMs) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any>("lib-a", "album-b", "artist", association,
+                        "LEGACY_EXPLICIT_CONTEXT", "album-b", "CONFIRMED", "MIGRATION_V8", 10L, 10L),
+                )
+            }
+            execSQL(
+                "INSERT INTO artist_album_credit_binding " +
+                    "(libraryId,albumKey,creditKey,associationId,evidenceType,confirmedAtMs) " +
+                    "VALUES(?,?,?,?,?,?)",
+                arrayOf<Any>("lib-a", "album-b", "artist", y, "USER_EXPLICIT_REPLACEMENT", 20L),
+            )
+            close()
+        }
+        val upgraded = helper.runMigrationsAndValidate(
+            name, 10, true, ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+        )
+        try {
+            upgraded.query(
+                "SELECT associationId, evidenceType FROM artist_album_credit_binding " +
+                    "WHERE libraryId='lib-a' AND albumKey='album-b' AND creditKey='artist'",
+            ).use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(y, c.getString(0))
+                assertEquals("USER_EXPLICIT_REPLACEMENT", c.getString(1))
+            }
+            upgraded.query(
+                "SELECT COUNT(*) FROM artist_membership_evidence " +
+                    "WHERE albumKey='album-b' AND status='INSUFFICIENT'",
+            ).use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(2, c.getInt(0))
+            }
+            assertEquals(0, upgraded.query("SELECT COUNT(*) FROM pragma_foreign_key_check").use {
+                it.moveToFirst(); it.getInt(0)
+            })
         } finally {
             upgraded.close()
         }

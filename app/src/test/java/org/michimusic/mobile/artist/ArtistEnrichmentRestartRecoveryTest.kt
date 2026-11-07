@@ -494,4 +494,88 @@ class ArtistEnrichmentRestartRecoveryTest {
             artworkFile.delete()
         }
     }
+
+    @Test
+    fun exactResolutionPendingAlbumsSurviveProfileRefreshAndRepeatedReopen() = runBlocking {
+        val name = "pending-resolution-recovery-${System.nanoTime()}.db"
+        val libraryId = "lib_device_local"
+        val otherMbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
+        val albumA = "album-a"
+        val albumB = "album-b"
+        val albumC = "album-c"
+        val albumD = "album-d"
+        val visibleAlbums = listOf(albumA, albumB, albumC, albumD)
+        try {
+            var database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            var store = RoomArtistEnrichmentSelectionStore(database) { 100L }
+            val profileA = ArtistExternalProfile(mbid = mbid, name = credit)
+            val profileB = ArtistExternalProfile(mbid = otherMbid, name = "$credit historical")
+            store.save(libraryId, credit, listOf(albumA), profileA)
+            store.save(libraryId, credit, listOf(albumB), profileB)
+            val groupB = requireNotNull(
+                store.load(libraryId, credit, listOf(albumB))?.associationGroupKey,
+            )
+            store.resolveAssociation(libraryId, credit, visibleAlbums, groupB, otherMbid)
+
+            val resolved = requireNotNull(store.load(libraryId, credit, visibleAlbums))
+            assertEquals(listOf(albumC, albumD), resolved.unboundAlbumIds)
+            assertTrue(resolved.needsConfirmation)
+            database.close()
+
+            database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            store = RoomArtistEnrichmentSelectionStore(database) { 200L }
+            val reopened = requireNotNull(store.load(libraryId, credit, visibleAlbums))
+            assertEquals(groupB, reopened.associationGroupKey)
+            assertEquals(listOf(albumC, albumD), reopened.unboundAlbumIds)
+
+            store.refreshProfile(
+                libraryId = libraryId,
+                credit = credit,
+                associationId = groupB,
+                profile = profileB.copy(
+                    biography = "Biografía actualizada sin cambiar membresía.",
+                    biographySourceUrl = "https://es.wikipedia.org/wiki/Perfil_histórico",
+                    biographyOutcome = ArtistMetadataOutcome.SUCCESS,
+                ),
+            )
+            val afterRefresh = requireNotNull(store.load(libraryId, credit, visibleAlbums))
+            assertEquals(listOf(albumC, albumD), afterRefresh.unboundAlbumIds)
+            assertTrue(afterRefresh.needsConfirmation)
+
+            store.bindUnboundAlbumsToAssociation(
+                libraryId = libraryId,
+                credit = credit,
+                visibleAlbumIds = listOf(albumC),
+                associationId = groupB,
+                expectedMbid = otherMbid,
+            )
+            database.close()
+
+            database = Room.databaseBuilder(
+                context, ArtistEnrichmentCacheDatabase::class.java, name,
+            ).allowMainThreadQueries().build()
+            store = RoomArtistEnrichmentSelectionStore(database) { 300L }
+            val finalState = requireNotNull(store.load(libraryId, credit, visibleAlbums))
+            assertEquals(groupB, finalState.associationGroupKey)
+            assertEquals(otherMbid, finalState.profile.mbid)
+            assertEquals("Biografía actualizada sin cambiar membresía.", finalState.profile.biography)
+            assertEquals(listOf(albumD), finalState.unboundAlbumIds)
+            assertTrue(finalState.needsConfirmation)
+            assertEquals(
+                groupB,
+                requireNotNull(store.load(libraryId, credit, listOf(albumC))).associationGroupKey,
+            )
+            assertEquals(
+                mbid,
+                requireNotNull(store.load(libraryId, credit, listOf(albumA))).profile.mbid,
+            )
+            database.close()
+        } finally {
+            context.deleteDatabase(name)
+        }
+    }
 }

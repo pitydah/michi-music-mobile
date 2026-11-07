@@ -134,6 +134,7 @@ class ArtistEnrichmentPanelTest {
                 stale = false,
                 associationGroupKey = "association-a",
                 needsConfirmation = true,
+                unboundAlbumIds = listOf("album-b"),
             ),
         )
 
@@ -520,8 +521,20 @@ class ArtistEnrichmentPanelTest {
             evidenceType: ArtistMembershipEvidenceType,
         ): PersistedArtistProfile {
             bindings.incrementAndGet()
-            return requireNotNull(cached).copy(needsConfirmation = false).also { cached = it }
+            return requireNotNull(cached).copy(
+                needsConfirmation = false, unboundAlbumIds = emptyList(),
+            ).also { cached = it }
         }
+        override suspend fun bindUnboundAlbumsToAssociation(
+            libraryId: String,
+            credit: String,
+            visibleAlbumIds: List<String>,
+            associationId: String,
+            expectedMbid: String,
+        ): PersistedArtistProfile = bindAlbumsToAssociation(
+            libraryId, credit, visibleAlbumIds, associationId, expectedMbid,
+            ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+        )
     }
 
     private inner class IdentityOnlyStore : ArtistEnrichmentSelectionStore, ArtistIdentitySelectionStore {

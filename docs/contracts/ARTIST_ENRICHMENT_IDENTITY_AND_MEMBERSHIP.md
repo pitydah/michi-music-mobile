@@ -23,7 +23,8 @@ For a concrete library, normalized credit, and visible album keys:
    bindings. A stale target fails closed.
 3. Return no identity when no album is bound.
 4. Return the one bound association when exactly one is present. Set `needsConfirmation`
-   if some visible albums remain unbound.
+   if some visible albums remain unbound, and expose those albums as sorted distinct
+   `unboundAlbumIds`.
 5. Throw `ArtistAssociationAmbiguousException` when several associations are present and
    there is no valid exact decision.
 
@@ -51,6 +52,12 @@ it validates the expected old association, reassigns only named bindings, supers
 confirmed evidence, and invalidates decisions whose saved context intersects those albums.
 It preserves both identity histories.
 
+An exact decision selects the profile for that exact mixed view; it does not bind its
+unowned components. If A+B+C+D resolves to X while C and D are unbound,
+`needsConfirmation` remains true and `unboundAlbumIds` remains `[C, D]`. The user may bind
+one pending album locally without re-querying a provider. Profile refresh and process
+restart must preserve the remaining pending list.
+
 ## Selective clear
 
 Clear identifies one association transactionally. Deleting its identity cascades only its
@@ -61,7 +68,9 @@ filesystem pruning remains reference-aware.
 
 ## Legacy v8 facts
 
-Room v9 preserves every v8 identity/profile and exact decision. A v8 album list becomes a
+Room v10 preserves every v8 identity/profile and exact decision. A v8 album list becomes a
 confirmed binding only when its deterministic hash reproduces the association ID and the
-row records an explicit manual identity confirmation. Other observations migrate as
-`INSUFFICIENT`; they cannot recover identity by overlap.
+row records an explicit manual identity confirmation, and no other association claims the
+same album-credit key. Other or competing observations migrate as `INSUFFICIENT`; they
+cannot recover identity by overlap. The 9→10 repair removes only ambiguous migration-created
+legacy bindings and preserves later explicit or structured bindings.

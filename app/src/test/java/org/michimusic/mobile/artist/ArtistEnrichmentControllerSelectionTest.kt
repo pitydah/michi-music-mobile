@@ -1,5 +1,7 @@
 package org.michimusic.mobile.artist
 
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -291,6 +293,7 @@ class ArtistEnrichmentControllerSelectionTest {
                     stale = false,
                     associationGroupKey = "association-a",
                     needsConfirmation = !bound,
+                    unboundAlbumIds = if (bound) emptyList() else listOf("album-b"),
                 )
 
             override suspend fun save(
@@ -317,6 +320,17 @@ class ArtistEnrichmentControllerSelectionTest {
                 bound = true
                 return requireNotNull(load(libraryId, credit, albumIds))
             }
+
+            override suspend fun bindUnboundAlbumsToAssociation(
+                libraryId: String,
+                credit: String,
+                visibleAlbumIds: List<String>,
+                associationId: String,
+                expectedMbid: String,
+            ) = bindAlbumsToAssociation(
+                libraryId, credit, visibleAlbumIds, associationId, expectedMbid,
+                ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+            )
         }
         val controller = ArtistEnrichmentController(
             orchestrator = mockk(relaxed = true),
@@ -335,5 +349,95 @@ class ArtistEnrichmentControllerSelectionTest {
         assertEquals(1, bindingCalls)
         assertTrue(!controller.state.value.needsConfirmation)
         assertEquals(ArtistEnrichmentStatus.VERIFIED, controller.state.value.status)
+    }
+
+    @Test
+    fun oneAlbumConfirmationNeverBindsOtherPendingAlbums() = runTest {
+        val unbound = linkedSetOf("album-b", "album-c")
+        val recorded = mutableListOf<List<String>>()
+        val store = object : ArtistEnrichmentSelectionStore, ArtistMembershipBindingStore {
+            override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                PersistedArtistProfile(
+                    profile = profile(), stale = false, associationGroupKey = "association-a",
+                    needsConfirmation = unbound.isNotEmpty(), unboundAlbumIds = unbound.toList(),
+                )
+            override suspend fun save(
+                libraryId: String, credit: String, albumIds: List<String>, profile: ArtistExternalProfile,
+            ) = Unit
+            override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
+            override suspend fun bindAlbumsToAssociation(
+                libraryId: String, credit: String, albumIds: List<String>,
+                associationId: String, expectedMbid: String, evidenceType: ArtistMembershipEvidenceType,
+            ): PersistedArtistProfile = error("Bulk association must never be invoked")
+            override suspend fun bindUnboundAlbumsToAssociation(
+                libraryId: String, credit: String, visibleAlbumIds: List<String>,
+                associationId: String, expectedMbid: String,
+            ): PersistedArtistProfile {
+                recorded += visibleAlbumIds
+                unbound.removeAll(visibleAlbumIds.toSet())
+                return requireNotNull(load(libraryId, credit, visibleAlbumIds))
+            }
+        }
+        val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
+        val controller = ArtistEnrichmentController(
+            orchestrator = orchestrator, profileStore = store,
+            artworkStore = artworkStore(emptyList()), verifySelection = { it }, scope = this,
+        )
+        val visible = listOf("album-a", "album-b", "album-c")
+        controller.bind("lib-a", "Midnight Oil", visible)
+        advanceUntilIdle()
+        assertEquals(listOf("album-b", "album-c"), controller.state.value.unboundAlbumIds)
+        controller.bindVisibleAlbums("Midnight Oil", "lib-a", visible, albumIdToBind = "album-c")
+        advanceUntilIdle()
+        assertEquals(listOf(listOf("album-c")), recorded)
+        assertEquals(listOf("album-b"), controller.state.value.unboundAlbumIds)
+        assertTrue(controller.state.value.needsConfirmation)
+        coVerify(exactly = 0) {
+            orchestrator.enrich(any(), any(), any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun profileRefreshCannotClearPendingAlbumBindings() = runTest {
+        val orchestrator = mockk<ArtistEnrichmentOrchestrator>()
+        coEvery {
+            orchestrator.enrich(any(), any(), any(), any(), any(), any(), any())
+        } returns ArtistEnrichmentResult(
+            phase = ArtistEnrichmentPhase.READY,
+            profile = profile(),
+            persistenceStatus = ArtistPersistenceStatus.PROFILE_PERSISTED,
+            associationGroupKey = "association-a",
+        )
+        val store = object : ArtistEnrichmentSelectionStore {
+            override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) =
+                PersistedArtistProfile(
+                    profile = profile(),
+                    stale = false,
+                    associationGroupKey = "association-a",
+                    needsConfirmation = true,
+                )
+            override suspend fun save(
+                libraryId: String,
+                credit: String,
+                albumIds: List<String>,
+                profile: ArtistExternalProfile,
+            ) = Unit
+            override suspend fun clear(libraryId: String, credit: String, albumIds: List<String>) = Unit
+        }
+        val controller = ArtistEnrichmentController(
+            orchestrator = orchestrator,
+            profileStore = store,
+            artworkStore = artworkStore(emptyList()),
+            verifySelection = { it },
+            scope = this,
+        )
+        val albums = listOf("album-a", "album-unbound")
+        controller.bind("lib-a", "Midnight Oil", albums)
+        advanceUntilIdle()
+        assertTrue(controller.state.value.needsConfirmation)
+
+        controller.refresh("Midnight Oil", "lib-a", albums, force = true)
+        advanceUntilIdle()
+        assertTrue("Saving biography does not bind an album", controller.state.value.needsConfirmation)
     }
 }

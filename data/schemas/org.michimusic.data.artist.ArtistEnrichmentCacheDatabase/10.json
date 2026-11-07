@@ -1,0 +1,888 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 10,
+    "identityHash": "edc5eb77b2e60a12740217590abe276d",
+    "entities": [
+      {
+        "tableName": "artist_enrichment",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `albumGroupKey` TEXT NOT NULL, `confirmedMbid` TEXT NOT NULL, `profileJson` TEXT NOT NULL, `savedAtMs` INTEGER NOT NULL, `staleAfterMs` INTEGER NOT NULL, `source` TEXT NOT NULL, `biographySourceUrl` TEXT, `portraitSourceUrl` TEXT, `portraitLicense` TEXT, `portraitLicenseUrl` TEXT, `portraitAttribution` TEXT, `albumIdsJson` TEXT, `membershipFingerprint` TEXT, PRIMARY KEY(`libraryId`, `creditKey`, `albumGroupKey`))",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumGroupKey",
+            "columnName": "albumGroupKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedMbid",
+            "columnName": "confirmedMbid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileJson",
+            "columnName": "profileJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "savedAtMs",
+            "columnName": "savedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "staleAfterMs",
+            "columnName": "staleAfterMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "biographySourceUrl",
+            "columnName": "biographySourceUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "portraitSourceUrl",
+            "columnName": "portraitSourceUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "portraitLicense",
+            "columnName": "portraitLicense",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "portraitLicenseUrl",
+            "columnName": "portraitLicenseUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "portraitAttribution",
+            "columnName": "portraitAttribution",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "albumIdsJson",
+            "columnName": "albumIdsJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "membershipFingerprint",
+            "columnName": "membershipFingerprint",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "creditKey",
+            "albumGroupKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_enrichment_libraryId_creditKey_membershipFingerprint",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "creditKey",
+              "membershipFingerprint"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_enrichment_libraryId_creditKey_membershipFingerprint` ON `${TABLE_NAME}` (`libraryId`, `creditKey`, `membershipFingerprint`)"
+          }
+        ]
+      },
+      {
+        "tableName": "durable_artist_association",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `associationId` TEXT NOT NULL, `identityAssociationId` TEXT NOT NULL, `createdAtMs` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`libraryId`, `creditKey`, `associationId`), FOREIGN KEY(`libraryId`, `creditKey`, `identityAssociationId`) REFERENCES `artist_enrichment`(`libraryId`, `creditKey`, `albumGroupKey`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "associationId",
+            "columnName": "associationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identityAssociationId",
+            "columnName": "identityAssociationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "creditKey",
+            "associationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_durable_artist_association_libraryId_creditKey_identityAssociationId",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "creditKey",
+              "identityAssociationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_durable_artist_association_libraryId_creditKey_identityAssociationId` ON `${TABLE_NAME}` (`libraryId`, `creditKey`, `identityAssociationId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "artist_enrichment",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "libraryId",
+              "creditKey",
+              "identityAssociationId"
+            ],
+            "referencedColumns": [
+              "libraryId",
+              "creditKey",
+              "albumGroupKey"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "artist_album_credit_binding",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `albumKey` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `associationId` TEXT NOT NULL, `evidenceType` TEXT NOT NULL, `confirmedAtMs` INTEGER NOT NULL, PRIMARY KEY(`libraryId`, `albumKey`, `creditKey`), FOREIGN KEY(`libraryId`, `creditKey`, `associationId`) REFERENCES `durable_artist_association`(`libraryId`, `creditKey`, `associationId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumKey",
+            "columnName": "albumKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "associationId",
+            "columnName": "associationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceType",
+            "columnName": "evidenceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedAtMs",
+            "columnName": "confirmedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "albumKey",
+            "creditKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_album_credit_binding_libraryId_creditKey_associationId",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "creditKey",
+              "associationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_album_credit_binding_libraryId_creditKey_associationId` ON `${TABLE_NAME}` (`libraryId`, `creditKey`, `associationId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "durable_artist_association",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "libraryId",
+              "creditKey",
+              "associationId"
+            ],
+            "referencedColumns": [
+              "libraryId",
+              "creditKey",
+              "associationId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "artist_membership_evidence",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `albumKey` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `associationId` TEXT NOT NULL, `evidenceType` TEXT NOT NULL, `evidenceKey` TEXT NOT NULL, `status` TEXT NOT NULL, `source` TEXT NOT NULL, `observedAtMs` INTEGER NOT NULL, `confirmedAtMs` INTEGER, PRIMARY KEY(`libraryId`, `albumKey`, `creditKey`, `associationId`, `evidenceType`, `evidenceKey`), FOREIGN KEY(`libraryId`, `creditKey`, `associationId`) REFERENCES `durable_artist_association`(`libraryId`, `creditKey`, `associationId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumKey",
+            "columnName": "albumKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "associationId",
+            "columnName": "associationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceType",
+            "columnName": "evidenceType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidenceKey",
+            "columnName": "evidenceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAtMs",
+            "columnName": "observedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedAtMs",
+            "columnName": "confirmedAtMs",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "albumKey",
+            "creditKey",
+            "associationId",
+            "evidenceType",
+            "evidenceKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_membership_evidence_libraryId_albumKey_creditKey",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "albumKey",
+              "creditKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_membership_evidence_libraryId_albumKey_creditKey` ON `${TABLE_NAME}` (`libraryId`, `albumKey`, `creditKey`)"
+          },
+          {
+            "name": "index_artist_membership_evidence_libraryId_creditKey_associationId",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "creditKey",
+              "associationId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_membership_evidence_libraryId_creditKey_associationId` ON `${TABLE_NAME}` (`libraryId`, `creditKey`, `associationId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "durable_artist_association",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "libraryId",
+              "creditKey",
+              "associationId"
+            ],
+            "referencedColumns": [
+              "libraryId",
+              "creditKey",
+              "associationId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "artist_association_resolution",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `membershipFingerprint` TEXT NOT NULL, `chosenAlbumGroupKey` TEXT NOT NULL, `chosenMbid` TEXT NOT NULL, `evidence` TEXT NOT NULL, `confirmedAtMs` INTEGER NOT NULL, `contextAlbumKeysJson` TEXT, PRIMARY KEY(`libraryId`, `creditKey`, `membershipFingerprint`))",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "membershipFingerprint",
+            "columnName": "membershipFingerprint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chosenAlbumGroupKey",
+            "columnName": "chosenAlbumGroupKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "chosenMbid",
+            "columnName": "chosenMbid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedAtMs",
+            "columnName": "confirmedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contextAlbumKeysJson",
+            "columnName": "contextAlbumKeysJson",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "creditKey",
+            "membershipFingerprint"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_association_resolution_libraryId_creditKey_chosenAlbumGroupKey",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "creditKey",
+              "chosenAlbumGroupKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_association_resolution_libraryId_creditKey_chosenAlbumGroupKey` ON `${TABLE_NAME}` (`libraryId`, `creditKey`, `chosenAlbumGroupKey`)"
+          }
+        ]
+      },
+      {
+        "tableName": "artist_track_evidence",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `field` TEXT NOT NULL, `ordinal` INTEGER NOT NULL, `value` TEXT NOT NULL, `observedAtMs` INTEGER NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`libraryId`, `trackId`, `field`, `ordinal`))",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackId",
+            "columnName": "trackId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "field",
+            "columnName": "field",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ordinal",
+            "columnName": "ordinal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observedAtMs",
+            "columnName": "observedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "trackId",
+            "field",
+            "ordinal"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_track_evidence_libraryId_trackId",
+            "unique": false,
+            "columnNames": [
+              "libraryId",
+              "trackId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_track_evidence_libraryId_trackId` ON `${TABLE_NAME}` (`libraryId`, `trackId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "artist_artwork_asset",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`assetId` TEXT NOT NULL, `confirmedMbid` TEXT NOT NULL, `verifiedQid` TEXT, `source` TEXT NOT NULL, `sourcePageUrl` TEXT NOT NULL, `imageUrl` TEXT NOT NULL, `localRelativePath` TEXT NOT NULL, `sha256` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `licenseId` TEXT NOT NULL, `licenseUrl` TEXT NOT NULL, `attribution` TEXT NOT NULL, `evidence` TEXT NOT NULL, `downloadedAtMs` INTEGER NOT NULL, PRIMARY KEY(`assetId`))",
+        "fields": [
+          {
+            "fieldPath": "assetId",
+            "columnName": "assetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedMbid",
+            "columnName": "confirmedMbid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "verifiedQid",
+            "columnName": "verifiedQid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePageUrl",
+            "columnName": "sourcePageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localRelativePath",
+            "columnName": "localRelativePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "licenseId",
+            "columnName": "licenseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "licenseUrl",
+            "columnName": "licenseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attribution",
+            "columnName": "attribution",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "downloadedAtMs",
+            "columnName": "downloadedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "assetId"
+          ]
+        }
+      },
+      {
+        "tableName": "artist_artwork_selection",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `albumGroupKey` TEXT NOT NULL, `slot` TEXT NOT NULL, `assetId` TEXT NOT NULL, `confirmedMbid` TEXT NOT NULL, `focusX` REAL NOT NULL, `focusY` REAL NOT NULL, `manuallyChosen` INTEGER NOT NULL, `revision` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`libraryId`, `creditKey`, `albumGroupKey`, `slot`))",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumGroupKey",
+            "columnName": "albumGroupKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "slot",
+            "columnName": "slot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assetId",
+            "columnName": "assetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedMbid",
+            "columnName": "confirmedMbid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "focusX",
+            "columnName": "focusX",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "focusY",
+            "columnName": "focusY",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manuallyChosen",
+            "columnName": "manuallyChosen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "creditKey",
+            "albumGroupKey",
+            "slot"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_artwork_selection_assetId",
+            "unique": false,
+            "columnNames": [
+              "assetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_artwork_selection_assetId` ON `${TABLE_NAME}` (`assetId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "artist_artwork_link",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL, `albumGroupKey` TEXT NOT NULL, `slot` TEXT NOT NULL, `confirmedMbid` TEXT NOT NULL, `assetId` TEXT NOT NULL, `verifiedQid` TEXT, `source` TEXT NOT NULL, `sourcePageUrl` TEXT NOT NULL, `imageUrl` TEXT NOT NULL, `licenseId` TEXT NOT NULL, `licenseUrl` TEXT NOT NULL, `attribution` TEXT NOT NULL, `evidence` TEXT NOT NULL, `linkedAtMs` INTEGER NOT NULL, PRIMARY KEY(`libraryId`, `creditKey`, `albumGroupKey`, `slot`, `confirmedMbid`))",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creditKey",
+            "columnName": "creditKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "albumGroupKey",
+            "columnName": "albumGroupKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "slot",
+            "columnName": "slot",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confirmedMbid",
+            "columnName": "confirmedMbid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assetId",
+            "columnName": "assetId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "verifiedQid",
+            "columnName": "verifiedQid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePageUrl",
+            "columnName": "sourcePageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "licenseId",
+            "columnName": "licenseId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "licenseUrl",
+            "columnName": "licenseUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attribution",
+            "columnName": "attribution",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "evidence",
+            "columnName": "evidence",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "linkedAtMs",
+            "columnName": "linkedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId",
+            "creditKey",
+            "albumGroupKey",
+            "slot",
+            "confirmedMbid"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artist_artwork_link_assetId",
+            "unique": false,
+            "columnNames": [
+              "assetId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artist_artwork_link_assetId` ON `${TABLE_NAME}` (`assetId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "artist_artwork_revision",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`libraryId` TEXT NOT NULL, `revision` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`libraryId`))",
+        "fields": [
+          {
+            "fieldPath": "libraryId",
+            "columnName": "libraryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "revision",
+            "columnName": "revision",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "libraryId"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'edc5eb77b2e60a12740217590abe276d')"
+    ]
+  }
+}

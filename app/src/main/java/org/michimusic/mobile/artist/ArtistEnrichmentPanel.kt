@@ -370,21 +370,32 @@ fun ArtistEnrichmentPanel(
                         modifier = Modifier.testTag("artist_enrichment_persistence_error"))
                 }
                 if (uiState.needsConfirmation) {
-                    Text("Algunos álbumes visibles todavía no pertenecen a esta asociación. " +
-                        "Vincúlalos solo si corresponden al MBID mostrado.",
+                    Text("Hay álbumes sin una asociación confirmada. Comprueba cada uno " +
+                        "antes de vincularlo al MBID mostrado; no se cambiarán otros artistas.",
                         color = TextSecondary, fontSize = 11.sp,
                         modifier = Modifier.testTag("artist_enrichment_needs_confirmation"))
-                    OutlinedButton(
-                        onClick = {
-                            activeController.bindVisibleAlbums(artistCredit, libraryId, albumIds)
-                        },
-                        enabled = canPersist && !result.refreshing,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .testTag("artist_enrichment_bind_albums"),
-                        colors = secondaryColors,
-                        border = secondaryBorder,
-                    ) {
-                        Text("Vincular estos álbumes al MBID confirmado")
+                    val pending = uiState.unboundAlbumIds.distinct()
+                    if (pending.isEmpty()) {
+                        Text("No hay detalles de pertenencia verificables. Vuelve a abrir la ficha.",
+                            color = TextSecondary, fontSize = 11.sp)
+                    } else {
+                        pending.forEachIndexed { index, albumId ->
+                            OutlinedButton(
+                                onClick = {
+                                    activeController.bindVisibleAlbums(
+                                        artistCredit, libraryId, albumIds, albumIdToBind = albumId,
+                                    )
+                                },
+                                enabled = canPersist && !result.refreshing,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    .testTag(if (pending.size == 1) "artist_enrichment_bind_albums"
+                                        else "artist_enrichment_bind_album_$index"),
+                                colors = secondaryColors,
+                                border = secondaryBorder,
+                            ) {
+                                Text("Confirmar únicamente álbum local: $albumId")
+                            }
+                        }
                     }
                 }
                 if (canPersist && result.persisted) {

@@ -3,10 +3,10 @@
 ## Room authority
 
 Artist Enrichment uses the separate private database `michi-artist-enrichment.db`, schema
-version 9. It does not modify the playback/library database. Every migration v1→v9 is
+version 10. It does not modify the playback/library database. Every migration v1→v10 is
 explicit; destructive fallback is forbidden.
 
-The v9 authority tables are:
+The authority tables introduced in v9 and retained in v10 are:
 
 - `artist_enrichment`: verified MBID, profile JSON, provenance, stale time, and legacy
   creation evidence. It remains the sole identity/profile fact table.
@@ -20,7 +20,7 @@ Identity/association/binding writes, binding replacement, profile refresh, exact
 and clear run in Room transactions. Association writes use `@Upsert`, not SQLite `REPLACE`.
 Cancellation rolls back the transaction.
 
-## Upgrade to v9
+## Upgrade to v9 and v10
 
 Migration 8→9 adds the association, binding, and evidence tables and the exact resolution
 context column. It copies every v8 identity to a stable association without rewriting the
@@ -28,6 +28,18 @@ identity, profile, biography, provenance, artwork, focus, or resolution rows. On
 reproducible explicit legacy contexts become bindings; uncertain rows become insufficient
 evidence. Migration tests require `PRAGMA integrity_check = ok` and an empty
 `foreign_key_check`.
+
+Migration 8→9 groups every legacy claim by `libraryId + albumKey + creditKey` before it
+creates ownership. It creates a binding only when exactly one association claims that key
+and at least one claim is reproducibly confirmed. A competing association blocks ownership
+even when its evidence is insufficient or both associations share one MBID. Competing
+legacy claims remain as `INSUFFICIENT` evidence.
+
+Migration 9→10 repairs installations that already received a cursor-order legacy binding.
+It removes only ambiguous bindings whose current type is `LEGACY_EXPLICIT_CONTEXT` and
+demotes their competing migration evidence. A later user binding, replacement, embedded
+MBID, or stable-track binding has another evidence type and survives unchanged. Version 10
+is a data-repair migration; its Room schema shape is intentionally the same as version 9.
 
 ## Profile truth
 

@@ -53,6 +53,8 @@ data class PersistedArtistProfile(
     val needsConfirmation: Boolean = false,
     /** False only for an identity-first row whose external metadata was never committed. */
     val profilePersisted: Boolean = true,
+    /** Album-credit rows without binding, never inferred from a name or an exact resolution. */
+    val unboundAlbumIds: List<String> = emptyList(),
 )
 
 /** Visible album-credit bindings point to multiple associations; none may win by row order. */
@@ -144,6 +146,15 @@ interface ArtistMembershipBindingStore {
         associationId: String,
         expectedMbid: String,
         evidenceType: ArtistMembershipEvidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+    ): PersistedArtistProfile
+
+    /** Explicitly claim only unbound rows in a mixed resolved view; never steal other artists. */
+    suspend fun bindUnboundAlbumsToAssociation(
+        libraryId: String,
+        credit: String,
+        visibleAlbumIds: List<String>,
+        associationId: String,
+        expectedMbid: String,
     ): PersistedArtistProfile
 }
 
@@ -320,6 +331,41 @@ class RoomArtistEnrichmentSelectionStore(
         requireNotNull(decodePersisted(identity, recovered = false))
     }
 
+    override suspend fun bindUnboundAlbumsToAssociation(
+        libraryId: String,
+        credit: String,
+        visibleAlbumIds: List<String>,
+        associationId: String,
+        expectedMbid: String,
+    ): PersistedArtistProfile = database.withTransaction {
+        val (creditKey, _) = requireNotNull(scopedArtistCreditKey(libraryId, credit, visibleAlbumIds)) {
+            "La vinculación requiere una biblioteca y álbumes concretos"
+        }
+        val mbid = requireNotNull(canonicalArtistMbid(expectedMbid)) { "MBID inválido" }
+        require(mbid == expectedMbid) { "MBID sin normalizar" }
+        val association = dao.getDurableAssociation(libraryId, creditKey, associationId)
+            ?: error("La asociación durable no existe")
+        val identity = dao.get(libraryId, creditKey, association.identityAssociationId)
+            ?: error("La asociación perdió su identidad")
+        require(identity.confirmedMbid == mbid) { "La asociación pertenece a otro MBID" }
+        val visible = visibleAlbumIds.filter(String::isNotBlank).distinct().sorted()
+        require(visible.isNotEmpty()) { "No hay álbumes locales válidos para confirmar." }
+        val alreadyBound = dao.getAlbumCreditBindings(libraryId, creditKey, visible)
+            .map { it.albumKey }.toSet()
+        val unbound = visible.filterNot(alreadyBound::contains)
+        require(unbound.isNotEmpty()) { "No hay álbumes sin vinculación en esta vista." }
+        bindAlbumsLocked(
+            libraryId = libraryId,
+            creditKey = creditKey,
+            albumIds = unbound,
+            associationId = associationId,
+            expectedMbid = mbid,
+            evidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+            now = clock(),
+        )
+        requireNotNull(decodePersisted(identity, recovered = false))
+    }
+
     private suspend fun bindAlbumsLocked(
         libraryId: String,
         creditKey: String,
@@ -483,10 +529,17 @@ class RoomArtistEnrichmentSelectionStore(
         val visibleAlbums = albumIds.filter(String::isNotBlank).distinct()
         val bindings = dao.getAlbumCreditBindings(libraryId, creditKey, visibleAlbums)
         val associationIds = bindings.map { it.associationId }.distinct()
+        val boundAlbums = bindings.map { it.albumKey }.toSet()
+        val pendingAlbums = visibleAlbums.filterNot(boundAlbums::contains).sorted()
         val explicit = resolvedAssociationForMembership(
             libraryId, creditKey, groupKey, associationIds.toSet(),
         )
-        if (explicit != null) return decodePersisted(explicit, recovered = false)
+        // Choosing a profile for this exact mixed view does not assign every
+        // unbound album-credit component to that artist.
+        val allVisibleBound = pendingAlbums.isEmpty()
+        if (explicit != null) return decodePersisted(
+            explicit, recovered = !allVisibleBound, unboundAlbumIds = pendingAlbums,
+        )
         if (associationIds.size > 1) throw ArtistAssociationAmbiguousException()
         val associationId = associationIds.singleOrNull() ?: return null
         val association = dao.getDurableAssociation(libraryId, creditKey, associationId)
@@ -494,8 +547,9 @@ class RoomArtistEnrichmentSelectionStore(
         val record = dao.get(libraryId, creditKey, association.identityAssociationId)
             ?: throw ArtistAssociationAmbiguousException()
         if (canonicalArtistMbid(record.confirmedMbid) != record.confirmedMbid) return null
-        val allVisibleBound = bindings.map { it.albumKey }.toSet().containsAll(visibleAlbums)
-        return decodePersisted(record, recovered = !allVisibleBound)
+        return decodePersisted(
+            record, recovered = !allVisibleBound, unboundAlbumIds = pendingAlbums,
+        )
     }
 
     private fun normalizedCreditKey(credit: String): String = credit.trim().lowercase(Locale.ROOT)
@@ -511,7 +565,11 @@ class RoomArtistEnrichmentSelectionStore(
         null
     }
 
-    private fun decodePersisted(record: ArtistEnrichmentRecord, recovered: Boolean): PersistedArtistProfile? = try {
+    private fun decodePersisted(
+        record: ArtistEnrichmentRecord,
+        recovered: Boolean,
+        unboundAlbumIds: List<String> = emptyList(),
+    ): PersistedArtistProfile? = try {
         val profile = json.decodeFromString<ArtistExternalProfile>(record.profileJson)
         if (canonicalArtistMbid(profile.mbid) != record.confirmedMbid ||
             (profile.portrait != null && !allowedCommonsPortrait(profile.portrait)) ||
@@ -521,6 +579,7 @@ class RoomArtistEnrichmentSelectionStore(
             stale = clock() >= record.staleAfterMs,
             associationGroupKey = record.albumGroupKey,
             needsConfirmation = recovered,
+            unboundAlbumIds = unboundAlbumIds,
             profilePersisted = record.source != "musicbrainz-manual-selection-pending",
         )
     } catch (cancelled: CancellationException) {
@@ -756,6 +815,7 @@ object ArtistEnrichmentPersistence {
                     ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                     ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                     ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
                 )
                 .build().also { databaseInstance = it }
         }

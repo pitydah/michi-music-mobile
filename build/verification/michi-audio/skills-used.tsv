@@ -1,11 +1,11 @@
 phase	skill_id	state	evidence_reference
-bootstrap	using-chrisbanes-skills	LOADED	opencode-log:artist-final-domain-permanence; native skill call before final model exploration
-plan	to-plan	LOADED	opencode-log:artist-final-domain-permanence; plan .scratch/to-plan/artist-enrichment-final-domain-permanence.md
-implement	deliver-spec	LOADED	opencode-log:artist-final-domain-permanence; native skill call before source edits
-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:artist-final-domain-permanence; Room transactions, cancellation, races, and library epochs
-api	kotlin-api-design	LOADED	opencode-log:artist-final-domain-permanence; identity, association, binding, evidence, and semantic write APIs
-ui-state	compose-state-and-effects	LOADED	opencode-log:artist-final-domain-permanence; controller local-binding state and lifecycle
-ui-component	compose-component-design	LOADED	opencode-log:artist-final-domain-permanence; truthful 48dp local-binding action
-ui-test	compose-ui-testing-patterns	LOADED	opencode-log:artist-final-domain-permanence; focused and full API36 Compose tests
-gradle	gradle-run	LOADED	opencode-log:artist-final-domain-permanence; workflow 2de733b9b12589602afb87f8d4382e8a runs 0001-0029
-writing	grounded-writing	LOADED	opencode-log:artist-final-domain-permanence; native skill call and style-profile review before final contract/report review
+bootstrap	using-chrisbanes-skills	LOADED	opencode-log:k10-k11-total-closure-on-master; native skill call before K10/K11 edits
+plan	to-plan	LOADED	opencode-log:k10-k11-total-closure-on-master; approved plan /home/cristian/.plannotator/plans/k10k11-total-closure-on-master-2026-11-07-approved.md
+implement	deliver-spec	LOADED	opencode-log:k10-k11-total-closure-on-master; native skill call before source edits
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:k10-k11-total-closure-on-master; migration transactions, cancellation, and library epochs
+api	kotlin-api-design	LOADED	opencode-log:k10-k11-total-closure-on-master; grouped ownership and pending-membership APIs
+ui-state	compose-state-and-effects	LOADED	opencode-log:k10-k11-total-closure-on-master; pending-album state and local bind lifecycle
+ui-component	compose-component-design	LOADED	opencode-log:k10-k11-total-closure-on-master; one truthful 48dp action per pending album
+ui-test	compose-ui-testing-patterns	LOADED	opencode-log:k10-k11-total-closure-on-master; focused and full API36 Compose tests
+gradle	gradle-run	LOADED	opencode-log:k10-k11-total-closure-on-master; workflow 55551ce031e7ee0e85117f9fb03cdb54 runs 0001-0012
+writing	grounded-writing	LOADED	opencode-log:k10-k11-total-closure-on-master; native skill call and style-profile review before contract/report updates

@@ -1,5 +1,8 @@
 # Artist Enrichment final migration report
 
+> The v8→v9 evidence below remains historical input. The cursor-order conflict repair and
+> current v10 result are certified by `ARTIST_K10_K11_FINAL_CERTIFICATION.md`.
+
 ## Schema
 
 Room database `michi-artist-enrichment.db` advances from v8 to v9. The main library/playback
