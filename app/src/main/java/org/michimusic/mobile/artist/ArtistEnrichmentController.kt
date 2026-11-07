@@ -73,8 +73,6 @@ class ArtistEnrichmentController(
 
     private var bindKey: String? = null
     private var requestJob: Job? = null
-    private var autoDiscoveryAllowed = true
-
     /**
      * Identity-scoped request epoch. A response from a previous artist, library or
      * explicit action is discarded instead of overwriting the current screen.
@@ -86,7 +84,6 @@ class ArtistEnrichmentController(
         if (key == bindKey) return
         bindKey = key
         requestJob?.cancel()
-        autoDiscoveryAllowed = true
         val epoch = ++requestEpoch
         _state.value = ArtistEnrichmentState()
         requestJob = scope.launch {
@@ -94,9 +91,8 @@ class ArtistEnrichmentController(
         }
     }
 
-    /** Re-runs discovery only after an explicit user action or a fresh bind. */
+    /** Runs name discovery only after an explicit user action. */
     fun discover(artistCredit: String) {
-        if (!autoDiscoveryAllowed) return
         requestJob?.cancel()
         val epoch = ++requestEpoch
         _state.value = _state.value.copy(
@@ -247,13 +243,12 @@ class ArtistEnrichmentController(
     }
 
     /**
-     * Removes the association and cancels in-flight work. The following automatic pass
-     * is suppressed; only a new bind or an explicit discovery can start it again.
+     * Removes the association and cancels in-flight work. A later provider search still
+     * requires a new explicit user action; no bind starts discovery by itself.
      */
     fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
         requestJob?.cancel()
         ++requestEpoch
-        autoDiscoveryAllowed = false
         val previous = _state.value
         val groupKey = previous.associationGroupKey
         val anchor = previous.profile?.let {
@@ -407,7 +402,6 @@ class ArtistEnrichmentController(
                 return
             }
             _state.value = ArtistEnrichmentState(status = ArtistEnrichmentStatus.IDLE)
-            if (autoDiscoveryAllowed) discover(artistCredit)
             return
         }
 

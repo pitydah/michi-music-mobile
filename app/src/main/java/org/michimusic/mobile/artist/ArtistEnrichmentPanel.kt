@@ -442,9 +442,21 @@ fun ArtistEnrichmentPanel(
             uiState.status == ArtistEnrichmentStatus.FAILED -> {
                 Text(uiState.message ?: "No fue posible completar la ficha ahora. Tu biblioteca permanece disponible sin conexión.",
                     color = TextSecondary, fontSize = 12.sp)
+                OutlinedButton(
+                    onClick = { activeController.discover(artistCredit) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("artist_enrichment_search"),
+                ) { Text("Buscar en MusicBrainz") }
             }
             uiState.message != null -> {
                 Text(uiState.message.orEmpty(), color = TextSecondary, fontSize = 12.sp)
+            }
+            uiState.status == ArtistEnrichmentStatus.IDLE -> {
+                OutlinedButton(
+                    onClick = { activeController.discover(artistCredit) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .testTag("artist_enrichment_search"),
+                ) { Text("Buscar en MusicBrainz") }
             }
             else -> Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),

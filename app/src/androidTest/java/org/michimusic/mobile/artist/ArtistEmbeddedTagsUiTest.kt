@@ -46,15 +46,15 @@ class ArtistEmbeddedTagsUiTest {
                 },
             )
         }
-        rule.waitUntil(5_000) { remote >= 1 }
+        rule.waitForIdle()
         assertEquals(0, scans)
-        assertEquals(1, remote) // Opening the panel searches candidates automatically.
+        assertEquals(0, remote) // Opening the panel is local-only.
         rule.onNodeWithTag("artist_embedded_tags_scan").performClick()
         rule.waitForIdle()
         assertEquals(1, scans)
-        assertEquals(1, remote) // Scanning a tag never binds an identity by itself.
+        assertEquals(0, remote) // Scanning a tag never binds an identity by itself.
         rule.onNodeWithTag("artist_embedded_mbid_confirm").assertExists().performClick()
-        rule.waitUntil(5_000) { remote >= 2 }
-        assertEquals(2, remote)
+        rule.waitUntil(5_000) { remote >= 1 }
+        assertEquals(1, remote)
     }
 }

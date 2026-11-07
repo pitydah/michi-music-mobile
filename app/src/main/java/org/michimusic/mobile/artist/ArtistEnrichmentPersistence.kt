@@ -346,16 +346,14 @@ class RoomArtistEnrichmentSelectionStore(
     }
 
     /**
-     * R3 could broaden both albumIdsJson and membershipFingerprint while retaining the old
-     * canonical group key. That exact signature is detectable and must not be treated as
-     * ownership evidence. Rows whose evidence still hashes to their canonical key are trusted;
-     * hand-authored legacy fixtures whose observed fingerprint differs are conservative history.
+     * Canonical evidence is authoritative only when it reproduces the immutable group key.
+     * R3 normally broadened albumIdsJson and membershipFingerprint together, but failing closed
+     * also covers interrupted or hand-authored rows where only one legacy field changed.
      */
     private fun hasTrustworthyCanonicalEvidence(row: ArtistEnrichmentRecord): Boolean {
         val evidenceFingerprint = albumMembershipFingerprint(decodeAlbumIds(row.albumIdsJson))
             ?: return false
-        return row.albumGroupKey == evidenceFingerprint ||
-            row.membershipFingerprint != evidenceFingerprint
+        return row.albumGroupKey == evidenceFingerprint
     }
 
     /**

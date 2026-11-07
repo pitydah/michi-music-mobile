@@ -43,6 +43,10 @@ class ArtistEnrichmentPersistenceTest {
 
     private fun profile() = ArtistExternalProfile(mbid, credit, "", "Person", "US")
 
+    private fun groupFor(vararg albumIds: String): String = requireNotNull(
+        scopedArtistCreditKey("lib-a", credit, albumIds.toList()),
+    ).second
+
     private suspend fun putHistorical(
         albumGroupKey: String,
         membershipFingerprint: String,
@@ -106,8 +110,8 @@ class ArtistEnrichmentPersistenceTest {
     @Test fun duplicateMembershipWithDifferentMbidsFailsClosedAndPreservesBothRows() = runBlocking {
         val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
         val current = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums)).second
-        putHistorical("historical-a", current, mbid, "[\"album-a\"]")
-        putHistorical("historical-b", current, otherMbid, "[\"album-b\"]")
+        putHistorical(groupFor("album-a"), current, mbid, "[\"album-a\"]")
+        putHistorical(groupFor("album-b"), current, otherMbid, "[\"album-b\"]")
 
         val failure = runCatching { store.load("lib-a", credit, albums) }.exceptionOrNull()
 
@@ -124,8 +128,10 @@ class ArtistEnrichmentPersistenceTest {
     @Test fun durableExplicitResolutionSelectsOneHistoricalAssociationWithoutDeletingTheOther() = runBlocking {
         val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
         val keys = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums))
-        putHistorical("historical-a", keys.second, mbid, "[\"album-a\"]")
-        putHistorical("historical-b", keys.second, otherMbid, "[\"album-b\"]")
+        val groupA = groupFor("album-a")
+        val groupB = groupFor("album-b")
+        putHistorical(groupA, keys.second, mbid, "[\"album-a\"]")
+        putHistorical(groupB, keys.second, otherMbid, "[\"album-b\"]")
         database.openHelper.writableDatabase.execSQL(
             """
             CREATE TABLE IF NOT EXISTS artist_association_resolution (
@@ -147,7 +153,7 @@ class ArtistEnrichmentPersistenceTest {
                  chosenMbid, evidence, confirmedAtMs)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """.trimIndent(),
-            arrayOf<Any>("lib-a", keys.first, keys.second, "historical-b", otherMbid, "USER_EXPLICIT_CHOICE", 7L),
+            arrayOf<Any>("lib-a", keys.first, keys.second, groupB, otherMbid, "USER_EXPLICIT_CHOICE", 7L),
         )
 
         val selected = requireNotNull(store.load("lib-a", credit, albums))
@@ -156,13 +162,13 @@ class ArtistEnrichmentPersistenceTest {
         }.exceptionOrNull()
 
         assertEquals(otherMbid, selected.profile.mbid)
-        assertEquals("historical-b", selected.associationGroupKey)
+        assertEquals(groupB, selected.associationGroupKey)
         assertTrue(
             "An exact A+B choice must not silently become an A+B+C choice",
             afterAlbumAddition is ArtistAssociationAmbiguousException,
         )
         assertEquals(
-            setOf("historical-a", "historical-b"),
+            setOf(groupA, groupB),
             database.artistEnrichmentDao().getAllForCredit("lib-a", keys.first)
                 .map { it.albumGroupKey }.toSet(),
         )
@@ -247,16 +253,31 @@ class ArtistEnrichmentPersistenceTest {
         assertEquals(otherMbid, subsetB.profile.mbid)
     }
 
+    @Test fun broadenedLegacyEvidenceWithAStaleMembershipCannotClaimANewSubset() = runBlocking {
+        val albumA = listOf("album-a")
+        val albumB = listOf("album-b")
+        val groupA = requireNotNull(scopedArtistCreditKey("lib-a", credit, albumA)).second
+        putHistorical(groupA, groupA, mbid, "[\"album-a\",\"album-b\"]")
+
+        assertNull(
+            "Evidence that no longer hashes to its canonical group cannot claim album B",
+            store.load("lib-a", credit, albumB),
+        )
+        assertEquals(mbid, store.load("lib-a", credit, albumA)?.profile?.mbid)
+    }
+
     @Test fun explicitResolutionRejectsACandidateRemovedBeforeConfirmation() = runBlocking {
         val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
         val keys = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums))
-        putHistorical("historical-a", keys.second, mbid, "[\"album-a\"]")
-        putHistorical("historical-b", keys.second, otherMbid, "[\"album-b\"]")
+        val groupA = groupFor("album-a")
+        val groupB = groupFor("album-b")
+        putHistorical(groupA, keys.second, mbid, "[\"album-a\"]")
+        putHistorical(groupB, keys.second, otherMbid, "[\"album-b\"]")
         assertEquals(2, store.ambiguousAssociations("lib-a", credit, albums).size)
-        database.artistEnrichmentDao().delete("lib-a", keys.first, "historical-b")
+        database.artistEnrichmentDao().delete("lib-a", keys.first, groupB)
 
         val failure = runCatching {
-            store.resolveAssociation("lib-a", credit, albums, "historical-b", otherMbid)
+            store.resolveAssociation("lib-a", credit, albums, groupB, otherMbid)
         }.exceptionOrNull()
 
         assertNotNull(failure)
@@ -265,34 +286,36 @@ class ArtistEnrichmentPersistenceTest {
             database.artistEnrichmentDao().getAssociationResolution("lib-a", keys.first, keys.second),
         )
         assertEquals(
-            listOf("historical-a"),
+            listOf(groupA),
             database.artistEnrichmentDao().getAllForCredit("lib-a", keys.first).map { it.albumGroupKey },
         )
     }
 
     @Test fun sameMbidInTwoHistoricalGroupsKeepsGroupScopedSelection() = runBlocking {
         val keys = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums))
-        putHistorical("historical-a", keys.second, mbid, "[\"album-a\"]")
-        putHistorical("historical-b", keys.second, mbid, "[\"album-b\"]")
+        val groupA = groupFor("album-a")
+        val groupB = groupFor("album-b")
+        putHistorical(groupA, keys.second, mbid, "[\"album-a\"]")
+        putHistorical(groupB, keys.second, mbid, "[\"album-b\"]")
 
-        store.resolveAssociation("lib-a", credit, albums, "historical-b", mbid)
+        store.resolveAssociation("lib-a", credit, albums, groupB, mbid)
         val selected = requireNotNull(store.load("lib-a", credit, albums))
-        store.saveIdentity("lib-a", credit, albums, mbid, "historical-b")
-        store.save("lib-a", credit, albums, profile(), "historical-b")
+        store.saveIdentity("lib-a", credit, albums, mbid, groupB)
+        store.save("lib-a", credit, albums, profile(), groupB)
         val refreshed = requireNotNull(store.load("lib-a", credit, albums))
         val afterAlbumAddition = runCatching {
             store.load("lib-a", credit, albums + "album-c")
         }.exceptionOrNull()
 
         assertEquals(mbid, selected.profile.mbid)
-        assertEquals("historical-b", selected.associationGroupKey)
-        assertEquals("historical-b", refreshed.associationGroupKey)
+        assertEquals(groupB, selected.associationGroupKey)
+        assertEquals(groupB, refreshed.associationGroupKey)
         assertTrue(
             "A decision for the exact A+B view must not choose a group for A+B+C",
             afterAlbumAddition is ArtistAssociationAmbiguousException,
         )
         assertEquals(
-            setOf("historical-a", "historical-b"),
+            setOf(groupA, groupB),
             database.artistEnrichmentDao().getAllForCredit("lib-a", keys.first)
                 .map { it.albumGroupKey }.toSet(),
         )
@@ -302,7 +325,7 @@ class ArtistEnrichmentPersistenceTest {
         val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
         val current = requireNotNull(scopedArtistCreditKey("lib-a", credit, albums)).second
         putHistorical(current, "legacy-membership", mbid, "[\"album-a\"]")
-        putHistorical("historical-other", current, otherMbid, "[\"album-b\"]")
+        putHistorical(groupFor("album-b"), current, otherMbid, "[\"album-b\"]")
 
         val failure = runCatching { store.load("lib-a", credit, albums) }.exceptionOrNull()
 

@@ -37,10 +37,10 @@ loading an unknown C returns no association; loading a competing view remains am
 ## Legacy broadened evidence
 
 R3 could rewrite `albumIdsJson` and legacy `membershipFingerprint` to a temporary expanded
-view while retaining an older `albumGroupKey`. R4 detects this signature when the evidence
-hash equals the mutable fingerprint but differs from the canonical key. That evidence is
-not allowed to drive overlap recovery. The canonical row remains available by exact group,
-but uncertain ownership is not invented during migration.
+view while retaining an older `albumGroupKey`. R4 trusts album evidence only when its hash
+reproduces the immutable canonical key. This also fails closed if an interrupted or
+hand-authored row changed only one legacy field. The canonical row remains available by
+exact group, but inconsistent evidence cannot drive overlap recovery or invent ownership.
 
 ## Writes and ambiguity
 

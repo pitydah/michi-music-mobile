@@ -238,4 +238,22 @@ class ArtistEnrichmentStartupHydrationTest {
         coVerify(exactly = 0) { orchestrator.discover(any()) }
         coVerify(exactly = 0) { orchestrator.enrich(any(), any(), any(), any(), any(), any(), any()) }
     }
+
+    @Test
+    fun freshConcreteLibraryWaitsForExplicitDiscoveryInsteadOfSearchingOnBind() = runTest {
+        val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
+        val controller = ArtistEnrichmentController(
+            orchestrator = orchestrator,
+            profileStore = profileStore(null),
+            artworkStore = artworkStore(emptyList()),
+            verifySelection = { it },
+            scope = this,
+        )
+
+        bindAndSettle(controller)
+
+        assertEquals(ArtistEnrichmentStatus.IDLE, controller.state.value.status)
+        coVerify(exactly = 0) { orchestrator.discover(any()) }
+        coVerify(exactly = 0) { orchestrator.enrich(any(), any(), any(), any(), any(), any(), any()) }
+    }
 }

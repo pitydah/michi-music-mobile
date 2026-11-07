@@ -40,8 +40,9 @@ data class ArtistEnrichmentRecord(
     val portraitAttribution: String?,
     /**
      * Immutable JSON array of the album IDs that formed this canonical association.
-     * It may support a unique local recovery, but a temporary view or profile refresh
-     * must never broaden it. Null on legacy rows; those remain exact-match only.
+     * It may support a unique local recovery only when its hash reproduces albumGroupKey;
+     * a temporary view or profile refresh must never broaden it. Null or inconsistent
+     * legacy rows remain exact-match only.
      */
     val albumIdsJson: String? = null,
     /**

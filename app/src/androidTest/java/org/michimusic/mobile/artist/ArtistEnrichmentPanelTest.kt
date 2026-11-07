@@ -67,6 +67,7 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }
         compose.onNodeWithTag("artist_candidate_$mbid").assertExists()
         assertEquals("No name-based confirmation is allowed", 0, gateway.refreshes.get())
@@ -170,7 +171,7 @@ class ArtistEnrichmentPanelTest {
     }
 
     @Test
-    fun failedLookupShowsOneGlobalStateWithoutRetryButton() {
+    fun failedLookupShowsOneGlobalStateWithExplicitRetryButton() {
         val gateway = FakeGateway(candidates = emptyList(), profile = profile(), failSearch = true)
         val store = FakeProfileStore()
         val artworkStore = FakeArtworkStore()
@@ -186,16 +187,17 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("No fue posible consultar MusicBrainz.")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        assertTrue(compose.onAllNodesWithTag("artist_enrichment_search").fetchSemanticsNodes().isEmpty())
-        assertTrue(compose.onAllNodesWithText("Buscar en MusicBrainz").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("artist_enrichment_search").assertExists()
+        compose.onNodeWithText("Buscar en MusicBrainz").assertExists()
     }
 
     @Test
-    fun recompositionNeverRepeatsTheAutomaticLookup() {
+    fun recompositionNeverStartsAnAutomaticLookup() {
         val gateway = FakeGateway(
             candidates = listOf(
                 ArtistLookupCandidate(mbid, "Midnight Oil", "", "Group", "Australia"),
@@ -225,10 +227,11 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
-        compose.waitUntil(5_000) { gateway.searches.get() == 1 }
+        compose.waitForIdle()
+        assertEquals(0, gateway.searches.get())
         compose.runOnIdle { tick++ }
         compose.waitForIdle()
-        assertEquals(1, gateway.searches.get())
+        assertEquals(0, gateway.searches.get())
         assertEquals(0, gateway.refreshes.get())
     }
 
@@ -255,6 +258,7 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }
         compose.onNodeWithTag("artist_candidate_$mbid").performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
@@ -287,6 +291,7 @@ class ArtistEnrichmentPanelTest {
             )
         }
 
+        compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }
         compose.onNodeWithTag("artist_candidate_$mbid").performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
@@ -301,6 +306,12 @@ class ArtistEnrichmentPanelTest {
         val otherMbid = "05072650-4b05-4e8b-83d0-dba2576e306a"
         val albums = listOf("album-a", "album-b")
         val keys = requireNotNull(scopedArtistCreditKey("library-a", "Midnight Oil", albums))
+        val groupA = requireNotNull(
+            scopedArtistCreditKey("library-a", "Midnight Oil", listOf("album-a")),
+        ).second
+        val groupB = requireNotNull(
+            scopedArtistCreditKey("library-a", "Midnight Oil", listOf("album-b")),
+        ).second
         val database = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(),
             ArtistEnrichmentCacheDatabase::class.java,
@@ -308,8 +319,8 @@ class ArtistEnrichmentPanelTest {
         val store = RoomArtistEnrichmentSelectionStore(database)
         runBlocking {
             listOf(
-                Triple("historical-a", mbid, "Midnight Oil"),
-                Triple("historical-b", otherMbid, "Midnight Oil (historical credit)"),
+                Triple(groupA, mbid, "Midnight Oil"),
+                Triple(groupB, otherMbid, "Midnight Oil (historical credit)"),
             ).forEach { (group, identity, name) ->
                 val saved = profile().copy(mbid = identity, name = name)
                 database.artistEnrichmentDao().put(
@@ -327,7 +338,7 @@ class ArtistEnrichmentPanelTest {
                         portraitLicense = null,
                         portraitLicenseUrl = null,
                         portraitAttribution = null,
-                        albumIdsJson = "[\"album-${if (group.endsWith("a")) "a" else "b"}\"]",
+                        albumIdsJson = "[\"album-${if (group == groupA) "a" else "b"}\"]",
                         membershipFingerprint = keys.second,
                     ),
                 )
@@ -347,13 +358,13 @@ class ArtistEnrichmentPanelTest {
         }
 
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithTag("artist_association_candidate_historical-b")
+            compose.onAllNodesWithTag("artist_association_candidate_$groupB")
                 .fetchSemanticsNodes().isNotEmpty()
         }
         assertEquals("Historical resolution must not search by name", 0, gateway.searches.get())
         compose.onNodeWithText("MBID: $mbid", substring = true).assertExists()
         compose.onNodeWithText("MBID: $otherMbid", substring = true).assertExists()
-        compose.onNodeWithTag("artist_association_candidate_historical-b").performClick()
+        compose.onNodeWithTag("artist_association_candidate_$groupB").performClick()
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("MBID confirmado por selección: $otherMbid")
                 .fetchSemanticsNodes().isNotEmpty()
@@ -402,7 +413,8 @@ class ArtistEnrichmentPanelTest {
         compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.runOnIdle { credit = "Second Artist" }
-        compose.waitUntil(5_000) { gateway.searches.get() == 1 }
+        compose.waitForIdle()
+        assertEquals(0, gateway.searches.get())
         compose.runOnIdle {
             gate.complete(profile().copy(name = "Midnight Oil"))
         }
@@ -412,7 +424,7 @@ class ArtistEnrichmentPanelTest {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
                 .fetchSemanticsNodes().isEmpty(),
         )
-        compose.onNodeWithTag("artist_candidate_$mbid").assertExists()
+        compose.onNodeWithTag("artist_enrichment_search").assertExists()
     }
 
     private fun profile() = ArtistExternalProfile(
