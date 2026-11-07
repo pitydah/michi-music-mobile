@@ -20,22 +20,30 @@
 | 0017 | compatibility repair focused | PASS |
 | 0018 | final API 36 | PASS: 77 tests, 10 skips, 0 failures |
 | 0019 | final emulator APK install | PASS |
+| 0020 | pre-review broad local gate | PASS |
+| 0021 | independent-review stale-state RED | expected FAIL: failed refresh cleared cached staleness |
+| 0022 | stale-state GREEN + hydration suite | PASS |
+| 0023 | exact reviewed source-head broad gate | PASS |
+| 0024 | exact reviewed source-head API 36 | PASS: 77 tests, 10 skips, 0 failures |
 
 ## Final local gates
 
-- App Normal: **858**, App F-Droid: **858**, data: **170**, player: **169**, core: **34**, Michi Link: **130**; all 0 failures/errors/skips.
+- Verified source commit: `c7face3`.
+- App Normal: **859**, App F-Droid: **859**, data: **170**, player: **169**, core: **34**, Michi Link: **130**; all 0 failures/errors/skips.
 - Room/data: PASS; Room remains v7 and exported schema is unchanged.
 - Lint: PASS.
 - Normal debug/release and F-Droid debug/release: PASS.
-- API 36: 77 tests, 0 failures, 10 opt-in skips.
+- API 36 at the reviewed source head: 77 tests, 0 failures, 10 opt-in skips.
 - Live providers/artwork: 6/6 PASS.
 - Playback/library regressions are included in player/core/app module suites.
-- Skill inventory executed; receipt format check PASS. Independent review of
-  native skill logs remains a release-process check, not a product defect.
+- Independent read-only code review: no blocking or critical findings. Its one
+  actionable runtime finding received its own RED/GREEN regression in runs
+  0021–0022. Skill inventory executed; receipt format check PASS. Independent
+  review of native skill logs remains a release-process check, not a product defect.
 
 APK hashes for the final source candidate (regenerate only if source changes):
 
-- Normal debug: `e8c34d4f9a01a233fa9cc60679c4021e21f2d87b918b745e66945df1853573a6`
-- Normal release unsigned: `231cd05c208d03da9dec59dd00d902bb10b7d5c7ec6600140e50f35fdf5f17e3`
-- F-Droid debug: `78fd3aa892c49c927d156e276c46c415d6776ddb7c41139be6d33db55ef14086`
-- F-Droid release unsigned: `3c2da721d8dc1c265f9c7d5d108bfec76f552af88437b7ad15f8d29f0b7e9e05`
+- Normal debug: `555fdc9373d84218b28427a23d6a798dd424c4458de06c1d3dac3cbec77f3845`
+- Normal release unsigned: `b5cc2bc00e4c1b93489a19c9712910401e59828576930184250d6b7dd288b6a4`
+- F-Droid debug: `28e7a8d78f63dd30059e377ae78d17e57f49f1e3fb010321503878487088cafd`
+- F-Droid release unsigned: `50f68eb2202be7311de50581c164448c57eb970062ed396ac3e6ecba908368de`

@@ -7,4 +7,4 @@ api	kotlin-api-design	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode n
 ui-state	compose-state-and-effects	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; controller hydration and mosaic effects
 ui-component	compose-component-design	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; panel/mosaic/hero rendering contract
 ui-test	compose-ui-testing-patterns	LOADED	opencode-log:R11.5.2-R2 current session; OpenCode native skill call; deterministic Compose contracts
-gradle	gradle-run	LOADED	opencode-log:R11.5.2-R2 current session; workflow 517b489279efd2d2e9d3af3f08c25a24 runs 0001-0014
+gradle	gradle-run	LOADED	opencode-log:R11.5.2-R2 current session; workflow 517b489279efd2d2e9d3af3f08c25a24 runs 0001-0024

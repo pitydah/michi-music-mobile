@@ -17,8 +17,9 @@ operation was performed on a physical user device.
 
 ## API 36 and live providers
 
-- Final connected suite: **77 tests**, **0 failed**, **10 designed opt-in skips**,
-  `BUILD SUCCESSFUL` (workflow run 0018).
+- Final connected suite at reviewed source commit `c7face3`: **77 tests**,
+  **0 failed**, **10 designed opt-in skips**, `BUILD SUCCESSFUL` (workflow run
+  0024). Run 0018 supplied the same result before the review follow-up.
 - Live opt-in: MusicBrainz/Wikidata/Wikipedia/Commons/Openverse paths **6/6 PASS**
   in 32.287 s.
 
