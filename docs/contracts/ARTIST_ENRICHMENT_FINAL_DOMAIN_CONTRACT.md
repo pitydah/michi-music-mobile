@@ -1,9 +1,11 @@
-# Artist Enrichment final domain contract
+# Superseded Artist Enrichment R4 domain contract
 
-Status: frozen locally by R11.5.2-R4. This contract supersedes
-`R11_5_2_R2_ARTIST_ENRICHMENT_FINAL_CONTRACT.md`.
+This R4 contract is historical. Its overlap-based recovery model was superseded by Room v9.
+The normative contract is [`ARTIST_ENRICHMENT_DOMAIN_FINAL.md`](ARTIST_ENRICHMENT_DOMAIN_FINAL.md).
 
-## Authority
+<!-- Historical content retained below for auditability. -->
+
+## Historical authority
 
 Artist Enrichment is an autonomous domain subsystem. `RoomArtistEnrichmentSelectionStore`
 is the only durable authority for confirmed identity, profile facts, canonical local

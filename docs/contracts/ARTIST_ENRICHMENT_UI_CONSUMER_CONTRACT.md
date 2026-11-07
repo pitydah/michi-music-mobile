@@ -1,4 +1,9 @@
-# Artist Enrichment UI consumer contract
+# Superseded R4 UI consumer contract
+
+The normative v9 boundary is
+[`ARTIST_ENRICHMENT_UI_ADAPTATION_CONTRACT.md`](ARTIST_ENRICHMENT_UI_ADAPTATION_CONTRACT.md).
+
+<!-- Historical content retained below for auditability. -->
 
 This contract applies to current Compose surfaces and to future UI3 work. UI code presents
 domain state and invokes domain actions; it does not decide artist identity or persistence.

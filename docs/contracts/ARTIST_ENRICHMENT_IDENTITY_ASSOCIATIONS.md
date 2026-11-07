@@ -1,4 +1,9 @@
-# Artist identity and association rules
+# Superseded R4 artist identity and association rules
+
+This overlap-era reference is historical. The normative v9 contract is
+[`ARTIST_ENRICHMENT_IDENTITY_AND_MEMBERSHIP.md`](ARTIST_ENRICHMENT_IDENTITY_AND_MEMBERSHIP.md).
+
+<!-- Historical content retained below for auditability. -->
 
 This reference defines how Artist Enrichment maps a local credit and album view to a
 durable identity.

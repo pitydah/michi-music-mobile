@@ -1,4 +1,9 @@
-# Artist Enrichment persistence and artwork contract
+# Superseded R4 persistence and artwork contract
+
+This schema-v8 reference is historical. The normative v9 contract is
+[`ARTIST_ENRICHMENT_PERSISTENCE.md`](ARTIST_ENRICHMENT_PERSISTENCE.md).
+
+<!-- Historical content retained below for auditability. -->
 
 ## Storage authority
 
