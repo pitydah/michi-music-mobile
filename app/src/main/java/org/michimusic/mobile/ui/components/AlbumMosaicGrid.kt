@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,10 +41,12 @@ fun AlbumMosaicGrid(
     scope: LibraryScope,
     onOpenAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
+    state: LazyGridState = rememberLazyGridState(),
 ) {
     val identityCounts = remember(albums, scope) { albumNavigationIdentityCounts(albums, scope) }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 132.dp),
+        state = state,
         modifier = modifier.testTag("album_mosaic_grid"),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),

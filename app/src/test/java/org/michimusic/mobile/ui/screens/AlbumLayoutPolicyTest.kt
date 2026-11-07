@@ -1,18 +1,22 @@
 package org.michimusic.mobile.ui.screens
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AlbumLayoutPolicyTest {
-    @Test fun compactScreenStacksActions() {
-        listOf(320, 360, 412, 440).forEach { assertTrue(albumActionsStacked(it, 1.0f)) }
+    @Test fun phoneWidthsKeepOneCompactActionRowAtNormalAndModerateFonts() {
+        listOf(320, 360, 412).forEach { width ->
+            listOf(1.0f, 1.3f).forEach { scale ->
+                assertEquals(AlbumActionLayout.SINGLE_ROW, albumActionLayout(width, scale))
+            }
+        }
     }
-    @Test fun expandedScreenUsesHorizontalActionsOnlyAtNormalFontScale() {
-        assertFalse(albumActionsStacked(480, 1.0f))
-        assertFalse(albumActionsStacked(600, 1.2f))
-        assertTrue(albumActionsStacked(600, 1.3f))
-        assertTrue(albumActionsStacked(600, 2.0f))
-        assertTrue(albumActionsStacked(600, Float.NaN))
+
+    @Test fun veryLargeOrInvalidFontsUseAtMostTwoRows() {
+        listOf(320, 360, 412, 600).forEach { width ->
+            listOf(1.5f, 2.0f, Float.NaN).forEach { scale ->
+                assertEquals(AlbumActionLayout.TWO_ROWS, albumActionLayout(width, scale))
+            }
+        }
     }
 }

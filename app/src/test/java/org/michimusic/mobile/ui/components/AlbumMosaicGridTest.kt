@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -43,5 +44,20 @@ class AlbumMosaicGridTest {
         rule.onNodeWithTag("album_tile_${albumNavigationIdentity(first, LibraryScope.All)}")
             .assertIsDisplayed().performClick()
         assertEquals(albumNavigationIdentity(first, LibraryScope.All), opened)
+    }
+
+    @Test fun callerOwnedGridStateRestoresTheVisibleAlbum() {
+        val albums = (0..9).map { album(listOf("track-$it")) }
+        rule.setContent {
+            AlbumMosaicGrid(
+                albums = albums,
+                scope = LibraryScope.All,
+                state = rememberLazyGridState(initialFirstVisibleItemIndex = 6),
+                onOpenAlbum = {},
+            )
+        }
+
+        rule.onNodeWithTag("album_tile_${albumNavigationIdentity(albums[6], LibraryScope.All)}")
+            .assertIsDisplayed()
     }
 }

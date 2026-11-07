@@ -1,12 +1,9 @@
-phase	skill_id	state	evidence_reference
-bootstrap	using-chrisbanes-skills	LOADED	opencode-log:ui3-r19-integration; native skill call before applying R19
-plan	to-plan	LOADED	opencode-log:ui3-r19-integration; supplied PLAN-R19 and explicit Integrar todo approval
-implement	deliver-spec	LOADED	opencode-log:ui3-r19-integration; native skill call before source edits
-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:ui3-r19-integration; Album Enrichment cancellation and Compose effect ownership
-api	kotlin-api-design	LOADED	opencode-log:ui3-r19-integration; album navigation identity and enrichment facade boundaries
-ui-state	compose-state-and-effects	LOADED	opencode-log:ui3-r19-integration; AlbumDetail, view-mode and enrichment effect lifecycle
-ui-component	compose-component-design	LOADED	opencode-log:ui3-r19-integration; Mosaic, CoverFlow and detail component APIs
-ui-animation	compose-animations	LOADED	opencode-log:ui3-r19-integration; CoverFlow settled-page and reduced-motion behavior
-ui-test	compose-ui-testing-patterns	LOADED	opencode-log:ui3-r19-integration; JVM Compose tests and full API36 instrumentation
-gradle	gradle-run	LOADED	opencode-log:ui3-r19-integration; workflow 811b49e4853e1490a684bb61abc5df90 runs 0001-0008
-writing	grounded-writing	LOADED	opencode-log:ui3-r19-integration; integration report and evidence limits
+bootstrap	using-chrisbanes-skills	LOADED	opencode-log:native-skill-call/using-chrisbanes-skills/2026-11-07
+plan	to-plan	LOADED	opencode-log:native-skill-call/to-plan/2026-11-07
+implement	deliver-spec	LOADED	opencode-log:native-skill-call/deliver-spec/2026-11-07
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:native-skill-call/kotlin-concurrency-and-flow/2026-11-07
+api	kotlin-api-design	LOADED	opencode-log:native-skill-call/kotlin-api-design/2026-11-07
+ui-state	compose-state-and-effects	LOADED	opencode-log:native-skill-call/compose-state-and-effects/2026-11-07
+ui-component	compose-component-design	LOADED	opencode-log:native-skill-call/compose-component-design/2026-11-07
+ui-test	compose-ui-testing-patterns	LOADED	opencode-log:native-skill-call/compose-ui-testing-patterns/2026-11-07
+gradle	gradle-run	LOADED	opencode-log:native-skill-call/gradle-run/2026-11-07

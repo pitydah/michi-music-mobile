@@ -20,10 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -110,9 +108,10 @@ fun AlbumDetailScreen(
         repository = libraryRepository, retryKey = scopeRetry,
     )
     val album = if (scoped.ready) resolveNavigationAlbum(scoped.albums, albumId, activeScope) else null
-    val tracks = remember(album) {
-        album?.tracks.orEmpty().distinctBy { it.id }
-            .sortedWith(compareBy { it.trackNumber.takeIf { number -> number > 0 } ?: Int.MAX_VALUE })
+    val tracks = remember(album) { album?.tracks.orEmpty().distinctBy { it.id } }
+    val trackPresentation = remember(tracks) { albumTrackPresentation(tracks) }
+    val orderedTracks = remember(trackPresentation) {
+        trackPresentation.tracks.map(PresentedAlbumTrack::track)
     }
     // Availability belongs to the current library snapshot. Never substitute another track.
     val eligibleTracks = remember(tracks, scoped.playableTrackIds) {
@@ -132,11 +131,13 @@ fun AlbumDetailScreen(
     var playlistOpen by remember(albumId, activeScope) { mutableStateOf(false) }
     var menuOpen by remember(albumId, activeScope) { mutableStateOf(false) }
     var sortByTitle by remember(albumId, activeScope) { mutableStateOf(false) }
-    val narrowActions = albumActionsStacked(
+    val actionLayout = albumActionLayout(
         LocalConfiguration.current.screenWidthDp, LocalConfiguration.current.fontScale,
     )
-    val shownTracks = remember(tracks, sortByTitle) {
-        if (sortByTitle) tracks.sortedWith(compareBy({ it.title.lowercase() }, { it.id })) else tracks
+    val shownTracks = remember(trackPresentation, sortByTitle) {
+        if (sortByTitle) trackPresentation.tracks.sortedWith(
+            compareBy({ it.track.title.lowercase() }, { it.track.id }),
+        ) else trackPresentation.tracks
     }
     // Menu identity, not a captured Track/URI: a rescan may update preferred location.
     var selectedTrackMenuId by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
@@ -156,7 +157,8 @@ fun AlbumDetailScreen(
     LaunchedEffect(albumId) { viewModel.loadMedia() }
 
     fun playSelection(requestedTrackId: String? = null, shuffle: Boolean = false) {
-        val selection = albumQueueSelection(tracks, scoped.playableTrackIds, requestedTrackId, shuffle)
+        // Playback follows the same stable disc/track order presented on screen.
+        val selection = albumQueueSelection(orderedTracks, scoped.playableTrackIds, requestedTrackId, shuffle)
         if (selection == null) {
             feedback = "Esta selección no tiene pistas disponibles en la biblioteca actual."
             return
@@ -195,16 +197,6 @@ fun AlbumDetailScreen(
                     testTag = "album_detail_back",
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    MichiIconAction(
-                        Icons.Filled.Info, "Información de calidad del álbum",
-                        onClick = { qualityOpen = true }, enabled = album != null,
-                        testTag = "album_quality_button",
-                    )
-                    MichiIconAction(
-                        Icons.Filled.Book, "Historia y enriquecimiento del álbum",
-                        onClick = { historyOpen = true }, enabled = album != null,
-                        testTag = "album_enrichment_button",
-                    )
                     MichiIconAction(
                         if (allFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                         if (allFavorite) "Quitar álbum de favoritos" else "Añadir álbum a favoritos",
@@ -252,8 +244,8 @@ fun AlbumDetailScreen(
                 ) {
                     item(key = "hero") {
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            val vertical = maxWidth < 300.dp || LocalConfiguration.current.fontScale >= 1.45f
-                            val coverSize = (maxWidth * 0.42f).coerceIn(136.dp, 180.dp)
+                            val vertical = maxWidth < 300.dp
+                            val coverSize = (maxWidth * 0.36f).coerceIn(112.dp, 144.dp)
                             @Composable fun cover() {
                                 AlbumArtView(
                                     coverStyle = coverStyleFor(album.album.coverId.ifBlank { album.album.title }),
@@ -264,16 +256,16 @@ fun AlbumDetailScreen(
                                 )
                             }
                             @Composable fun description() {
-                                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     Text(
-                                        album.album.title, fontSize = 23.sp, lineHeight = 28.sp,
+                                        album.album.title, fontSize = 22.sp, lineHeight = 26.sp,
                                         fontWeight = FontWeight.Bold, color = PureWhite,
                                         maxLines = 3, overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(album.album.artist, fontSize = 15.sp, color = PureWhite,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Text(
-                                        album.album.year.takeIf { it in 1800..2100 }?.let { "Álbum · $it" } ?: "Álbum",
+                                        album.album.year.takeIf { it in 1800..2100 }?.let { "Año local · $it" } ?: "Año local desconocido",
                                         color = TextSecondary, fontSize = 13.sp,
                                     )
                                     Text(
@@ -299,28 +291,31 @@ fun AlbumDetailScreen(
                     }
                     item(key = "actions") {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (narrowActions) {
-                            // At 320/360/412 dp or large fonts, three equal-row actions clip labels.
-                            // Full-width controls retain complete strings and ≥48 dp touch targets.
+                        if (actionLayout == AlbumActionLayout.TWO_ROWS) {
                             AeroActionButton(
                                 "Reproducir", onClick = { playSelection() },
                                 modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.PlayArrow,
                                 kind = AeroActionKind.Primary, enabled = eligibleTracks.isNotEmpty(),
                                 testTag = "album_detail_play",
                             )
-                            AeroActionButton(
-                                "Aleatorio", onClick = { playSelection(shuffle = true) },
-                                modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.Shuffle,
-                                enabled = eligibleTracks.isNotEmpty(), testTag = "album_detail_shuffle",
-                            )
-                            AeroActionButton(
-                                "Añadir a lista", onClick = { playlistOpen = true },
-                                modifier = Modifier.fillMaxWidth(), icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                                enabled = tracks.isNotEmpty(), testTag = "album_detail_add_to_playlist",
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                            ) {
+                                MichiIconAction(
+                                    Icons.Filled.Shuffle, "Reproducir álbum aleatoriamente",
+                                    onClick = { playSelection(shuffle = true) },
+                                    enabled = eligibleTracks.isNotEmpty(), testTag = "album_detail_shuffle",
+                                )
+                                MichiIconAction(
+                                    Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
+                                    onClick = { playlistOpen = true }, enabled = tracks.isNotEmpty(),
+                                    testTag = "album_detail_add_to_playlist",
+                                )
+                            }
                         } else {
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -330,9 +325,9 @@ fun AlbumDetailScreen(
                                     kind = AeroActionKind.Primary, enabled = eligibleTracks.isNotEmpty(),
                                     testTag = "album_detail_play",
                                 )
-                                AeroActionButton(
-                                    "Aleatorio", onClick = { playSelection(shuffle = true) },
-                                    modifier = Modifier.weight(1f), icon = Icons.Filled.Shuffle,
+                                MichiIconAction(
+                                    Icons.Filled.Shuffle, "Reproducir álbum aleatoriamente",
+                                    onClick = { playSelection(shuffle = true) },
                                     enabled = eligibleTracks.isNotEmpty(), testTag = "album_detail_shuffle",
                                 )
                                 MichiIconAction(
@@ -361,21 +356,35 @@ fun AlbumDetailScreen(
                             )
                         }
                     }
-                    itemsIndexed(shownTracks, key = { _, track -> track.id }) { index, track ->
+                    itemsIndexed(shownTracks, key = { _, presented -> presented.track.id }) { index, presented ->
+                        val track = presented.track
                         val available = track.id in scoped.playableTrackIds
-                        AeroCard(
-                            modifier = Modifier.fillMaxWidth()
-                                .testTag("album_detail_track_${track.id}"),
-                            onClick = if (available) ({ playSelection(requestedTrackId = track.id) }) else null,
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            val disc = presented.position?.discNumber
+                            val previousDisc = shownTracks.getOrNull(index - 1)?.position?.discNumber
+                            if (!sortByTitle && trackPresentation.showDiscHeaders && disc != null && disc != previousDisc) {
+                                Text(
+                                    "Disco $disc",
+                                    color = TextSecondary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(top = 6.dp, start = 4.dp)
+                                        .testTag("album_disc_$disc"),
+                                )
+                            }
+                            AeroCard(
+                                modifier = Modifier.fillMaxWidth()
+                                    .testTag("album_detail_track_${track.id}"),
+                                onClick = if (available) ({ playSelection(requestedTrackId = track.id) }) else null,
+                            ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Text(
-                                    (track.trackNumber.takeIf { it > 0 } ?: index + 1).toString(),
-                                    fontSize = 13.sp, color = TextMuted, modifier = Modifier.width(24.dp),
+                                    presented.position?.trackNumber?.toString() ?: "—",
+                                    fontSize = 13.sp, color = TextMuted, modifier = Modifier.width(36.dp),
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -410,6 +419,7 @@ fun AlbumDetailScreen(
                                     onClick = { selectedTrackMenuId = track.id },
                                     testTag = "album_track_more_${track.id}",
                                 )
+                            }
                             }
                         }
                     }
@@ -480,7 +490,7 @@ fun AlbumDetailScreen(
                             HorizontalDivider(color = TextMuted.copy(alpha = 0.25f))
                             Text(track.title, color = PureWhite, fontWeight = FontWeight.Medium)
                             Text(
-                                listOfNotNull(albumCodecLabel(track)?.let { "Formato declarado: $it" },
+                                listOfNotNull(albumCodecLabel(track)?.let { "Formato de archivo: $it" },
                                     sampleRateLabel(track.sampleRate)?.let { "Frecuencia: $it" },
                                     track.channels.takeIf { it in 1..8 }?.let { "Canales: $it" })
                                     .ifEmpty { listOf("No hay parámetros técnicos suficientes en los metadatos.") }
@@ -524,7 +534,7 @@ fun AlbumDetailScreen(
                             enabled = !savingPlaylist,
                             onClick = {
                                 savingPlaylist = true
-                                viewModel.addAlbumToPlaylist(playlist.id, tracks) { success ->
+                                viewModel.addAlbumToPlaylist(playlist.id, orderedTracks) { success ->
                                     savingPlaylist = false
                                     if (success) playlistOpen = false
                                     feedback = if (success) "Álbum añadido a ${playlist.name}" else "No se pudo añadir el álbum."
@@ -546,10 +556,7 @@ fun AlbumDetailScreen(
                         Text("Información de calidad", color = PureWhite)
                     }
                     TextButton(onClick = { menuOpen = false; historyOpen = true }) {
-                        Text("Historia del álbum", color = PureWhite)
-                    }
-                    TextButton(onClick = { menuOpen = false; playlistOpen = true }) {
-                        Text("Añadir a lista", color = PureWhite)
+                        Text("Cronología externa · MusicBrainz", color = PureWhite)
                     }
                     TextButton(onClick = { menuOpen = false }) { Text("Cerrar", color = TextSecondary) }
                 }

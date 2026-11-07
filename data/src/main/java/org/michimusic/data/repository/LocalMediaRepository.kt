@@ -152,6 +152,7 @@ open class LocalMediaRepository(
                 MediaStore.Audio.Media.YEAR,
                 MediaStore.Audio.Media.SIZE,
                 MediaStore.Audio.Media.MIME_TYPE,
+                MediaStore.Audio.Media.DISPLAY_NAME,
                 MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.IS_RINGTONE,
                 MediaStore.Audio.Media.IS_ALARM,
@@ -185,6 +186,7 @@ open class LocalMediaRepository(
             val yearCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
             val sizeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
             val mimeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+            val displayNameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val dateCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val ringtoneCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_RINGTONE)
             val alarmCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_ALARM)
@@ -242,6 +244,9 @@ open class LocalMediaRepository(
                     coverId = c.getString(albumIdCol) ?: "",
                     dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
                     source = TrackSource.LOCAL,
+                    sourceMimeType = c.getString(mimeCol).orEmpty(),
+                    sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),
+                    trackNumberFromMediaStore = true,
                 ))
             }
         }
@@ -324,6 +329,14 @@ open class LocalMediaRepository(
         }
         return playlists
     }
+}
+
+internal fun sourceFileExtension(displayName: String?): String {
+    val name = displayName?.trim().orEmpty()
+    val extension = name.substringAfterLast('.', missingDelimiterValue = "")
+    return extension.lowercase(java.util.Locale.ROOT)
+        .takeIf { it.isNotBlank() && it.length <= 12 && it.all(Char::isLetterOrDigit) }
+        .orEmpty()
 }
 
 // A row is a real, playable track unless MediaStore explicitly categorizes it as one of

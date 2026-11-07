@@ -78,6 +78,15 @@ class LocalMediaRepositoryTest {
         val emptyRepo = TestableLocalMediaRepository(tracks = emptyList())
         assertTrue(emptyRepo.loadAlbums().isEmpty())
     }
+
+    @Test
+    fun sourceFileExtension_isNormalizedFromDisplayName() {
+        assertEquals("mp3", sourceFileExtension("Song.Final.MP3"))
+        assertEquals("flac", sourceFileExtension("track.flac"))
+        assertEquals("", sourceFileExtension("README"))
+        assertEquals("", sourceFileExtension("hidden."))
+        assertEquals("", sourceFileExtension(null))
+    }
 }
 
 private class TestableLocalMediaRepository(

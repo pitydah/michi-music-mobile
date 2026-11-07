@@ -38,4 +38,18 @@ class AlbumPlaybackPolicyTest {
         assertNull(albumQueueSelection(tracks, emptySet()))
         assertNull(albumQueueSelection(emptyList(), setOf("b")))
     }
+
+    @Test fun albumPlaybackUsesTheSameStableDiscTrackOrderAsPresentation() {
+        val titleOrderedInput = listOf(
+            Track(id = "title-a", title = "A", trackNumber = 2002, trackNumberFromMediaStore = true),
+            Track(id = "title-b", title = "B", trackNumber = 1006, trackNumberFromMediaStore = true),
+            Track(id = "title-c", title = "C", trackNumber = 1, trackNumberFromMediaStore = true),
+        )
+        val presentedOrder = albumTrackPresentation(titleOrderedInput).tracks.map(PresentedAlbumTrack::track)
+        val selection = requireNotNull(
+            albumQueueSelection(presentedOrder, titleOrderedInput.mapTo(mutableSetOf()) { it.id }),
+        )
+
+        assertEquals(listOf("title-c", "title-b", "title-a"), selection.tracks.map { it.id })
+    }
 }

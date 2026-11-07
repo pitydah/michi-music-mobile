@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,7 +39,6 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,7 +74,6 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.FavoritesRepository
-import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
@@ -96,9 +96,6 @@ import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
-import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
-import org.michimusic.mobile.ui.coverflow.coverFlowStageHeightDp
-import org.michimusic.mobile.ui.coverflow.coverFlowPositionLabel
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -165,7 +162,8 @@ fun AlbumsScreen(
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
     var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
     var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.MOSAIC) }
-    var selectedAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
+    val albumGridState = rememberLazyGridState()
+    val albumListState = rememberLazyListState()
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -193,37 +191,8 @@ fun AlbumsScreen(
         viewModel.loadMedia()
     }
 
-    LaunchedEffect(scopedArtistCollection?.ready, scopedArtistCollection?.albums) {
-        if (scopedArtistCollection?.ready == true) {
-            selectedAlbumId = reconcileSelectedAlbumId(
-                selectedId = selectedAlbumId,
-                albumIds = scopedArtistCollection?.albums.orEmpty().map { albumNavigationIdentity(it, activeScope) },
-            )
-        }
-    }
-
     val scopedAlbums = scopedArtistCollection?.takeIf { it.ready }?.albums.orEmpty()
     val identityCounts = remember(scopedAlbums, activeScope) { albumNavigationIdentityCounts(scopedAlbums, activeScope) }
-    val albumByToken = remember(scopedAlbums, identityCounts, activeScope) {
-        scopedAlbums.mapNotNull { group ->
-            val token = albumNavigationIdentity(group, activeScope)
-            if (identityCounts[token] == 1) token to group else null
-        }.toMap()
-    }
-    val coverFlowAlbums = remember(scopedAlbums, activeScope) {
-        scopedAlbums.map { album ->
-            CoverFlowAlbum(
-                id = albumNavigationIdentity(album, activeScope),
-                title = album.album.title,
-                artist = album.album.artist,
-                year = album.album.year,
-                trackCount = album.tracks.size,
-                hasArt = true,
-                coverUri = album.album.coverId,
-                sourceAudioUri = album.tracks.firstOrNull()?.filepath.orEmpty(),
-            )
-        }
-    }
 
     val filteredTracks = remember(allTracks, selectedFilter, downloadedTrackIds) {
         allTracks.filter { track ->
@@ -292,20 +261,19 @@ fun AlbumsScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (selectedTab == LibraryTab.ALBUMS && coverFlowAlbums.isNotEmpty()) {
-                        // Un único botón recorre Mosaico, CoverFlow y Lista.
+                    if (selectedTab == LibraryTab.ALBUMS && scopedAlbums.isNotEmpty()) {
+                        // Un único botón alterna entre el mosaico principal y la lista compacta.
                         val nextMode = nextAlbumViewMode(viewMode)
                         MichiIconAction(
                             icon = when (nextMode) {
                                 LibraryViewMode.LIST -> Icons.AutoMirrored.Filled.ViewList
                                 LibraryViewMode.MOSAIC -> Icons.Default.GridView
-                                LibraryViewMode.COVERFLOW -> Icons.Default.ViewCarousel
                             },
                             contentDescription = "Vista ${albumViewModeLabel(viewMode)}. Cambiar a ${albumViewModeLabel(nextMode)}",
                             onClick = {
                                 viewMode = nextMode
                             },
-                            tint = if (viewMode == LibraryViewMode.COVERFLOW) PrimaryPinkContainer else PureWhite,
+                            tint = if (viewMode == LibraryViewMode.MOSAIC) PrimaryPinkContainer else PureWhite,
                             iconSize = 22.dp,
                             minTargetSize = MichiSpacing.minTouchTarget,
                             testTag = "library_view_mode_toggle",
@@ -651,237 +619,11 @@ fun AlbumsScreen(
                                 scope = activeScope,
                                 onOpenAlbum = onNavigateToAlbum,
                                 modifier = Modifier.fillMaxSize(),
+                                state = albumGridState,
                             )
-                        } else if (viewMode == LibraryViewMode.COVERFLOW && coverFlowAlbums.isNotEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(bottom = 24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(coverFlowStageHeightDp(
-                                            androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat()
-                                        ).dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    MichiCoverFlowHost(
-                                        albums = coverFlowAlbums,
-                                        selectedAlbumId = selectedAlbumId,
-                                        onAlbumSelected = { selectedAlbumId = it },
-                                        onAlbumClick = { idx ->
-                                            // A CoverFlow click opens the *exact* album identity;
-                                            // playback belongs to the destination screen.
-                                            val selectedCoverAlbum = coverFlowAlbums.getOrNull(idx)
-                                            if (selectedCoverAlbum != null &&
-                                                identityCounts[selectedCoverAlbum.id] == 1
-                                            ) {
-                                                onNavigateToAlbum(selectedCoverAlbum.id)
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-
-                                Spacer(Modifier.height(8.dp))
-
-                                // Only the settled, unambiguous carousel token may own the actions below.
-                                // Never substitute another album while restoring/reordering a pager.
-                                val currentAlbum = selectedAlbumId?.let { albumByToken[it] }
-                                if (currentAlbum == null) {
-                                    Text("Selecciona una portada válida para ver las acciones del álbum.",
-                                        color = TextSecondary, modifier = Modifier.padding(horizontal = 20.dp))
-                                }
-                                if (currentAlbum != null) {
-                                    val positionLabel = coverFlowPositionLabel(
-                                        coverFlowAlbums.indexOfFirst { it.id == albumNavigationIdentity(currentAlbum, activeScope) },
-                                        coverFlowAlbums.size,
-                                    )
-                                    Text(
-                                        text = if (positionLabel != null) "$positionLabel · Toca la portada para abrir"
-                                            else "Toca la portada para abrir",
-                                        style = MichiTypography.microLabel,
-                                        color = TextMuted,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp)
-                                            .testTag("coverflow_position_hint"),
-                                    )
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 20.dp, vertical = 6.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Text(
-                                            text = currentAlbum.album.title,
-                                            style = MichiTypography.sectionTitle.copy(fontSize = 18.sp),
-                                            fontWeight = FontWeight.Bold,
-                                            color = PureWhite,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                        )
-                                        val albumMeta = buildString {
-                                            append(currentAlbum.album.artist)
-                                            if (currentAlbum.album.year > 0) {
-                                                append(" · ")
-                                                append(currentAlbum.album.year)
-                                            }
-                                            append(" · ")
-                                            append(currentAlbum.tracks.size)
-                                            append(if (currentAlbum.tracks.size == 1) " canción" else " canciones")
-                                        }
-                                        Text(
-                                            text = albumMeta,
-                                            style = MichiTypography.metadata,
-                                            color = TextSecondary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                        )
-
-                                        val playableAlbumTracks = currentAlbum.tracks.filter {
-                                            it.id in scopedArtistCollection?.playableTrackIds.orEmpty()
-                                        }
-                                        val playSelectedAlbum: () -> Unit = {
-                                            if (playableAlbumTracks.isNotEmpty()) playQueueSafe(playableAlbumTracks, 0)
-                                        }
-                                        Row(
-                                            modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            if (androidx.compose.ui.platform.LocalConfiguration.current.fontScale >= 1.6f) {
-                                                MichiIconAction(
-                                                    icon = Icons.Default.PlayArrow,
-                                                    contentDescription = "Reproducir ${currentAlbum.album.title}",
-                                                    onClick = playSelectedAlbum,
-                                                    enabled = playableAlbumTracks.isNotEmpty(),
-                                                    tint = PureWhite,
-                                                    iconSize = 26.dp,
-                                                    testTag = "coverflow_play_album",
-                                                )
-                                            } else {
-                                                AeroActionButton(
-                                                    label = "Reproducir",
-                                                    onClick = playSelectedAlbum,
-                                                    icon = Icons.Default.PlayArrow,
-                                                    kind = AeroActionKind.Primary,
-                                                    enabled = playableAlbumTracks.isNotEmpty(),
-                                                    testTag = "coverflow_play_album",
-                                                )
-                                            }
-                                            MichiIconAction(
-                                                icon = Icons.Default.Shuffle,
-                                                contentDescription = "Reproducir aleatorio ${currentAlbum.album.title}",
-                                                onClick = {
-                                                    val eligible = currentAlbum.tracks.filter {
-                                                        it.id in scopedArtistCollection?.playableTrackIds.orEmpty()
-                                                    }
-                                                    if (eligible.isNotEmpty()) playQueueSafe(eligible.shuffled(), 0)
-                                                },
-                                                enabled = playableAlbumTracks.isNotEmpty(),
-                                                tint = TertiaryCyan,
-                                                iconSize = 22.dp,
-                                                minTargetSize = MichiSpacing.minTouchTarget,
-                                                testTag = "coverflow_shuffle_album",
-                                            )
-                                            MichiIconAction(
-                                                icon = Icons.Default.Add,
-                                                contentDescription = "Añadir álbum a playlist",
-                                                onClick = { albumToAddToPlaylist = currentAlbum },
-                                                tint = TextSecondary,
-                                                iconSize = 22.dp,
-                                                minTargetSize = MichiSpacing.minTouchTarget,
-                                                testTag = "coverflow_add_to_playlist",
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        text = "PISTAS · ${currentAlbum.tracks.size}",
-                                        style = MichiTypography.microLabel,
-                                        color = TextSecondary,
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
-                                    )
-
-                                    // Interactive in-screen album track list
-                                    val activeTrack = presentation.currentTrack
-                                    LazyColumn(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .weight(1f)
-                                            .padding(horizontal = 20.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        itemsIndexed(currentAlbum.tracks, key = { _, track -> track.id }) { index, track ->
-                                            val isCurrentPlaying = activeTrack?.id == track.id
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clip(MichiShapes.sm)
-                                                    .heightIn(min = 52.dp)
-                                                    .background(GlassFillLow, MichiShapes.sm)
-                                                    .clickable(enabled = track.id in scopedArtistCollection?.playableTrackIds.orEmpty()) {
-                                                        val eligible = currentAlbum.tracks.filter {
-                                                            it.id in scopedArtistCollection?.playableTrackIds.orEmpty()
-                                                        }
-                                                        val exact = eligible.indexOfFirst { it.id == track.id }
-                                                        if (exact >= 0) playQueueSafe(eligible, exact)
-                                                    }
-                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                if (isCurrentPlaying) {
-                                                    Box(modifier = Modifier.width(28.dp), contentAlignment = Alignment.CenterStart) {
-                                                        EqualizerWaveBars(
-                                                            isPlaying = isPlaying,
-                                                            modifier = Modifier.size(16.dp),
-                                                            color = PrimaryPinkContainer,
-                                                        )
-                                                    }
-                                                } else {
-                                                    Text(
-                                                        text = "${index + 1}",
-                                                        style = MichiTypography.metadata,
-                                                        color = TextMuted,
-                                                        modifier = Modifier.width(28.dp),
-                                                    )
-                                                }
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = track.title,
-                                                        style = MichiTypography.trackTitle,
-                                                        color = if (isCurrentPlaying) PrimaryPinkContainer else PureWhite,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                    )
-                                                    Text(
-                                                        text = track.artist,
-                                                        style = MichiTypography.microLabel,
-                                                        color = TextSecondary,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                    )
-                                                }
-                                                Text(
-                                                    text = formatTimeMillis(track.duration),
-                                                    style = MichiTypography.microLabel,
-                                                    color = TextMuted,
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                         } else {
                             LazyColumn(
+                                state = albumListState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
