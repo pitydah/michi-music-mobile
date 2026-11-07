@@ -1,10 +1,11 @@
 phase	skill_id	state	evidence_reference
-bootstrap	using-chrisbanes-skills	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call before R3 planning
-plan	to-plan	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call; conversation plan .scratch/to-plan/r11-5-2-r3-artist-enrichment-final-integrity-seal.md
-implement	deliver-spec	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call before source edits
-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call; Room transaction and controller epoch review
-api	kotlin-api-design	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call; persistence truth and explicit resolution APIs
-ui-state	compose-state-and-effects	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call; controller persistence and ambiguity state
-ui-component	compose-component-design	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call; accessible persistence and historical-choice UI
-ui-test	compose-ui-testing-patterns	LOADED	opencode-log:R11.5.2-R3 current session; OpenCode native skill call; API 36 panel behavior tests
-gradle	gradle-run	LOADED	opencode-log:R11.5.2-R3 current session; workflow 9155680ee6f43363d155ce0a72e97612 runs 0001-0030
+bootstrap	using-chrisbanes-skills	LOADED	opencode-log:R11.5.2-R4 current session; native skill call before R4 planning
+plan	to-plan	LOADED	opencode-log:R11.5.2-R4 current session; plan .scratch/to-plan/r11-5-2-r4-artist-enrichment-domain-integrity.md
+implement	deliver-spec	LOADED	opencode-log:R11.5.2-R4 current session; native skill call before source edits
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:R11.5.2-R4 current session; transaction, cancellation, and epoch review
+api	kotlin-api-design	LOADED	opencode-log:R11.5.2-R4 current session; canonical association and exact-resolution API review
+ui-state	compose-state-and-effects	LOADED	opencode-log:R11.5.2-R4 current session; explicit discovery and local-only bind review
+ui-component	compose-component-design	LOADED	opencode-log:R11.5.2-R4 current session; truthful 48dp explicit discovery action
+ui-test	compose-ui-testing-patterns	LOADED	opencode-log:R11.5.2-R4 current session; API 36 explicit-action instrumentation tests
+gradle	gradle-run	LOADED	opencode-log:R11.5.2-R4 current session; workflow 2e53b6ef6ab8abead90a27dec76e549b runs 0001-0031
+writing	grounded-writing	LOADED	opencode-log:R11.5.2-R4 current session; final contracts and certification reports

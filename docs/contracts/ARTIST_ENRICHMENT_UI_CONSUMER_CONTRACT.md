@@ -9,8 +9,8 @@ The UI consumes:
 
 - `ArtistEnrichmentController.state` for current status, profile, persistence truth,
   ambiguity candidates, error/warning, and artwork state;
-- the controller's bind, explicit-confirm, ambiguity-resolution, refresh, clear, artwork
-  selection, and focus actions;
+- the controller's bind, explicit-discovery, explicit-confirm, ambiguity-resolution,
+  refresh, clear, artwork selection, and focus actions;
 - `PersistedArtistProfile.associationGroupKey` when constructing an artwork identity anchor;
 - Room-backed artwork selections only after private-file verification.
 
@@ -55,11 +55,13 @@ UI3 and later consumers must not:
 A future UI adaptation is conforming only if tests prove:
 
 1. local entry and recomposition perform no provider request;
-2. exact ambiguity candidates and actions come from the controller;
-3. identity-only, profile, stale, offline, no-photo, partial, corrupt-file, and error states
+2. provider discovery starts only from a truthful explicit action with a minimum 48 dp
+   target;
+3. exact ambiguity candidates and actions come from the controller;
+4. identity-only, profile, stale, offline, no-photo, partial, corrupt-file, and error states
    remain distinguishable;
-4. library switching cancels or ignores prior-scope work;
-5. THUMB/HERO render verified private bytes with independent focus;
-6. no UI code writes association rows or chooses an MBID implicitly.
+5. library switching cancels or ignores prior-scope work;
+6. THUMB/HERO render verified private bytes with independent focus;
+7. no UI code writes association rows or chooses an MBID implicitly.
 
 This document is an adaptation boundary, not authorization to implement UI3.

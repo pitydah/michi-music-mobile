@@ -58,7 +58,8 @@ explicit exact-context resolution can settle a genuinely ambiguous view.
 
 ## Boundaries
 
-- Provider discovery enriches an already confirmed identity; it does not decide identity.
+- Explicit MusicBrainz discovery proposes candidates but never decides identity. Profile and
+  artwork enrichment require an already confirmed MBID.
 - Embedded-tag scans record observations only and run only after user action.
 - Biography, portrait provenance, licence, and attribution survive stale-provider and
   offline states when their Room commit succeeded.
