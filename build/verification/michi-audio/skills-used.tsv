@@ -1,0 +1,11 @@
+phase	skill_id	state	evidence_reference
+bootstrap	using-chrisbanes-skills	LOADED	opencode-log:artist-final-domain-permanence; native skill call before final model exploration
+plan	to-plan	LOADED	opencode-log:artist-final-domain-permanence; plan .scratch/to-plan/artist-enrichment-final-domain-permanence.md
+implement	deliver-spec	LOADED	opencode-log:artist-final-domain-permanence; native skill call before source edits
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:artist-final-domain-permanence; Room transactions, cancellation, races, and library epochs
+api	kotlin-api-design	LOADED	opencode-log:artist-final-domain-permanence; identity, association, binding, evidence, and semantic write APIs
+ui-state	compose-state-and-effects	LOADED	opencode-log:artist-final-domain-permanence; controller local-binding state and lifecycle
+ui-component	compose-component-design	LOADED	opencode-log:artist-final-domain-permanence; truthful 48dp local-binding action
+ui-test	compose-ui-testing-patterns	LOADED	opencode-log:artist-final-domain-permanence; focused and full API36 Compose tests
+gradle	gradle-run	LOADED	opencode-log:artist-final-domain-permanence; workflow 2de733b9b12589602afb87f8d4382e8a runs 0001-0029
+writing	grounded-writing	LOADED	opencode-log:artist-final-domain-permanence; native skill call and style-profile review before final contract/report review

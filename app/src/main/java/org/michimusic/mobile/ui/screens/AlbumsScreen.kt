@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.mobile.R
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -87,6 +88,7 @@ import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
+import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
@@ -131,11 +133,11 @@ enum class LibraryViewMode {
 fun AlbumsScreen(
     onNavigateToPlaylists: () -> Unit = {},
     onNavigateToArtist: (String) -> Unit = {},
-    onNavigateToArtistEnrichment: ((String) -> Unit)? = null,
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     modifier: Modifier = Modifier,
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -897,13 +899,21 @@ fun AlbumsScreen(
                                         color = TextSecondary, modifier = Modifier.padding(20.dp))
                                 }
                             } else {
+                                val artworkStore = remember(context) {
+                                    ArtistArtworkPersistence.from(context)
+                                }
+                                val artworkRevision by remember(artworkStore, scoped.identityLibraryId) {
+                                    scoped.identityLibraryId?.let(artworkStore::observeLibraryRevision)
+                                        ?: flowOf(0L)
+                                }.collectAsStateWithLifecycle(initialValue = 0L)
                                 ArtistMosaicGrid(
                                     artists = artistEntries,
                                     libraryId = scoped.identityLibraryId,
                                     refreshToken = 0,
+                                    artworkRevision = artworkRevision,
                                     onOpenArtist = onNavigateToArtist,
-                                    onEnrichArtist = onNavigateToArtistEnrichment,
                                     modifier = Modifier.fillMaxSize(),
+                                    artworkStore = artworkStore,
                                 )
                             }
                         }

@@ -14,7 +14,7 @@ class ArtistEmbeddedTagsUiTest {
     @get:Rule val rule = createAndroidComposeRule<ComponentActivity>()
     private val mbid = "bd6d4f63-5cd0-4d78-a292-167997794c21"
 
-    @Test fun tagProbeRunsOnlyWhenTheUserTapsAndProviderIsNotCalledUntilConfirmed() {
+    @Test fun tagProbeRunsOnlyWhenTappedAndProviderBindingWaitsForConfirmation() {
         var scans = 0
         var remote = 0
         val probe = ArtistTagProbe {
@@ -35,6 +35,8 @@ class ArtistEmbeddedTagsUiTest {
             ArtistEnrichmentPanel(
                 artistCredit = "Patti Austin & James Ingram",
                 gateway = gateway,
+                libraryId = "lib-local",
+                albumIds = listOf("album-local"),
                 localAudioUris = listOf("content://media/external/audio/media/12"),
                 tagProbe = probe,
                 selectionStore = object : ArtistEnrichmentSelectionStore {
@@ -44,14 +46,15 @@ class ArtistEmbeddedTagsUiTest {
                 },
             )
         }
+        rule.waitForIdle()
         assertEquals(0, scans)
-        assertEquals(0, remote)
+        assertEquals(0, remote) // Opening the panel is local-only.
         rule.onNodeWithTag("artist_embedded_tags_scan").performClick()
         rule.waitForIdle()
         assertEquals(1, scans)
-        assertEquals(0, remote)
+        assertEquals(0, remote) // Scanning a tag never binds an identity by itself.
         rule.onNodeWithTag("artist_embedded_mbid_confirm").assertExists().performClick()
-        rule.waitForIdle()
+        rule.waitUntil(5_000) { remote >= 1 }
         assertEquals(1, remote)
     }
 }

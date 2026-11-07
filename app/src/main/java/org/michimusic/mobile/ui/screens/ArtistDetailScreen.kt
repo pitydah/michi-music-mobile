@@ -28,12 +28,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,17 +53,26 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.flowOf
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.mobile.artist.ArtistEnrichmentPanel
-import org.michimusic.mobile.artist.ArtistPublicDiscography
+import org.michimusic.mobile.artist.ArtistEnrichmentController
+import org.michimusic.mobile.artist.ArtistEnrichmentOrchestrator
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.PersistedArtistProfile
 import org.michimusic.mobile.artist.ArtistProfileStatus
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
 import org.michimusic.mobile.artist.allowedCommonsPortrait
+import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkService
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
+import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.library.LibraryScopeStore
 import org.michimusic.mobile.library.rememberArtistScopedCollection
@@ -161,6 +172,7 @@ fun ArtistDetailScreen(
     val albumIds = remember(localAlbums) { localAlbums.map { it.album.id } }
     val context = LocalContext.current
     val store = remember(context) { ArtistEnrichmentPersistence.from(context) }
+    val artworkStore = remember(context) { ArtistArtworkPersistence.from(context) }
     var showEnrichment by rememberSaveable(artistCredit) { mutableStateOf(initialEnrichment) }
     var cacheRevision by remember { mutableIntStateOf(0) }
     // Keep the stale bit: a saved association is not evidence of fresh external data.
@@ -205,7 +217,68 @@ fun ArtistDetailScreen(
     }
     val savedProfile = savedRecord?.profile
     val cachedProfileIsStale = savedRecord?.stale == true
-    val portrait = savedProfile?.portrait?.takeIf(::allowedCommonsPortrait)
+    var heroArtwork by remember(artistCredit, libraryId, albumIds) {
+        mutableStateOf<ArtistArtworkSelection?>(null)
+    }
+    var artworkReadError by remember(artistCredit, libraryId, albumIds) { mutableStateOf(false) }
+    val artworkRevision by remember(artworkStore, libraryId) {
+        libraryId?.let(artworkStore::observeLibraryRevision) ?: flowOf(0L)
+    }.collectAsStateWithLifecycle(initialValue = 0L)
+    LaunchedEffect(artworkStore, artistCredit, libraryId, albumIds,
+        savedProfile?.mbid, savedProfile?.wikidataQid, cacheRevision, artworkRevision) {
+        heroArtwork = null
+        artworkReadError = false
+        if (libraryId == null) return@LaunchedEffect
+        try {
+            val anchor = artistIdentityAnchor(
+                libraryId, artistCredit, albumIds, savedProfile,
+                savedRecord?.associationGroupKey,
+            ) ?: return@LaunchedEffect
+            val selections = artworkStore.load(anchor)
+            currentCoroutineContext().ensureActive()
+            heroArtwork = selections.firstOrNull {
+                it.slot == ArtworkSlot.ARTIST_HERO &&
+                    it.status == ArtworkLoadStatus.READY &&
+                    it.confirmedMbid == anchor.confirmedMbid
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Artwork cache failure is independent from the verified biography and
+            // local playback; the hero falls back to the legacy portrait or monogram.
+            artworkReadError = true
+        }
+    }
+    // One controller owns identity, biography and artwork for both this ficha and
+    // the Enriquecer panel. The cached profile stays visible while it refreshes.
+    val controllerScope = rememberCoroutineScope()
+    val enrichmentController = remember(context, store, artworkStore) {
+        ArtistEnrichmentController(
+            orchestrator = ArtistEnrichmentOrchestrator(
+                artwork = ArtistArtworkService.from(context),
+                store = store,
+            ),
+            profileStore = store,
+            artworkStore = artworkStore,
+            verifySelection = { verifyCachedArtwork(context, it) },
+            scope = controllerScope,
+        )
+    }
+    LaunchedEffect(enrichmentController, artistCredit, libraryId, albumIds) {
+        enrichmentController.bind(libraryId, artistCredit, albumIds)
+    }
+    DisposableEffect(enrichmentController) {
+        onDispose { enrichmentController.release() }
+    }
+    val enrichmentState by enrichmentController.state.collectAsStateWithLifecycle()
+    val effectiveProfile = enrichmentState.profile ?: savedProfile
+    val effectiveStale = enrichmentState.stale || cachedProfileIsStale
+    val effectivePortrait = effectiveProfile?.portrait?.takeIf(::allowedCommonsPortrait)
+    val effectiveHeroArtwork = selectEffectiveHeroArtwork(
+        profileMbid = effectiveProfile?.mbid,
+        fromController = enrichmentState.selections[ArtworkSlot.ARTIST_HERO],
+        fromRoom = heroArtwork,
+    )
     // State lives above LazyColumn so every remote discography row is its own lazy item.
     fun retryLibrary() {
         scopeRetry++
@@ -327,6 +400,8 @@ fun ArtistDetailScreen(
                         artistCredit = artistCredit,
                         libraryId = libraryId,
                         albumIds = albumIds,
+                        controller = enrichmentController,
+                        artworkStore = artworkStore,
                         localAudioUris = localTracks.map { it.filepath },
                         localTrackIds = localTracks.map { it.id },
                         modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 20.dp),
@@ -388,9 +463,10 @@ fun ArtistDetailScreen(
                         item("artist_hero") {
                             ArtistDetailHero(
                                 artistCredit = artistCredit,
-                                portrait = portrait,
+                                portrait = effectivePortrait,
                                 albumCount = localAlbums.size,
                                 trackCount = tracks.size,
+                                artwork = effectiveHeroArtwork,
                             )
                         }
                         if (profileStatus == ArtistProfileStatus.CONFLICT) {
@@ -432,17 +508,29 @@ fun ArtistDetailScreen(
                         item("artist_bio") {
                             ArtistBiographySection(
                                 artistCredit = artistCredit,
-                                profile = savedProfile,
-                                isStale = cachedProfileIsStale,
-                                portrait = portrait,
-                                onEnrich = { showEnrichment = true },
+                                profile = effectiveProfile,
+                                isStale = effectiveStale,
+                                portrait = effectivePortrait,
+                                artwork = effectiveHeroArtwork,
                             )
+                        }
+                        if (artworkReadError) {
+                            item("artist_artwork_cache_error") {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("No se pudo leer la caché local de retratos. La biografía y tu colección siguen disponibles.",
+                                        color = TextSecondary,
+                                        modifier = Modifier.testTag("artist_artwork_cache_error"))
+                                    AeroActionButton("Reintentar retratos",
+                                        onClick = { cacheRevision++ },
+                                        testTag = "artist_artwork_cache_retry")
+                                }
+                            }
                         }
                         // Discography is exactly the albums present in the local library.
                         // Catalogue-only releases are not shown here: this list must reflect
                         // the files the user actually has, not what MusicBrainz published.
                         item("artist_discography_heading") {
-                            ArtistDetailSectionHeader("DISCOGRAFÍA", localAlbums.size)
+                            ArtistDetailSectionHeader("DISCOGRAFÍA")
                         }
                         item("artist_discography_row") {
                             LazyRow(

@@ -47,17 +47,34 @@ data class CommonsPortrait(
 )
 
 /** Fail closed on licenses, absent attribution, non-Wikimedia images and insecure URLs. */
-fun allowedCommonsPortrait(portrait: CommonsPortrait): Boolean {
-    val license = portrait.license.trim()
+internal fun allowedPortraitLicense(license: String): Boolean {
     val allowed = Regex("^(?:CC BY-SA|CC BY|CC0)(?: [1-9]\\.\\d)?$|^Public domain$", RegexOption.IGNORE_CASE)
-    if (!allowed.matches(license)) return false
-    if (portrait.attribution.isBlank() || portrait.attribution.length > 500) return false
-    if (!portrait.imageUrl.startsWith("https://upload.wikimedia.org/")) return false
+    return allowed.matches(license.trim())
+}
+
+internal fun allowedPortraitAttribution(attribution: String): Boolean {
+    val clean = attribution.trim()
+    return clean.isNotEmpty() && clean.length <= 500 &&
+        !clean.equals("none", ignoreCase = true) &&
+        !clean.equals("null", ignoreCase = true)
+}
+
+internal fun allowedPortraitUrls(portrait: CommonsPortrait): Boolean {
+    // Wikimedia's imageinfo endpoint currently returns thumbnail URLs on
+    // thumb.wikimedia.org while originals remain on upload.wikimedia.org.
+    // Both are first-party Wikimedia origins; anything else stays rejected.
+    if (!portrait.imageUrl.startsWith("https://upload.wikimedia.org/") &&
+        !portrait.imageUrl.startsWith("https://thumb.wikimedia.org/")) return false
     if (!portrait.commonsPageUrl.startsWith("https://commons.wikimedia.org/wiki/File:")) return false
     if (!portrait.licenseUrl.startsWith("https://creativecommons.org/") &&
         !portrait.licenseUrl.startsWith("https://commons.wikimedia.org/")) return false
     return true
 }
+
+fun allowedCommonsPortrait(portrait: CommonsPortrait): Boolean =
+    allowedPortraitLicense(portrait.license) &&
+        allowedPortraitAttribution(portrait.attribution) &&
+        allowedPortraitUrls(portrait)
 
 /** External biography links must remain on a genuine HTTPS Wikipedia article origin. */
 fun allowedWikipediaSource(link: String?): Boolean {
@@ -89,4 +106,31 @@ data class ArtistExternalProfile(
     val biography: String? = null,
     val biographySourceUrl: String? = null,
     val portrait: CommonsPortrait? = null,
+    // Optional providers are independent: a missing portrait must not hide a
+    // verified biography (or the reverse). The outcome records why a field is
+    // absent instead of collapsing every failure into a generic null.
+    val biographyOutcome: ArtistMetadataOutcome? = null,
+    val portraitOutcome: ArtistMetadataOutcome? = null,
+    val wikidataQid: String? = null,
 )
+
+/**
+ * Why an optional metadata stage produced, or failed to produce, a value.
+ * Persisted profiles keep the diagnosis so the ficha can distinguish an
+ * artist without data from a provider/network failure.
+ */
+@Serializable
+enum class ArtistMetadataOutcome {
+    SUCCESS,
+    NO_IDENTITY,
+    NO_SITELINK,
+    NO_TEXT,
+    NO_P18,
+    NO_ALLOWED_LICENSE,
+    BAD_ATTRIBUTION,
+    HTTP_ERROR,
+    TIMEOUT,
+    NETWORK_ERROR,
+    DECODE_ERROR,
+    CACHE_ERROR,
+}

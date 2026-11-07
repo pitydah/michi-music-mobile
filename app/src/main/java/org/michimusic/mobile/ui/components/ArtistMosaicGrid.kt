@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -19,7 +18,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -44,16 +43,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import org.michimusic.mobile.artist.ArtistEnrichmentPersistence
 import org.michimusic.mobile.artist.ArtistEnrichmentSelectionStore
 import org.michimusic.mobile.artist.CommonsPortrait
 import org.michimusic.mobile.artist.allowedCommonsPortrait
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
+import org.michimusic.mobile.artist.artwork.ArtworkSlot
+import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.scopedArtistCreditKey
-import org.michimusic.mobile.artist.ArtistProfileStatus
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
+import org.michimusic.mobile.artist.resolveArtistArtworkConsensus
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -71,8 +78,9 @@ fun ArtistMosaicGrid(
     refreshToken: Int,
     onOpenArtist: (String) -> Unit,
     modifier: Modifier = Modifier,
-    onEnrichArtist: ((String) -> Unit)? = null,
     selectionStore: ArtistEnrichmentSelectionStore? = null,
+    artworkStore: ArtistArtworkStore? = null,
+    artworkRevision: Long = 0L,
 ) {
     val context = LocalContext.current
     val store = remember(context, selectionStore) {
@@ -94,44 +102,92 @@ fun ArtistMosaicGrid(
             var portrait by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
                 mutableStateOf<CommonsPortrait?>(null)
             }
-            var identityStatus by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
-                mutableStateOf(ArtistProfileStatus.UNRESOLVED)
+            var artwork by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
+                mutableStateOf<ArtistArtworkSelection?>(null)
             }
-            var retryPhoto by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
-                androidx.compose.runtime.mutableIntStateOf(0)
+            var aggregateRevisions by remember(
+                artworkStore, artist.credit, libraryId, artist.profileScopes,
+            ) { mutableStateOf<List<Long>>(emptyList()) }
+            LaunchedEffect(artworkStore, libraryId, artist.profileScopes) {
+                aggregateRevisions = emptyList()
+                if (artworkStore != null && libraryId == null) {
+                    val revisionFlows = artist.profileScopes
+                        .map { it.libraryId }
+                        .distinct()
+                        .map(artworkStore::observeLibraryRevision)
+                    if (revisionFlows.isNotEmpty()) {
+                        combine(revisionFlows) { revisions -> revisions.toList() }
+                            .drop(1) // Initial hydration is already owned by the load effect.
+                            .collect { aggregateRevisions = it }
+                    }
+                }
             }
-            LaunchedEffect(store, artist.credit, libraryId, albumIds, artist.profileScopes,
-                refreshToken, retryPhoto) {
+            LaunchedEffect(store, artworkStore, artist.credit, libraryId, albumIds,
+                artist.profileScopes, refreshToken, artworkRevision, aggregateRevisions) {
+                // A cached portrait is only a hint: clear it before reading the scoped key so
+                // a library or album-fingerprint change can never keep a stale face.
                 portrait = null
-                identityStatus = ArtistProfileStatus.UNRESOLVED
+                artwork = null
                 try {
+                    var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
+                    var savedAssociationGroupKey: String? = null
                     if (libraryId == null) {
-                        // ALL: only paint a photo if EVERY participating library has the same
-                        // explicitly confirmed MBID. Unassigned/ambiguous credits fail closed.
                         val result = resolveArtistProfileConsensus(artist.profileScopes, store)
                         currentCoroutineContext().ensureActive()
-                        portrait = result.portrait
-                        identityStatus = result.status
+                        if (artworkStore == null) {
+                            // ALL: only paint a photo if EVERY participating library has the same
+                            // explicitly confirmed MBID. Unassigned/ambiguous credits fail closed.
+                            portrait = result.portrait
+                            savedProfile = result.saved?.profile
+                            savedAssociationGroupKey = result.saved?.associationGroupKey
+                        } else {
+                            artwork = resolveArtistArtworkConsensus(result, artworkStore)
+                            currentCoroutineContext().ensureActive()
+                        }
+                    } else if (artworkStore == null) {
+                        if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                            val saved = store.load(libraryId, artist.credit, albumIds)
+                            currentCoroutineContext().ensureActive()
+                            portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
+                            savedProfile = saved?.profile
+                            savedAssociationGroupKey = saved?.associationGroupKey
+                        }
                     } else if (scopedArtistCreditKey(libraryId, artist.credit, albumIds) != null) {
+                        // Production mosaic never lets a legacy portrait URL reach Coil:
+                        // only the persisted, decoded artwork file may paint a tile. Recovery
+                        // lives in Enriquecer, not in a network request while scrolling.
                         val saved = store.load(libraryId, artist.credit, albumIds)
                         currentCoroutineContext().ensureActive()
-                        portrait = saved?.profile?.portrait?.takeIf(::allowedCommonsPortrait)
-                        identityStatus = if (saved == null) ArtistProfileStatus.MISSING
-                            else ArtistProfileStatus.CONFIRMED
+                        savedProfile = saved?.profile
+                        savedAssociationGroupKey = saved?.associationGroupKey
+                    }
+                    if (artworkStore != null && libraryId != null) {
+                        val anchor = artistIdentityAnchor(
+                            libraryId, artist.credit, albumIds, savedProfile,
+                            savedAssociationGroupKey,
+                        )
+                        if (anchor != null) {
+                            artwork = artworkStore.load(anchor).firstOrNull {
+                                it.slot == ArtworkSlot.ARTIST_THUMB &&
+                                    it.status == ArtworkLoadStatus.READY &&
+                                    it.confirmedMbid == anchor.confirmedMbid
+                            }
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    identityStatus = ArtistProfileStatus.ERROR
+                    // A failed cache read is a missing photo, never an invented identity.
+                    // Retrying lives in the enrichment surface, not under the portrait.
+                    portrait = null
+                    artwork = null
                 }
             }
             ArtistMosaicTile(
                 artist = artist,
                 portrait = portrait,
-                identityStatus = identityStatus,
+                artwork = artwork,
                 onClick = { onOpenArtist(artist.credit) },
-                onEnrich = onEnrichArtist?.let { callback -> { callback(artist.credit) } },
-                onRetryPhoto = { retryPhoto++ },
             )
         }
     }
@@ -142,106 +198,101 @@ internal fun ArtistMosaicTile(
     artist: ArtistMosaicEntry,
     portrait: CommonsPortrait?,
     onClick: () -> Unit,
-    identityStatus: ArtistProfileStatus = ArtistProfileStatus.UNRESOLVED,
     modifier: Modifier = Modifier,
-    onEnrich: (() -> Unit)? = null,
-    onRetryPhoto: (() -> Unit)? = null,
+    artwork: ArtistArtworkSelection? = null,
 ) {
     val name = artist.credit.ifBlank { "Artista desconocido" }
+    val localArtwork = artwork?.localImagePath
+        ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
+    // Profile URLs remain attribution/provenance only. A production mosaic portrait
+    // is rendered exclusively from the verified private artwork selection.
+    val model: Any? = localArtwork?.let(::File)
     val albumDescription = if (artist.albumCount == 1) "1 álbum" else "${artist.albumCount} álbumes"
     val trackDescription = if (artist.trackCount == 1) "1 canción" else "${artist.trackCount} canciones"
-    // Keep two SEPARATE accessibility actions: open artist and lookup portrait.
-    // A TextButton inside a mergeDescendants clickable parent would be swallowed by TalkBack.
+    // One accessible target per artist: the whole tile opens the ficha. Cache retries and
+    // identity review belong to the enrichment surface, never to a second CTA under a face.
     Column(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 6.dp),
+        modifier = modifier.fillMaxWidth().padding(horizontal = 2.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Abrir artista $name. $albumDescription y $trackDescription"
+            }
+            .testTag("artist_mosaic_tile_${artist.credit}"),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .clickable(role = Role.Button, onClick = onClick)
-                .semantics(mergeDescendants = true) {
-                    contentDescription = "Abrir artista $name. $albumDescription y $trackDescription"
-                }
-                .testTag("artist_mosaic_tile_${artist.credit}"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
         ) {
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxWidth(),
+            val diameter = maxWidth.coerceAtMost(144.dp)
+            Box(
+                modifier = Modifier
+                    .size(diameter)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF515068), Color(0xFF29293D)),
+                        ),
+                    )
+                    .border(
+                        width = 0.9.dp,
+                        color = if (model != null) Color.White.copy(alpha = 0.23f)
+                        else PrimaryPink.copy(alpha = 0.37f),
+                        shape = CircleShape,
+                    )
+                    .testTag("artist_mosaic_portrait_${artist.credit}"),
                 contentAlignment = Alignment.Center,
             ) {
-                val diameter = maxWidth.coerceAtMost(144.dp)
-                Box(
-                    modifier = Modifier
-                        .size(diameter)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color(0xFF515068), Color(0xFF29293D)),
-                            ),
-                        )
-                        .border(
-                            width = 0.9.dp,
-                            color = if (portrait != null) Color.White.copy(alpha = 0.23f)
-                            else PrimaryPink.copy(alpha = 0.37f),
-                            shape = CircleShape,
-                        )
-                        .testTag("artist_mosaic_portrait_${artist.credit}"),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // Kept under the async image, including offline/error states; never
-                    // replace a failed portrait with unrelated album artwork.
+                var photoVisible by remember(model) { mutableStateOf(false) }
+                // Kept under the async image, including offline/error states; never
+                // replace a failed portrait with unrelated album artwork.
+                if (!photoVisible) {
                     Text(
                         text = artistMosaicMonogram(name),
+                        modifier = Modifier.testTag("artist_mosaic_monogram_${artist.credit}"),
                         fontFamily = InterFontFamily,
                         fontSize = 31.sp,
                         fontWeight = FontWeight.Medium,
                         color = PureWhite.copy(alpha = 0.92f),
                     )
-                    if (portrait != null) {
-                        AsyncImage(
-                            model = portrait.imageUrl,
-                            contentDescription = null, // Parent owns the accessible artist action.
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.matchParentSize()
-                                .clip(CircleShape)
-                                .testTag("artist_mosaic_photo_${artist.credit}"),
+                }
+                if (model != null) {
+                    val alignment = artwork?.focus?.let {
+                        BiasAlignment(it.x * 2f - 1f, it.y * 2f - 1f)
+                    } ?: Alignment.Center
+                    AsyncImage(
+                        model = model,
+                        contentDescription = null, // Parent owns the accessible artist action.
+                        contentScale = ContentScale.Crop,
+                        alignment = alignment,
+                        onSuccess = { photoVisible = true },
+                        onError = { photoVisible = false },
+                        modifier = Modifier.matchParentSize()
+                            .clip(CircleShape)
+                            .testTag("artist_mosaic_photo_${artist.credit}"),
+                    )
+                    if (photoVisible) {
+                        Box(
+                            Modifier.matchParentSize()
+                                .testTag("artist_mosaic_photo_loaded_${artist.credit}"),
                         )
                     }
                 }
             }
-            Text(
-                text = name,
-                modifier = Modifier.fillMaxWidth(),
-                color = PureWhite,
-                fontFamily = InterFontFamily,
-                fontSize = 14.sp,
-                lineHeight = 19.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
-        if (portrait == null && identityStatus == ArtistProfileStatus.ERROR && onRetryPhoto != null) {
-            TextButton(onClick = onRetryPhoto, modifier = Modifier
-                .heightIn(min = 48.dp).testTag("artist_mosaic_retry_${artist.credit}")) {
-                Text("Reintentar foto", color = PrimaryPink, fontSize = 11.sp)
-            }
-        } else if (portrait == null && onEnrich != null) {
-            TextButton(onClick = onEnrich, modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("artist_mosaic_enrich_${artist.credit}")) {
-                Text(
-                    when (identityStatus) {
-                        ArtistProfileStatus.CONFLICT -> "Revisar identidad"
-                        ArtistProfileStatus.UNRESOLVED -> "Elegir biblioteca"
-                        else -> "Buscar retrato"
-                    }, color = PrimaryPink, fontSize = 11.sp,
-                )
-            }
-        }
+        Text(
+            text = name,
+            modifier = Modifier.fillMaxWidth(),
+            color = PureWhite,
+            fontFamily = InterFontFamily,
+            fontSize = 14.sp,
+            lineHeight = 19.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

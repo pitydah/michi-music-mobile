@@ -26,8 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -39,18 +41,22 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import java.io.File
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.artist.ArtistExternalProfile
 import org.michimusic.mobile.artist.CommonsPortrait
 import org.michimusic.mobile.artist.allowedCommonsPortrait
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.artistMosaicMonogram
+import org.michimusic.mobile.ui.components.biographyStatusText
 import org.michimusic.mobile.ui.components.coverStyleFor
+import org.michimusic.mobile.ui.components.portraitStatusText
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -65,12 +71,21 @@ internal fun ArtistDetailHero(
     albumCount: Int,
     trackCount: Int,
     modifier: Modifier = Modifier,
+    artwork: ArtistArtworkSelection? = null,
 ) {
     val shape = RoundedCornerShape(24.dp)
     // At large font scales the 62.sp monogram and the artist name collide inside the
     // hero. The name is the information, so the decorative monogram steps aside and the
     // hero grows with its content instead of clipping or overlapping.
     val fontScale = LocalDensity.current.fontScale
+    val localArtwork = artwork?.localImagePath
+        ?.takeIf { artwork.status == ArtworkLoadStatus.READY && it.isNotBlank() }
+    // A confirmed portrait URL is provenance, not durable artwork. The ficha renders
+    // only a verified private file; missing/corrupt files fall back to the monogram.
+    val model: Any? = localArtwork?.let(::File)
+    // The monogram is the fallback, not wallpaper: it stays visible while the
+    // image loads and returns if Coil reports a decode/network error.
+    var photoVisible by remember(model) { mutableStateOf(false) }
     Box(
         modifier = modifier.fillMaxWidth().heightIn(min = 248.dp).clip(shape)
             .background(Brush.linearGradient(listOf(Color(0xFF26364A), Color(0xFF302639))))
@@ -79,7 +94,7 @@ internal fun ArtistDetailHero(
     ) {
         // Draw the monogram BELOW Coil regardless of URL availability: if the
         // verified remote image fails/offline, the hero still has an identity.
-        if (fontScale < 1.6f) {
+        if (fontScale < 1.6f && !photoVisible) {
             Text(
                 artistMosaicMonogram(artistCredit),
                 modifier = Modifier.align(Alignment.Center).testTag("artist_detail_hero_monogram"),
@@ -88,13 +103,25 @@ internal fun ArtistDetailHero(
                 fontFamily = InterFontFamily,
             )
         }
-        if (portrait != null && allowedCommonsPortrait(portrait)) {
+        if (model != null) {
+            val alignment = artwork?.focus?.let {
+                BiasAlignment(it.x * 2f - 1f, it.y * 2f - 1f)
+            } ?: Alignment.Center
             AsyncImage(
-                model = portrait.imageUrl,
-                contentDescription = "Fotografía de $artistCredit. Autoría en sección de biografía",
+                model = model,
+                contentDescription = "Fotografía de $artistCredit. Créditos disponibles en Enriquecer",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().testTag("artist_detail_hero_photo"),
+                alignment = alignment,
+                onSuccess = { photoVisible = true },
+                onError = { photoVisible = false },
+                modifier = Modifier.fillMaxSize()
+                    .testTag("artist_detail_hero_artwork"),
             )
+            // Distinguishes "URL/path present" from "bytes decoded" for screenshot
+            // evidence without changing the visible layout.
+            if (photoVisible) {
+                Box(Modifier.fillMaxSize().testTag("artist_detail_hero_photo_loaded"))
+            }
         }
         Box(
             modifier = Modifier.fillMaxWidth().height(132.dp).align(Alignment.BottomCenter)
@@ -124,11 +151,12 @@ internal fun ArtistBiographySection(
     profile: ArtistExternalProfile?,
     isStale: Boolean,
     portrait: CommonsPortrait?,
-    onEnrich: () -> Unit,
+    artwork: ArtistArtworkSelection? = null,
 ) {
     val uriHandler = LocalUriHandler.current
     val bio = profile?.biography?.takeIf(String::isNotBlank)
     var expanded by rememberSaveable(artistCredit) { mutableStateOf(false) }
+    var hasOverflow by remember(artistCredit, bio) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         Text("SOBRE EL ARTISTA", color = PrimaryPinkContainer, fontSize = 11.sp,
             fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
@@ -138,23 +166,26 @@ internal fun ArtistBiographySection(
                 color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp,
                 modifier = Modifier.testTag("artist_detail_stale_notice"),
             )
-            TextButton(onClick = onEnrich, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Revisar en Artist Enrichment", color = TertiaryCyan, fontSize = 12.sp)
-            }
         }
         if (bio != null) {
             Text(
                 bio,
                 color = PureWhite.copy(alpha = 0.89f), fontSize = 13.sp, lineHeight = 20.sp,
-                maxLines = if (expanded) Int.MAX_VALUE else 6,
+                maxLines = if (expanded) Int.MAX_VALUE else 5,
                 overflow = TextOverflow.Ellipsis,
+                onTextLayout = { layout ->
+                    if (!expanded) hasOverflow = layout.hasVisualOverflow
+                },
                 modifier = Modifier.testTag("artist_detail_biography"),
             )
-            // Wrap source links at 1.5–2.0× system font scale instead of
-            // compressing two TextButtons into a single 320dp row.
+            // The disclosure is only real when the intro actually exceeds the
+            // five-line editorial window; a short verified intro shows no
+            // inert "Leer más" control.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(if (expanded) "Leer menos" else "Leer más", color = TertiaryCyan, fontSize = 12.sp)
+                if (hasOverflow || expanded) {
+                    TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(if (expanded) "Leer menos" else "Leer más", color = TertiaryCyan, fontSize = 12.sp)
+                    }
                 }
                 profile.biographySourceUrl?.let { url ->
                     TextButton(onClick = { uriHandler.openUri(url) }, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -164,35 +195,30 @@ internal fun ArtistBiographySection(
             }
         } else {
             Text(
-                "Todavía no hay una biografía con fuente confirmada para este artista.",
+                if (profile == null) {
+                    "No hay biografía verificable disponible. Confirma la identidad del artista en Enriquecer."
+                } else {
+                    biographyStatusText(profile.biographyOutcome)
+                },
                 color = TextSecondary, fontSize = 13.sp, lineHeight = 19.sp,
                 modifier = Modifier.testTag("artist_detail_no_biography"),
             )
-            TextButton(onClick = onEnrich, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Consultar Artist Enrichment", color = TertiaryCyan, fontSize = 12.sp)
-            }
         }
-        portrait?.let { licensed ->
-            TextButton(
-                onClick = { uriHandler.openUri(licensed.commonsPageUrl) },
-                modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_attribution"),
-            ) {
-                Text("Foto: ${licensed.attribution} · ${licensed.license}",
-                    fontSize = 10.sp, color = TextSecondary,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
-            }
-            TextButton(
-                onClick = { uriHandler.openUri(licensed.licenseUrl) },
-                modifier = Modifier.heightIn(min = 48.dp).testTag("artist_detail_photo_license"),
-            ) {
-                Text("Consultar licencia de la fotografía", fontSize = 11.sp, color = TertiaryCyan)
-            }
+        // Credits and license links belong in Enriquecer, not in the reading flow.
+        // Only show missing-image status when neither visual source is available.
+        if (profile != null && portrait == null &&
+            artwork?.status != ArtworkLoadStatus.READY && profile.portrait == null) {
+            Text(
+                portraitStatusText(profile.portraitOutcome),
+                color = TextSecondary, fontSize = 11.sp, lineHeight = 16.sp,
+                modifier = Modifier.testTag("artist_detail_portrait_status"),
+            )
         }
     }
 }
 
 @Composable
-internal fun ArtistDetailSectionHeader(name: String, count: Int) {
+internal fun ArtistDetailSectionHeader(name: String, count: Int? = null) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -200,7 +226,9 @@ internal fun ArtistDetailSectionHeader(name: String, count: Int) {
     ) {
         Text(name, color = PureWhite, fontFamily = InterFontFamily,
             fontSize = 17.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp)
-        Text(count.toString(), color = TextSecondary, fontSize = 12.sp)
+        if (count != null) {
+            Text(count.toString(), color = TextSecondary, fontSize = 12.sp)
+        }
     }
 }
 

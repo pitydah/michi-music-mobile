@@ -41,9 +41,14 @@ class ArtistEnrichmentPolicyTest {
             "Photo: author example",
         )
         assertTrue(allowedCommonsPortrait(valid))
+        assertTrue(allowedCommonsPortrait(valid.copy(
+            imageUrl = "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a0/portrait.jpg/960px-portrait.jpg",
+        )))
         assertFalse(allowedCommonsPortrait(valid.copy(license = "CC BY-NC 4.0")))
         assertFalse(allowedCommonsPortrait(valid.copy(license = "Fair use")))
         assertFalse(allowedCommonsPortrait(valid.copy(attribution = "")))
+        assertFalse(allowedCommonsPortrait(valid.copy(attribution = "None")))
+        assertFalse(allowedCommonsPortrait(valid.copy(attribution = "null")))
         assertFalse(allowedCommonsPortrait(valid.copy(imageUrl = "http://upload.wikimedia.org/image.jpg")))
         assertFalse(allowedCommonsPortrait(valid.copy(imageUrl = "https://example.com/picture.jpg")))
     }

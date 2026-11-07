@@ -114,9 +114,6 @@ fun MichiNavHost() {
                     AlbumsScreen(
                         onNavigateToPlaylists = { navController.navigate("playlist") },
                         onNavigateToArtist = { credit -> navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=false") },
-                        onNavigateToArtistEnrichment = { credit ->
-                            navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=true")
-                        },
                         sessionManager = sessionManager,
                     )
                 }
