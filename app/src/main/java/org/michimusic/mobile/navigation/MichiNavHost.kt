@@ -22,6 +22,7 @@ import androidx.navigation.navArgument
 import org.michimusic.mobile.ui.components.BottomNavBar
 import org.michimusic.mobile.ui.components.MiniPlayer
 import org.michimusic.mobile.ui.screens.AlbumsScreen
+import org.michimusic.mobile.ui.screens.AlbumDetailScreen
 import org.michimusic.mobile.ui.screens.ArtistDetailScreen
 import org.michimusic.mobile.ui.screens.AudioRouteScreen
 import org.michimusic.mobile.ui.screens.DevicesScreen
@@ -113,7 +114,20 @@ fun MichiNavHost() {
                 composable("library") {
                     AlbumsScreen(
                         onNavigateToPlaylists = { navController.navigate("playlist") },
+                        onNavigateToAlbum = { id -> navController.navigate("album/${android.net.Uri.encode(id)}") },
                         onNavigateToArtist = { credit -> navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=false") },
+                        sessionManager = sessionManager,
+                    )
+                }
+                composable(
+                    route = "album/{albumId}",
+                    arguments = listOf(navArgument("albumId") { type = NavType.StringType }),
+                ) { entry ->
+                    val albumId = entry.arguments?.getString("albumId") ?: return@composable
+                    AlbumDetailScreen(
+                        albumId = albumId,
+                        onBack = { navController.popBackStack() },
+                        backLabel = albumDetailBackLabel(navController.previousBackStackEntry?.destination?.route),
                         sessionManager = sessionManager,
                     )
                 }
@@ -128,6 +142,7 @@ fun MichiNavHost() {
                     ArtistDetailScreen(
                         artistCredit = artistCredit,
                         onBack = { navController.popBackStack() },
+                        onNavigateToAlbum = { id -> navController.navigate("album/${android.net.Uri.encode(id)}") },
                         initialEnrichment = entry.arguments?.getBoolean("enrich") ?: false,
                         sessionManager = sessionManager,
                     )

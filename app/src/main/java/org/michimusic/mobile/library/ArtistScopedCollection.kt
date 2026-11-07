@@ -108,17 +108,40 @@ fun resolveArtistScopedCollection(
         .map { it.identity.id }.toMutableSet()
     playableIds += legacyOnly.filter { artistLegacyUriIsPlayableCandidate(it.filepath) }
         .map { it.id }
-    // LocalMediaRepository normalises blank album titles only in Album metadata;
-    // the corresponding Track.album can still be blank. Match on raw track credit.
-    val localByCredit = localAlbums.associateBy { group ->
+    // The *album ID*, not only title/credit, defines a distinct album. Different
+    // releases with the same visible title must not collapse into one detail route.
+    // Prefer the local track membership when legacy MediaStore leaves track.albumId blank.
+    val localGroupsByTrack = localAlbums.flatMap { local ->
+        local.tracks.map { track -> track.id to local }
+    }.groupBy({ it.first }, { it.second })
+    // Compute signatures once per snapshot; repeated per-row sorting would be O(m²).
+    val groupKeys = java.util.IdentityHashMap<LocalAlbum, String>()
+    localAlbums.forEach { group ->
+        val fields = listOf(group.album.id, group.album.title, group.album.artist) +
+            group.tracks.map { it.id }.distinct().sorted()
+        groupKeys[group] = fields.joinToString("") { "${it.length}:$it" }
+    }
+    fun localGroupKey(group: LocalAlbum): String = checkNotNull(groupKeys[group])
+    fun localGroupFor(track: org.michimusic.core.models.Track): LocalAlbum? =
+        localGroupsByTrack[track.id]?.distinctBy(::localGroupKey)?.singleOrNull()
+    // The credit fallback is safe only when exactly one local album has that credit.
+    val localByCredit = localAlbums.groupBy { group ->
         val first = group.tracks.firstOrNull()
         (first?.album ?: group.album.title) to (first?.artist ?: group.album.artist)
     }
-    val scopedAlbums = tracks.groupBy { it.album to it.artist }.map { (credit, groupTracks) ->
-        val original = localByCredit[credit]?.album
+    val scopedAlbums = tracks.groupBy { track ->
+        // Use the complete local-group membership, not just MediaStore's reused album ID.
+        val local = localGroupFor(track)
+        val groupKey = local?.let(::localGroupKey)
+            ?: track.albumId.takeIf(String::isNotBlank).orEmpty()
+        groupKey to ((local?.album?.title ?: track.album) to (local?.album?.artist ?: track.artist))
+    }.map { (key, groupTracks) ->
+        val (knownId, credit) = key
+        val original = groupTracks.mapNotNull(::localGroupFor)
+            .distinctBy(::localGroupKey).singleOrNull()?.album
+            ?: localByCredit[credit]?.singleOrNull()?.album
         val album = original?.copy(trackCount = groupTracks.size) ?: Album(
-            id = groupTracks.firstOrNull()?.albumId?.takeIf(String::isNotBlank)
-                ?: "artist_scope_${stableAlbumKey(credit.first, credit.second)}",
+            id = knownId.ifBlank { "artist_scope_${stableAlbumKey(credit.first, credit.second)}" },
             title = credit.first.ifBlank { "Álbum desconocido" },
             artist = credit.second,
             year = groupTracks.firstOrNull { it.year > 0 }?.year ?: 0,

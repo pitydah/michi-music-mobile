@@ -116,4 +116,41 @@ class ArtistScopedCollectionTest {
         assertTrue(state.playableTrackIds.isEmpty())
         assertEquals("", state.albums.single().tracks.single().filepath)
     }
+
+    @Test fun tracksFromOneAlbumWithInconsistentEmbeddedCreditsStayInOneAlbum() {
+        val first = Track("inconsistent-1", "First", artist = "Artist A", album = "Original Title")
+        val second = Track("inconsistent-2", "Second", artist = "Another Credit", album = "Alternate Title")
+        val local = listOf(LocalAlbum(Album("release-1", "Original Title", "Artist A"), listOf(first, second)))
+        val state = resolveArtistScopedCollection(local, LibraryScope.All, listOf(one), emptyList())
+        assertEquals(1, state.albums.size)
+        assertEquals("release-1", state.albums.single().album.id)
+        assertEquals(setOf(first.id, second.id), state.albums.single().tracks.map { it.id }.toSet())
+    }
+
+    @Test fun equalTitlesAndArtistsDoNotMergeDifferentLocalAlbums() {
+        val first = Track("same-name-track-1", "Intro", artist = "Artist A", album = "Same Title")
+        val second = Track("same-name-track-2", "Outro", artist = "Artist A", album = "Same Title")
+        // Some legacy tracks have no albumId; the actual local album membership is stronger.
+        val local = listOf(
+            LocalAlbum(Album("release-1", "Same Title", "Artist A"), listOf(first)),
+            LocalAlbum(Album("release-2", "Same Title", "Artist A"), listOf(second)),
+        )
+        val state = resolveArtistScopedCollection(local, LibraryScope.All, listOf(one), emptyList())
+        assertEquals(2, state.albums.size)
+        assertEquals(setOf("release-1", "release-2"), state.albums.map { it.album.id }.toSet())
+        assertTrue(state.albums.all { it.tracks.size == 1 })
+    }
+
+    @Test fun equalRawAlbumIdsWithDisjointMembersRemainSeparate() {
+        val x = Track("copy-x", "First", artist = "Artist A", album = "Same Title")
+        val y = Track("copy-y", "Second", artist = "Artist A", album = "Same Title")
+        val local = listOf(
+            LocalAlbum(Album("duplicated", "Same Title", "Artist A"), listOf(x)),
+            LocalAlbum(Album("duplicated", "Same Title", "Artist A"), listOf(y)),
+        )
+        val state = resolveArtistScopedCollection(local, LibraryScope.All, listOf(one), emptyList())
+        assertEquals(2, state.albums.size)
+        assertEquals(setOf(setOf(x.id), setOf(y.id)),
+            state.albums.map { group -> group.tracks.map { it.id }.toSet() }.toSet())
+    }
 }
