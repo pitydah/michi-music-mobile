@@ -1,11 +1,12 @@
 phase	skill_id	state	evidence_reference
-bootstrap	using-chrisbanes-skills	LOADED	opencode-log:k10-k11-total-closure-on-master; native skill call before K10/K11 edits
-plan	to-plan	LOADED	opencode-log:k10-k11-total-closure-on-master; approved plan /home/cristian/.plannotator/plans/k10k11-total-closure-on-master-2026-11-07-approved.md
-implement	deliver-spec	LOADED	opencode-log:k10-k11-total-closure-on-master; native skill call before source edits
-concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:k10-k11-total-closure-on-master; migration transactions, cancellation, and library epochs
-api	kotlin-api-design	LOADED	opencode-log:k10-k11-total-closure-on-master; grouped ownership and pending-membership APIs
-ui-state	compose-state-and-effects	LOADED	opencode-log:k10-k11-total-closure-on-master; pending-album state and local bind lifecycle
-ui-component	compose-component-design	LOADED	opencode-log:k10-k11-total-closure-on-master; one truthful 48dp action per pending album
-ui-test	compose-ui-testing-patterns	LOADED	opencode-log:k10-k11-total-closure-on-master; focused and full API36 Compose tests
-gradle	gradle-run	LOADED	opencode-log:k10-k11-total-closure-on-master; workflow 55551ce031e7ee0e85117f9fb03cdb54 runs 0001-0012
-writing	grounded-writing	LOADED	opencode-log:k10-k11-total-closure-on-master; native skill call and style-profile review before contract/report updates
+bootstrap	using-chrisbanes-skills	LOADED	opencode-log:ui3-r19-integration; native skill call before applying R19
+plan	to-plan	LOADED	opencode-log:ui3-r19-integration; supplied PLAN-R19 and explicit Integrar todo approval
+implement	deliver-spec	LOADED	opencode-log:ui3-r19-integration; native skill call before source edits
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-log:ui3-r19-integration; Album Enrichment cancellation and Compose effect ownership
+api	kotlin-api-design	LOADED	opencode-log:ui3-r19-integration; album navigation identity and enrichment facade boundaries
+ui-state	compose-state-and-effects	LOADED	opencode-log:ui3-r19-integration; AlbumDetail, view-mode and enrichment effect lifecycle
+ui-component	compose-component-design	LOADED	opencode-log:ui3-r19-integration; Mosaic, CoverFlow and detail component APIs
+ui-animation	compose-animations	LOADED	opencode-log:ui3-r19-integration; CoverFlow settled-page and reduced-motion behavior
+ui-test	compose-ui-testing-patterns	LOADED	opencode-log:ui3-r19-integration; JVM Compose tests and full API36 instrumentation
+gradle	gradle-run	LOADED	opencode-log:ui3-r19-integration; workflow 811b49e4853e1490a684bb61abc5df90 runs 0001-0008
+writing	grounded-writing	LOADED	opencode-log:ui3-r19-integration; integration report and evidence limits
