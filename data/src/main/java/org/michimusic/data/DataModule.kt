@@ -47,10 +47,11 @@ val dataModule = module {
         org.michimusic.data.repository.DefaultMusicLibraryRepository(get(), get(), get(), get())
     }
     single { SyncedTrackRepository(get(), get()) }
-    single { LocalMediaRepository(androidContext(), get()) }
+    // MediaStore and persisted SAF imports share one local catalog in Home/Library.
+    single { LocalMediaRepository(androidContext(), get(), get()) }
     single<org.michimusic.data.repository.FavoritesRepository> {
         org.michimusic.data.repository.DefaultFavoritesRepository(get())
     }
     single { PlaylistRepository(get(), get(), get()) }
-    single { org.michimusic.data.repository.SafMediaRepository(androidContext(), get()) }
+    single { org.michimusic.data.repository.SafMediaRepository(androidContext(), get(), get()) }
 }

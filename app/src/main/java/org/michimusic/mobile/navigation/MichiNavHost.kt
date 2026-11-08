@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import org.michimusic.mobile.ui.screens.SearchScreen
 import org.michimusic.mobile.ui.screens.SettingsScreen
 import org.michimusic.mobile.ui.screens.SyncScreen
 import org.michimusic.mobile.ui.screens.SyncedTracksScreen
+import org.michimusic.mobile.onboarding.OnboardingSnapshot
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.playback.PlaybackSessionManager
@@ -45,12 +47,34 @@ import org.michimusic.player.AudioController
 import org.koin.compose.koinInject
 
 @Composable
-fun MichiNavHost() {
+fun MichiNavHost(
+    onReopenOnboarding: () -> Unit = {},
+    onboardingDestination: String? = null,
+    completionRequestId: Int = 0,
+    onboardingSnapshot: OnboardingSnapshot? = null,
+) {
     val navController = rememberNavController()
+    // These are real destinations from the current navigation graph, never
+    // arbitrary strings or invented pairing/audio actions.
+    LaunchedEffect(onboardingDestination, completionRequestId) {
+        val destination = onboardingDestination?.takeIf {
+            it in setOf("home", "devices", "settings/privacy", "audio-route")
+        }
+        if (destination != null) {
+            navController.navigate(destination) {
+                if (destination == "home") {
+                    popUpTo(navController.graph.findStartDestination().id) { inclusive = false }
+                }
+                launchSingleTop = true
+            }
+        }
+    }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDest = backStackEntry?.destination
     val currentRoute = currentDest?.route
-    val chrome = navigationPresentationFor(currentRoute)
+    val chrome = navigationPresentationFor(
+        if (currentRoute == "settings/privacy") "settings" else currentRoute,
+    )
     val immersive = chrome.level == MichiScreenLevel.IMMERSIVE
     val miniPlayerVisible = chrome.showMiniPlayer
     // Reserve mini player height only when a track actually exists.
@@ -203,6 +227,21 @@ fun MichiNavHost() {
                     SettingsScreen(
                         onNavigateToDiagnostics = { navController.navigate("diagnostics") },
                         onNavigateBack = { navController.popBackStack() },
+                        onReopenOnboarding = onReopenOnboarding,
+                        onboardingSnapshot = onboardingSnapshot,
+                        onNavigateToDevices = { navController.navigate("devices") },
+                        onNavigateToAudioRoute = { navController.navigate("audio-route") },
+                    )
+                }
+                composable("settings/privacy") {
+                    SettingsScreen(
+                        initialSection = org.michimusic.mobile.ui.screens.SettingsSection.PRIVACY,
+                        onNavigateToDiagnostics = { navController.navigate("diagnostics") },
+                        onNavigateBack = { navController.popBackStack() },
+                        onReopenOnboarding = onReopenOnboarding,
+                        onboardingSnapshot = onboardingSnapshot,
+                        onNavigateToDevices = { navController.navigate("devices") },
+                        onNavigateToAudioRoute = { navController.navigate("audio-route") },
                     )
                 }
                 composable("playlist") {
