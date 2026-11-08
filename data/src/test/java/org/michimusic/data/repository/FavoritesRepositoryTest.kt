@@ -4,6 +4,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,6 +34,15 @@ class FavoritesRepositoryTest {
         }
 
         repository = DefaultFavoritesRepository(appDao)
+    }
+
+    @Test
+    fun `observing favorites first loads the persisted set without emitting a false empty state`() = runTest {
+        savedSettings[DefaultFavoritesRepository.SETTING_KEY_FAVORITES] = "saved_1,saved_2"
+        assertEquals(setOf("saved_1", "saved_2"), repository.observeFavoriteTrackIds().first())
+        assertEquals(setOf("saved_1", "saved_2"), repository.observeFavoriteTrackIds().first())
+        coVerify(exactly = 1) { appDao.getSetting(DefaultFavoritesRepository.SETTING_KEY_FAVORITES) }
+        coVerify(exactly = 0) { appDao.setSetting(any()) }
     }
 
     @Test

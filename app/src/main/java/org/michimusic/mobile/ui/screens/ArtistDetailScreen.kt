@@ -108,6 +108,7 @@ fun ArtistDetailScreen(
     initialEnrichment: Boolean = false,
     sessionManager: PlaybackSessionManager = koinInject(),
     modifier: Modifier = Modifier,
+    onNavigateToAlbum: (String) -> Unit = {},
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
@@ -170,6 +171,7 @@ fun ArtistDetailScreen(
     }
     val libraryId = scoped.identityLibraryId
     val albumIds = remember(localAlbums) { localAlbums.map { it.album.id } }
+    val albumIdentityCounts = remember(localAlbums, activeScope) { albumNavigationIdentityCounts(localAlbums, activeScope) }
     val context = LocalContext.current
     val store = remember(context) { ArtistEnrichmentPersistence.from(context) }
     val artworkStore = remember(context) { ArtistArtworkPersistence.from(context) }
@@ -538,18 +540,20 @@ fun ArtistDetailScreen(
                                 contentPadding = PaddingValues(end = 4.dp),
                                 modifier = Modifier.fillMaxWidth().testTag("artist_discography"),
                             ) {
-                                items(localAlbums, key = { it.album.id }) { group ->
+                                itemsIndexed(localAlbums, key = { index, group -> "${albumNavigationIdentity(group, activeScope)}#$index" }) { _, group ->
+                                    val identity = albumNavigationIdentity(group, activeScope)
+                                    val uniqueAlbum = albumIdentityCounts[identity] == 1
                                     Column(
                                         modifier = Modifier.width(142.dp)
                                             .clip(RoundedCornerShape(13.dp))
                                             .clickable(role = Role.Button,
-                                                enabled = group.tracks.any { it.id in playableTrackIds }) {
-                                                playEligible(artistFirstPlayableSelection(group.tracks, playableTrackIds))
+                                                enabled = uniqueAlbum) {
+                                                onNavigateToAlbum(identity)
                                             }
                                             .semantics(mergeDescendants = true) {
-                                                contentDescription = if (group.tracks.any { it.id in playableTrackIds })
-                                                    "Reproducir álbum ${group.album.title}"
-                                                else "Álbum ${group.album.title}, audio no disponible"
+                                                contentDescription = if (uniqueAlbum)
+                                                    "Abrir álbum ${group.album.title}"
+                                                else "Álbum ${group.album.title}, identidad duplicada"
                                             }
                                             .padding(bottom = 6.dp)
                                             .testTag("artist_discography_album_${group.album.id}"),

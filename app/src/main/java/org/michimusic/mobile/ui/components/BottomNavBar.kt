@@ -73,6 +73,15 @@ val defaultNavTabs = listOf(
     NavTabItem("devices", "Dispositivos", R.drawable.ic_dock_devices),
 )
 
+internal enum class DockLayout { SINGLE_ROW, TWO_BY_TWO }
+
+internal fun dockLayout(screenWidthDp: Int, fontScale: Float): DockLayout =
+    if (screenWidthDp <= 412 && fontScale.isFinite() && fontScale >= 1.7f) {
+        DockLayout.TWO_BY_TWO
+    } else {
+        DockLayout.SINGLE_ROW
+    }
+
 @Composable
 fun BottomNavBar(
     currentRoute: String?,
@@ -82,10 +91,8 @@ fun BottomNavBar(
     selectedRoute: String? = currentRoute,
 ) {
     val configuration = LocalConfiguration.current
-    // At 200% font scale, the two-line "Dispositivos" label needs real layout
-    // height; scaling text into a fixed 88dp dock silently clips the second line.
-    val dockHeight = (aeroDockHeightDp(configuration.fontScale) +
-        if (configuration.fontScale >= 1.7f) 20 else 0).dp
+    val layout = dockLayout(configuration.screenWidthDp, configuration.fontScale)
+    val dockHeight = if (layout == DockLayout.TWO_BY_TWO) 144.dp else aeroDockHeightDp(configuration.fontScale).dp
     val highContrast = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.highContrast
     // Native Compose equivalent of a fixed, responsive bottom glass navigation.
     // This is not a WebView: HTML/CSS cannot style the Android navigation surface.
@@ -105,104 +112,127 @@ fun BottomNavBar(
             modifier = Modifier.fillMaxWidth().height(dockHeight),
             contentAlignment = Alignment.Center,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .padding(horizontal = if (configuration.screenWidthDp <= 340) 4.dp else 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                tabs.forEach { tab ->
-                    val isSelected = selectedRoute == tab.route
-                    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
-                    val itemColor by animateColorAsState(
-                        targetValue = when {
-                            isSelected && highContrast -> PureWhite
-                            isSelected -> PrimaryPinkContainer
-                            highContrast -> PureWhite
-                            else -> PureWhite.copy(alpha = 0.82f)
-                        },
-                        animationSpec = if (reducedMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.tween(durationMillis = 180),
-                        label = "tab_color",
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(dockHeight - 16.dp)
-                            .clip(MichiShapes.md)
-                            // Selected section remains legible without animation or color alone.
-                            .background(
-                                if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.22f else 0.10f)
-                                else Color.Transparent,
-                            )
-                            .border(
-                                width = if (highContrast) 1.dp else 0.65.dp,
-                                color = if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.9f else 0.32f)
-                                    else Color.Transparent,
-                                shape = MichiShapes.md,
-                            )
-                            .semantics(mergeDescendants = true) {
-                                selected = isSelected
-                                stateDescription = if (isSelected) "Sección actual" else "Otra sección"
-                                contentDescription = tab.label
+            if (layout == DockLayout.TWO_BY_TWO) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    tabs.chunked(2).forEach { rowTabs ->
+                        Row(Modifier.fillMaxWidth().weight(1f)) {
+                            rowTabs.forEach { tab ->
+                                DockTab(
+                                    tab = tab,
+                                    isSelected = selectedRoute == tab.route,
+                                    highContrast = highContrast,
+                                    onTabSelected = onTabSelected,
+                                    modifier = Modifier.weight(1f).padding(2.dp),
+                                    preserveFullLabelSize = true,
+                                )
                             }
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(bounded = true, color = PrimaryPinkContainer),
-                                role = Role.Tab,
-                                onClick = { if (selectedRoute != tab.route) onTabSelected(tab.route) },
-                            )
-                            .testTag("nav_tab_${tab.route}"),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(width = 24.dp, height = 2.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .background(if (isSelected) itemColor else Color.Transparent),
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Icon(
-                                painter = painterResource(tab.iconRes),
-                                contentDescription = null,
-                                tint = itemColor,
-                                modifier = Modifier.size(24.dp),
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            // DOCK-01: at large font scales a single-word label such as
-                            // "Dispositivos" cannot wrap, so a fixed 11.sp size ellipsized it
-                            // inside 73.dp-wide tabs. Auto-size keeps the whole label by
-                            // shrinking only as much as the available width requires, instead of
-                            // truncating it for the users who explicitly asked for bigger text.
-                            // A single-word label ("Biblioteca", "Dispositivos") cannot wrap
-                            // without cutting the word, which broke at font scale 2.0. Keep one
-                            // line and let auto-size shrink instead; multi-word labels still wrap.
-                            val singleWordLabel = tab.label.none { it.isWhitespace() }
-                            BasicText(
-                                text = tab.label,
-                                maxLines = if (singleWordLabel) 1 else if (dockHeight > 64.dp) 2 else 1,
-                                softWrap = !singleWordLabel,
-                                overflow = TextOverflow.Ellipsis,
-                                autoSize = TextAutoSize.StepBased(
-                                    minFontSize = 8.sp,
-                                    maxFontSize = 11.sp,
-                                    stepSize = 0.5.sp,
-                                ),
-                                style = TextStyle(
-                                    color = if (isSelected || highContrast) PureWhite else PureWhite.copy(alpha = 0.82f),
-                                    fontSize = 11.sp,
-                                    letterSpacing = 0.sp,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                ),
-                            )
                         }
                     }
                 }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(
+                        horizontal = if (configuration.screenWidthDp <= 340) 4.dp else 8.dp,
+                        vertical = 4.dp,
+                    ),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    tabs.forEach { tab ->
+                        DockTab(
+                            tab = tab,
+                            isSelected = selectedRoute == tab.route,
+                            highContrast = highContrast,
+                            onTabSelected = onTabSelected,
+                            modifier = Modifier.weight(1f).height(dockHeight - 16.dp),
+                            preserveFullLabelSize = false,
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun DockTab(
+    tab: NavTabItem,
+    isSelected: Boolean,
+    highContrast: Boolean,
+    onTabSelected: (String) -> Unit,
+    modifier: Modifier,
+    preserveFullLabelSize: Boolean,
+) {
+    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    val itemColor by animateColorAsState(
+        targetValue = when {
+            isSelected && highContrast -> PureWhite
+            isSelected -> PrimaryPinkContainer
+            highContrast -> PureWhite
+            else -> PureWhite.copy(alpha = 0.82f)
+        },
+        animationSpec = if (reducedMotion) androidx.compose.animation.core.snap()
+        else androidx.compose.animation.core.tween(durationMillis = 180),
+        label = "tab_color",
+    )
+    Box(
+        modifier = modifier
+            .clip(MichiShapes.md)
+            .background(
+                if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.22f else 0.10f)
+                else Color.Transparent,
+            )
+            .border(
+                width = if (highContrast) 1.dp else 0.65.dp,
+                color = if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.9f else 0.32f)
+                else Color.Transparent,
+                shape = MichiShapes.md,
+            )
+            .semantics(mergeDescendants = true) {
+                selected = isSelected
+                stateDescription = if (isSelected) "Sección actual" else "Otra sección"
+                contentDescription = tab.label
+            }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = true, color = PrimaryPinkContainer),
+                role = Role.Tab,
+                onClick = { if (!isSelected) onTabSelected(tab.route) },
+            )
+            .testTag("nav_tab_${tab.route}"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Box(
+                Modifier.size(width = 24.dp, height = 2.dp).clip(RoundedCornerShape(2.dp))
+                    .background(if (isSelected) itemColor else Color.Transparent),
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Icon(
+                painter = painterResource(tab.iconRes),
+                contentDescription = null,
+                tint = itemColor,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            BasicText(
+                text = tab.label,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                autoSize = if (preserveFullLabelSize) null else TextAutoSize.StepBased(
+                    minFontSize = 8.sp,
+                    maxFontSize = 11.sp,
+                    stepSize = 0.5.sp,
+                ),
+                style = TextStyle(
+                    color = if (isSelected || highContrast) PureWhite else PureWhite.copy(alpha = 0.82f),
+                    fontSize = 11.sp,
+                    letterSpacing = 0.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                ),
+            )
         }
     }
 }

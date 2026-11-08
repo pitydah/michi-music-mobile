@@ -3,6 +3,7 @@ package org.michimusic.data.repository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.michimusic.data.cache.AppDao
@@ -37,7 +38,11 @@ class DefaultFavoritesRepository(
     }
 
     override fun observeFavoriteTrackIds(): Flow<Set<String>> {
-        return _favoritesFlow.asStateFlow()
+        // UI3 album hearts must not show a false empty set before disk is read.
+        // Serialized with mutations; write failures still never publish a change.
+        return _favoritesFlow.asStateFlow().onStart {
+            mutex.withLock { ensureLoaded() }
+        }
     }
 
     override suspend fun isFavorite(trackId: String): Boolean = mutex.withLock {

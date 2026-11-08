@@ -48,7 +48,7 @@ class ArtistEnrichmentRepository(
         .followRedirects(false)
         .followSslRedirects(false)
         .build(),
-) : ArtistEnrichmentGateway, ArtistDiscographyGateway {
+) : ArtistEnrichmentGateway, ArtistDiscographyGateway, AlbumEnrichmentGateway {
     private val json = Json { ignoreUnknownKeys = true }
     private val musicBrainzMutex = Mutex()
     private val discographyCache = ArtistDiscographyPageCache(
@@ -77,6 +77,57 @@ class ArtistEnrichmentRepository(
                 area = (artist["area"] as? JsonObject)?.string("name").orEmpty(),
             )
         }
+    }
+
+    /** Manual album lookup: do not guess an external identity from the local album ID. */
+    override suspend fun findAlbumCandidates(title: String, artistCredit: String): List<AlbumHistoryCandidate> {
+        val safeTitle = title.trim().replace(Regex("[\\r\\n]"), " ").take(120)
+        val safeArtist = artistCredit.trim().replace(Regex("[\\r\\n]"), " ").take(120)
+        if (safeTitle.isBlank() || safeArtist.isBlank()) return emptyList()
+        val result = musicBrainzJson(api("https://musicbrainz.org/ws/2/release-group", mapOf(
+            "query" to musicBrainzAlbumQuery(safeTitle, safeArtist),
+            "fmt" to "json", "limit" to "15",
+        )))
+        return (result["release-groups"] as? JsonArray).orEmpty().mapNotNull { raw ->
+            val group = raw as? JsonObject ?: return@mapNotNull null
+            val mbid = canonicalAlbumMbid(group.string("id")) ?: return@mapNotNull null
+            val candidateTitle = group.string("title") ?: return@mapNotNull null
+            val artist = (group["artist-credit"] as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonObject)?.string("name") }.joinToString(" ")
+            AlbumHistoryCandidate(
+                mbid = mbid, title = candidateTitle, creditedArtist = artist,
+                firstReleaseDate = group.string("first-release-date")?.takeIf { it.isNotBlank() },
+                disambiguation = group.string("disambiguation").orEmpty().take(120),
+            )
+        }.filter { albumCandidateMatchesLocal(safeTitle, safeArtist, it) }
+            .distinctBy { it.mbid }.take(8)
+    }
+
+    /** A user-confirmed MusicBrainz release group can link to an attributed Wikipedia intro. */
+    override suspend fun albumHistory(confirmedMbid: String): AlbumHistoricalProfile {
+        val id = canonicalAlbumMbid(confirmedMbid) ?: throw IllegalArgumentException("MBID del álbum no válido")
+        val group = musicBrainzJson(api("https://musicbrainz.org/ws/2/release-group/$id", mapOf(
+            "inc" to "url-rels", "fmt" to "json",
+        )))
+        require(canonicalAlbumMbid(group.string("id")) == id) { "Identidad externa inconsistente" }
+        val urls = (group["relations"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+        val wikipediaUrl = urls.firstOrNull { it.string("type") == "wikipedia" }
+            ?.let { (it["url"] as? JsonObject)?.string("resource") }
+            ?.takeIf(::allowedWikipediaSource)
+        // Wikipedia is optional metadata: a provider error must never erase a confirmed
+        // MusicBrainz release-group identity. Reuse the artist gateway's cancellation-
+        // safe stage and keep the *resolved* article URL, not a redirecting guess.
+        val article = wikipediaUrl?.let { link ->
+            stage(ArtistMetadataOutcome.NO_TEXT) { wikipediaExtract(link) }.value
+        }
+        return AlbumHistoricalProfile(
+            mbid = id,
+            title = group.string("title").orEmpty(),
+            firstReleaseDate = group.string("first-release-date")?.takeIf { it.isNotBlank() },
+            disambiguation = group.string("disambiguation").orEmpty(),
+            description = article?.text,
+            wikipediaUrl = article?.sourceUrl?.takeIf(::allowedWikipediaSource),
+        )
     }
 
     /** Explicit user-triggered query: never invoked by mosaic scrolling or name search. */
