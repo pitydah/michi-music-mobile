@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -110,12 +109,10 @@ fun AlbumDetailScreen(
     val album = if (scoped.ready) resolveNavigationAlbum(scoped.albums, albumId, activeScope) else null
     val tracks = remember(album) { album?.tracks.orEmpty().distinctBy { it.id } }
     val trackPresentation = remember(tracks) { albumTrackPresentation(tracks) }
-    val orderedTracks = remember(trackPresentation) {
-        trackPresentation.tracks.map(PresentedAlbumTrack::track)
-    }
+    val orderedTracks = remember(tracks) { canonicalAlbumTracks(tracks) }
     // Availability belongs to the current library snapshot. Never substitute another track.
     val eligibleTracks = remember(tracks, scoped.playableTrackIds) {
-        tracks.filter { it.id in scoped.playableTrackIds }
+        canonicalPlayableAlbumTracks(tracks, scoped.playableTrackIds)
     }
     val audioController: AudioController = koinInject()
     val session by sessionManager.sessionState.collectAsStateWithLifecycle()
@@ -126,19 +123,10 @@ fun AlbumDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val allFavorite = tracks.isNotEmpty() && tracks.all { it.id in favoriteIds }
     var feedback by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
-    var qualityOpen by remember(albumId, activeScope) { mutableStateOf(false) }
-    var historyOpen by remember(albumId, activeScope) { mutableStateOf(false) }
-    var playlistOpen by remember(albumId, activeScope) { mutableStateOf(false) }
-    var menuOpen by remember(albumId, activeScope) { mutableStateOf(false) }
-    var sortByTitle by remember(albumId, activeScope) { mutableStateOf(false) }
+    var activeModal by remember(albumId, activeScope) { mutableStateOf<AlbumDetailModal?>(null) }
     val actionLayout = albumActionLayout(
         LocalConfiguration.current.screenWidthDp, LocalConfiguration.current.fontScale,
     )
-    val shownTracks = remember(trackPresentation, sortByTitle) {
-        if (sortByTitle) trackPresentation.tracks.sortedWith(
-            compareBy({ it.track.title.lowercase() }, { it.track.id }),
-        ) else trackPresentation.tracks
-    }
     // Menu identity, not a captured Track/URI: a rescan may update preferred location.
     var selectedTrackMenuId by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
     var trackToAddToPlaylistId by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
@@ -147,10 +135,7 @@ fun AlbumDetailScreen(
         if (album == null || tracks.none { it.id == selectedTrackMenuId }) selectedTrackMenuId = null
         if (album == null || tracks.none { it.id == trackToAddToPlaylistId }) trackToAddToPlaylistId = null
         if (album == null) {
-            qualityOpen = false
-            historyOpen = false
-            playlistOpen = false
-            menuOpen = false
+            activeModal = null
         }
     }
 
@@ -205,7 +190,7 @@ fun AlbumDetailScreen(
                     )
                     MichiIconAction(
                         Icons.Filled.MoreVert, "Más opciones del álbum",
-                        onClick = { menuOpen = true }, enabled = album != null,
+                        onClick = { activeModal = AlbumDetailModal.MENU }, enabled = album != null,
                         testTag = "album_more_button",
                     )
                 }
@@ -309,7 +294,7 @@ fun AlbumDetailScreen(
                                 )
                                 MichiIconAction(
                                     Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
-                                    onClick = { playlistOpen = true }, enabled = tracks.isNotEmpty(),
+                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST }, enabled = tracks.isNotEmpty(),
                                     testTag = "album_detail_add_to_playlist",
                                 )
                             }
@@ -332,7 +317,7 @@ fun AlbumDetailScreen(
                                 )
                                 MichiIconAction(
                                     Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
-                                    onClick = { playlistOpen = true }, enabled = tracks.isNotEmpty(),
+                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST }, enabled = tracks.isNotEmpty(),
                                     testTag = "album_detail_add_to_playlist",
                                 )
                             }
@@ -341,28 +326,21 @@ fun AlbumDetailScreen(
                         }
                     }
                     item(key = "list_heading") {
-                        Row(
+                        Text(
+                            albumDetailTrackHeading(),
+                            color = PureWhite,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text("Pistas (${tracks.size})", color = PureWhite,
-                                fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                            MichiIconAction(
-                                Icons.Filled.SortByAlpha,
-                                if (sortByTitle) "Ordenar por número de pista" else "Ordenar alfabéticamente",
-                                onClick = { sortByTitle = !sortByTitle }, selected = sortByTitle,
-                                testTag = "album_track_sort",
-                            )
-                        }
+                        )
                     }
-                    itemsIndexed(shownTracks, key = { _, presented -> presented.track.id }) { index, presented ->
+                    itemsIndexed(trackPresentation.tracks, key = { _, presented -> presented.track.id }) { index, presented ->
                         val track = presented.track
                         val available = track.id in scoped.playableTrackIds
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             val disc = presented.position?.discNumber
-                            val previousDisc = shownTracks.getOrNull(index - 1)?.position?.discNumber
-                            if (!sortByTitle && trackPresentation.showDiscHeaders && disc != null && disc != previousDisc) {
+                            val previousDisc = trackPresentation.tracks.getOrNull(index - 1)?.position?.discNumber
+                            if (trackPresentation.showDiscHeaders && disc != null && disc != previousDisc) {
                                 Text(
                                     "Disco $disc",
                                     color = TextSecondary,
@@ -470,8 +448,8 @@ fun AlbumDetailScreen(
                 onDismiss = { trackToAddToPlaylistId = null },
             )
         }
-        if (qualityOpen) {
-            MichiBottomSheet(onDismissRequest = { qualityOpen = false }) {
+        if (activeModal == AlbumDetailModal.QUALITY) {
+            MichiBottomSheet(onDismissRequest = { activeModal = null }) {
                 // Lazy rendering avoids composing hundreds of technical rows at once.
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp)
@@ -485,7 +463,7 @@ fun AlbumDetailScreen(
                             Text("Datos de ${tracks.size} ${if (tracks.size == 1) "pista" else "pistas"} de la biblioteca.", color = TextSecondary)
                         }
                     }
-                    itemsIndexed(tracks, key = { index, track -> "quality_${track.id}_$index" }) { _, track ->
+                    itemsIndexed(orderedTracks, key = { index, track -> "quality_${track.id}_$index" }) { _, track ->
                         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             HorizontalDivider(color = TextMuted.copy(alpha = 0.25f))
                             Text(track.title, color = PureWhite, fontWeight = FontWeight.Medium)
@@ -503,24 +481,24 @@ fun AlbumDetailScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Son metadatos declarados por los archivos; no describen la señal real de salida.",
                                 color = TextSecondary, fontSize = 12.sp)
-                            TextButton(onClick = { qualityOpen = false }) { Text("Cerrar", color = TextSecondary) }
+                            TextButton(onClick = { activeModal = null }) { Text("Cerrar", color = TextSecondary) }
                         }
                     }
                 }
             }
         }
-        if (historyOpen && album != null) {
+        if (activeModal == AlbumDetailModal.HISTORY && album != null) {
             AlbumEnrichmentPanel(
                 localAlbumTitle = album.album.title,
                 localArtist = album.album.artist,
                 localAlbumId = album.album.id,
                 localTrackIds = tracks.map { it.id },
                 libraryId = scoped.identityLibraryId,
-                onDismiss = { historyOpen = false },
+                onDismiss = { activeModal = null },
             )
         }
-        if (playlistOpen) {
-            MichiBottomSheet(onDismissRequest = { if (!savingPlaylist) playlistOpen = false }) {
+        if (activeModal == AlbumDetailModal.PLAYLIST) {
+            MichiBottomSheet(onDismissRequest = { if (!savingPlaylist) activeModal = null }) {
                 Column(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
                         .testTag("album_playlist_popup"),
@@ -534,31 +512,33 @@ fun AlbumDetailScreen(
                             enabled = !savingPlaylist,
                             onClick = {
                                 savingPlaylist = true
-                                viewModel.addAlbumToPlaylist(playlist.id, orderedTracks) { success ->
+                                viewModel.addAlbumToPlaylist(playlist.id, eligibleTracks) { success ->
                                     savingPlaylist = false
-                                    if (success) playlistOpen = false
+                                    if (success) activeModal = null
                                     feedback = if (success) "Álbum añadido a ${playlist.name}" else "No se pudo añadir el álbum."
                                 }
                             },
                         ) { Text(playlist.name, color = PureWhite) }
                     }
-                    TextButton(onClick = { playlistOpen = false }, enabled = !savingPlaylist) {
+                    TextButton(onClick = { activeModal = null }, enabled = !savingPlaylist) {
                         Text("Cancelar", color = TextSecondary)
                     }
                 }
             }
         }
-        if (menuOpen) {
-            MichiBottomSheet(onDismissRequest = { menuOpen = false }) {
+        if (activeModal == AlbumDetailModal.MENU) {
+            MichiBottomSheet(onDismissRequest = { activeModal = null }) {
                 Column(Modifier.fillMaxWidth().padding(20.dp)) {
                     Text("Opciones del álbum", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = PureWhite)
-                    TextButton(onClick = { menuOpen = false; qualityOpen = true }) {
+                    TextButton(onClick = { activeModal = albumModalForMenuAction(AlbumMenuAction.QUALITY) }) {
                         Text("Información de calidad", color = PureWhite)
                     }
-                    TextButton(onClick = { menuOpen = false; historyOpen = true }) {
+                    TextButton(onClick = { activeModal = albumModalForMenuAction(AlbumMenuAction.HISTORY) }) {
                         Text("Cronología externa · MusicBrainz", color = PureWhite)
                     }
-                    TextButton(onClick = { menuOpen = false }) { Text("Cerrar", color = TextSecondary) }
+                    TextButton(onClick = { activeModal = albumModalForMenuAction(AlbumMenuAction.CLOSE) }) {
+                        Text("Cerrar", color = TextSecondary)
+                    }
                 }
             }
         }

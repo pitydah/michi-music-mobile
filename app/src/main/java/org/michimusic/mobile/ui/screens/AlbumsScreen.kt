@@ -29,10 +29,8 @@ import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
@@ -49,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,6 +95,9 @@ import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
+import org.michimusic.mobile.ui.coverflow.MichiCoverFlowHost
+import org.michimusic.mobile.ui.coverflow.coverFlowPositionLabel
+import org.michimusic.mobile.ui.coverflow.coverFlowStageHeightDp
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
@@ -162,8 +164,10 @@ fun AlbumsScreen(
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
     var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
     var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.MOSAIC) }
-    val albumGridState = rememberLazyGridState()
-    val albumListState = rememberLazyListState()
+    // A library change must never inherit another scope's scroll index.
+    val albumGridState = key(activeScope) { rememberLazyGridState() }
+    val albumListState = key(activeScope) { rememberLazyListState() }
+    var selectedAlbumId by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -193,6 +197,16 @@ fun AlbumsScreen(
 
     val scopedAlbums = scopedArtistCollection?.takeIf { it.ready }?.albums.orEmpty()
     val identityCounts = remember(scopedAlbums, activeScope) { albumNavigationIdentityCounts(scopedAlbums, activeScope) }
+    // Ambiguous duplicate identities fail closed: a carousel selection must always
+    // map back to exactly one album and must never persist an index as identity.
+    val coverFlowPresentation = remember(scopedAlbums, activeScope) {
+        albumCoverFlowPresentation(scopedAlbums, activeScope)
+    }
+    val albumByToken = coverFlowPresentation.albumById
+    val coverFlowAlbums = coverFlowPresentation.albums
+    LaunchedEffect(activeScope, coverFlowAlbums) {
+        selectedAlbumId = reconcileSelectedAlbumId(selectedAlbumId, coverFlowAlbums.map { it.id })
+    }
 
     val filteredTracks = remember(allTracks, selectedFilter, downloadedTrackIds) {
         allTracks.filter { track ->
@@ -262,21 +276,9 @@ fun AlbumsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (selectedTab == LibraryTab.ALBUMS && scopedAlbums.isNotEmpty()) {
-                        // Un único botón alterna entre el mosaico principal y la lista compacta.
-                        val nextMode = nextAlbumViewMode(viewMode)
-                        MichiIconAction(
-                            icon = when (nextMode) {
-                                LibraryViewMode.LIST -> Icons.AutoMirrored.Filled.ViewList
-                                LibraryViewMode.MOSAIC -> Icons.Default.GridView
-                            },
-                            contentDescription = "Vista ${albumViewModeLabel(viewMode)}. Cambiar a ${albumViewModeLabel(nextMode)}",
-                            onClick = {
-                                viewMode = nextMode
-                            },
-                            tint = if (viewMode == LibraryViewMode.MOSAIC) PrimaryPinkContainer else PureWhite,
-                            iconSize = 22.dp,
-                            minTargetSize = MichiSpacing.minTouchTarget,
-                            testTag = "library_view_mode_toggle",
+                        AlbumViewModeToggle(
+                            viewMode = viewMode,
+                            onViewModeChange = { viewMode = it },
                         )
                     }
 
@@ -613,15 +615,257 @@ fun AlbumsScreen(
                                     )
                                 }
                             }
-                        } else if (viewMode == LibraryViewMode.MOSAIC) {
-                            AlbumMosaicGrid(
-                                albums = scopedAlbums,
-                                scope = activeScope,
-                                onOpenAlbum = onNavigateToAlbum,
-                                modifier = Modifier.fillMaxSize(),
-                                state = albumGridState,
-                            )
                         } else {
+                            AlbumPresentationContent(
+                                viewMode = viewMode,
+                                mosaicContent = {
+                                    AlbumMosaicGrid(
+                                        albums = scopedAlbums,
+                                        scope = activeScope,
+                                        onOpenAlbum = onNavigateToAlbum,
+                                        modifier = Modifier.fillMaxSize(),
+                                        state = albumGridState,
+                                    )
+                                },
+                                coverFlowContent = {
+                            if (coverFlowAlbums.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().padding(20.dp)
+                                        .testTag("coverflow_identity_empty"),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        "CoverFlow no puede mostrar álbumes con identidad ambigua.",
+                                        color = TextSecondary,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    )
+                                }
+                            } else Column(
+                                modifier = Modifier.fillMaxSize().padding(bottom = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().height(
+                                        coverFlowStageHeightDp(
+                                            androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat(),
+                                        ).dp,
+                                    ),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    MichiCoverFlowHost(
+                                        albums = coverFlowAlbums,
+                                        selectedAlbumId = selectedAlbumId,
+                                        onAlbumSelected = { selectedAlbumId = it },
+                                        onAlbumClick = { index ->
+                                            val selected = coverFlowAlbums.getOrNull(index)
+                                            if (selected != null && identityCounts[selected.id] == 1) {
+                                                onNavigateToAlbum(selected.id)
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+
+                                Spacer(Modifier.height(8.dp))
+                                val currentAlbum = selectedAlbumId?.let(albumByToken::get)
+                                if (currentAlbum == null) {
+                                    Text(
+                                        "Selecciona una portada válida para ver las acciones del álbum.",
+                                        color = TextSecondary,
+                                        modifier = Modifier.padding(horizontal = 20.dp),
+                                    )
+                                } else {
+                                    val currentIdentity = albumNavigationIdentity(currentAlbum, activeScope)
+                                    val positionLabel = coverFlowPositionLabel(
+                                        coverFlowAlbums.indexOfFirst { it.id == currentIdentity },
+                                        coverFlowAlbums.size,
+                                    )
+                                    val currentPresentation = remember(currentAlbum.tracks) {
+                                        albumTrackPresentation(currentAlbum.tracks)
+                                    }
+                                    val playableAlbumTracks = remember(
+                                        currentAlbum.tracks,
+                                        scopedArtistCollection.playableTrackIds,
+                                    ) {
+                                        canonicalPlayableAlbumTracks(
+                                            currentAlbum.tracks,
+                                            scopedArtistCollection.playableTrackIds,
+                                        )
+                                    }
+                                    Text(
+                                        text = if (positionLabel != null) "$positionLabel · Toca la portada para abrir"
+                                        else "Toca la portada para abrir",
+                                        style = MichiTypography.microLabel,
+                                        color = TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp)
+                                            .testTag("coverflow_position_hint"),
+                                    )
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            currentAlbum.album.title,
+                                            style = MichiTypography.sectionTitle.copy(fontSize = 18.sp),
+                                            fontWeight = FontWeight.Bold,
+                                            color = PureWhite,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        )
+                                        Text(
+                                            listOfNotNull(
+                                                currentAlbum.album.artist,
+                                                currentAlbum.album.year.takeIf { it > 0 }?.toString(),
+                                                pluralStringResource(
+                                                    R.plurals.track_count,
+                                                    currentAlbum.tracks.size,
+                                                    currentAlbum.tracks.size,
+                                                ),
+                                            ).joinToString(" · "),
+                                            style = MichiTypography.metadata,
+                                            color = TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        )
+                                        Row(
+                                            modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            if (androidx.compose.ui.platform.LocalConfiguration.current.fontScale >= 1.6f) {
+                                                MichiIconAction(
+                                                    Icons.Default.PlayArrow,
+                                                    "Reproducir ${currentAlbum.album.title}",
+                                                    onClick = { if (playableAlbumTracks.isNotEmpty()) playQueueSafe(playableAlbumTracks, 0) },
+                                                    enabled = playableAlbumTracks.isNotEmpty(),
+                                                    tint = PureWhite,
+                                                    iconSize = 26.dp,
+                                                    testTag = "coverflow_play_album",
+                                                )
+                                            } else {
+                                                AeroActionButton(
+                                                    "Reproducir",
+                                                    onClick = { if (playableAlbumTracks.isNotEmpty()) playQueueSafe(playableAlbumTracks, 0) },
+                                                    icon = Icons.Default.PlayArrow,
+                                                    kind = AeroActionKind.Primary,
+                                                    enabled = playableAlbumTracks.isNotEmpty(),
+                                                    testTag = "coverflow_play_album",
+                                                )
+                                            }
+                                            MichiIconAction(
+                                                Icons.Default.Shuffle,
+                                                "Reproducir aleatorio ${currentAlbum.album.title}",
+                                                onClick = {
+                                                    if (playableAlbumTracks.isNotEmpty()) {
+                                                        playQueueSafe(playableAlbumTracks.shuffled(), 0)
+                                                    }
+                                                },
+                                                enabled = playableAlbumTracks.isNotEmpty(),
+                                                tint = TertiaryCyan,
+                                                iconSize = 22.dp,
+                                                testTag = "coverflow_shuffle_album",
+                                            )
+                                            MichiIconAction(
+                                                Icons.Default.Add,
+                                                "Añadir ${currentAlbum.album.title} a playlist",
+                                                onClick = { albumToAddToPlaylist = currentAlbum },
+                                                enabled = playableAlbumTracks.isNotEmpty(),
+                                                tint = TextSecondary,
+                                                iconSize = 22.dp,
+                                                testTag = "coverflow_add_to_playlist",
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(10.dp))
+                                    Text(
+                                        "PISTAS · ${currentAlbum.tracks.size}",
+                                        style = MichiTypography.microLabel,
+                                        color = TextSecondary,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                                    )
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 20.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        itemsIndexed(
+                                            currentPresentation.tracks,
+                                            key = { _, presented -> presented.track.id },
+                                        ) { index, presented ->
+                                            val track = presented.track
+                                            val available = track.id in scopedArtistCollection.playableTrackIds
+                                            val isCurrentPlaying = presentation.currentTrack?.id == track.id
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                val disc = presented.position?.discNumber
+                                                val previousDisc = currentPresentation.tracks
+                                                    .getOrNull(index - 1)?.position?.discNumber
+                                                if (currentPresentation.showDiscHeaders && disc != null && disc != previousDisc) {
+                                                    Text(
+                                                        "Disco $disc",
+                                                        color = TextSecondary,
+                                                        style = MichiTypography.microLabel,
+                                                        modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+                                                    )
+                                                }
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth().clip(MichiShapes.sm)
+                                                        .heightIn(min = 52.dp).background(GlassFillLow, MichiShapes.sm)
+                                                        .clickable(enabled = available) {
+                                                            val exact = playableAlbumTracks.indexOfFirst { it.id == track.id }
+                                                            if (exact >= 0) playQueueSafe(playableAlbumTracks, exact)
+                                                        }.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                ) {
+                                                    if (isCurrentPlaying) {
+                                                        Box(Modifier.width(36.dp), contentAlignment = Alignment.CenterStart) {
+                                                            EqualizerWaveBars(
+                                                                isPlaying = isPlaying,
+                                                                modifier = Modifier.size(16.dp),
+                                                                color = PrimaryPinkContainer,
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Text(
+                                                            presented.position?.trackNumber?.toString() ?: "—",
+                                                            style = MichiTypography.metadata,
+                                                            color = TextMuted,
+                                                            modifier = Modifier.width(36.dp),
+                                                        )
+                                                    }
+                                                    Column(Modifier.weight(1f)) {
+                                                        Text(
+                                                            track.title,
+                                                            style = MichiTypography.trackTitle,
+                                                            color = if (isCurrentPlaying) PrimaryPinkContainer else PureWhite,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
+                                                        Text(
+                                                            listOf(track.artist, formatTimeMillis(track.duration))
+                                                                .filter { it.isNotBlank() }.joinToString(" · "),
+                                                            style = MichiTypography.microLabel,
+                                                            color = TextSecondary,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
+                                                    }
+                                                    if (!available) {
+                                                        Text("No disponible", style = MichiTypography.microLabel, color = TextMuted)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                                },
+                                listContent = {
                             LazyColumn(
                                 state = albumListState,
                                 modifier = Modifier.fillMaxSize(),
@@ -631,7 +875,10 @@ fun AlbumsScreen(
                                 itemsIndexed(scopedAlbums, key = { index, group -> "${albumNavigationIdentity(group, activeScope)}#$index" }) { _, localAlbum ->
                                     val identity = albumNavigationIdentity(localAlbum, activeScope)
                                     val uniqueAlbum = identityCounts[identity] == 1
-                                    val playableTracks = localAlbum.tracks.filter { it.id in scopedArtistCollection?.playableTrackIds.orEmpty() }
+                                    val playableTracks = canonicalPlayableAlbumTracks(
+                                        localAlbum.tracks,
+                                        scopedArtistCollection.playableTrackIds,
+                                    )
                                     // Dense scrolling album rows use the canonical Plain finish.
                                     AeroCard(
                                         modifier = Modifier.fillMaxWidth(),
@@ -689,9 +936,10 @@ fun AlbumsScreen(
                                             ) {
                                                 MichiIconAction(
                                                     icon = Icons.Default.Add,
-                                                    contentDescription = "Añadir ${localAlbum.album.title} a playlist",
-                                                    onClick = { albumToAddToPlaylist = localAlbum },
-                                                    tint = TextSecondary,
+                                                     contentDescription = "Añadir ${localAlbum.album.title} a playlist",
+                                                     onClick = { albumToAddToPlaylist = localAlbum },
+                                                     enabled = playableTracks.isNotEmpty(),
+                                                     tint = TextSecondary,
                                                     iconSize = 20.dp,
                                                     minTargetSize = MichiSpacing.minTouchTarget,
                                                 )
@@ -711,6 +959,8 @@ fun AlbumsScreen(
                                     }
                                 }
                             }
+                                },
+                            )
                         }
                     }
 
@@ -802,6 +1052,12 @@ fun AlbumsScreen(
         }
 
         albumToAddToPlaylist?.let { targetAlbum ->
+            val tracksToAdd = remember(targetAlbum.tracks, scopedArtistCollection?.playableTrackIds) {
+                canonicalPlayableAlbumTracks(
+                    targetAlbum.tracks,
+                    scopedArtistCollection?.playableTrackIds.orEmpty(),
+                )
+            }
             var isAddingToPlaylist by remember { mutableStateOf(false) }
             var addError by remember { mutableStateOf<String?>(null) }
 
@@ -829,9 +1085,9 @@ fun AlbumsScreen(
                         Text(
                             text = pluralStringResource(
                                 R.plurals.select_playlist_for_album,
-                                targetAlbum.tracks.size,
+                                tracksToAdd.size,
                                 targetAlbum.album.title,
-                                targetAlbum.tracks.size,
+                                tracksToAdd.size,
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
@@ -886,7 +1142,7 @@ fun AlbumsScreen(
                                             if (!isAddingToPlaylist) {
                                                 isAddingToPlaylist = true
                                                 addError = null
-                                                viewModel.addAlbumToPlaylist(pl.id, targetAlbum.tracks) { success ->
+                                                viewModel.addAlbumToPlaylist(pl.id, tracksToAdd) { success ->
                                                     isAddingToPlaylist = false
                                                     if (success) {
                                                         albumToAddToPlaylist = null

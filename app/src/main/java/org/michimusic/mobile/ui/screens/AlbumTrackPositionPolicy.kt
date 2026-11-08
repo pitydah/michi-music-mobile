@@ -44,5 +44,15 @@ internal fun albumTrackPresentation(tracks: List<Track>): AlbumTrackPresentation
     return AlbumTrackPresentation(presented, showDiscHeaders = explicitDiscs.size > 1)
 }
 
+/** One canonical order for every album surface and order-sensitive action. */
+internal fun canonicalAlbumTracks(tracks: List<Track>): List<Track> =
+    albumTrackPresentation(tracks).tracks.map(PresentedAlbumTrack::track)
+
+/** Availability is applied after ordering so every surface retains the same sequence. */
+internal fun canonicalPlayableAlbumTracks(
+    tracks: List<Track>,
+    playableTrackIds: Set<String>,
+): List<Track> = canonicalAlbumTracks(tracks).filter { it.id in playableTrackIds }
+
 private const val MEDIASTORE_DISC_FACTOR = 1000
 private const val MAX_DISC_NUMBER = 99

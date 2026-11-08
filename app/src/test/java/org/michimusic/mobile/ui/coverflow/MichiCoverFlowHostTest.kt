@@ -13,6 +13,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
+import org.michimusic.core.models.Album
+import org.michimusic.core.models.LibraryScope
+import org.michimusic.core.models.Track
+import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
+import org.michimusic.mobile.ui.screens.albumCoverFlowPresentation
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -80,6 +85,37 @@ class MichiCoverFlowHostTest {
         composeTestRule.onNodeWithTag("coverflow_album_album_2")
             .assertIsDisplayed()
             .assertIsSelected()
+    }
+
+    @Test
+    fun scopedAlbumPresentation_selectsSideThenOpensSettledOpaqueIdentity() {
+        val scopedAlbums = listOf(
+            LocalAlbum(Album(id = "raw-1", title = "First", artist = "Artist"),
+                listOf(Track(id = "track-1", title = "One"))),
+            LocalAlbum(Album(id = "raw-2", title = "Second", artist = "Artist"),
+                listOf(Track(id = "track-2", title = "Two"))),
+        )
+        val presentation = albumCoverFlowPresentation(scopedAlbums, LibraryScope.One("phone"))
+        var selectedId by mutableStateOf(presentation.albums.first().id)
+        var openedId: String? = null
+
+        composeTestRule.setContent {
+            MichiCoverFlowHost(
+                albums = presentation.albums,
+                selectedAlbumId = selectedId,
+                onAlbumSelected = { selectedId = it },
+                onAlbumClick = { index -> openedId = presentation.albums[index].id },
+            )
+        }
+
+        composeTestRule.onNodeWithTag("coverflow_album_${presentation.albums[1].id}").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(presentation.albums[1].id, selectedId)
+        assertEquals(null, openedId)
+
+        composeTestRule.onNodeWithTag("coverflow_album_${presentation.albums[1].id}").performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(presentation.albums[1].id, openedId)
     }
 
     @Test

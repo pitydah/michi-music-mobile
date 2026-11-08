@@ -55,6 +55,23 @@ class AlbumTrackPositionPolicyTest {
         assertFalse(presentation.showDiscHeaders)
     }
 
+    @Test fun canonicalTracksAndPlayableSubsetShareThePresentedOrder() {
+        val tracks = listOf(
+            track("disc2", 2002, true),
+            track("disc1-track6", 1006, true),
+            track("disc1-track1", 1, true),
+        )
+
+        assertEquals(
+            listOf("disc1-track1", "disc1-track6", "disc2"),
+            canonicalAlbumTracks(tracks).map { it.id },
+        )
+        assertEquals(
+            listOf("disc1-track1", "disc2"),
+            canonicalPlayableAlbumTracks(tracks, setOf("disc2", "disc1-track1")).map { it.id },
+        )
+    }
+
     private fun track(
         id: String,
         raw: Int,

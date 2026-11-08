@@ -6,4 +6,5 @@ api	kotlin-api-design	LOADED	opencode-log:native-skill-call/kotlin-api-design/20
 ui-state	compose-state-and-effects	LOADED	opencode-log:native-skill-call/compose-state-and-effects/2026-11-07
 ui-component	compose-component-design	LOADED	opencode-log:native-skill-call/compose-component-design/2026-11-07
 ui-test	compose-ui-testing-patterns	LOADED	opencode-log:native-skill-call/compose-ui-testing-patterns/2026-11-07
+ui-motion	compose-animations	LOADED	opencode-log:native-skill-call/compose-animations/2026-11-07
 gradle	gradle-run	LOADED	opencode-log:native-skill-call/gradle-run/2026-11-07

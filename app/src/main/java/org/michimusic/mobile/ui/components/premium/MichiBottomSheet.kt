@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.components.premium
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,15 +15,11 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SurfaceDark
-import org.michimusic.mobile.ui.theme.SurfaceObsidian
 
 /**
  * Standardized premium modal bottom sheet.
@@ -50,7 +45,10 @@ fun MichiBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        modifier = modifier.border(material.borderWidth, material.outline, topShape),
+        // A border on ModalBottomSheet's full-window root draws outside the sheet and
+        // leaves a displaced rounded rectangle while the modal animates. Shape and
+        // opaque material fill still define the visible sheet surface.
+        modifier = modifier,
         sheetState = sheetState,
         shape = topShape,
         // Fully opaque graphite: Material3 tonal elevation must not repaint Aero's token.
