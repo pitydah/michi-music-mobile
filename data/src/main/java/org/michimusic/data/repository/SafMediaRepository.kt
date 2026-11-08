@@ -17,6 +17,7 @@ import org.michimusic.data.local.ReplayGainReader
 class SafMediaRepository(
     private val context: Context,
     private val trackDao: TrackDao,
+    private val localMediaRepository: LocalMediaRepository? = null,
 ) {
 
     /**
@@ -47,7 +48,9 @@ class SafMediaRepository(
      * Imports an audio file picked via OpenDocument into our track index.
      */
     suspend fun importAudioUri(uri: Uri): Track? = withContext(Dispatchers.IO) {
-        takePersistablePermission(uri)
+        // A transient URI grant would disappear at restart; never report it as a
+        // durable library import when the provider cannot persist read permission.
+        if (!hasPermission(uri) && !takePersistablePermission(uri)) return@withContext null
 
         val metadata = extractMetadata(context.contentResolver, uri) ?: return@withContext null
         val id = "saf_${uri.hashCode().toUInt()}"
@@ -66,6 +69,9 @@ class SafMediaRepository(
         )
 
         trackDao.insert(cachedTrack)
+        // Invalidate the same cache used by Home after a file is imported in
+        // onboarding or in Settings; it must be re-queried on return.
+        localMediaRepository?.invalidateCache()
 
         Track(
             id = id,
