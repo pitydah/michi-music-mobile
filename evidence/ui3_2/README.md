@@ -33,6 +33,11 @@ because it was unreliable on the emulator recording.
 - `detail/detail-360x800-font1.0-api36.png`: actions and first track visible.
 - `detail/detail-360x800-font2.0-api36.png`: actions remain usable in at most
   two rows; the first track is below the fold, which is allowed by UI3.2.
+- `detail/detail-360x800-font2.0-followup-api36.png`: follow-up correction with
+  a stacked hero, the complete long album title, usable actions and the full
+  two-by-two Dock at 200% text.
+- `p2/dock-360x800-font2.0-api36.png`: the same real-device frame retained as
+  focused Dock evidence; all four labels, including `Dispositivos`, are visible.
 - `bottom_sheet/album-menu-open-api36.png`: clean album menu without the
   displaced root-border rectangle.
 - `bottom_sheet/quality-transition-api36.png`: menu → quality transition with
@@ -50,17 +55,19 @@ and no simultaneous `Opciones del álbum`, matching the exclusive modal state.
 | CoverFlow | side select; settled center open; deletion/shrink recovery | `MichiCoverFlowHostTest` | PASS automated |
 | CoverFlow | reduced motion | `CoverFlowMotionPolicyTest`, `CoverFlowGeometryTest` | PASS automated |
 | Identity | opaque scoped IDs; ambiguous duplicates fail closed | `AlbumCoverFlowPolicyTest` | PASS |
+| Refresh | transient empty reload and changed track membership preserve selection; confirmed deletion reconciles | `AlbumCoverFlowPolicyTest` | PASS automated |
 | Order | normal, encoded and multidisc positions; live playable filtering | `AlbumTrackPositionPolicyTest`, `AlbumPlaybackPolicyTest` | PASS |
 | Detail | exact `Pistas`, no title-sort state | policy test + real API 36 capture | PASS |
+| Playlist | add action uses the exact eligible payload; registered-but-unavailable tracks disable it with explanatory copy | `AlbumDetailUiPolicyTest` | PASS automated; unavailable fixture not present on device |
 | Sheets | no full-window root border | source check + before/after API 36 captures | PASS_LOCAL |
 | Sheets | one active album modal | `AlbumDetailUiPolicyTest` + API 36 transition inspection | PASS |
 | Width | 360×800 | real API 36 captures | PASS |
 | Width | default emulator (~412dp) | real API 36 captures | PASS |
 | Width | 320dp / tablet | unchanged layout-policy and broad Compose suites | PASS automated only; no new real capture |
-| Font | 1.0 / 2.0 | real 360×800 captures | PASS; first track below fold at 2.0 as allowed |
+| Font | 1.0 / 2.0 | real 360×800 captures | PASS; at 2.0 the hero stacks, the complete title and Dock labels remain visible, and the first track stays below fold as allowed |
 | Font | 1.3 / 1.5 | unchanged UI3.1 layout-policy coverage | PASS automated only |
-| Build | Normal/F-Droid debug and release | Gradle wrapper `0009.log` | PASS |
-| Device tests | API 36 connected suite | Gradle wrapper `0010.log` | PASS; 80 finished, 8 designed skips, 0 failed |
+| Build | Normal/F-Droid debug and release | follow-up Gradle wrapper `0008.log` | PASS |
+| Device tests | API 36 connected suite | follow-up Gradle wrapper `0009.log` | PASS; 80 finished, 10 designed live-test skips, 0 failed |
 
 ## Reproduction notes
 
@@ -74,8 +81,13 @@ and no simultaneous `Opciones del álbum`, matching the exclusive modal state.
 
 - `BLOCKED_HARDWARE`: no physical TalkBack or OEM-device certification.
 - No new real 320dp or tablet screenshot was captured.
-- At font scale 2.0, bottom-navigation labels remain crowded and the first
-  track is below the fold; primary album actions remain usable.
+- At font scale 2.0, the first track remains below the fold as allowed. The
+  stacked hero preserves the complete long title and the two-by-two Dock
+  preserves all full labels without reducing the requested font scale.
+- The zero-playable-track playlist state and transient-empty CoverFlow reload
+  are proved with deterministic policy tests; the emulator library did not
+  contain those fixtures, so no manual screenshot is claimed for them.
 - Real manual side-cover tapping is not claimed; deterministic Compose tests
   prove that interaction contract.
-- No remote CI, push, PR update, merge or release was authorized for UI3.2.
+- Draft PR #11 is the publication target for the approved follow-up. Merge and
+  release remain unauthorized.

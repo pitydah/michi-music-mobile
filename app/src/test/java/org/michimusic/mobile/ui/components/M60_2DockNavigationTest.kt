@@ -1,5 +1,9 @@
 package org.michimusic.mobile.ui.components
 
+import android.content.res.Configuration
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsNotSelected
@@ -8,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -61,6 +66,50 @@ class M60_2DockNavigationTest {
         assertEquals(emptyList<String>(), destinations)
         compose.onNodeWithTag("nav_tab_home").assertIsNotSelected().performClick()
         assertEquals(listOf("home"), destinations)
+    }
+
+    @Test fun compactTwoHundredPercentFontUsesTwoByTwoLayout() {
+        assertEquals(DockLayout.TWO_BY_TWO, dockLayout(360, 2.0f))
+        assertEquals(DockLayout.SINGLE_ROW, dockLayout(360, 1.5f))
+        assertEquals(DockLayout.SINGLE_ROW, dockLayout(600, 2.0f))
+    }
+
+    @Test fun twoByTwoDockKeepsAllFullLabelsAndTouchTargets() {
+        val configuration = Configuration().apply {
+            screenWidthDp = 360
+            fontScale = 2.0f
+        }
+        compose.setContent {
+            CompositionLocalProvider(
+                LocalConfiguration provides configuration,
+                LocalDensity provides Density(density = 1f, fontScale = 2f),
+            ) {
+                MichiTheme {
+                    BottomNavBar(currentRoute = "home", onTabSelected = {})
+                }
+            }
+        }
+
+        val home = compose.onNodeWithTag("nav_tab_home")
+            .assertContentDescriptionEquals("Inicio")
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode().boundsInRoot
+        val library = compose.onNodeWithTag("nav_tab_library")
+            .assertContentDescriptionEquals("Biblioteca")
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode().boundsInRoot
+        val search = compose.onNodeWithTag("nav_tab_search")
+            .assertContentDescriptionEquals("Buscar")
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode().boundsInRoot
+        val devices = compose.onNodeWithTag("nav_tab_devices")
+            .assertContentDescriptionEquals("Dispositivos")
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode().boundsInRoot
+
+        assertEquals(home.top, library.top, 0.5f)
+        assertEquals(search.top, devices.top, 0.5f)
+        org.junit.Assert.assertTrue(search.top >= home.bottom)
     }
 
 }

@@ -114,6 +114,9 @@ fun AlbumDetailScreen(
     val eligibleTracks = remember(tracks, scoped.playableTrackIds) {
         canonicalPlayableAlbumTracks(tracks, scoped.playableTrackIds)
     }
+    val playlistActionState = remember(tracks.size, eligibleTracks.size) {
+        albumPlaylistActionState(tracks.size, eligibleTracks.size)
+    }
     val audioController: AudioController = koinInject()
     val session by sessionManager.sessionState.collectAsStateWithLifecycle()
     val engine by audioController.state.collectAsStateWithLifecycle()
@@ -124,9 +127,11 @@ fun AlbumDetailScreen(
     val allFavorite = tracks.isNotEmpty() && tracks.all { it.id in favoriteIds }
     var feedback by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
     var activeModal by remember(albumId, activeScope) { mutableStateOf<AlbumDetailModal?>(null) }
+    val configuration = LocalConfiguration.current
     val actionLayout = albumActionLayout(
-        LocalConfiguration.current.screenWidthDp, LocalConfiguration.current.fontScale,
+        configuration.screenWidthDp, configuration.fontScale,
     )
+    val heroLayout = albumHeroLayout(configuration.screenWidthDp, configuration.fontScale)
     // Menu identity, not a captured Track/URI: a rescan may update preferred location.
     var selectedTrackMenuId by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
     var trackToAddToPlaylistId by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
@@ -135,6 +140,11 @@ fun AlbumDetailScreen(
         if (album == null || tracks.none { it.id == selectedTrackMenuId }) selectedTrackMenuId = null
         if (album == null || tracks.none { it.id == trackToAddToPlaylistId }) trackToAddToPlaylistId = null
         if (album == null) {
+            activeModal = null
+        }
+    }
+    LaunchedEffect(activeModal, playlistActionState.enabled) {
+        if (activeModal == AlbumDetailModal.PLAYLIST && !playlistActionState.enabled) {
             activeModal = null
         }
     }
@@ -229,7 +239,6 @@ fun AlbumDetailScreen(
                 ) {
                     item(key = "hero") {
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            val vertical = maxWidth < 300.dp
                             val coverSize = (maxWidth * 0.36f).coerceIn(112.dp, 144.dp)
                             @Composable fun cover() {
                                 AlbumArtView(
@@ -243,9 +252,10 @@ fun AlbumDetailScreen(
                             @Composable fun description() {
                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     Text(
-                                        album.album.title, fontSize = 22.sp, lineHeight = 26.sp,
-                                        fontWeight = FontWeight.Bold, color = PureWhite,
-                                        maxLines = 3, overflow = TextOverflow.Ellipsis,
+                                         album.album.title, fontSize = 22.sp, lineHeight = 26.sp,
+                                         fontWeight = FontWeight.Bold, color = PureWhite,
+                                         maxLines = albumHeroTitleMaxLines(heroLayout),
+                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(album.album.artist, fontSize = 15.sp, color = PureWhite,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -260,10 +270,14 @@ fun AlbumDetailScreen(
                                     )
                                 }
                             }
-                            if (vertical) {
-                                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            if (heroLayout == AlbumHeroLayout.STACKED) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
                                     cover()
-                                    description()
+                                    Box(Modifier.fillMaxWidth()) { description() }
                                 }
                             } else {
                                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -294,7 +308,8 @@ fun AlbumDetailScreen(
                                 )
                                 MichiIconAction(
                                     Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
-                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST }, enabled = tracks.isNotEmpty(),
+                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST },
+                                    enabled = playlistActionState.enabled,
                                     testTag = "album_detail_add_to_playlist",
                                 )
                             }
@@ -317,10 +332,14 @@ fun AlbumDetailScreen(
                                 )
                                 MichiIconAction(
                                     Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
-                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST }, enabled = tracks.isNotEmpty(),
+                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST },
+                                    enabled = playlistActionState.enabled,
                                     testTag = "album_detail_add_to_playlist",
                                 )
                             }
+                        }
+                        playlistActionState.unavailableMessage?.let {
+                            Text(it, color = TextSecondary, fontSize = 12.sp)
                         }
                         feedback?.let { Text(it, color = PrimaryPinkContainer, fontSize = 12.sp) }
                         }

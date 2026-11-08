@@ -168,6 +168,7 @@ fun AlbumsScreen(
     val albumGridState = key(activeScope) { rememberLazyGridState() }
     val albumListState = key(activeScope) { rememberLazyListState() }
     var selectedAlbumId by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
+    var selectedAlbumContinuityKey by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
@@ -204,8 +205,24 @@ fun AlbumsScreen(
     }
     val albumByToken = coverFlowPresentation.albumById
     val coverFlowAlbums = coverFlowPresentation.albums
-    LaunchedEffect(activeScope, coverFlowAlbums) {
-        selectedAlbumId = reconcileSelectedAlbumId(selectedAlbumId, coverFlowAlbums.map { it.id })
+    LaunchedEffect(
+        activeScope,
+        selectedTab,
+        coverFlowPresentation,
+        isLoading,
+        scopedArtistCollection?.ready,
+        scopedArtistCollection?.errorMessage,
+    ) {
+        if (selectedTab != LibraryTab.ALBUMS) return@LaunchedEffect
+        val selection = selectedAlbumId?.let { CoverFlowSelection(it, selectedAlbumContinuityKey) }
+        val reconciled = reconcileCoverFlowSelection(
+            selection = selection,
+            presentation = coverFlowPresentation,
+            refreshInProgress = isLoading ||
+                (scopedArtistCollection?.ready != true && scopedArtistCollection?.errorMessage == null),
+        )
+        selectedAlbumId = reconciled?.id
+        selectedAlbumContinuityKey = reconciled?.continuityKey
     }
 
     val filteredTracks = remember(allTracks, selectedFilter, downloadedTrackIds) {
@@ -655,7 +672,11 @@ fun AlbumsScreen(
                                     MichiCoverFlowHost(
                                         albums = coverFlowAlbums,
                                         selectedAlbumId = selectedAlbumId,
-                                        onAlbumSelected = { selectedAlbumId = it },
+                                        onAlbumSelected = { id ->
+                                            val selection = coverFlowSelection(id, coverFlowPresentation)
+                                            selectedAlbumId = selection?.id
+                                            selectedAlbumContinuityKey = selection?.continuityKey
+                                        },
                                         onAlbumClick = { index ->
                                             val selected = coverFlowAlbums.getOrNull(index)
                                             if (selected != null && identityCounts[selected.id] == 1) {

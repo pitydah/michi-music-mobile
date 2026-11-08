@@ -19,4 +19,15 @@ class AlbumLayoutPolicyTest {
             }
         }
     }
+
+    @Test fun compactTwoHundredPercentHeroStacksToProtectTheFullTitleWidth() {
+        assertEquals(AlbumHeroLayout.STACKED, albumHeroLayout(360, 2.0f))
+        assertEquals(5, albumHeroTitleMaxLines(AlbumHeroLayout.STACKED))
+    }
+
+    @Test fun normalPhoneAndWideLargeTextKeepTheProportionalHorizontalHero() {
+        assertEquals(AlbumHeroLayout.HORIZONTAL, albumHeroLayout(360, 1.5f))
+        assertEquals(AlbumHeroLayout.HORIZONTAL, albumHeroLayout(600, 2.0f))
+        assertEquals(3, albumHeroTitleMaxLines(AlbumHeroLayout.HORIZONTAL))
+    }
 }

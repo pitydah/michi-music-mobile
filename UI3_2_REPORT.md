@@ -6,7 +6,7 @@
 - Local branch: `fix/ui3-2-pending-corrections`.
 - Approved plan: `.scratch/to-plan/ui3-2-pending-corrections.md`.
 - Gradle evidence workflow: `8bb93a3cdcb9b93dc437925bcb77cd51`.
-- Delivery mode: local incremental patch only. PR #10 was not modified.
+- Publication target: draft PR #11. Merge and release are not authorized.
 
 This correction preserves UI3.1 codec truth, source-aware MediaStore numbering,
 playback, Signal Truth, AirCat, Michi Link/Stream and Album/Artist Enrichment.
@@ -58,6 +58,26 @@ Album detail now owns one nullable `AlbumDetailModal` instead of four independen
 booleans. Menu → quality/history and playlist transitions therefore compose at
 most one album sheet and one scrim.
 
+### Follow-up — playlist availability, reload continuity and 200% text
+
+Album detail now derives Add-to-list enablement, explanatory unavailable copy
+and the submitted payload from the same canonical `eligibleTracks` set. An
+album with registered but unavailable tracks cannot open or submit an empty
+playlist modal, and a rescan that empties eligibility closes an already-open
+modal safely.
+
+CoverFlow keeps snapshot-specific navigation identities unchanged and adds a
+separate opaque continuity key that excludes track membership. A transient
+empty refresh retains the pending selection; repopulation can rebind a changed
+snapshot identity only through a unique continuity key. Settled empty results,
+confirmed deletion and ambiguous continuity still fail closed.
+
+At 360dp and 200% text the album hero stacks, allowing the complete long title
+up to five lines, while the Dock becomes two rows of two destinations. Full
+Spanish labels, semantics and 48dp targets are preserved without shrinking the
+requested font scale. Normal and wide configurations retain their original
+horizontal layouts.
+
 ## Principal files
 
 - `app/src/main/java/org/michimusic/mobile/ui/screens/AlbumsScreen.kt`
@@ -86,6 +106,20 @@ All Gradle commands used the required compact-output wrapper.
 | `0009.log` | Final `test lint` + Normal/F-Droid debug/release | PASS, 493.5s |
 | `0010.log` | Final API 36 connected suite | PASS; 80 finished, 8 skips, 0 failed |
 
+Follow-up workflow `13ebd2ae2ef16df705d0548b5f8a6c98`:
+
+| Wrapper log | Gate | Result |
+|---|---|---|
+| `0001.log` | Playlist availability RED | Expected missing-policy compile failure |
+| `0002.log` | Playlist policy GREEN | PASS, 92 tasks |
+| `0003.log` | CoverFlow continuity RED | Expected missing-policy compile failure |
+| `0004.log` | CoverFlow continuity GREEN | PASS, 92 tasks |
+| `0005.log` | Hero/Dock responsive RED | Expected missing-policy compile failure |
+| `0006.log` | Hero/Dock responsive GREEN | PASS, 92 tasks |
+| `0007.log` | Integrated affected tests + Normal debug | PASS, 121 tasks |
+| `0008.log` | Final `test lint` + Normal/F-Droid debug/release | PASS, 441.8s |
+| `0009.log` | Final API 36 connected suite | PASS; 80 finished, 10 designed live-test skips, 0 failed |
+
 Additional checks:
 
 - `git diff --check`: PASS.
@@ -93,9 +127,9 @@ Additional checks:
 - No root `.border(` remains in `MichiBottomSheet.kt`.
 - `bash scripts/verify_michi_opencode_skills.sh --check`: PASS manifest format;
   independent review still owns inspection of original native skill calls.
-- `ui3_2.patch`: 31-file binary patch. In a detached clean worktree pinned to
+- `ui3_2.patch`: 37-file binary patch. In a detached clean worktree pinned to
   the exact base, `git apply --check --whitespace=error` passed, the patch
-  applied, and all 31 patched files matched the delivery tree byte-for-byte.
+  applied, and all 37 patched files matched the delivery tree byte-for-byte.
 
 ## Independent review
 
@@ -111,6 +145,13 @@ Mosaic and asserts each required content slot. Removing CoverFlow from the enum,
 cycle, icon mapping, dispatcher or `AlbumsScreen` slot now causes a compile or
 test failure. Final reviewer verdict: `ship`; no unresolved P0/P1 findings.
 
+Fresh follow-up review session `ses_e472c5102ffejZw8LUjWTM8aMS` inspected the
+playlist eligibility/payload contract, snapshot identity plus continuity-key
+reconciliation, stacked 200% hero and semantic two-by-two Dock. It confirmed
+defense-in-depth against empty playlist submissions, fail-closed identity
+behavior, unchanged playback/navigation and ≥48dp Spanish navigation targets.
+Final verdict: `ship`; no new blocking finding.
+
 ## P0/P1/P2 matrix
 
 | Priority | Requirement | Status | Evidence |
@@ -124,6 +165,9 @@ test failure. Final reviewer verdict: `ship`; no unresolved P0/P1 findings.
 | P2 | One active album sheet/scrim | PASS | exhaustive state policy + real transition |
 | P2 | Library-scoped scroll/selection | PASS | keyed/saveable state + reconciliation tests |
 | P2 | Reduced motion | PASS_AUTOMATED | motion/geometry tests |
+| P1 | Playlist action matches live eligible payload | PASS_AUTOMATED | policy tests; no unavailable device fixture |
+| P2 | CoverFlow survives transient empty reload and membership changes | PASS_AUTOMATED | continuity-policy tests |
+| P2 | 360×800 at 200% preserves long title and full Dock labels | PASS_API36_EMULATOR | policy/Compose tests + real capture |
 | P2 | Physical TalkBack/OEM/tablet/320 visual sign-off | BLOCKED_HARDWARE | unavailable locally |
 
 The complete evidence matrix is in `evidence/ui3_2/README.md`.
@@ -134,9 +178,12 @@ The complete evidence matrix is in `evidence/ui3_2/README.md`.
 - `UI3_2_VISUAL_GO = PASS_API36_EMULATOR`
 - `INDEPENDENT_REVIEW = SHIP`
 - `PHYSICAL_ACCESSIBILITY_SIGNOFF = BLOCKED_HARDWARE`
-- `REMOTE_CI_GO = NOT_RUN`
+- `REMOTE_CI_GO = PENDING_FOLLOWUP_PUSH`
 - `RELEASE_GO = NOT_AUTHORIZED`
 
-At font scale 2.0 the album actions remain usable but the first track is below
-the fold and bottom-navigation labels crowd. No new real 320dp/tablet capture,
-physical TalkBack run or OEM-device certification was available.
+At font scale 2.0 the album actions remain usable and the first track stays
+below the fold as allowed; the follow-up stacked hero and two-by-two Dock keep
+the complete long title and all full navigation labels visible. No new real
+320dp/tablet capture, physical TalkBack run or OEM-device certification was
+available. The unavailable-playlist and transient-refresh cases are automated
+only because the emulator data did not contain those fixtures.
