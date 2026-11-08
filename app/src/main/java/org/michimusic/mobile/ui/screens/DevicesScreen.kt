@@ -1139,20 +1139,12 @@ private fun SyncTransferCard(
             }
 
             val progress = syncProgressPresentation(completed, total)
-            if (progress.fraction == null) {
-                androidx.compose.material3.LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = if (isCancelling) ErrorColor else AccentCoral,
-                    trackColor = SurfaceObsidian,
-                )
-            } else {
-                androidx.compose.material3.LinearProgressIndicator(
-                    progress = { progress.fraction },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = if (isCancelling) ErrorColor else AccentCoral,
-                    trackColor = SurfaceObsidian,
-                )
-            }
+            org.michimusic.mobile.ui.motion.AeroTruthfulProgress(
+                fraction = progress.fraction,
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = if (isCancelling) ErrorColor else AccentCoral,
+                trackColor = SurfaceObsidian,
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

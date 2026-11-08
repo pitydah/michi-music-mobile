@@ -56,6 +56,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.remote.RemoteConnectionState
 import org.michimusic.mobile.remote.RemoteUiState
 import org.michimusic.mobile.remote.RemoteViewModel
+import org.michimusic.mobile.ui.motion.AeroObservedText
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroActionButton
@@ -344,8 +345,11 @@ fun RemoteScreenContent(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // Pending Command Banner
+                    // Do not keep a zero-height lazy item after a pending command;
+                    // otherwise Arrangement.spacedBy would leave a permanent gap.
                     if (state.pendingCommand) {
-                        item {
+                        item(key = "remote_pending_command") {
+                            org.michimusic.mobile.ui.motion.AeroPendingReveal(visible = true) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -371,6 +375,7 @@ fun RemoteScreenContent(
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                 }
+                            }
                             }
                         }
                     }
@@ -398,13 +403,15 @@ fun RemoteScreenContent(
                                         .clip(CircleShape)
                                         .background(TertiaryCyan),
                                 )
-                                Text(
-                                    text = "Controlando: $sourceTitle",
+                                AeroObservedText(
+                                    value = "Controlando: $sourceTitle",
                                     color = TertiaryCyan,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    style = androidx.compose.ui.text.TextStyle(
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Start,
                                 )
                             }
                         }

@@ -50,6 +50,9 @@ import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.ActivePlaybackPresentation
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
+import org.michimusic.mobile.ui.motion.AeroTrackArtworkMotion
+import org.michimusic.mobile.ui.motion.AeroTrackTitleMotion
+import org.michimusic.mobile.ui.motion.aeroSharedNowPlayingArtwork
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.AeroFinish
@@ -170,25 +173,27 @@ fun MiniPlayerContent(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Album artwork thumbnail
-                            AlbumArtView(
-                                coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
-                                imageModel = currentTrack.coverId.takeIf { it.isNotBlank() },
-                                fallbackMediaUri = currentTrack.filepath,
-                                modifier = Modifier
-                                    .size(42.dp)
+                            AeroTrackArtworkMotion(
+                                track = currentTrack,
+                                modifier = Modifier.size(42.dp)
+                                    .aeroSharedNowPlayingArtwork(
+                                        trackId = currentTrack.id,
+                                        visibilityScope = this@AnimatedVisibility,
+                                    )
                                     .clip(MichiShapes.xs),
+                                cornerRadius = 8.dp,
                             )
 
                             Spacer(modifier = Modifier.width(12.dp))
 
                             // Title, Artist & Real Active Endpoint
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = currentTrack.title,
+                                AeroTrackTitleMotion(
+                                    trackId = currentTrack.id,
+                                    title = currentTrack.title,
                                     color = PureWhite,
                                     style = MichiTypography.trackTitle,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     // A truncated artist already ends in an ellipsis, so

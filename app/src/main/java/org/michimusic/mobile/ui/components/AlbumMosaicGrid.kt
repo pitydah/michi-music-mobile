@@ -1,6 +1,11 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,9 +20,11 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +37,11 @@ import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
 import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.screens.albumNavigationIdentity
 import org.michimusic.mobile.ui.screens.albumNavigationIdentityCounts
+import org.michimusic.mobile.ui.motion.albumMosaicMotionKey
+import org.michimusic.mobile.ui.motion.albumMosaicPressScale
+import org.michimusic.mobile.ui.motion.aeroSharedAlbumArtwork
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.MichiMotion
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextMuted
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -44,6 +56,7 @@ fun AlbumMosaicGrid(
     state: LazyGridState = rememberLazyGridState(),
 ) {
     val identityCounts = remember(albums, scope) { albumNavigationIdentityCounts(albums, scope) }
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion || LocalVisualPreferences.current.highContrast
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 132.dp),
         state = state,
@@ -52,16 +65,36 @@ fun AlbumMosaicGrid(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
-        itemsIndexed(items = albums, key = { index, group -> "${albumNavigationIdentity(group, scope)}#$index" }) { _, group ->
+        itemsIndexed(
+            items = albums,
+            key = { index, group ->
+                val identity = albumNavigationIdentity(group, scope)
+                albumMosaicMotionKey(identity, identityCounts[identity] ?: 0, index)
+            },
+        ) { _, group ->
             val album = group.album
             val identity = albumNavigationIdentity(group, scope)
             val navigable = identityCounts[identity] == 1
+            val interactions = remember(identity, navigable) { MutableInteractionSource() }
+            val pressed by interactions.collectIsPressedAsState()
+            val pressScale by animateFloatAsState(
+                targetValue = albumMosaicPressScale(pressed, navigable, reducedMotion),
+                animationSpec = if (reducedMotion) snap() else tween(
+                    durationMillis = MichiMotion.durationFast,
+                    easing = MichiMotion.easingDecelerate,
+                ),
+                label = "aero_album_mosaic_press",
+            )
             Column(
                 modifier = Modifier
+                    .then(if (reducedMotion || !navigable) Modifier else Modifier.animateItem())
                     .fillMaxWidth()
+                    .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
                     .clip(RoundedCornerShape(12.dp))
                     .clickable(
                         enabled = navigable,
+                        interactionSource = interactions,
+                        indication = null,
                         role = Role.Button,
                         onClickLabel = "Abrir álbum ${album.title}",
                     ) { onOpenAlbum(identity) }
@@ -72,7 +105,8 @@ fun AlbumMosaicGrid(
                     coverStyle = coverStyleFor(album.coverId.ifBlank { album.title }),
                     imageModel = album.coverId,
                     fallbackMediaUri = group.tracks.firstOrNull()?.filepath,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f)
+                        .aeroSharedAlbumArtwork(identity, navigable, reducedMotion),
                     cornerRadius = 12.dp,
                 )
                 Text(

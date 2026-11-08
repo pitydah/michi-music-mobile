@@ -5,6 +5,11 @@ import org.michimusic.mobile.ui.components.parseManualEndpoint
 import org.michimusic.mobile.ui.components.syncProgressPresentation
 import org.michimusic.mobile.ui.components.allowLegacyReceiverButton
 import org.michimusic.mobile.ui.components.UNVERIFIED_RECEIVER_GUIDANCE
+import org.michimusic.mobile.ui.motion.AeroObservedText
+import org.michimusic.mobile.ui.motion.aeroLinkHeadline
+import org.michimusic.mobile.ui.motion.aeroLinkEvidenceColor
+import org.michimusic.mobile.ui.motion.aeroLinkEvidenceLevel
+import org.michimusic.mobile.ui.motion.aeroStreamPeerEvidenceLabel
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -204,33 +209,28 @@ fun SyncScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
+                            val statusHue = aeroLinkEvidenceColor(aeroLinkEvidenceLevel(uiState.state))
                             Box(
                                 modifier = Modifier.size(48.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                if (isSearching) PulsingRadarRing(color = TertiaryCyan, size = 48.dp)
+                                // Discovery is real; never animate the radar in reduced-motion mode.
+                                if (isSearching && !reducedMotion) PulsingRadarRing(color = statusHue, size = 48.dp)
                                 Icon(
                                     imageVector = Icons.Filled.WifiTethering,
                                     contentDescription = null,
-                                    tint = TertiaryCyan,
+                                    tint = statusHue,
                                     modifier = Modifier.size(24.dp),
                                 )
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = if (isSearching) "Buscando dispositivos Michi..." else when (uiState.state) {
-                                        SyncConnectionState.CONNECTED -> "Conexión establecida"
-                                        SyncConnectionState.CONNECTING -> "Conectando al dispositivo"
-                                        SyncConnectionState.PAIRING, SyncConnectionState.PAIRING_REQUIRED -> "Vinculación pendiente"
-                                        SyncConnectionState.PAIRED -> "Identidad vinculada"
-                                        SyncConnectionState.REVOKED, SyncConnectionState.UNAUTHORIZED -> "Acceso no autorizado"
-                                        SyncConnectionState.ERROR, SyncConnectionState.AUTH_ERROR -> "Revisa la conexión"
-                                        SyncConnectionState.OFFLINE -> "Dispositivo sin conexión"
-                                        else -> "Listo para buscar dispositivos"
-                                    },
+                                AeroObservedText(
+                                    value = aeroLinkHeadline(uiState.state, isSearching),
                                     color = PureWhite,
                                     style = MichiTypography.cardTitle,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                                    modifier = Modifier.testTag("michi_link_observed_state"),
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
@@ -596,6 +596,15 @@ private fun DiscoveredPeerViewItem(
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    // Advertised device type is not authentication or an active audio session.
+                    aeroStreamPeerEvidenceLabel(isProvisionedMichiStream(peer.deviceType))?.let { label ->
+                        Text(
+                            text = label,
+                            color = TertiaryCyan,
+                            fontSize = 11.sp,
+                            modifier = Modifier.testTag("michi_stream_advertised_peer"),
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "${peer.ip}:${peer.port}",

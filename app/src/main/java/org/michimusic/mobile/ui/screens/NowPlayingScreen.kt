@@ -66,6 +66,12 @@ import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
+import org.michimusic.mobile.ui.motion.AeroTrackArtworkMotion
+import org.michimusic.mobile.ui.motion.AeroTrackTitleMotion
+import org.michimusic.mobile.ui.motion.aeroSharedNowPlayingArtwork
+import org.michimusic.mobile.ui.motion.aeroNowPlayingShareAvailable
+import org.michimusic.mobile.ui.motion.aeroNowPlayingHeroEnter
+import org.michimusic.mobile.ui.motion.aeroDynamicMeshEnabled
 import org.michimusic.mobile.ui.components.EqualizerDialog
 import org.michimusic.mobile.ui.components.GradientProgressBar
 import org.michimusic.mobile.ui.components.ProgressAppearance
@@ -156,18 +162,16 @@ fun NowPlayingScreen(
             .background(SurfaceObsidian)
             .testTag("now_playing_screen"),
     ) {
-        // Controlled Aero plum surface; this is a stable UI palette, not a claim
-        // that we extracted colors from the album bitmap or verified audio quality.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.verticalGradient(
-                    org.michimusic.mobile.ui.theme.aeroGradientStops(
-                        org.michimusic.mobile.ui.theme.AeroGradientRole.HeroToCanvas,
-                        LocalVisualPreferences.current.highContrast,
-                    ),
-                )),
-        )
+        // UI4.7: restrained ambient canvas from the real local artwork palette.
+        // Rendering lives behind album art and controls. No GL surface, blur,
+        // continuous motion while paused, or fabricated Signal Truth evidence.
+        if (aeroDynamicMeshEnabled()) {
+            org.michimusic.mobile.ui.motion.AeroDynamicMeshBackground(
+                track = currentTrack,
+                playing = isPlaying,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -252,15 +256,18 @@ fun NowPlayingScreen(
                 // Reuse the existing Aero frame: one shadow, one opaque metal lip,
                 // one inset. Never tint or obscure the original album-art bitmap.
                 AeroArtworkMat(
-                    modifier = Modifier.size(artSide),
+                    modifier = Modifier.size(artSide).then(
+                        if (aeroNowPlayingShareAvailable(currentTrack?.id)) Modifier
+                        else Modifier.aeroNowPlayingHeroEnter(currentTrack != null)
+                    ),
                     cornerRadius = 18.dp,
                     inset = 4.dp,
                 ) {
-                    AlbumArtView(
-                        coverStyle = coverStyleFor(currentTrack?.coverId?.ifEmpty { currentTrack.title } ?: currentTrack?.title),
-                        imageModel = currentTrack?.coverId?.takeIf { it.isNotBlank() },
-                        fallbackMediaUri = currentTrack?.filepath,
-                        modifier = Modifier.fillMaxSize().testTag("now_playing_album_art"),
+                    AeroTrackArtworkMotion(
+                        track = currentTrack,
+                        modifier = Modifier.fillMaxSize()
+                            .aeroSharedNowPlayingArtwork(trackId = currentTrack?.id)
+                            .testTag("now_playing_album_art"),
                         cornerRadius = 18.dp,
                         borderWidth = 0.dp,
                     )
@@ -277,15 +284,16 @@ fun NowPlayingScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Spacer(Modifier.size(48.dp))
-                    Text(
-                        text = currentTrack?.title ?: "Sin reproducción activa",
+                    AeroTrackTitleMotion(
+                        trackId = currentTrack?.id,
+                        title = currentTrack?.title ?: "Sin reproducción activa",
                         style = MichiTypography.screenTitle.copy(
                             fontSize = if (compactLayout) 24.sp else 29.sp,
                             lineHeight = if (compactLayout) 29.sp else 34.sp,
                             fontWeight = FontWeight.SemiBold,
                         ),
+                        color = PureWhite,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.weight(1f),
                     )

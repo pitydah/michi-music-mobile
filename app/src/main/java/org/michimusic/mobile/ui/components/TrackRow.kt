@@ -1,5 +1,8 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +35,8 @@ import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.MichiShapes
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.MichiMotion
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -46,13 +52,28 @@ fun TrackRow(
     modifier: Modifier = Modifier,
 ) {
     val shape = MichiShapes.sm
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion
+    val colors = if (reducedMotion) snap() else tween<androidx.compose.ui.graphics.Color>(
+        durationMillis = MichiMotion.durationStandard,
+        easing = MichiMotion.easingDecelerate,
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isActive) AeroGraphiteRaised else AeroGraphite,
+        animationSpec = colors,
+        label = "aero_track_row_background",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isActive) PrimaryPinkContainer.copy(alpha = 0.52f) else AeroHairline,
+        animationSpec = colors,
+        label = "aero_track_row_border",
+    )
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
             .clip(shape)
-            .background(if (isActive) AeroGraphiteRaised else AeroGraphite)
-            .border(0.75.dp, if (isActive) PrimaryPinkContainer.copy(alpha = 0.52f) else AeroHairline, shape)
+            .background(backgroundColor)
+            .border(0.75.dp, borderColor, shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(color = PrimaryPinkContainer),

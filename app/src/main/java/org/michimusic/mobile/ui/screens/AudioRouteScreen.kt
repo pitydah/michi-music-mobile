@@ -47,6 +47,9 @@ import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.audioRouteEvidence
 import org.michimusic.mobile.ui.components.sampleRateLabel
+import org.michimusic.mobile.ui.motion.AeroObservedText
+import org.michimusic.mobile.ui.motion.AeroObservedRouteIcon
+import org.michimusic.mobile.ui.motion.AeroRouteCertaintyLabel
 import org.michimusic.player.AudioRouteStatus
 import org.michimusic.mobile.ui.components.PremiumScreen
 import org.michimusic.mobile.ui.theme.AccentCoral
@@ -143,24 +146,38 @@ fun AudioRouteScreen() {
                             .background(AeroGraphiteRaised),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(routeIcon(route), contentDescription = null, tint = org.michimusic.mobile.ui.theme.PrimaryPinkContainer, modifier = Modifier.size(28.dp))
+                        AeroObservedRouteIcon(
+                            observationKey = evidence.headline + evidence.deviceLabel,
+                            icon = routeIcon(route),
+                            tint = org.michimusic.mobile.ui.theme.PrimaryPinkContainer,
+                        )
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            evidence.headline,
-                            style = MaterialTheme.typography.titleMedium, color = TextPrimary,
+                        AeroObservedText(
+                            value = evidence.headline,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                         )
                         Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = evidence.deviceLabel,
+                        AeroObservedText(
+                            value = evidence.deviceLabel,
                             style = MaterialTheme.typography.bodyLarge,
                             color = org.michimusic.mobile.ui.theme.OnSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Start,
                         )
-                        Text(
-                            text = evidence.explanation,
+                        AeroObservedText(
+                            value = evidence.explanation,
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                            maxLines = 4,
+                        )
+                        AeroRouteCertaintyLabel(
+                            status = routeStatus,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 6.dp),
                         )
                     }
                 }

@@ -70,7 +70,11 @@ import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
 import org.michimusic.mobile.ui.components.premium.MichiBottomSheet
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
+import org.michimusic.mobile.ui.motion.aeroAlbumHeroReveal
+import org.michimusic.mobile.ui.motion.aeroSharedAlbumArtwork
+import org.michimusic.mobile.ui.motion.aeroSharedAlbumAvailable
 import org.michimusic.mobile.ui.components.MediaPermissionWatcher
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
@@ -104,6 +108,12 @@ fun AlbumDetailScreen(
         repository = libraryRepository, retryKey = scopeRetry,
     )
     val album = if (scoped.ready) resolveNavigationAlbum(scoped.albums, albumId, activeScope) else null
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion || LocalVisualPreferences.current.highContrast
+    // Animation state is scoped to the resolved album; its real track ordering remains UI3.2's.
+    var albumHeroVisible by remember(albumId, activeScope) { mutableStateOf(false) }
+    LaunchedEffect(albumId, activeScope, album?.album?.id) {
+        if (album != null) albumHeroVisible = true
+    }
     val tracks = remember(album) { album?.tracks.orEmpty().distinctBy { it.id } }
     val trackPresentation = remember(tracks) { albumTrackPresentation(tracks) }
     val orderedTracks = remember(tracks) { canonicalAlbumTracks(tracks) }
@@ -242,7 +252,12 @@ fun AlbumDetailScreen(
                                     coverStyle = coverStyleFor(album.album.coverId.ifBlank { album.album.title }),
                                     imageModel = album.album.coverId,
                                     fallbackMediaUri = tracks.firstOrNull()?.filepath,
-                                    modifier = Modifier.size(coverSize),
+                                    // Shared artwork owns the spatial animation when the source tile is present.
+                                    // The existing one-shot reveal remains a safe fallback for other entry routes.
+                                    modifier = Modifier.size(coverSize)
+                                        .then(if (aeroSharedAlbumAvailable(albumId, reducedMotion)) Modifier
+                                            else Modifier.aeroAlbumHeroReveal(albumHeroVisible))
+                                        .aeroSharedAlbumArtwork(albumId, eligible = true, reducedMotion = reducedMotion),
                                     cornerRadius = 16.dp,
                                 )
                             }
@@ -353,7 +368,12 @@ fun AlbumDetailScreen(
                     itemsIndexed(trackPresentation.tracks, key = { _, presented -> presented.track.id }) { index, presented ->
                         val track = presented.track
                         val available = track.id in scoped.playableTrackIds
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .then(if (reducedMotion) Modifier else Modifier.animateItem())
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             val disc = presented.position?.discNumber
                             val previousDisc = trackPresentation.tracks.getOrNull(index - 1)?.position?.discNumber
                             if (trackPresentation.showDiscHeaders && disc != null && disc != previousDisc) {
