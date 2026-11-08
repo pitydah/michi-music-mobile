@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,7 +26,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -70,7 +68,6 @@ import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.formatTimeMillis
-import org.michimusic.mobile.ui.components.sampleRateLabel
 import org.michimusic.mobile.ui.components.premium.MichiBottomSheet
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import org.michimusic.mobile.ui.components.MediaPermissionWatcher
@@ -467,45 +464,12 @@ fun AlbumDetailScreen(
                 onDismiss = { trackToAddToPlaylistId = null },
             )
         }
-        if (activeModal == AlbumDetailModal.QUALITY) {
-            MichiBottomSheet(onDismissRequest = { activeModal = null }) {
-                // Lazy rendering avoids composing hundreds of technical rows at once.
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp)
-                        .testTag("album_quality_popup"),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    item(key = "quality_intro") {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Calidad de los archivos", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = PureWhite)
-                            Text("Datos de ${tracks.size} ${if (tracks.size == 1) "pista" else "pistas"} de la biblioteca.", color = TextSecondary)
-                        }
-                    }
-                    itemsIndexed(orderedTracks, key = { index, track -> "quality_${track.id}_$index" }) { _, track ->
-                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                            HorizontalDivider(color = TextMuted.copy(alpha = 0.25f))
-                            Text(track.title, color = PureWhite, fontWeight = FontWeight.Medium)
-                            Text(
-                                listOfNotNull(albumCodecLabel(track)?.let { "Formato de archivo: $it" },
-                                    sampleRateLabel(track.sampleRate)?.let { "Frecuencia: $it" },
-                                    track.channels.takeIf { it in 1..8 }?.let { "Canales: $it" })
-                                    .ifEmpty { listOf("No hay parámetros técnicos suficientes en los metadatos.") }
-                                    .joinToString(" · "),
-                                color = TextSecondary, fontSize = 13.sp,
-                            )
-                        }
-                    }
-                    item(key = "quality_footer") {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Son metadatos declarados por los archivos; no describen la señal real de salida.",
-                                color = TextSecondary, fontSize = 12.sp)
-                            TextButton(onClick = { activeModal = null }) { Text("Cerrar", color = TextSecondary) }
-                        }
-                    }
-                }
-            }
-        }
+        AlbumDetailMenuSheets(
+            activeModal = activeModal,
+            tracks = tracks,
+            orderedTracks = orderedTracks,
+            onModalChange = { activeModal = it },
+        )
         if (activeModal == AlbumDetailModal.HISTORY && album != null) {
             AlbumEnrichmentPanel(
                 localAlbumTitle = album.album.title,
@@ -541,22 +505,6 @@ fun AlbumDetailScreen(
                     }
                     TextButton(onClick = { activeModal = null }, enabled = !savingPlaylist) {
                         Text("Cancelar", color = TextSecondary)
-                    }
-                }
-            }
-        }
-        if (activeModal == AlbumDetailModal.MENU) {
-            MichiBottomSheet(onDismissRequest = { activeModal = null }) {
-                Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                    Text("Opciones del álbum", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = PureWhite)
-                    TextButton(onClick = { activeModal = albumModalForMenuAction(AlbumMenuAction.QUALITY) }) {
-                        Text("Información de calidad", color = PureWhite)
-                    }
-                    TextButton(onClick = { activeModal = albumModalForMenuAction(AlbumMenuAction.HISTORY) }) {
-                        Text("Cronología externa · MusicBrainz", color = PureWhite)
-                    }
-                    TextButton(onClick = { activeModal = albumModalForMenuAction(AlbumMenuAction.CLOSE) }) {
-                        Text("Cerrar", color = TextSecondary)
                     }
                 }
             }
