@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -16,12 +17,15 @@ import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
+import org.michimusic.data.cache.TrackDao
+import org.michimusic.data.cache.toTrack
 import org.michimusic.data.local.MediaQueryDispatcher
 import org.michimusic.data.local.ReplayGainReader
 
 open class LocalMediaRepository(
     private val context: Context? = null,
     private val replayGainDao: ReplayGainDao? = null,
+    private val importedTrackDao: TrackDao? = null,
 ) {
 
     companion object {
@@ -74,7 +78,7 @@ open class LocalMediaRepository(
      */
     open suspend fun fetchAlbumsResult(): MediaResult<List<LocalAlbum>> =
         when (val tracks = fetchTracksResult()) {
-            is MediaResult.Success -> MediaResult.Success(groupAlbums(tracks.data))
+            is MediaResult.Success -> MediaResult.Success(groupAlbums(tracks.data), tracks.coverage)
             is MediaResult.PermissionDenied -> MediaResult.PermissionDenied
             is MediaResult.QueryFailed -> tracks
         }
@@ -99,6 +103,25 @@ open class LocalMediaRepository(
         }.sortedBy { it.album.title }
     }
 
+    /**
+     * Imported SAF documents are indexed in Room, not MediaStore. They remain available
+     * even without READ_MEDIA_AUDIO, but only while the persistable URI grant exists.
+     * Reading them here makes the wizard's actual SAF import visible in Home/Library.
+     */
+    private suspend fun importedSafTracks(): List<Track> {
+        val ctx = context ?: return emptyList()
+        val dao = importedTrackDao ?: return emptyList()
+        val grants = ctx.contentResolver.persistedUriPermissions
+            .filter { it.isReadPermission }
+            .mapTo(HashSet<String>()) { it.uri.toString() }
+        if (grants.isEmpty()) return emptyList()
+        return dao.getTracksForSource("").first()
+            .asSequence()
+            .filter { it.id.startsWith("saf_") && it.filepath in grants }
+            .map { it.toTrack() }
+            .toList()
+    }
+
     open suspend fun fetchTracksResult(): MediaResult<List<Track>> = cacheMutex.withLock {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
@@ -108,11 +131,19 @@ open class LocalMediaRepository(
                 return@withContext MediaResult.Success(cached!!)
             }
             val result = queryTracksResult()
-            if (result is MediaResult.Success) {
-                cachedTracks = result.data
+            val imported = try {
+                importedSafTracks()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val combined = mergeImportedSafTracks(result, imported)
+            if (combined is MediaResult.Success) {
+                cachedTracks = combined.data
                 cacheTime = now
             }
-            result
+            combined
         }
     }
 

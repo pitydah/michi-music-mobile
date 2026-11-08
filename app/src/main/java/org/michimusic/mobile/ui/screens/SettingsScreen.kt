@@ -132,6 +132,10 @@ fun SettingsScreen(
     initialSection: SettingsSection = SettingsSection.ROOT,
     onNavigateToDiagnostics: () -> Unit = {},
     onNavigateBack: () -> Unit = {},
+    onReopenOnboarding: () -> Unit = {},
+    onNavigateToDevices: () -> Unit = {},
+    onNavigateToAudioRoute: () -> Unit = {},
+    onboardingSnapshot: org.michimusic.mobile.onboarding.OnboardingSnapshot? = null,
 ) {
     val context = LocalContext.current
     val appDao: AppDao = koinInject()
@@ -301,6 +305,41 @@ fun SettingsScreen(
                                 subtitle = "Historial local y datos de reproducción",
                                 accent = SecondaryPurple,
                                 onClick = { currentSection = SettingsSection.PRIVACY },
+                            )
+
+                            if (onboardingSnapshot?.discoverLater == true) {
+                                SettingsCategoryNavCard(
+                                    icon = Icons.Default.Info,
+                                    title = "Descubrir equipos Michi",
+                                    subtitle = "Abrir Dispositivos para buscar un Micro Server o Stream",
+                                    accent = TertiaryCyan,
+                                    onClick = onNavigateToDevices,
+                                )
+                            }
+                            if (onboardingSnapshot?.linkLater == true) {
+                                SettingsCategoryNavCard(
+                                    icon = Icons.Default.Security,
+                                    title = "Revisar Michi Link",
+                                    subtitle = "Ver el estado real de identidad y sus opciones",
+                                    accent = SecondaryPurple,
+                                    onClick = { currentSection = SettingsSection.PRIVACY },
+                                )
+                            }
+                            if (onboardingSnapshot?.audio == org.michimusic.mobile.onboarding.AudioChoice.USB_REMINDER) {
+                                SettingsCategoryNavCard(
+                                    icon = Icons.Default.Headphones,
+                                    title = "Revisar la salida de audio",
+                                    subtitle = "Consultar el DAC USB y la ruta de salida disponibles",
+                                    accent = TertiaryCyan,
+                                    onClick = onNavigateToAudioRoute,
+                                )
+                            }
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.Info,
+                                title = "Repetir configuración inicial",
+                                subtitle = "Revisar opciones sin borrar tus canciones ni emparejamientos",
+                                accent = PrimaryPink,
+                                onClick = onReopenOnboarding,
                             )
 
                             SettingsCategoryNavCard(

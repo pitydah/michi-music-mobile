@@ -150,6 +150,15 @@ class AlbumsViewModel(
                 _recentTracks.value = smartLists.second
                 _playlists.value = loadedPlaylists
                 _mediaState.value = mediaStateFor(albumsResult, result.size, loadedPlaylists.isNotEmpty())
+                // When SAF remains available but Android's broader MediaStore query is
+                // denied or fails, do not tell the user the catalog is complete.
+                _error.value = when (albumsResult.coverage) {
+                    org.michimusic.data.repository.MediaCoverage.FULL -> null
+                    org.michimusic.data.repository.MediaCoverage.SAF_ONLY_PERMISSION_DENIED ->
+                        "Solo se muestra la música importada por archivos. El acceso a toda tu música está pendiente: revísalo en los permisos de Android."
+                    org.michimusic.data.repository.MediaCoverage.SAF_ONLY_QUERY_FAILED ->
+                        "Solo se muestra la música importada por archivos: Android no pudo consultar el resto de la biblioteca."
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

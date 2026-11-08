@@ -190,7 +190,10 @@ fun HomeScreen(
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = "No se pudo cargar tu biblioteca",
+                            text = if (mediaState == org.michimusic.mobile.screens.MediaLibraryState.QUERY_ERROR ||
+                                mediaState == org.michimusic.mobile.screens.MediaLibraryState.PERMISSION_DENIED) {
+                                "No se pudo cargar tu biblioteca"
+                            } else "Biblioteca parcialmente disponible",
                             color = PureWhite,
                             fontWeight = FontWeight.SemiBold,
                             style = MichiTypography.cardTitle,
