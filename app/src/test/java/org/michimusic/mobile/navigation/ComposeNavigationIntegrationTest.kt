@@ -2,18 +2,25 @@ package org.michimusic.mobile.navigation
 import org.michimusic.mobile.ui.components.BottomNavBar
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -29,6 +36,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.michimusic.core.models.Album
+import org.michimusic.core.models.LibraryScope
+import org.michimusic.core.models.Track
+import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
+import org.michimusic.mobile.ui.components.AlbumMosaicGrid
+import org.michimusic.mobile.ui.screens.albumNavigationIdentity
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -119,6 +132,82 @@ class ComposeNavigationIntegrationTest {
             IntegrationTestNavScaffold(navController, hasActiveTrack = hasActiveTrack)
         }
         composeTestRule.waitForIdle()
+    }
+
+    private class AlbumRestorationFixture(
+        val targetIdentity: String,
+        private val selected: () -> String?,
+        private val firstVisible: () -> Int,
+    ) {
+        val selectedIdentity: String? get() = selected()
+        val firstVisibleItemIndex: Int get() = firstVisible()
+    }
+
+    private fun setContentWithAlbumRestoration(): AlbumRestorationFixture {
+        lateinit var fixture: AlbumRestorationFixture
+        val scope = LibraryScope.All
+        val albums = (0..9).map { index ->
+            LocalAlbum(
+                album = Album(
+                    id = if (index < 2) "duplicate-presentation" else "album-$index",
+                    title = if (index < 2) "Misma portada" else "Álbum $index",
+                    artist = "Artista",
+                    year = 2026,
+                ),
+                tracks = listOf(
+                    Track(
+                        id = "track-$index",
+                        title = "Pista $index",
+                        artist = "Artista",
+                        album = if (index < 2) "Misma portada" else "Álbum $index",
+                    ),
+                ),
+            )
+        }
+        val targetIdentity = albumNavigationIdentity(albums[6], scope)
+
+        composeTestRule.setContent {
+            navController = rememberNavController()
+            val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = 6)
+            var selectedIdentity by remember { mutableStateOf<String?>(null) }
+            fixture = AlbumRestorationFixture(
+                targetIdentity = targetIdentity,
+                selected = { selectedIdentity },
+                firstVisible = { gridState.firstVisibleItemIndex },
+            )
+            NavHost(navController = navController, startDestination = "library") {
+                composable("library") {
+                    Column(Modifier.fillMaxSize()) {
+                        Text("Biblioteca completa", modifier = Modifier.testTag("library_scope_all"))
+                        AlbumMosaicGrid(
+                            albums = albums,
+                            scope = scope,
+                            state = gridState,
+                            onOpenAlbum = { identity ->
+                                selectedIdentity = identity
+                                navController.navigate("album/$identity")
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                composable(
+                    route = "album/{albumId}",
+                    arguments = listOf(navArgument("albumId") { type = NavType.StringType }),
+                ) { entry ->
+                    val identity = entry.arguments?.getString("albumId").orEmpty()
+                    Column {
+                        Button(
+                            onClick = { navController.popBackStack() },
+                            modifier = Modifier.testTag("album_test_back"),
+                        ) { Text("Volver") }
+                        Text("AlbumDetail:$identity")
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        return fixture
     }
 
     @Test
@@ -254,5 +343,24 @@ class ComposeNavigationIntegrationTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("route_home").assertIsDisplayed()
         assertEquals("home", navController.currentBackStackEntry?.destination?.route)
+    }
+
+    @Test
+    fun mosaicDetailBackPreservesOpaqueAlbumIdentityLibraryAndScroll() {
+        val fixture = setContentWithAlbumRestoration()
+
+        composeTestRule.onNodeWithTag("album_tile_${fixture.targetIdentity}")
+            .assertIsDisplayed()
+            .performClick()
+        composeTestRule.onNodeWithText("AlbumDetail:${fixture.targetIdentity}").assertIsDisplayed()
+        assertEquals(fixture.targetIdentity, fixture.selectedIdentity)
+
+        composeTestRule.onNodeWithTag("album_test_back").performClick()
+
+        composeTestRule.onNodeWithTag("library_scope_all").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("album_tile_${fixture.targetIdentity}").assertIsDisplayed()
+        assertEquals(6, fixture.firstVisibleItemIndex)
+        assertEquals(fixture.targetIdentity, fixture.selectedIdentity)
+        assertEquals("library", navController.currentBackStackEntry?.destination?.route)
     }
 }
