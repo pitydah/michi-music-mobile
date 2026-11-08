@@ -754,54 +754,19 @@ fun AlbumsScreen(
                                             overflow = TextOverflow.Ellipsis,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                         )
-                                        Row(
-                                            modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            if (androidx.compose.ui.platform.LocalConfiguration.current.fontScale >= 1.6f) {
-                                                MichiIconAction(
-                                                    Icons.Default.PlayArrow,
-                                                    "Reproducir ${currentAlbum.album.title}",
-                                                    onClick = { if (playableAlbumTracks.isNotEmpty()) playQueueSafe(playableAlbumTracks, 0) },
-                                                    enabled = playableAlbumTracks.isNotEmpty(),
-                                                    tint = PureWhite,
-                                                    iconSize = 26.dp,
-                                                    testTag = "coverflow_play_album",
-                                                )
-                                            } else {
-                                                AeroActionButton(
-                                                    "Reproducir",
-                                                    onClick = { if (playableAlbumTracks.isNotEmpty()) playQueueSafe(playableAlbumTracks, 0) },
-                                                    icon = Icons.Default.PlayArrow,
-                                                    kind = AeroActionKind.Primary,
-                                                    enabled = playableAlbumTracks.isNotEmpty(),
-                                                    testTag = "coverflow_play_album",
-                                                )
-                                            }
-                                            MichiIconAction(
-                                                Icons.Default.Shuffle,
-                                                "Reproducir aleatorio ${currentAlbum.album.title}",
-                                                onClick = {
-                                                    if (playableAlbumTracks.isNotEmpty()) {
-                                                        playQueueSafe(playableAlbumTracks.shuffled(), 0)
-                                                    }
-                                                },
-                                                enabled = playableAlbumTracks.isNotEmpty(),
-                                                tint = TertiaryCyan,
-                                                iconSize = 22.dp,
-                                                testTag = "coverflow_shuffle_album",
-                                            )
-                                            MichiIconAction(
-                                                Icons.Default.Add,
-                                                "Añadir ${currentAlbum.album.title} a playlist",
-                                                onClick = { albumToAddToPlaylist = currentAlbum },
-                                                enabled = playableAlbumTracks.isNotEmpty(),
-                                                tint = TextSecondary,
-                                                iconSize = 22.dp,
-                                                testTag = "coverflow_add_to_playlist",
-                                            )
-                                        }
+                                        CoverFlowAlbumActions(
+                                            albumTitle = currentAlbum.album.title,
+                                            hasPlayableTracks = playableAlbumTracks.isNotEmpty(),
+                                            onPlay = {
+                                                if (playableAlbumTracks.isNotEmpty()) playQueueSafe(playableAlbumTracks, 0)
+                                            },
+                                            onShuffle = {
+                                                if (playableAlbumTracks.isNotEmpty()) {
+                                                    playQueueSafe(playableAlbumTracks.shuffled(), 0)
+                                                }
+                                            },
+                                            onAddToPlaylist = { albumToAddToPlaylist = currentAlbum },
+                                        )
                                     }
 
                                     Spacer(Modifier.height(10.dp))
