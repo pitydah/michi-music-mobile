@@ -45,18 +45,31 @@ def acceptance(root: Path) -> list[dict[str, object]]:
     require("UI4 animates the shared DockTab", SRC + "ui/components/BottomNavBar.kt", "val emphasis = aeroDockSelectionEmphasis(isSelected)")
     require("CoverFlow was not deleted", albums, "MichiCoverFlowHost(")
     require("UI4 wraps navigation in one scope", nav, "SharedTransitionLayout(modifier = Modifier.fillMaxSize())")
-    require("UI4 never shares different tracks", nav, "aeroPlayerShareSameTrack(")
     require("UI4 avoids duplicate nowplaying destinations", nav, "launchSingleTop = true")
     for prop in ("enterTransition", "exitTransition", "popEnterTransition", "popExitTransition"):
         name = f"M52 global {prop} remains off"
         # Check the global NavHost declaration, not route-local transitions.
         transition_type = "EnterTransition" if "enter" in prop.lower() else "ExitTransition"
         require(name, nav, f"{prop} = {{ {transition_type}.None }}")
-    require("MiniPlayer uses shared track identity", mini, ".aeroSharedNowPlayingArtwork(")
-    require("Now Playing uses shared track identity", now, ".aeroSharedNowPlayingArtwork(")
+    require("MiniPlayer uses stable metadata slots", mini, 'testTag("mini_player_endpoint_status")')
+    require("MiniPlayer removes measurement feedback", mini, "onTextLayout")
+    checks[-1]["ok"] = not checks[-1]["ok"]
+    require("MiniPlayer artwork stays local", mini, ".aeroSharedNowPlayingArtwork(")
+    checks[-1]["ok"] = not checks[-1]["ok"]
+    require("Now Playing artwork stays local", now, ".aeroSharedNowPlayingArtwork(")
+    checks[-1]["ok"] = not checks[-1]["ok"]
+    require(
+        "Player transition policy forbids shared artwork",
+        motion + "AeroSharedNowPlayingMotion.kt",
+        "shareArtwork = false",
+    )
     require("Now Playing uses the bounded dynamic mesh", now, "AeroDynamicMeshBackground(")
     require("Dynamic Mesh is gated before rendering", now, "if (aeroDynamicMeshEnabled())")
-    require("Dynamic Mesh awaits performance certification", motion + "AeroDynamicPalette.kt", "AeroDynamicMeshPerformanceCertified = false")
+    require("Dynamic Mesh reads the build policy", motion + "AeroDynamicPalette.kt", "BuildConfig.AERO_DYNAMIC_MESH_ENABLED")
+    require("Dynamic Mesh defaults on", "app/build.gradle.kts", '.orElse("true")')
+    require("Dynamic Mesh exposes the same-SHA A/B property", "app/build.gradle.kts", 'gradleProperty("michi.dynamicMeshEnabled")')
+    require("Dynamic Mesh has no stale false certification gate", motion + "AeroDynamicPalette.kt", "AeroDynamicMeshPerformanceCertified")
+    checks[-1]["ok"] = not checks[-1]["ok"]
     require("UI4 retains album shared artwork", mosaic, ".aeroSharedAlbumArtwork(")
     require("UI4 retains reversible album detail", detail, ".aeroSharedAlbumArtwork(")
     require("UI4 rejects remote palette borrowing", motion + "AeroDynamicMeshBackground.kt", "aeroLocalPaletteSource(it.source, it.coverId, it.filepath)")
@@ -65,7 +78,7 @@ def acceptance(root: Path) -> list[dict[str, object]]:
     require("UI4 skips dynamic palette decode in battery saver", motion + "AeroDynamicMeshBackground.kt", "powerSaveMode = powerSaving")
     require("UI4 keeps a read-only checkout preflight", "tools/ui4_preflight.py", "def copy_tracked_checkout(")
     require("UI4 forbids remote embedded-art fallback", motion + "AeroTrackMotion.kt", "source == TrackSource.STREAMING")
-    require("UI4 shares player art only within contrast policy", motion + "AeroSharedNowPlayingMotion.kt", "!highContrast")
+    require("UI4 snaps local player motion in high contrast", motion + "AeroSharedNowPlayingMotion.kt", "!highContrast")
     require("UI4 shares album art only within contrast policy", motion + "AeroSharedAlbumMotion.kt", "!highContrast")
     require("UI4 does not animate in background", motion + "AeroDynamicMeshBackground.kt", "foreground = inForeground")
     require("UI4 respects high contrast during album reveal", motion + "AeroAlbumMotion.kt", "preferences.highContrast")

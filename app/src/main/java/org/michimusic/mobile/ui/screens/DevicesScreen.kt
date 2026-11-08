@@ -309,11 +309,10 @@ fun DevicesScreen(
         modifier = modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
-            .statusBarsPadding()
             .testTag("devices_screen"),
     ) {
         AeroPremiumBackdrop(accent = TertiaryCyan)
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             // Header
             DevicesTopBar(
                 isSearching = isSearching,

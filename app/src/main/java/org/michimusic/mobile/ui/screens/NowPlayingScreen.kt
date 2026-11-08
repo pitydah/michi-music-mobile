@@ -68,8 +68,6 @@ import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
 import org.michimusic.mobile.ui.motion.AeroTrackArtworkMotion
 import org.michimusic.mobile.ui.motion.AeroTrackTitleMotion
-import org.michimusic.mobile.ui.motion.aeroSharedNowPlayingArtwork
-import org.michimusic.mobile.ui.motion.aeroNowPlayingShareAvailable
 import org.michimusic.mobile.ui.motion.aeroNowPlayingHeroEnter
 import org.michimusic.mobile.ui.motion.aeroDynamicMeshEnabled
 import org.michimusic.mobile.ui.components.EqualizerDialog
@@ -256,17 +254,15 @@ fun NowPlayingScreen(
                 // Reuse the existing Aero frame: one shadow, one opaque metal lip,
                 // one inset. Never tint or obscure the original album-art bitmap.
                 AeroArtworkMat(
-                    modifier = Modifier.size(artSide).then(
-                        if (aeroNowPlayingShareAvailable(currentTrack?.id)) Modifier
-                        else Modifier.aeroNowPlayingHeroEnter(currentTrack != null)
-                    ),
+                    modifier = Modifier
+                        .size(artSide)
+                        .aeroNowPlayingHeroEnter(currentTrack != null),
                     cornerRadius = 18.dp,
                     inset = 4.dp,
                 ) {
                     AeroTrackArtworkMotion(
                         track = currentTrack,
                         modifier = Modifier.fillMaxSize()
-                            .aeroSharedNowPlayingArtwork(trackId = currentTrack?.id)
                             .testTag("now_playing_album_art"),
                         cornerRadius = 18.dp,
                         borderWidth = 0.dp,

@@ -212,13 +212,13 @@ fun SearchScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
-            .statusBarsPadding()
             .testTag("search_screen"),
     ) {
         AeroPremiumBackdrop(accent = TertiaryCyan)
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
             Spacer(Modifier.height(MichiSpacing.md))

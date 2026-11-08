@@ -15,7 +15,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -29,8 +28,6 @@ import androidx.navigation.navArgument
 import org.michimusic.mobile.ui.components.BottomNavBar
 import org.michimusic.mobile.ui.components.MiniPlayer
 import org.michimusic.mobile.ui.motion.LocalAeroAlbumShareEnabled
-import org.michimusic.mobile.ui.motion.LocalAeroPlayerShareEnabled
-import org.michimusic.mobile.ui.motion.aeroPlayerShareSameTrack
 import org.michimusic.mobile.ui.motion.LocalAeroAnimatedVisibilityScope
 import org.michimusic.mobile.ui.motion.LocalAeroSharedTransitionScope
 import org.michimusic.mobile.ui.motion.aeroAlbumRouteTransitionAllowed
@@ -272,22 +269,8 @@ fun MichiNavHost() {
                         onBack = { navController.popBackStack() },
                     )
                 }
-                composable("nowplaying") { entry ->
-                    // Lock the track identity to the navigation entry. A skip or a
-                    // remote queue replacement during expansion cannot cause an old
-                    // thumbnail to morph into the NEW song's artwork.
-                    val trackAtOpen = remember(entry) { presentation.currentTrack?.id }
-                    val origin = navController.previousBackStackEntry?.destination?.route
-                    val canShare = !reducedMotion && hasMiniPlayer && origin != null &&
-                        navigationPresentationFor(origin).showMiniPlayer &&
-                        aeroPlayerShareSameTrack(trackAtOpen, presentation.currentTrack?.id)
-                    CompositionLocalProvider(
-                        LocalAeroSharedTransitionScope provides this@SharedTransitionLayout,
-                        LocalAeroAnimatedVisibilityScope provides this@composable,
-                        LocalAeroPlayerShareEnabled provides canShare,
-                    ) {
-                        NowPlayingScreen(onBack = { navController.popBackStack() })
-                    }
+                composable("nowplaying") {
+                    NowPlayingScreen(onBack = { navController.popBackStack() })
                 }
                 composable("settings") {
                     SettingsScreen(
@@ -329,22 +312,17 @@ fun MichiNavHost() {
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
             }
 
-                    // The mini-player is INSIDE the same SharedTransitionLayout,
-                    // but remains aligned to the bottom of this unchanged Box.
-                    CompositionLocalProvider(
-                        LocalAeroSharedTransitionScope provides this@SharedTransitionLayout,
-                        LocalAeroPlayerShareEnabled provides (hasMiniPlayer && !reducedMotion),
-                    ) {
-                        MiniPlayer(
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                            onClick = {
-                                if (currentRoute != "nowplaying") {
-                                    navController.navigate("nowplaying") { launchSingleTop = true }
-                                }
-                            },
-                            visible = miniPlayerVisible && hasMiniPlayer,
-                        )
-                    }
+                    // Player artwork uses local transitions only. The shared
+                    // coordinate space remains solely for the album route pair.
+                    MiniPlayer(
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        onClick = {
+                            if (currentRoute != "nowplaying") {
+                                navController.navigate("nowplaying") { launchSingleTop = true }
+                            }
+                        },
+                        visible = miniPlayerVisible && hasMiniPlayer,
+                    )
                 }
             }
 

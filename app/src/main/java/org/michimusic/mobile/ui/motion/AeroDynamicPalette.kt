@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.motion
 
 import androidx.compose.ui.graphics.Color
+import org.michimusic.mobile.BuildConfig
 import org.michimusic.core.models.TrackSource
 import kotlin.math.max
 import kotlin.math.min
@@ -38,15 +39,9 @@ val AeroDefaultDynamicPalette = AeroDynamicPalette(
     lower = Color(0xFF191222),
 )
 
-/**
- * Dynamic Mesh remains opt-in until physical 60/90/120 Hz and sustained
- * CPU/GPU/battery qualification is recorded for the release candidate.
- */
-internal const val AeroDynamicMeshPerformanceCertified = false
-
 internal fun aeroDynamicMeshEnabled(
-    performanceCertified: Boolean = AeroDynamicMeshPerformanceCertified,
-): Boolean = performanceCertified
+    buildEnabled: Boolean = BuildConfig.AERO_DYNAMIC_MESH_ENABLED,
+): Boolean = buildEnabled
 
 
 /** Pause/resume keeps the last sampled position instead of snapping to zero. */

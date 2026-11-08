@@ -7,9 +7,10 @@ import org.junit.Test
 import org.michimusic.core.models.TrackSource
 
 class AeroDynamicPaletteTest {
-    @Test fun dynamicMeshRemainsDisabledUntilPerformanceIsCertified() {
-        assertFalse(aeroDynamicMeshEnabled())
-        assertTrue(aeroDynamicMeshEnabled(performanceCertified = true))
+    @Test fun dynamicMeshDefaultsOnAndOnlyTheBenchmarkBuildDisablesIt() {
+        assertTrue(aeroDynamicMeshEnabled())
+        assertTrue(aeroDynamicMeshEnabled(buildEnabled = true))
+        assertFalse(aeroDynamicMeshEnabled(buildEnabled = false))
     }
 
     @Test fun remoteMediaStoreIdsCannotBorrowLocalAlbumArtwork() {

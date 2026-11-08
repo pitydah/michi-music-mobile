@@ -1,156 +1,138 @@
 # UI4 — Informe de QA física y certificación visual
 
-## Alcance y candidato
+## Alcance y estado del candidato UI4.11
 
 - Rama: `feat/ui4-aero-motion` (PR #14, **draft**).
 - Base UI3 certificada: `6bae6486cf57a542db5517235c716c3ad5f4d1c2`.
-- SHA inicial UI4: `236ba8fbcf4e529dfb5fef802e97d02b2ca18547`.
-- SHA final: el commit que contiene este informe; el head exacto y sus checks se
-  registran en el PR porque un commit no puede contener su propio SHA.
-- Dispositivo: `device-59b81bcc87c6`, Xiaomi 25010PN30G, Android 16/API 36,
-  1440×3200, 600 dpi. El serial ADB no se conserva en este informe.
-- APK observado: `org.michimusic.mobile.debug`, versionCode 451,
-  versionName `0.1.0-alpha`.
+- Baseline UI4.11: `7120be603d97de5d31e250e478bcb75821f4b6b8`.
+- SHA final: se registra en el PR y en la entrega porque este informe forma parte
+  del commit que describe.
+- Dispositivo autorizado previamente: Xiaomi 25010PN30G, Android 16/API 36,
+  1440×3200, 600 dpi. El serial no se publica.
+- Dispositivo durante UI4.11: **no conectado**; `adb devices -l` no enumeró targets.
 
-El objetivo fue comprobar UI4 sobre hardware físico, proteger los contratos UI3
-y corregir únicamente defectos demostrados. No se desinstaló la aplicación, no
-se borraron datos y el emulador conectado no se usó como sustituto del teléfono.
-La instrumentación física se dirigió explícitamente a un único dispositivo.
+Este documento separa la evidencia histórica del candidato anterior de la
+evidencia todavía necesaria para UI4.11. No se usa un emulador como sustituto de
+certificación física.
 
-## Resultado visual y funcional
+## Reconciliación de la evidencia anterior
 
-| Escenario | Resultado observado |
+La pasada física anterior sí sigue respaldando estos resultados del baseline:
+
+- Biblioteca Lista/Mosaico/CoverFlow, selección y retorno.
+- Dock de una fila y 2×2 con font scale alto.
+- Corrección del crash de gradiente en alto contraste.
+- Corrección de la cabecera de Biblioteca a 200 %.
+- Repetición física del caso `SlotWriter`: 10/10 PASS.
+
+Sin embargo, la conclusión anterior “MiniPlayer ↔ Now Playing sin superficie
+duplicada” fue superada por un video posterior del operador. El retorno puede
+separar la carátula y hacerla atravesar Inicio. También se informaron parpadeo de
+metadatos del MiniPlayer y franja negra superior en Buscar/Dispositivos. Por ello,
+la frase anterior “No quedan P0/P1 conocidos” ya no es válida para UI4.
+
+## Defectos UI4.11 y corrección implementada
+
+| Defecto informado | Corrección en el candidato | Evidencia disponible | Evidencia pendiente |
+|---|---|---|---|
+| P1: parpadeo de metadatos | Fila invariante; eliminado `onTextLayout` y el separador condicional | Tests Compose de ancho compacto, 200 %, endpoint y pista estable pasan | Video físico estable ≥60 s |
+| P1: artwork flotante MiniPlayer ↔ Now Playing | Retirado shared element del player; fallback local reversible | Política JVM pasa; harness Android de 20 ciclos compila | Ejecución del test y ≥20 ciclos reales con logs/sesión |
+| P1: franja negra en Buscar/Dispositivos | Backdrop full-screen; inset solo en contenido | Estructura igualada con Inicio/Biblioteca; lint/builds pasan | Capturas 100/150/200 % de las cuatro rutas |
+| P0/P1: Dynamic Mesh inactivo | Gate falso retirado; build por defecto activo | Tests JVM pasan; instrumentación de paleta/movimiento compila; APK enabled creado | Video, artwork real, lifecycle y rendimiento físico A/B |
+
+No se añadieron sesiones, comandos, autoridad de conexión ni autoridad de audio.
+Las transiciones globales M52 siguen desactivadas y el shared artwork de álbum
+permanece separado.
+
+## Dynamic Mesh: condiciones del candidato
+
+El fondo queda activo en el build por defecto. Solo usa artwork local permitido,
+conserva la última paleta confirmada, cancela la resolución obsoleta y guarda
+colores, no bitmaps. El movimiento se detiene en pausa, background, reduced
+motion, alto contraste, Power Save y low-RAM. No usa red, sample rate, volumen,
+acelerómetro, OpenGL ni tintado del artwork principal.
+
+La instrumentación añadida usa PNG locales generados por el test y firmas de
+píxeles para comprobar la paleta más reciente y que pausa/background no mueven
+la malla. Solo se ha compilado: sin Android conectado, no existe resultado de
+runtime que pueda elevarse a PASS.
+
+## Preparación de la comparación física
+
+Los dos APK A/B se generaron desde el mismo árbol y tienen igual tamaño:
+
+| Configuración | SHA-256 | Tamaño |
+|---|---|---:|
+| Mesh desactivado | `9d99fc2f311efaf4a7c9c1af01a117192709c8e14e4d3b619c5e05f4e53511f1` | 103247499 bytes |
+| Mesh activado | `7c3281fdcbafba3c4b571aca5c965c9fddf09206e7ea1ee4347d0f3aa2b0b168` | 103247499 bytes |
+
+La ejecución pendiente debe usar cinco runs de 60 s por configuración, después
+de un warm-up por lado, en orden `A B B A B A A B A B`. Debe conservar todos los
+runs y medir framestats/jank, CPU, PSS, batería, temperatura, thermal y Logcat.
+Un run sostenido enabled de 30 minutos se hará si el estado del dispositivo lo
+permite. No se afirmará 60/90/120 Hz salvo modos realmente observados.
+
+Umbrales acordados: sin crash/ANR/OOM, paleta obsoleta, ilegibilidad, movimiento
+en background ni thermal severo; aumento mediano de jank ≤2 puntos porcentuales
+y ≤25 % relativo, CPU ≤5 puntos, PSS ≤15 % y temperatura ≤3 °C frente al baseline
+contrabalanceado. No hay resultados para estos umbrales todavía.
+
+## Evidencia automatizada disponible
+
+- Tests focales MiniPlayer/política player/Dynamic Mesh: PASS.
+- Compilación AndroidTest Normal: PASS.
+- Tests de módulos y app Normal/F-Droid: PASS.
+- Lint y migración Room focal: PASS.
+- Normal/F-Droid debug/release: PASS.
+- Aceptación UI4: 47/47 PASS.
+- Tests Python UI4: 8/8 PASS.
+- Contrato modal: 16/16 PASS.
+- Contrato release: 18/18 PASS estático.
+- Launcher UI3: PASS.
+- Runtime instrumentado: **BLOCKED_HARDWARE**.
+
+## Evidencia física pendiente
+
+1. MiniPlayer sin reflow durante al menos 60 s con pista estable, cambio de
+   endpoint y font scale 200 %.
+2. Veinte ciclos reales de abrir/volver, navegación rápida, cambio de pista,
+   pausa, artwork ausente/asíncrono, background y reduced motion; sin artwork
+   flotante, comando o sesión duplicada.
+3. Inicio/Biblioteca/Buscar/Dispositivos a 100/150/200 %, con fondo continuo y
+   cabeceras dentro de safe areas.
+4. Dynamic Mesh con artwork vivo, oscuro, casi monocromático y ausente; cola,
+   cambio rápido, pausa/play, apertura/cierre, background, reduced motion, alto
+   contraste, Power Save y low-RAM cuando el equipo lo exponga.
+5. Comparación A/B y observación térmica/batería sostenida.
+
+## Evidencia histórica privada conservada
+
+Los archivos con biblioteca privada permanecen fuera de Git. Sus hashes
+históricos siguen siendo referencias del baseline, no prueba de UI4.11:
+
+| Evidencia histórica | SHA-256 |
 |---|---|
-| Biblioteca: Lista, Mosaico y CoverFlow | PASS; los tres modos permanecen disponibles |
-| CoverFlow lateral → selección → álbum → atrás | PASS; identidad y selección conservadas |
-| Mosaico → álbum → atrás | PASS; identidad y posición conservadas |
-| Reproducción y MiniPlayer ↔ Now Playing | PASS; sin superficie duplicada ni cierre |
-| Artwork real y fallback ausente | PASS |
-| Menús y sheets | PASS; sin capa o rectángulo fantasma observado |
-| Dock a 100 %, 150 % y 200 % de fuente | PASS; una fila a 100/150 %, 2×2 a 200 % |
-| Cabecera Biblioteca a 200 % | PASS tras corrección; título, conteo y acciones completos |
-| Movimiento reducido | PASS en apertura/cierre de álbum y Now Playing |
-| Alto contraste | PASS tras corrección; arranque persistido y rutas sin cierre |
-| Cambio de canción en Now Playing | NO EJERCITADO; el álbum disponible tenía una sola pista |
-
-La navegación física no mostró pérdida de identidad, reproducción involuntaria,
-doble artwork, doble player, ghost layers ni regresión de scroll en las rutas
-inspeccionadas. Los videos y capturas incluyen biblioteca privada y permanecen
-fuera de Git; este informe publica solo resultados agregados y hashes.
-
-## Investigación `SlotWriter`
-
-El test existente
-`ArtistEnrichmentPanelTest#ambiguousHistoricalAssociationsExposeRealChoicesAndPersistTheExplicitSelection`
-se ejecutó diez veces en el teléfono: **10/10 PASS**, cada repetición con
-`OK (1 test)` y exit code 0. No apareció `SlotWriter`, `SlotTable`, fallo de
-instrumentación ni crash. El manifiesto local de repeticiones tiene SHA-256
-`db8562a0058795bac72abdae1a30bb93e2b44518574ce98037b42a298bf3afc9`.
-
-Clasificación: inestabilidad intermitente de teardown no reproducida. No existe
-evidencia para atribuirla a UI4 ni para afirmar una causa raíz; no se cambió el
-código por este evento.
-
-## Defectos demostrados y correcciones
-
-### P0 — crash con alto contraste
-
-Se reprodujo repetidamente un cierre en foreground:
-
-`IllegalArgumentException: colors must have length of at least 2 if colorStops is omitted`
-
-La política semántica de alto contraste elimina correctamente la decoración y
-devuelve un único color opaco. Dos consumidores lo entregaban directamente a
-`Brush.verticalGradient`, que exige al menos dos colores. El buffer privado del
-crash tiene SHA-256
-`6e6e8e62cce6665df55bfec29f051e4eed6f3e86e6f388c172bc0afa5cfdf8ea`.
-
-Corrección acotada: `aeroVerticalGradientBrush` devuelve `SolidColor` para el
-singleton de alto contraste y conserva `Brush.verticalGradient` para los stops
-normales. Home y el panel de error de búsqueda usan esa política compartida.
-Una prueba RED falló antes de existir la función y pasó después.
-
-Verificación física exacta: se instaló el APK corregido sobre los datos
-existentes, conservando la preferencia persistida que causaba el loop. El cold
-start terminó en 508 ms, Home quedó renderizado, el proceso siguió vivo y el log
-`AndroidRuntime` quedó vacío. Después el operador desactivó alto contraste y
-movimiento reducido; Biblioteca permaneció estable.
-
-### P1 — cabecera truncada a 200 %
-
-La cabecera horizontal de Biblioteca dejaba ancho insuficiente al título y al
-conteo cuando la fuente era 200 %. `LibraryHeaderLayout` conserva el diseño
-horizontal normal y apila las acciones debajo desde font scale 1.5. Pruebas de
-política/layout y verificación física a 200 % confirmaron texto completo y Dock
-2×2 intacto. La captura privada corregida tiene SHA-256
-`5192fe03cfc598aefea2eb5049c8e44e81852eb61a9bbb9c0bbd340c556c3acf`.
-
-No quedan P0/P1 conocidos dentro de las rutas ejercitadas.
-
-## Evidencia privada referenciada por hash
-
-| Evidencia | SHA-256 |
-|---|---|
-| Navegación Biblioteca/CoverFlow/álbum/player, 139.5 s | `8a562d9710b68e1f195ec79511ada928ba8d0cd4f317ec02326715e07cd442da` |
-| MiniPlayer ↔ Now Playing, 41.4 s | `2f96a24849c3808bfcc33c47356d9953bae3148147dc860f5978f840fa863ee6` |
-| Movimiento reducido confirmado, 29.2 s | `30f2fdfa9ffdca91dc1c407398b82cd315ba91ee56277e53a37c6b8f9b6fb6b5` |
-| Alto contraste, 27.1 s | `0964fcac09335549d53ba35eef5baa45c6980c560f9950201c84403d46097a5d` |
+| Biblioteca/CoverFlow/álbum/player, 139.5 s | `8a562d9710b68e1f195ec79511ada928ba8d0cd4f317ec02326715e07cd442da` |
+| MiniPlayer ↔ Now Playing anterior, 41.4 s | `2f96a24849c3808bfcc33c47356d9953bae3148147dc860f5978f840fa863ee6` |
+| Movimiento reducido | `30f2fdfa9ffdca91dc1c407398b82cd315ba91ee56277e53a37c6b8f9b6fb6b5` |
+| Alto contraste | `0964fcac09335549d53ba35eef5baa45c6980c560f9950201c84403d46097a5d` |
 | Arranque corregido con alto contraste persistido | `892b05cd54c3fb2f5f256bcbd6db6737d420f521f22dc8ed7846fa6eff93a3a6` |
 | Biblioteca tras restaurar preferencias | `4251894431cd8948e36aa7a96501f90d4b941e92b858568566ce53408b057a72` |
 
-Los logs `AndroidRuntime` asociados a las secuencias corregidas/restauradas
-quedaron vacíos (SHA-256 del archivo vacío: `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+El video anterior de MiniPlayer no invalida el defecto posterior: solo demuestra
+que el fallo no ocurrió en aquella secuencia concreta.
 
-## Automatización y builds
+## Revisión y veredictos provisionales
 
-- Gradle run 0009: `AeroContrastAndGradientTest` — PASS.
-- Gradle run 0010: política de gradiente, M60, Home y búsqueda — PASS.
-- Gradle run 0013: `LibraryHeaderLayoutTest` + lint F-Droid — PASS.
-- Gradle run 0014: `test lint assembleNormalDebug assembleFdroidDebug
-  assembleNormalRelease assembleFdroidRelease` — PASS (473.19 s).
-- `tools/ui4_acceptance.py` — **42/42 PASS**.
-- `tools/tests/test_ui4_acceptance.py` y `test_ui4_preflight.py` — **7/7 PASS**.
-- Contrato modal Aero — **16/16 PASS**.
-- Contrato release Aero — **18/18 PASS**; el build Android está probado
-  separadamente por Gradle run 0014.
-- Verificador launcher UI3 — PASS.
+La revisión independiente del candidato integrado y la corroboración de los logs
+de skills están pendientes. También falta CI sobre el nuevo head exacto.
 
-## Rendimiento y límites de hardware
+- `UI4_CODE_GO`: **GO local**, pendiente de revisión independiente.
+- `UI4_AUTOMATED_GO`: **NO-GO — BLOCKED_HARDWARE**.
+- `UI4_VISUAL_GO`: **NO-GO — BLOCKED_HARDWARE**.
+- `UI4_PHYSICAL_GO`: **NO-GO — BLOCKED_HARDWARE**.
+- `DYNAMIC_MESH_ACTIVE`: **GO en código/build; evidencia física bloqueada**.
+- `DYNAMIC_MESH_PERFORMANCE_GO`: **NO-GO — BLOCKED_HARDWARE**.
+- `UI4_MERGE_GO`: **NO-GO**, pendiente de revisión, QA física y CI exacta.
 
-La evidencia acotada a 120 Hz mostró, según la ruta, entre 0.00 % y 0.41 % de
-frames clasificados como janky; no es una certificación sostenida. Se intentó
-seleccionar 60 Hz de forma no privilegiada, pero aunque el setting reflejó 60,
-`dumpsys display` mantuvo el modo físico activo en 120 Hz. El comando oficial
-para fijar el modo fue rechazado por `WRITE_SECURE_SETTINGS`. No se usó root ni
-se eludió la seguridad, y el valor se restauró a 120.
-
-- Comparativa física 60/90/120 Hz: **BLOCKED_HARDWARE**.
-- Sesión sostenida térmica/batería: **BLOCKED_HARDWARE**.
-- Dynamic Mesh: **DISABLED**;
-  `AeroDynamicMeshPerformanceCertified=false` permanece sin cambios.
-- Teclado/D-pad físico: **BLOCKED_HARDWARE** (sin periférico disponible).
-- TalkBack con operador: **BLOCKED_HARDWARE**.
-
-## Restauración
-
-- Font scale final: `0.9`.
-- Peak refresh setting final: `120`.
-- Alto contraste: OFF, confirmado por operador.
-- Movimiento reducido: OFF, confirmado por operador.
-- Proceso de la app vivo y Biblioteca estable tras la restauración.
-- No se habilitó Dynamic Mesh.
-
-## Revisión y veredictos
-
-Se realizó self-review del diff y no se observaron cambios de autoridad de
-playback, identidad, navegación, menús o protocolos. La revisión independiente
-de los logs originales y del nuevo head del PR sigue pendiente; el manifest de
-skills también se limita a `RECORDED_NOT_VERIFIED` hasta esa revisión.
-
-- `UI4_VISUAL_GO`: **GO**, limitado a las rutas visuales físicas enumeradas.
-- `UI4_PHYSICAL_GO`: **NO-GO — BLOCKED_HARDWARE**, por ausencia de
-  60/90/120 controlado, sesión sostenida, teclado/D-pad y TalkBack físico.
-- `UI4_MERGE_GO`: **NO-GO**, pendiente de revisión independiente y CI verde
-  sobre el head exacto que contiene las correcciones y este informe.
-
-Estos veredictos **no autorizan merge ni release**. PR #14 debe permanecer draft.
+Estos veredictos no autorizan merge ni release. PR #14 debe permanecer draft.

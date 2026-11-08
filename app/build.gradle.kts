@@ -40,6 +40,15 @@ val resolvedVersionCode = resolveMichiVersionCode(
     lastPublishedVersionCode = versionCodeProps.getProperty("lastPublishedVersionCode"),
 )
 
+// Default-on product behavior. The explicit false value exists only so physical
+// QA can build a same-SHA Dynamic Mesh baseline for a controlled A/B comparison.
+val dynamicMeshEnabled = providers.gradleProperty("michi.dynamicMeshEnabled")
+    .orElse("true")
+    .map { raw ->
+        raw.toBooleanStrictOrNull()
+            ?: error("michi.dynamicMeshEnabled must be exactly true or false")
+    }
+
 android {
     namespace = "org.michimusic.mobile"
     compileSdk = 36
@@ -52,6 +61,7 @@ android {
         versionName = "0.1.0-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("boolean", "AERO_DYNAMIC_MESH_ENABLED", dynamicMeshEnabled.get().toString())
     }
 
     signingConfigs {
@@ -108,6 +118,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
