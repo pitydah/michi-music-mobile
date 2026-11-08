@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import org.michimusic.mobile.ui.theme.PureWhite
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -43,9 +44,9 @@ import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
 /**
- * Native Compose CoverFlow. No RecyclerView/AndroidView bridge; no third-party runtime.
- * Center selection is separate from playback: tapping a side cover selects it,
- * tapping the centered cover invokes the caller's playback action.
+ * Native Compose CoverFlow; carátulas reales, perspectiva sobria y sin reflejos ficticios.
+ * Los laterales seleccionan; tocar la portada central ABRE el detalle del álbum.
+ * Reproducción y cola permanecen acciones explícitas fuera de este componente.
  */
 @Composable
 fun MichiCoverFlowHost(
@@ -132,13 +133,14 @@ fun MichiCoverFlowHost(
         // Constrain the card to the actual viewport: very small windows must not clip covers.
         val pageWidth = coverFlowPageWidthDp(maxWidth.value).dp
         val sidePadding = ((maxWidth - pageWidth) / 2).coerceAtLeast(0.dp)
+        val pageKeys = remember(albums) { coverFlowStablePageKeys(albums.map { it.id }) }
         HorizontalPager(
             state = state,
             modifier = Modifier.fillMaxSize().testTag("michi_coverflow_compose"),
             pageSize = PageSize.Fixed(pageWidth),
             contentPadding = PaddingValues(horizontal = sidePadding),
-            pageSpacing = if (maxWidth < 350.dp) 6.dp else 10.dp,
-            key = { index -> if (index in albums.indices) albums[index].id else index },
+            pageSpacing = if (maxWidth < 350.dp) 8.dp else 12.dp,
+            key = { index -> pageKeys[index] },
         ) { page ->
             val album = albums.getOrNull(page) ?: return@HorizontalPager
             val signedOffset = (state.currentPage - page) + state.currentPageOffsetFraction
@@ -162,7 +164,8 @@ fun MichiCoverFlowHost(
                         } else Modifier
                     )
                     .clickable {
-                        if (page == state.currentPage) {
+                        // Never open an intermediate frame during a swipe.
+                        if (page == state.settledPage && !state.isScrollInProgress) {
                             onAlbumClick(page)
                         } else {
                             scope.launch {
@@ -175,9 +178,10 @@ fun MichiCoverFlowHost(
                         }
                     }
                     .semantics(mergeDescendants = true) {
-                        selected = page == state.currentPage
+                        selected = page == state.settledPage && !state.isScrollInProgress
                         contentDescription = "${album.title}, ${album.artist}. " +
-                            (if (page == state.currentPage) "Toca para reproducir" else "Toca para seleccionar")
+                            (if (page == state.settledPage && !state.isScrollInProgress)
+                                "Toca para abrir la ficha del álbum" else "Toca para seleccionar esta portada")
                     }
                     .testTag("coverflow_album_${album.id}"),
                 contentAlignment = Alignment.Center,

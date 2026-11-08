@@ -1,6 +1,7 @@
 package org.michimusic.core.models
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 @Serializable
 data class Track(
@@ -24,6 +25,12 @@ data class Track(
     val replayGainTrack: Float = Float.NaN,
     val replayGainAlbum: Float = Float.NaN,
     val contentHash: String = "",
+    /** Verbatim provider MIME. Local runtime evidence; never part of Michi Link payloads. */
+    @Transient val sourceMimeType: String = "",
+    /** Lowercase extension from the provider display name, without a leading dot. */
+    @Transient val sourceFileExtension: String = "",
+    /** True only when [trackNumber] came from MediaStore.Audio.AudioColumns.TRACK. */
+    @Transient val trackNumberFromMediaStore: Boolean = false,
 ) {
     /**
      * Normalized metadata signature fallback: "title|artist|album|duration_secs".
