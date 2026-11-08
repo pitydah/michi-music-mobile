@@ -96,15 +96,21 @@ class AeroPlayerTransitionComposeTest {
             rule.onNodeWithContentDescription(
                 "Abrir reproductor: Transition Track, Michi Artist",
             ).performClick()
-            waitForNode("transition_now_playing_art", expected = true)
-            rule.onNodeWithTag("transition_now_playing_art").assertExists()
+            waitForNode("transition_now_playing", expected = true)
+            rule.onNodeWithTag(
+                "transition_now_playing_art",
+                useUnmergedTree = true,
+            ).assertExists()
             rule.onNodeWithTag("mini_player_bar").assertDoesNotExist()
 
             rule.onNodeWithTag("transition_now_playing").performClick()
             waitForNode("mini_player_bar", expected = true)
-            waitForNode("transition_now_playing_art", expected = false)
+            waitForNode("transition_now_playing", expected = false)
             rule.onNodeWithTag("mini_player_bar").assertExists()
-            rule.onNodeWithTag("transition_now_playing_art").assertDoesNotExist()
+            rule.onNodeWithTag(
+                "transition_now_playing_art",
+                useUnmergedTree = true,
+            ).assertDoesNotExist()
         }
 
         assertEquals(0, transportCommands.get())
