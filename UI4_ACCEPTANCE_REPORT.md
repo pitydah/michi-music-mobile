@@ -154,3 +154,35 @@ invalidan y deben regenerarse antes de una comparación física.
 - `UI4_MERGE_GO`: **NO-GO**; faltan evidencia física, corroboración de logs de skills y CI exacta del nuevo head.
 
 Estos estados no autorizan merge ni release. PR #14 debe permanecer draft.
+
+## UI4.12 — Convergencia Wizard y cierre acumulativo
+
+Esta sección supersede los veredictos anteriores para el candidato combinado; el
+histórico UI4.11 se conserva arriba y sigue aplicando solo a `6aafa45`.
+
+- `origin/master` integrado: `577415205a8b9783e776727ab626666c6da8fb44`.
+- Commit de merge UI4.12: `3c3cba5f8871d68837a8ea49aef60f97e369eb10`.
+- Conflicto `MichiNavHost.kt`: resuelto conservando UI4 y Wizard; sin marcadores.
+
+Validación local completa:
+
+- Tests de `:core`, `:data`, `:player`, `:michi-link-client` y app Normal/F-Droid: PASS.
+- Lint, `Migration3To4Test`, compilación y ensamblado AndroidTest: PASS.
+- Normal/F-Droid debug y release: PASS.
+- `tools/ui4_acceptance.py`: 47/47; Python UI4: 8/8; modal: 16/16; release
+  estático: 18/18; launcher UI3: PASS.
+- Emulador API 36: `AeroMotionComposeTest` 7/7 y
+  `AeroPlayerTransitionComposeTest` 2/2 PASS. Wizard 1/5→5/5, reinicio sin
+  repetición y replay sin alterar preferencias.
+- Correcciones P1 verificadas en emulador: Home sin solape a 200 %, Dispositivos
+  con insignia apilada, «Canciones» completo y Dock 150 % contenido.
+
+Gates UI4.12: `UI4_CODE_GO=GO`; `UI4_AUTOMATED_GO=PENDIENTE` hasta CI exacta;
+`UI4_VISUAL_GO=NO-GO`; `UI4_PHYSICAL_GO=NO-GO`;
+`DYNAMIC_MESH_ACTIVE=GO`; `DYNAMIC_MESH_PERFORMANCE_GO=INCONCLUSO`;
+`WIZARD_UI4_INTEGRATION_GO=GO` (emulador, no físico);
+`WIZARD_ACCESSIBILITY_GO=NO-GO`; `P1_AUDIT_CLOSURE_GO=NO-GO`;
+`P2_AUDIT_CLOSURE_GO=NO-GO`; `UI4_MERGE_GO=NO-GO`.
+
+El detalle, la matriz P1/P2 y la reconciliación R16/R16.4 están en
+`UI4_12_INTEGRATION_REPORT.md`. No se autoriza merge ni release.

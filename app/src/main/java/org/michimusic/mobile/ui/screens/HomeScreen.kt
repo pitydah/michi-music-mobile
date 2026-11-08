@@ -428,12 +428,13 @@ private fun HomeTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .padding(horizontal = 20.dp),
+            .heightIn(min = 56.dp)
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .testTag("home_top_bar"),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "MICHI MUSIC",
                 style = MichiTypography.screenEyebrow,

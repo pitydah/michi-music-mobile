@@ -110,6 +110,8 @@ class RemoteScreenTest {
             .assertIsDisplayed()
             .assertTextEquals("Sala de estar")
         composeTestRule.onNodeWithText("Conectado").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("connection_status_indicator")
+            .assertHeightIsAtLeast(48.dp)
 
         // Pending banner in amber
         composeTestRule.onNodeWithText("Orden pendiente; espera confirmación").assertIsDisplayed()

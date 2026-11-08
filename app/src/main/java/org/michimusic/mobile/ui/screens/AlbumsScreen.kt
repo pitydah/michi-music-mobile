@@ -87,6 +87,8 @@ import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
+import org.michimusic.mobile.ui.components.AeroSegmentStack
+import org.michimusic.mobile.ui.components.aeroSegmentStacking
 import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
@@ -397,17 +399,38 @@ fun AlbumsScreen(
 
             // M60: content type is the dominant library navigation level.
             // Collection scope above is omitted if there is no scope choice.
-            AeroSegmentRail(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            val libraryConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
+            if (aeroSegmentStacking(
+                    libraryConfiguration.screenWidthDp.toFloat(),
+                    libraryConfiguration.fontScale,
+                )
             ) {
-                LibraryTab.values().forEach { tab ->
-                    AeroSegmentedChoice(
-                        label = tab.displayName,
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        modifier = Modifier.weight(1f),
-                        testTag = "library_tab_${tab.name.lowercase()}",
-                    )
+                AeroSegmentStack(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                ) {
+                    LibraryTab.values().forEach { tab ->
+                        AeroSegmentedChoice(
+                            label = tab.displayName,
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "library_tab_${tab.name.lowercase()}",
+                        )
+                    }
+                }
+            } else {
+                AeroSegmentRail(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                ) {
+                    LibraryTab.values().forEach { tab ->
+                        AeroSegmentedChoice(
+                            label = tab.displayName,
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            modifier = Modifier.weight(1f),
+                            testTag = "library_tab_${tab.name.lowercase()}",
+                        )
+                    }
                 }
             }
 

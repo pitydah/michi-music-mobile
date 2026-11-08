@@ -120,6 +120,31 @@ class M60_2DockNavigationTest {
         org.junit.Assert.assertTrue(search.top >= home.bottom)
     }
 
+    @Test fun singleRowDockKeepsLabelInsideItsSelectionAtOneAndHalfScale() {
+        val configuration = Configuration().apply {
+            screenWidthDp = 360
+            fontScale = 1.5f
+        }
+        compose.setContent {
+            CompositionLocalProvider(
+                LocalConfiguration provides configuration,
+                LocalDensity provides Density(density = 1f, fontScale = 1.5f),
+            ) {
+                MichiTheme {
+                    BottomNavBar(currentRoute = "devices", onTabSelected = {})
+                }
+            }
+        }
+
+        val tab = compose.onNodeWithTag("nav_tab_devices")
+            .fetchSemanticsNode().boundsInRoot
+        val label = compose.onNodeWithTag("nav_label_devices", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+
+        org.junit.Assert.assertTrue("Label must start inside the selection", label.left >= tab.left + 2f)
+        org.junit.Assert.assertTrue("Label must end inside the selection", label.right <= tab.right - 2f)
+    }
+
     @Test fun keyboardMovesFocusAndActivatesTheNextSingleRowTab() {
         val destinations = mutableListOf<String>()
         compose.setContent {

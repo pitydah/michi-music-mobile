@@ -86,17 +86,21 @@ fun resolvePlaybackPresentation(
             )
         }
         else -> {
-            // Local Phone
-            val track = sessionState.currentTrack ?: localState?.currentTrack
+            // Local Phone: the on-device engine is authoritative. Session state is
+            // only a mirror, so a delayed mirror update must never present an old
+            // track, duration or 0:00 position while the engine already advanced.
+            val track = localState?.currentTrack ?: sessionState.currentTrack
             ActivePlaybackPresentation(
                 currentTrack = track,
                 isPlaying = localState?.isPlaying ?: sessionState.isPlaying,
-                position = sessionState.position.takeIf { it > 0 } ?: (localState?.position ?: 0L),
-                duration = sessionState.duration.takeIf { it > 0 } ?: (localState?.duration ?: 0L),
-                queue = if (sessionState.queue.isNotEmpty()) sessionState.queue else (localState?.queue ?: emptyList()),
-                queueIndex = if (sessionState.queueIndex >= 0) sessionState.queueIndex else (localState?.queueIndex ?: -1),
-                repeatMode = sessionState.repeatMode,
-                shuffleMode = sessionState.shuffleMode,
+                position = localState?.position ?: sessionState.position,
+                duration = localState?.duration?.takeIf { it > 0 }
+                    ?: track?.duration?.takeIf { it > 0 }
+                    ?: sessionState.duration,
+                queue = localState?.queue?.takeIf { it.isNotEmpty() } ?: sessionState.queue,
+                queueIndex = localState?.queueIndex?.takeIf { it >= 0 } ?: sessionState.queueIndex,
+                repeatMode = localState?.repeatMode ?: sessionState.repeatMode,
+                shuffleMode = localState?.let { if (it.shuffleMode) 1 else 0 } ?: sessionState.shuffleMode,
                 endpoint = PlaybackEndpoint.LocalPhone,
                 isRemoteActive = false,
                 isStreamReceiver = false,

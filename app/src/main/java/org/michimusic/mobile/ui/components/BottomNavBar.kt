@@ -202,7 +202,11 @@ private fun DockTab(
             .testTag("nav_tab_${tab.route}"),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
             Box(
                 Modifier.size(width = 24.dp, height = 2.dp).clip(RoundedCornerShape(2.dp))
                     .background(itemColor.copy(alpha = emphasis)),
@@ -217,11 +221,12 @@ private fun DockTab(
             Spacer(modifier = Modifier.height(4.dp))
             BasicText(
                 text = tab.label,
+                modifier = Modifier.testTag("nav_label_${tab.route}"),
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 autoSize = if (preserveFullLabelSize) null else TextAutoSize.StepBased(
-                    minFontSize = 8.sp,
+                    minFontSize = 7.sp,
                     maxFontSize = 11.sp,
                     stepSize = 0.5.sp,
                 ),

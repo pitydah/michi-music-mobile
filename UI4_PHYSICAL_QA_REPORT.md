@@ -141,3 +141,37 @@ nativos de cada invocación, de modo que ese gate continúa abierto para
 - `UI4_MERGE_GO`: **NO-GO**, pendiente de revisión, QA física y CI exacta.
 
 Estos veredictos no autorizan merge ni release. PR #14 debe permanecer draft.
+
+## UI4.12 — Evidencia de emulador y límites físicos
+
+La validación física de UI4.11 sigue siendo histórica. Para el candidato combinado
+UI4.12 (`3c3cba5`, padres `6aafa45` + `5774152`) se ejecutó únicamente un
+emulador `Medium_Phone` API 36; **no sustituye la certificación física**.
+
+Evidencia de emulador:
+
+- Dynamic Mesh: 7/7 tests PASS, incluidos paleta local más reciente, movimiento
+  en reproducción activa y congelación en pausa/background.
+- Navegación local: 2/2 tests PASS, incluidos 20 ciclos sin comandos de
+  transporte.
+- Wizard: instalación limpia 1/5→5/5, Finalizar persiste
+  `completed_v1=true`, reinicio en frío muestra Home y el replay desde Ajustes
+  abre 1/5 sin alterar preferencias al cerrar.
+- 200 %: «Tu música» termina en `y=327` y el contenido siguiente empieza en
+  `y=522`; «Este teléfono» termina en `y=846` y la insignia se apila desde
+  `y=1038`; «Canciones» se muestra completo.
+- 150 %: «Dispositivos» queda dentro del target del Dock con margen lateral.
+- Iconos: el APK resuelve `application-icon` a `mipmap-anydpi-v33/ic_launcher`
+  y contiene las variantes v26 sin monochrome y v33 con monochrome.
+
+Sigue pendiente en hardware físico: capturas de las cuatro rutas a 100/150/200 %,
+TalkBack/foco real, rotación, transferencia SAF real, A/B de Dynamic Mesh con
+frames válidos, temperatura/batería y sesión Media3 real. El teléfono no estuvo
+conectado durante esta fase; esos gates permanecen `BLOCKED_HARDWARE`.
+
+Gates UI4.12: `UI4_CODE_GO=GO`; `UI4_AUTOMATED_GO=PENDIENTE` hasta CI exacta;
+`UI4_VISUAL_GO=NO-GO`; `UI4_PHYSICAL_GO=NO-GO`;
+`DYNAMIC_MESH_ACTIVE=GO`; `DYNAMIC_MESH_PERFORMANCE_GO=INCONCLUSO`;
+`WIZARD_UI4_INTEGRATION_GO=GO` (emulador, no físico);
+`WIZARD_ACCESSIBILITY_GO=NO-GO`; `P1_AUDIT_CLOSURE_GO=NO-GO`;
+`P2_AUDIT_CLOSURE_GO=NO-GO`; `UI4_MERGE_GO=NO-GO`.
