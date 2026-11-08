@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.michimusic.build.resolveMichiVersionCode
 
 plugins {
     alias(libs.plugins.android.application)
@@ -14,16 +15,24 @@ val keystoreProps = if (keystorePropsFile.exists()) {
     Properties().apply { load(FileInputStream(keystorePropsFile)) }
 } else null
 
-val gitCommitCount: String = rootProject.rootDir.let {
+val gitCommitCount: String? = rootProject.rootDir.let {
     try {
         val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
             .directory(it)
+            .redirectErrorStream(true)
             .start()
-        process.inputStream.bufferedReader().readText().trim()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        output.takeIf { process.waitFor() == 0 }
     } catch (_: Exception) {
-        "1"
+        null
     }
 }
+
+val resolvedVersionCode = resolveMichiVersionCode(
+    explicitVersionCode = System.getenv("MICHI_VERSION_CODE"),
+    githubRunNumber = System.getenv("GITHUB_RUN_NUMBER"),
+    gitCommitCount = gitCommitCount,
+)
 
 android {
     namespace = "org.michimusic.mobile"
@@ -33,7 +42,7 @@ android {
         applicationId = "org.michimusic.mobile"
         minSdk = 31
         targetSdk = 35
-        versionCode = gitCommitCount.toIntOrNull() ?: 1
+        versionCode = resolvedVersionCode
         versionName = "0.1.0-alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

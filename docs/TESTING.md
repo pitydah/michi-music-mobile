@@ -41,3 +41,21 @@ adb logcat | grep -E "MichiAudio|MediaController|ExoPlayerImpl|MediaSessionImpl|
 ```bash
 ./gradlew :core:test
 ```
+
+## Numeración de versiones
+
+Android `versionCode` se resuelve en este orden:
+
+1. `MICHI_VERSION_CODE`, para automatización de releases con un código explícito.
+2. `1_000_000 + GITHUB_RUN_NUMBER` en GitHub Actions, monotónico e independiente
+   de la profundidad del checkout.
+3. El recuento completo de commits Git para compilaciones locales.
+4. `1` solo al compilar un archivo fuente sin metadatos Git.
+
+Los valores explícitos o de GitHub Actions inválidos detienen la configuración
+en vez de producir silenciosamente un downgrade. Las pruebas de esta política se
+ejecutan con:
+
+```bash
+./gradlew -p buildSrc test
+```
