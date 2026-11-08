@@ -15,6 +15,11 @@ val keystoreProps = if (keystorePropsFile.exists()) {
     Properties().apply { load(FileInputStream(keystorePropsFile)) }
 } else null
 
+val versionCodePropsFile = rootProject.file("gradle/version-code.properties")
+val versionCodeProps = Properties().apply {
+    FileInputStream(versionCodePropsFile).use(::load)
+}
+
 val gitCommitCount: String? = rootProject.rootDir.let {
     try {
         val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
@@ -32,6 +37,7 @@ val resolvedVersionCode = resolveMichiVersionCode(
     explicitVersionCode = System.getenv("MICHI_VERSION_CODE"),
     githubRunNumber = System.getenv("GITHUB_RUN_NUMBER"),
     gitCommitCount = gitCommitCount,
+    lastPublishedVersionCode = versionCodeProps.getProperty("lastPublishedVersionCode"),
 )
 
 android {

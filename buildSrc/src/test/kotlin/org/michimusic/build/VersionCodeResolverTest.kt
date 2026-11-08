@@ -75,4 +75,36 @@ class VersionCodeResolverTest {
             )
         }
     }
+
+    @Test
+    fun `CI run number is rejected before offset addition can overflow`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            resolveMichiVersionCode(
+                explicitVersionCode = null,
+                githubRunNumber = Long.MAX_VALUE.toString(),
+                gitCommitCount = "441",
+            )
+        }
+    }
+
+    @Test
+    fun `explicit release code must exceed the checked in published floor`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            resolveMichiVersionCode(
+                explicitVersionCode = "1",
+                githubRunNumber = null,
+                gitCommitCount = "441",
+                lastPublishedVersionCode = "1",
+            )
+        }
+        assertEquals(
+            2,
+            resolveMichiVersionCode(
+                explicitVersionCode = "2",
+                githubRunNumber = null,
+                gitCommitCount = "441",
+                lastPublishedVersionCode = "1",
+            ),
+        )
+    }
 }

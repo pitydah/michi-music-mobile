@@ -8,17 +8,25 @@ fun resolveMichiVersionCode(
     explicitVersionCode: String?,
     githubRunNumber: String?,
     gitCommitCount: String?,
+    lastPublishedVersionCode: String? = null,
 ): Int {
+    val publishedFloor = lastPublishedVersionCode?.let {
+        parseAuthoritativeVersionCode("lastPublishedVersionCode", it)
+    }
     explicitVersionCode?.let {
-        return parseAuthoritativeVersionCode("MICHI_VERSION_CODE", it)
+        val explicit = parseAuthoritativeVersionCode("MICHI_VERSION_CODE", it)
+        require(publishedFloor == null || explicit > publishedFloor) {
+            "MICHI_VERSION_CODE $explicit must exceed last published versionCode $publishedFloor"
+        }
+        return explicit
     }
 
     githubRunNumber?.let {
         val runNumber = parsePositiveLong("GITHUB_RUN_NUMBER", it)
-        val ciVersionCode = CI_VERSION_CODE_OFFSET + runNumber
-        require(ciVersionCode <= MAX_ANDROID_VERSION_CODE) {
-            "GITHUB_RUN_NUMBER produces Android versionCode $ciVersionCode, above $MAX_ANDROID_VERSION_CODE"
+        require(runNumber <= MAX_ANDROID_VERSION_CODE - CI_VERSION_CODE_OFFSET) {
+            "GITHUB_RUN_NUMBER $runNumber is too large for Android versionCode after adding the CI offset"
         }
+        val ciVersionCode = CI_VERSION_CODE_OFFSET + runNumber
         return ciVersionCode.toInt()
     }
 
