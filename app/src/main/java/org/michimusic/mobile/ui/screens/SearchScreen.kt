@@ -57,7 +57,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
@@ -341,12 +340,12 @@ fun SearchScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MichiShapes.lg)
-                            .background(Brush.verticalGradient(
-                                org.michimusic.mobile.ui.theme.aeroGradientStops(
+                            .background(
+                                org.michimusic.mobile.ui.theme.aeroVerticalGradientBrush(
                                     org.michimusic.mobile.ui.theme.AeroGradientRole.Inset,
                                     LocalVisualPreferences.current.highContrast,
                                 ),
-                            ))
+                            )
                             .border(0.8.dp, PrimaryPinkContainer.copy(alpha = 0.32f), MichiShapes.lg)
                             .padding(horizontal = 20.dp, vertical = 22.dp)
                             .testTag("search_error_panel"),

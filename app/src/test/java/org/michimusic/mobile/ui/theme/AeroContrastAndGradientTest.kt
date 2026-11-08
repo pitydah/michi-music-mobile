@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -50,5 +52,10 @@ class AeroContrastAndGradientTest {
             assertEquals(1, stops.size)
             assertEquals(1f, stops.single().alpha, 0f)
         }
+    }
+
+    @Test fun verticalGradientPolicyUsesSolidBrushForHighContrastSingleton() {
+        assertTrue(aeroVerticalGradientBrush(AeroGradientRole.Hero, highContrast = true) is SolidColor)
+        assertFalse(aeroVerticalGradientBrush(AeroGradientRole.Hero, highContrast = false) is SolidColor)
     }
 }

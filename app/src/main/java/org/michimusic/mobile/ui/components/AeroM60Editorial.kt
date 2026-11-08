@@ -109,12 +109,12 @@ fun AeroLibraryFeature(
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
-            .background(Brush.verticalGradient(
-                    org.michimusic.mobile.ui.theme.aeroGradientStops(
-                        org.michimusic.mobile.ui.theme.AeroGradientRole.Hero,
-                        highContrast,
-                    ),
-                ))
+            .background(
+                org.michimusic.mobile.ui.theme.aeroVerticalGradientBrush(
+                    org.michimusic.mobile.ui.theme.AeroGradientRole.Hero,
+                    highContrast,
+                ),
+            )
             .aeroFinishDrawing(
                 AeroFinish.Anodized,
                 aeroFinishSpec(AeroFinish.Anodized, highContrast),
