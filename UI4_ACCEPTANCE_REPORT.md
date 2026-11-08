@@ -136,16 +136,21 @@ invalidan y deben regenerarse antes de una comparación física.
 - No se observaron físicamente los tres defectos corregidos en este candidato.
 - No se realizó la comparación A/B de jank, CPU, PSS, temperatura o batería.
 - No se afirma cobertura 60/90/120 Hz; el hardware anterior solo observó 120 Hz.
-- Revisión independiente y CI del nuevo head: pendientes.
+- CI del nuevo head: pendiente.
+- La revisión independiente de solo lectura emitió `ship` para subir al PR
+  draft y no encontró defectos P0/P1. No autoriza merge ni certifica hardware.
+- El revisor no pudo corroborar los logs nativos de cada skill; el TSV conserva
+  referencias reales de sesión, pero el gate de evidencia original sigue abierto
+  para `RELEASE_GO`.
 
 ## Veredictos provisionales
 
-- `UI4_CODE_GO`: **GO local**, pendiente de revisión independiente.
+- `UI4_CODE_GO`: **GO — revisión independiente `ship`, sin P0/P1**.
 - `UI4_AUTOMATED_GO`: **NO-GO — BLOCKED_HARDWARE**; los gates locales disponibles pasan, pero falta runtime Android.
 - `UI4_VISUAL_GO`: **NO-GO — BLOCKED_HARDWARE**.
 - `UI4_PHYSICAL_GO`: **NO-GO — BLOCKED_HARDWARE**.
 - `DYNAMIC_MESH_ACTIVE`: **GO en código/build por defecto; validación física bloqueada**.
 - `DYNAMIC_MESH_PERFORMANCE_GO`: **NO-GO — BLOCKED_HARDWARE**.
-- `UI4_MERGE_GO`: **NO-GO**; faltan revisión independiente, evidencia física y CI exacta del nuevo head.
+- `UI4_MERGE_GO`: **NO-GO**; faltan evidencia física, corroboración de logs de skills y CI exacta del nuevo head.
 
 Estos estados no autorizan merge ni release. PR #14 debe permanecer draft.

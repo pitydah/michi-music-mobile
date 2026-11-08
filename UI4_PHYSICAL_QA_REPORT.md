@@ -124,10 +124,15 @@ que el fallo no ocurrió en aquella secuencia concreta.
 
 ## Revisión y veredictos provisionales
 
-La revisión independiente del candidato integrado y la corroboración de los logs
-de skills están pendientes. También falta CI sobre el nuevo head exacto.
+La revisión independiente de solo lectura inspeccionó el diff integrado, tests,
+informes, plan y receipt. Emitió `ship` para subir al PR draft y no encontró
+defectos P0/P1. Señaló como riesgos no bloqueantes el campo de política hero no
+consumido directamente, el posible flake de la instrumentación aún no ejecutada
+y las referencias de skills a nivel de sesión. No pudo corroborar los logs
+nativos de cada invocación, de modo que ese gate continúa abierto para
+`RELEASE_GO`. También falta CI sobre el nuevo head exacto.
 
-- `UI4_CODE_GO`: **GO local**, pendiente de revisión independiente.
+- `UI4_CODE_GO`: **GO — revisión independiente `ship`, sin P0/P1**.
 - `UI4_AUTOMATED_GO`: **NO-GO — BLOCKED_HARDWARE**.
 - `UI4_VISUAL_GO`: **NO-GO — BLOCKED_HARDWARE**.
 - `UI4_PHYSICAL_GO`: **NO-GO — BLOCKED_HARDWARE**.
