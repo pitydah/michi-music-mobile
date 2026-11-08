@@ -100,14 +100,14 @@ class AeroMotionComposeTest {
 
     @Test fun dynamicMeshUsesTheLatestLocalArtworkPalette() {
         val firstArtwork = createArtwork("mesh-first", intArrayOf(
-            android.graphics.Color.RED,
-            android.graphics.Color.GREEN,
-            android.graphics.Color.BLUE,
+            android.graphics.Color.rgb(220, 40, 70),
+            android.graphics.Color.rgb(40, 210, 110),
+            android.graphics.Color.rgb(50, 90, 220),
         ))
         val latestArtwork = createArtwork("mesh-latest", intArrayOf(
-            android.graphics.Color.MAGENTA,
-            android.graphics.Color.CYAN,
-            android.graphics.Color.YELLOW,
+            android.graphics.Color.rgb(190, 45, 210),
+            android.graphics.Color.rgb(35, 200, 210),
+            android.graphics.Color.rgb(220, 180, 40),
         ))
         val track = mutableStateOf<Track?>(null)
         rule.setContent {
@@ -152,7 +152,9 @@ class AeroMotionComposeTest {
 
         val playing = mutableStateOf(true)
         val lifecycleOwner = TestLifecycleOwner()
-        lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED
+        }
         rule.mainClock.autoAdvance = false
         rule.setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides lifecycleOwner) {

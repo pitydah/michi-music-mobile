@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -95,12 +96,13 @@ class AeroPlayerTransitionComposeTest {
             rule.onNodeWithContentDescription(
                 "Abrir reproductor: Transition Track, Michi Artist",
             ).performClick()
-            rule.mainClock.advanceTimeBy(1_000)
+            waitForNode("transition_now_playing_art", expected = true)
             rule.onNodeWithTag("transition_now_playing_art").assertExists()
             rule.onNodeWithTag("mini_player_bar").assertDoesNotExist()
 
             rule.onNodeWithTag("transition_now_playing").performClick()
-            rule.mainClock.advanceTimeBy(1_000)
+            waitForNode("mini_player_bar", expected = true)
+            waitForNode("transition_now_playing_art", expected = false)
             rule.onNodeWithTag("mini_player_bar").assertExists()
             rule.onNodeWithTag("transition_now_playing_art").assertDoesNotExist()
         }
@@ -144,5 +146,11 @@ class AeroPlayerTransitionComposeTest {
         rule.onNodeWithTag("transition_now_playing_art").assertExists()
         rule.onNodeWithTag("mini_player_bar").assertDoesNotExist()
         assertEquals(false, aeroNowPlayingTransitionPolicy(reducedMotion = true).shareArtwork)
+    }
+
+    private fun waitForNode(tag: String, expected: Boolean) {
+        rule.waitUntil(timeoutMillis = 5_000) {
+            rule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() == expected
+        }
     }
 }
