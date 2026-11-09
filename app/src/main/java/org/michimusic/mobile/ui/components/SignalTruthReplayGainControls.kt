@@ -37,6 +37,8 @@ import org.michimusic.player.ReplayGainPreAmp
 internal fun SignalTruthReplayGainControls() {
     val context = LocalContext.current
     val outputAuthority by PlayerDependencies.outputAuthority.collectAsStateWithLifecycle()
+    // Compose reads lifecycle-aware State, never StateFlow.value during composition.
+    val audioModeState = PlayerDependencies.audioModeManager?.currentMode?.collectAsStateWithLifecycle()
     val coordinator = remember(context) {
         val prefs = context.getSharedPreferences("michi_settings", Context.MODE_PRIVATE)
         SignalTruthReplayGainCoordinator(
@@ -97,7 +99,7 @@ internal fun SignalTruthReplayGainControls() {
         if (!enabled) {
             Text("Ajustes deshabilitados: procesador local o autorización de salida no disponible.",
                 style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
-        } else if (PlayerDependencies.audioModeManager?.currentMode?.value == AudioProcessingMode.TRANSPARENT) {
+        } else if (audioModeState?.value == AudioProcessingMode.TRANSPARENT) {
             Text("Modo transparente: la selección se guarda, pero ReplayGain está omitido.",
                 style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
         }
