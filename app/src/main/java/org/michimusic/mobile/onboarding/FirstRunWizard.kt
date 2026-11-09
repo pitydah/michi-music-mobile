@@ -407,6 +407,10 @@ fun FirstRunWizard(
             }
             error?.let { Text(it, color = Color(0xFFFFB4AB), fontSize = 12.sp,
                 modifier = Modifier.padding(top = 8.dp).testTag("wizard_error")) }
+            if (busy && step == 4) {
+                Text("Actualizando la biblioteca…", color = TextSecondary, fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp).testTag("wizard_scanning"))
+            }
             if (step == 2) {
                 TextButton(
                     onClick = { move(3, skipEcosystem = true) },
