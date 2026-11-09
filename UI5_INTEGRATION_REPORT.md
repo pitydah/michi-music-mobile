@@ -101,10 +101,14 @@ La integración inicial usó el workflow gestionado
 | UI5-POLISH-02: app Normal/F-Droid, lint, AndroidTest compile, debug/release | PASS |
 | `DockLayoutComposeTest` + `Ui5PolishComposeTest` en AVD API 36 | PASS |
 | Matriz real-font 320/360/480 dp × 1.0/1.5/2.0 | PASS, sin elipsis ni targets <48 dp |
+| CI exacta `42700995591` sobre `08d7abc` | **8/8 PASS**, incluido Quality Gate |
 
 La compilación de AndroidTest no equivale a ejecución de toda la suite. Las
 matrices focales de Dock y UI5-POLISH-02 sí se ejecutaron en el AVD API 36. No se
 ejecutaron pruebas físicas ni se instaló este candidato en el teléfono.
+
+El commit documental posterior solo registra este resultado; su CI exacta se
+consulta en el PR #18.
 
 ## Revisión independiente
 
