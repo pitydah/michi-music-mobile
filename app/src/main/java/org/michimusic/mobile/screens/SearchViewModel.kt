@@ -164,6 +164,11 @@ class SearchViewModel(
         // Local playlist names/IDs are observed from PlaylistRepository in SearchScreen.
         // Do not launch a track-catalog search when PLAYLISTS owns the filter.
         if (_selectedFilter.value == SearchFilter.PLAYLISTS) {
+            _structuredResults.value = StructuredSearchResults(
+                requestQuery = q,
+                requestFilter = SearchFilter.PLAYLISTS,
+                requestGeneration = generation,
+            )
             _isSearching.value = false
             searchJob = null
             return

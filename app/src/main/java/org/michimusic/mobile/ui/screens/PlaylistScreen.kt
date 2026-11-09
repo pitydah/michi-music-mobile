@@ -84,6 +84,7 @@ fun PlaylistScreen(
     viewModel: PlaylistsViewModel = koinViewModel(),
     audioController: org.michimusic.player.AudioController = org.koin.compose.koinInject(),
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager? = null,
+    historyDao: org.michimusic.data.cache.AppDao = org.koin.compose.koinInject(),
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -112,7 +113,6 @@ fun PlaylistScreen(
     }
 
     val launchHistoryStore = remember(appContext) { PlaylistLaunchHistoryStore(appContext) }
-    val historyDao: org.michimusic.data.cache.AppDao = org.koin.compose.koinInject()
 
     Box(
         modifier = Modifier

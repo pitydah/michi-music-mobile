@@ -92,7 +92,8 @@ class SettingsHierarchyTest {
         assertTrue(sections.contains("LIBRARY_STORAGE"))
         assertTrue(sections.contains("ACCESSIBILITY"))
         assertTrue(sections.contains("PRIVACY"))
-        assertEquals(5, sections.size)
+        assertTrue(sections.contains("APPEARANCE"))
+        assertEquals(6, sections.size)
     }
 
     @Test

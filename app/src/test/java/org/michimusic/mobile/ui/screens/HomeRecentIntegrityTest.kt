@@ -25,6 +25,8 @@ class HomeRecentIntegrityTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    private val historyDao = mockk<org.michimusic.data.cache.AppDao>(relaxed = true)
+
     @Test
     fun whenNoRecentHistory_doesNotDisplayRecientementeEscuchadasHeader() {
         val t1 = Track(id = "t1", title = "Track in Library", artist = "Artist", duration = 120)
@@ -44,7 +46,7 @@ class HomeRecentIntegrityTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         // Must display honest title "De tu biblioteca" rather than falsely claiming "Recientemente Escuchadas"
@@ -73,7 +75,7 @@ class HomeRecentIntegrityTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         composeTestRule.onNodeWithTag("home_scroll_list")

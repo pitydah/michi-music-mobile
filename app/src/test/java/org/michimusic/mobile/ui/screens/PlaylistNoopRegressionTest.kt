@@ -23,6 +23,8 @@ class PlaylistNoopRegressionTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    private val historyDao = mockk<org.michimusic.data.cache.AppDao>(relaxed = true)
+
     @Test
     fun clickingPlaylistItem_navigatesToPlaylistDetailWithCorrectId() {
         val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
@@ -37,6 +39,7 @@ class PlaylistNoopRegressionTest {
                 onNavigateToPlaylist = { id -> navigatedId = id },
                 viewModel = mockViewModel,
                 audioController = mockk(relaxed = true),
+                historyDao = historyDao,
             )
         }
 
@@ -58,6 +61,7 @@ class PlaylistNoopRegressionTest {
                 onNavigateToPlaylist = { },
                 viewModel = mockViewModel,
                 audioController = mockAudioController,
+                historyDao = historyDao,
             )
         }
 

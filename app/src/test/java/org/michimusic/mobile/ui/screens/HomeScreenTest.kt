@@ -36,6 +36,8 @@ class HomeScreenTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    private val historyDao = mockk<org.michimusic.data.cache.AppDao>(relaxed = true)
+
     @Test
     fun `shows loading indicator when loading`() {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
@@ -55,7 +57,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         // TopBar must stay on screen during loading instead of being replaced by the spinner.
@@ -84,7 +86,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         // Loading state: TopBar visible, spinner visible, scrollable content not yet shown.
@@ -119,7 +121,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         composeTestRule.onNodeWithTag("error_message").assertIsDisplayed()
@@ -151,7 +153,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
         composeTestRule.onNodeWithTag("home_retry_loading_button").performClick()
         composeTestRule.onNodeWithTag("home_retry_loading_button").assertIsNotEnabled()
@@ -186,7 +188,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         // Carousel of recent tracks
@@ -226,7 +228,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         composeTestRule.onNodeWithText("Synthwave Nights").assertIsDisplayed()
@@ -257,7 +259,7 @@ class HomeScreenTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         // Both full names must exist as distinct, fully-matched nodes even though
@@ -295,6 +297,7 @@ class HomeScreenTest {
                 viewModel = mockViewModel,
                 sessionManager = mockSession,
                 audioController = mockAudio,
+                historyDao = historyDao,
                 onNavigateToPlaylist = { id -> navigatedPlaylistId = id },
             )
         }
@@ -326,7 +329,7 @@ class HomeScreenTest {
 
         composeTestRule.setContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
-                HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+                HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
             }
         }
 

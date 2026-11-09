@@ -2,9 +2,12 @@ package org.michimusic.mobile.screens
 
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -22,6 +25,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
+import org.michimusic.mobile.library.MusicRootAuthority
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest {
@@ -176,5 +180,45 @@ class SearchViewModelTest {
         assertFalse(viewModel.isSearching.value)
         assertNull(viewModel.error.value)
         coVerify(exactly = 1) { localRepo.loadAlbums() }
+    }
+
+    @Test
+    fun `a confirmed root revision supersedes an in-flight catalog scan`() = runTest(testDispatcher) {
+        val authority = mockk<MusicRootAuthority>(relaxed = true)
+        val revisions = MutableStateFlow(0L)
+        every { authority.revision } returns revisions
+        val scopedViewModel = SearchViewModel(localRepo, syncedRepo, testDispatcher, authority)
+        val oldTrack = Track(id = "old", title = "Old Root Song", artist = "Artist")
+        val newTrack = Track(id = "new", title = "New Root Song", artist = "Artist")
+        val album = Album(id = "a1", title = "Album", artist = "Artist")
+        var calls = 0
+        coEvery { localRepo.loadAlbums() } coAnswers {
+            calls += 1
+            if (calls == 1) delay(500)
+            listOf(
+                LocalMediaRepository.LocalAlbum(
+                    album = album,
+                    tracks = listOf(if (calls == 1) oldTrack else newTrack),
+                )
+            )
+        }
+        coEvery { syncedRepo.getAllSynced() } returns flowOf(emptyList())
+
+        scopedViewModel.loadLocalTracks()
+        testScheduler.runCurrent()
+        assertTrue(scopedViewModel.isSearching.value)
+
+        // The shared root authority confirms a new root while the old scan is running.
+        revisions.value = 1L
+        testScheduler.runCurrent()
+        testScheduler.advanceUntilIdle()
+
+        coVerify(exactly = 2) { localRepo.loadAlbums() }
+        scopedViewModel.setQuery("root")
+        testScheduler.advanceUntilIdle()
+        assertEquals(
+            listOf("new"),
+            scopedViewModel.structuredResults.value.tracks.map { it.track.id },
+        )
     }
 }

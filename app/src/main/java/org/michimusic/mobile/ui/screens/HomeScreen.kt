@@ -112,6 +112,7 @@ fun HomeScreen(
     viewModel: AlbumsViewModel = koinViewModel(),
     sessionManager: PlaybackSessionManager = koinInject(),
     audioController: AudioController = koinInject(),
+    historyDao: org.michimusic.data.cache.AppDao = koinInject(),
 ) {
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
     val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
@@ -164,14 +165,13 @@ fun HomeScreen(
     var showCreatePlaylist by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val historyDao: org.michimusic.data.cache.AppDao = koinInject()
     val launchHistoryStore = remember(appContext) { PlaylistLaunchHistoryStore(appContext) }
     var lastAcceptedPlaylistId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(viewModel) {
         viewModel.loadMedia()
     }
-    LaunchedEffect(playlists) {
+    LaunchedEffect(playlists, historyDao) {
         val enabled = runCatching {
             historyDao.getSetting("listening_history_enabled") != "false"
         }.getOrDefault(false)

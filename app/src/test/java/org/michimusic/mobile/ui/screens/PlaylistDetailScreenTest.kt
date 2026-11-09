@@ -5,12 +5,14 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import io.mockk.mockk
 import io.mockk.verify
@@ -481,6 +483,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag("playlist_detail_track_c"))
         composeTestRule.onNodeWithTag("playlist_detail_track_c").performClick()
 
         verify(exactly = 1) { mockAudio.playQueue(tracks, 2) }
@@ -617,6 +621,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
 
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { backCalled }
         assertTrue(backCalled)
     }
 
@@ -1117,12 +1122,16 @@ class PlaylistDetailScreenTest {
         }
 
         // Move "c" up twice: [a, b, c] -> [a, c, b] -> [c, a, b].
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag("playlist_detail_track_c"))
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
 
         // "c" is now first, so it can no longer move up...
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag("playlist_detail_track_c"))
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").assertIsNotEnabled()
 

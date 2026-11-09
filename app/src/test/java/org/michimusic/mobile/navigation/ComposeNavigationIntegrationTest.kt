@@ -250,7 +250,7 @@ class ComposeNavigationIntegrationTest {
         composeTestRule.onNodeWithTag("route_playlist_detail").assertIsDisplayed()
         composeTestRule.onNodeWithText("PlaylistDetail:favorites").assertIsDisplayed()
         var chrome = navigationPresentationFor("playlist/favorites")
-        assertEquals("library", chrome.selectedPrimaryTab)
+        assertEquals("playlist", chrome.selectedPrimaryTab)
         assertTrue(chrome.showDock)
         assertTrue(chrome.showMiniPlayer)
 
