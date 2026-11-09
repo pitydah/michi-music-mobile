@@ -539,6 +539,23 @@ fun SettingsScreen(
                     }
 
                     SettingsSection.LIBRARY_STORAGE -> {
+                        val localMediaRepository: org.michimusic.data.repository.LocalMediaRepository = koinInject()
+                        val musicFolderPreferences: org.michimusic.data.repository.MusicFolderPreferences = koinInject()
+                        var showLibraryFolderDialog by remember { mutableStateOf(false) }
+                        var libraryFolders by remember {
+                            mutableStateOf<List<org.michimusic.data.repository.MediaFolder>>(emptyList())
+                        }
+                        var libraryFolderSelection by remember {
+                            mutableStateOf(musicFolderPreferences.includedFolders())
+                        }
+                        val currentFolderSelection = libraryFolderSelection
+                        val folderSummary = when {
+                            currentFolderSelection == null ->
+                                "Automático: música + Music/Download"
+                            currentFolderSelection.contains(org.michimusic.data.repository.ALL_FOLDERS) ->
+                                "Todas las carpetas de audio"
+                            else -> "${currentFolderSelection.size} carpeta(s) seleccionada(s)"
+                        }
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             SettingsSectionCard(
                                 icon = Icons.Default.FolderSpecial,
@@ -602,6 +619,48 @@ fun SettingsScreen(
 
                                 Spacer(Modifier.height(12.dp))
 
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(GlassFillLow)
+                                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            scope.launch {
+                                                libraryFolders = localMediaRepository.listAudioFolders()
+                                                libraryFolderSelection = musicFolderPreferences.includedFolders()
+                                                showLibraryFolderDialog = true
+                                            }
+                                        }
+                                        .padding(14.dp)
+                                        .testTag("settings_library_folders"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Carpetas de la biblioteca",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = PureWhite,
+                                            ),
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = folderSummary,
+                                            style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = null,
+                                        tint = TertiaryCyan,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
                                 SettingSwitchRow(
                                     title = "Escanear al iniciar",
                                     subtitle = "Detectar nueva música automáticamente al abrir la app",
@@ -637,6 +696,24 @@ fun SettingsScreen(
                                         scope.launch { autoSyncScheduler.setEnabled(it) }
                                     },
                                     testTag = "settings_auto_sync",
+                                )
+                            }
+
+                            if (showLibraryFolderDialog) {
+                                LibraryFolderDialog(
+                                    folders = libraryFolders,
+                                    initialSelection = libraryFolderSelection,
+                                    onDismiss = { showLibraryFolderDialog = false },
+                                    onSave = { selection ->
+                                        if (selection == null) {
+                                            musicFolderPreferences.clearSelection()
+                                        } else {
+                                            musicFolderPreferences.setIncludedFolders(selection)
+                                        }
+                                        libraryFolderSelection = selection
+                                        scope.launch { localMediaRepository.invalidateCache() }
+                                        showLibraryFolderDialog = false
+                                    },
                                 )
                             }
                         }
