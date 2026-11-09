@@ -8,7 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** The persisted wizard is independent from user identities, playback and library databases. */
-enum class LibraryChoice { PHONE, IMPORT_FILES, LATER }
+enum class LibraryChoice { PHONE, CUSTOM_TREE, LATER }
 enum class AudioChoice { ANDROID, USB_REMINDER }
 
 /** Trusted routes only. Navigation runs after the completion transaction succeeds. */
@@ -61,7 +61,7 @@ class OnboardingStore(
         OnboardingSnapshot(
             completed = values["completed_v1"] as? Boolean ?: false,
             step = (values["step_v1"] as? Int ?: 0).coerceIn(0, 4),
-            library = parseEnum(values["library_v1"] as? String, LibraryChoice.PHONE),
+            library = parseLibraryChoice(values["library_v1"] as? String),
             discoverLater = values["discover_later_v1"] as? Boolean ?: false,
             linkLater = values["link_later_v1"] as? Boolean ?: false,
             audio = parseEnum(values["audio_v1"] as? String, AudioChoice.ANDROID),
@@ -92,4 +92,11 @@ class OnboardingStore(
 
     private inline fun <reified T : Enum<T>> parseEnum(raw: String?, fallback: T): T =
         enumValues<T>().firstOrNull { it.name == raw } ?: fallback
+
+    /** The old wizard stored IMPORT_FILES before it meant a custom root. */
+    private fun parseLibraryChoice(raw: String?): LibraryChoice = when (raw) {
+        "CUSTOM_TREE", "IMPORT_FILES" -> LibraryChoice.CUSTOM_TREE
+        "LATER" -> LibraryChoice.LATER
+        else -> LibraryChoice.PHONE
+    }
 }

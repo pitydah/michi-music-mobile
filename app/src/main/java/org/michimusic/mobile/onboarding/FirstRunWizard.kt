@@ -62,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -71,8 +72,8 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import org.koin.compose.koinInject
-import org.michimusic.data.repository.MusicRootPreferences
-import org.michimusic.data.repository.SafMediaRepository
+import org.michimusic.mobile.library.MusicRootAuthority
+import org.michimusic.mobile.library.MusicRootSelection
 import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -88,26 +89,34 @@ fun FirstRunWizard(
     initial: OnboardingSnapshot,
     replay: Boolean,
     saveDraft: suspend (OnboardingSnapshot) -> Boolean,
-    finish: suspend (OnboardingSnapshot) -> Boolean,
+    /**
+     * The optional root is staged by the Wizard. It is applied only when this
+     * completion transaction succeeds; null preserves the currently confirmed root.
+     */
+    finish: suspend (OnboardingSnapshot, MusicRootSelection?) -> Boolean,
     onCompleted: (OnboardingDestination) -> Unit,
     onDismissReplay: () -> Unit,
-    safRepository: SafMediaRepository = koinInject(),
-    rootPreferences: MusicRootPreferences? = null,
-    onRootChanged: () -> Unit = {},
+    rootAuthority: MusicRootAuthority = koinInject(),
 ) {
     val context = LocalContext.current
-    val rootPrefs = rootPreferences ?: remember(context) { MusicRootPreferences(context) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val currentRoot by rootAuthority.currentRoot.collectAsStateWithLifecycle()
     var step by rememberSaveable { mutableIntStateOf(if (replay) 0 else initial.step.coerceIn(0, 4)) }
-    var library by rememberSaveable { mutableStateOf(initial.library) }
+    var library by rememberSaveable {
+        mutableStateOf(
+            if (initial.library == LibraryChoice.LATER) LibraryChoice.LATER
+            else if (currentRoot.isDefault) LibraryChoice.PHONE
+            else LibraryChoice.CUSTOM_TREE,
+        )
+    }
     var discoverLater by rememberSaveable { mutableStateOf(initial.discoverLater) }
     var linkLater by rememberSaveable { mutableStateOf(initial.linkLater) }
     var audio by rememberSaveable { mutableStateOf(initial.audio) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var indexed by rememberSaveable { mutableIntStateOf(0) }
-    var musicRoot by remember { mutableStateOf(rootPrefs.currentRoot()) }
+    var pendingRoot by remember { mutableStateOf<MusicRootSelection?>(null) }
+    var pendingRootLabel by remember { mutableStateOf<String?>(null) }
     var mediaPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -143,24 +152,47 @@ fun FirstRunWizard(
                 busy = true
                 error = null
                 try {
-                    val displayName = safRepository.treeDisplayName(uri)
-                    indexed = safRepository.indexTree(uri)
-                    if (indexed < 0) {
-                        error = "No se pudo leer la carpeta. La biblioteca no cambió."
-                    } else if (rootPrefs.setCustomRoot(uri, displayName)) {
-                        musicRoot = rootPrefs.currentRoot()
-                        onRootChanged()
+                    val displayName = rootAuthority.previewCustomRoot(uri)
+                    if (displayName == null) {
+                        error = "No se pudo conservar el permiso de esa carpeta."
                     } else {
-                        error = "No se pudo guardar el permiso de la carpeta."
+                        pendingRoot = MusicRootSelection.CustomTree(uri)
+                        pendingRootLabel = displayName
+                        library = LibraryChoice.CUSTOM_TREE
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    error = "No fue posible leer la carpeta elegida. Reintenta desde Ajustes."
+                    error = "No fue posible leer la carpeta elegida."
                 } finally {
                     busy = false
                 }
             }
+        }
+    }
+
+    val displayedRootLabel = when (val pending = pendingRoot) {
+        MusicRootSelection.DefaultMusic -> "Music/"
+        is MusicRootSelection.CustomTree -> pendingRootLabel ?: currentRoot.label
+        null -> currentRoot.label
+    }
+    val currentRootRevoked = remember(currentRoot) { rootAuthority.permissionRevoked() }
+    val displayedRootStatus = when (pendingRoot) {
+        MusicRootSelection.DefaultMusic -> if (mediaPermissionGranted) "LISTO" else "PENDIENTE"
+        is MusicRootSelection.CustomTree -> "LISTO"
+        null -> when {
+            currentRoot.isDefault && !mediaPermissionGranted -> "PENDIENTE"
+            currentRootRevoked -> "PENDIENTE"
+            else -> "LISTO"
+        }
+    }
+    val displayedRootDescription = when (pendingRoot) {
+        MusicRootSelection.DefaultMusic -> "Music/ y todas sus subcarpetas"
+        is MusicRootSelection.CustomTree -> "Carpeta: $displayedRootLabel"
+        null -> if (currentRootRevoked) {
+            "Permiso revocado: vuelve a elegir $displayedRootLabel"
+        } else {
+            "Configuración vigente: $displayedRootLabel"
         }
     }
 
@@ -206,8 +238,8 @@ fun FirstRunWizard(
             busy = true
             error = null
             try {
-                if (finish(committed)) onCompleted(OnboardingDestination.HOME)
-                else error = "No se pudo finalizar. Inténtalo nuevamente."
+                if (finish(committed, pendingRoot)) onCompleted(OnboardingDestination.HOME)
+                else error = "No se pudo finalizar la configuración. La biblioteca anterior sigue intacta."
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -293,30 +325,41 @@ fun FirstRunWizard(
                             Choice("Music/ del teléfono", "Incluye todas sus subcarpetas.",
                                 iconRes = R.drawable.wizard_fluent_phone, selected = library == LibraryChoice.PHONE, onClick = {
                                     library = LibraryChoice.PHONE
-                                    rootPrefs.restoreDefault()
-                                    musicRoot = rootPrefs.currentRoot()
-                                    onRootChanged()
-                                            })
+                                    pendingRoot = MusicRootSelection.DefaultMusic
+                                    pendingRootLabel = "Music/"
+                                })
                             Choice("Elegir otra carpeta", "Usar el selector nativo de Android; el permiso queda guardado.",
-                                iconRes = R.drawable.wizard_fluent_document_folder, selected = library == LibraryChoice.IMPORT_FILES, onClick = { library = LibraryChoice.IMPORT_FILES })
-                            Choice("Más tarde", "Entrar sin configurar una biblioteca todavía.",
-                                iconRes = R.drawable.wizard_fluent_history, selected = library == LibraryChoice.LATER, onClick = { library = LibraryChoice.LATER })
+                                iconRes = R.drawable.wizard_fluent_document_folder, selected = library == LibraryChoice.CUSTOM_TREE, onClick = {
+                                    library = LibraryChoice.CUSTOM_TREE
+                                    pendingRoot = null
+                                    pendingRootLabel = null
+                                })
+                            Choice("Más tarde", "Mantener la carpeta vigente y entrar sin cambiarla.",
+                                iconRes = R.drawable.wizard_fluent_history, selected = library == LibraryChoice.LATER, onClick = {
+                                    library = LibraryChoice.LATER
+                                    pendingRoot = null
+                                    pendingRootLabel = null
+                                })
                         }
                         if (library == LibraryChoice.PHONE) {
                             if (mediaPermissionGranted) Description("Acceso a música local concedido. Biblioteca: Music/")
                             else OutlinedButton(onClick = { permissionLauncher.launch(permission) }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text("Dar acceso a mi música")
                             }
-                        } else if (library == LibraryChoice.IMPORT_FILES) {
+                        } else if (library == LibraryChoice.CUSTOM_TREE) {
                             OutlinedButton(
                                 onClick = { treeLauncher.launch(null) },
                                 enabled = !busy,
-                                modifier = Modifier.heightIn(min = 48.dp),
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("wizard_pick_folder"),
                             ) { Icon(Icons.Default.AudioFile, null); Text("  Elegir carpeta") }
-                            Description("Carpeta actual: ${musicRoot.label}")
-                            if (indexed > 0) Description("$indexed pista(s) encontradas en la carpeta elegida.")
-                            else if (!musicRoot.isDefault) Description("La carpeta está lista; las pistas aparecerán al escanear.")
-                            else Description("Aún no has elegido otra carpeta; Music/ sigue siendo la predeterminada.")
+                            Description("Carpeta actual: $displayedRootLabel")
+                            if (pendingRoot is MusicRootSelection.CustomTree) {
+                                Description("La carpeta se escaneará al finalizar el Wizard.")
+                            } else if (!currentRoot.isDefault) {
+                                Description("Se mantiene la carpeta configurada en Ajustes.")
+                            } else {
+                                Description("Aún no has elegido otra carpeta; Music/ sigue siendo la predeterminada.")
+                            }
                         }
                     }
                     2 -> {
@@ -348,16 +391,9 @@ fun FirstRunWizard(
                         Surface(shape = MichiShapes.md, color = SurfaceContainerLow,
                             border = BorderStroke(1.dp, Color(0xFF424B58))) {
                             Column(modifier = Modifier.padding(horizontal = 14.dp)) {
-                                SummaryRow("Biblioteca", R.drawable.wizard_fluent_library, when (library) {
-                                    LibraryChoice.PHONE -> if (mediaPermissionGranted) "Music/ y sus subcarpetas" else "Permiso de audio pendiente para Music/"
-                                    LibraryChoice.IMPORT_FILES -> if (!musicRoot.isDefault) "Carpeta: ${musicRoot.label}"
-                                        else "Puedes elegir una carpeta cuando quieras"
-                                    LibraryChoice.LATER -> "Configurar después"
-                                }, status = when (library) {
-                                    LibraryChoice.PHONE -> if (mediaPermissionGranted) "LISTO" else "PENDIENTE"
-                                    LibraryChoice.IMPORT_FILES -> if (!musicRoot.isDefault) "LISTO" else "OPCIONAL"
-                                    LibraryChoice.LATER -> "OPCIONAL"
-                                })
+                                SummaryRow("Biblioteca", R.drawable.wizard_fluent_library,
+                                    displayedRootDescription,
+                                    status = displayedRootStatus)
                                 SummaryRow("Ecosistema", R.drawable.wizard_fluent_phone_laptop,
                                     if (discoverLater || linkLater) "Accesos disponibles en Ajustes" else "Sin búsqueda iniciada (opcional)",
                                     status = "OPCIONAL")

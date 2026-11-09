@@ -44,6 +44,32 @@ class MusicRootPreferencesTest {
         assertFalse(root.isDefault)
         assertEquals(uri.toString(), root.treeUri)
         assertEquals("Mi música", root.label)
+        assertEquals(customRootSourceId(uri), root.sourceId)
+    }
+
+    @Test
+    fun scanResultSurvivesRestartAndCanReportFailure() {
+        preferences.recordScan(trackCount = 7, atMillis = 1234L, sourceId = "safroot_test")
+        val success = preferences.lastScan()
+        assertEquals(7, success?.trackCount)
+        assertEquals(1234L, success?.atMillis)
+        assertEquals("safroot_test", success?.sourceId)
+
+        preferences.recordScan(trackCount = 0, error = "Permiso revocado", atMillis = 5678L)
+        assertEquals("Permiso revocado", preferences.lastScan()?.error)
+    }
+
+    @Test
+    fun legacyCustomRootWithoutSourceUsesLegacyIndexUntilRescanMigratesIt() {
+        val uri = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic")
+        context.getSharedPreferences("michi_library", Context.MODE_PRIVATE).edit()
+            .putString("root_tree_uri_v2", uri.toString())
+            .putString("root_tree_name_v2", "Mi música")
+            .commit()
+
+        val root = preferences.currentRoot()
+
+        assertEquals("saf_root", root.sourceId)
     }
 
     @Test

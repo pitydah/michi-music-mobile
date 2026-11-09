@@ -9,12 +9,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.SyncedTrackRepository
+import org.michimusic.mobile.library.MusicRootAuthority
 
 enum class SearchFilter(val displayName: String) {
     ALL("Todo"),
@@ -64,6 +67,7 @@ class SearchViewModel(
     private val localRepo: LocalMediaRepository,
     private val syncedRepo: SyncedTrackRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    rootAuthority: MusicRootAuthority? = null,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -90,6 +94,16 @@ class SearchViewModel(
     private var loadJob: Job? = null
     private val searchGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     val currentSearchGeneration: Long get() = searchGeneration.get()
+
+    init {
+        if (rootAuthority != null) {
+            viewModelScope.launch {
+                rootAuthority.revision.drop(1).collect {
+                    loadLocalTracks()
+                }
+            }
+        }
+    }
 
     fun loadLocalTracks() {
         // A retry that arrives while a catalog scan is still running would cancel

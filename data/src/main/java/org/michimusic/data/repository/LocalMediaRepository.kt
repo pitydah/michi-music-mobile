@@ -270,9 +270,26 @@ open class LocalMediaRepository(
     }
 
     private suspend fun customRootTracks(): MediaResult<List<Track>> {
+        val ctx = context ?: return MediaResult.Success(emptyList())
+        val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
+        val treeUri = root.treeUri?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
+            ?: return MediaResult.QueryFailed(IllegalStateException("La carpeta musical no es válida"))
+        val hasGrant = ctx.contentResolver.persistedUriPermissions.any {
+            it.uri == treeUri && it.isReadPermission
+        }
+        if (!hasGrant) {
+            return MediaResult.QueryFailed(
+                IllegalStateException(
+                    "El permiso de la carpeta se revocó. Vuelve a elegirla en Ajustes → Biblioteca.",
+                ),
+            )
+        }
+        val sourceId = root.sourceId ?: customRootSourceId(treeUri)
         val dao = importedTrackDao ?: return MediaResult.Success(emptyList())
         val rows = try {
-            dao.getTracksForSource(CUSTOM_ROOT_SOURCE_ID).first()
+            dao.getTracksForSource(sourceId).first()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             return MediaResult.QueryFailed(IllegalStateException("No se pudo leer la carpeta elegida"))
         }

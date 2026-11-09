@@ -2,9 +2,16 @@ package org.michimusic.data.repository
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import android.net.Uri
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33], application = android.app.Application::class)
 class MusicRootSelectionTest {
     @Test
     fun onlyMusicAndItsSubfoldersBelongToTheLocalRoot() {
@@ -36,10 +43,37 @@ class MusicRootSelectionTest {
     }
 
     @Test
-    fun treeIdentityIsDeterministicAndDocumentScoped() {
-        assertEquals(treeTrackId("primary:Music/a.flac"), treeTrackId("primary:Music/a.flac"))
-        assertFalse(treeTrackId("primary:Music/a.flac") == treeTrackId("primary:Music/b.flac"))
-        assertTrue(treeTrackId("primary:Music/a.flac").startsWith("safroot_"))
+    fun treeIdentityIsDeterministicAndProviderScoped() {
+        val tree = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic")
+        val otherProvider = Uri.parse("content://com.example.other.documents/tree/primary%3AMusic")
+
+        assertEquals(treeTrackId(tree, "primary:Music/a.flac"), treeTrackId(tree, "primary:Music/a.flac"))
+        assertFalse(treeTrackId(tree, "primary:Music/a.flac") == treeTrackId(tree, "primary:Music/b.flac"))
+        assertNotEquals(
+            treeTrackId(tree, "primary:Music/a.flac"),
+            treeTrackId(otherProvider, "primary:Music/a.flac"),
+        )
+        assertTrue(treeTrackId(tree, "primary:Music/a.flac").startsWith("safroot_"))
+    }
+
+    @Test
+    fun javaHashCollisionsCannotCollapseTwoDocuments() {
+        // "Aa" and "BB" are the canonical equal Java hashCode pair.
+        val tree = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic")
+
+        assertEquals("Aa".hashCode(), "BB".hashCode())
+        assertNotEquals(treeTrackId(tree, "Aa"), treeTrackId(tree, "BB"))
+    }
+
+    @Test
+    fun customRootSourceIsStableAndScopedByProviderAndTree() {
+        val tree = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic")
+        val renamedTree = Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusicRenamed")
+        val otherProvider = Uri.parse("content://com.example.other.documents/tree/primary%3AMusic")
+
+        assertEquals(customRootSourceId(tree), customRootSourceId(tree))
+        assertNotEquals(customRootSourceId(tree), customRootSourceId(renamedTree))
+        assertNotEquals(customRootSourceId(tree), customRootSourceId(otherProvider))
     }
 
     @Test

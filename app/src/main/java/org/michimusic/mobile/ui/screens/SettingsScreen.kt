@@ -539,13 +539,16 @@ fun SettingsScreen(
                     }
 
                     SettingsSection.LIBRARY_STORAGE -> {
-                        val localMediaRepository: org.michimusic.data.repository.LocalMediaRepository = koinInject()
-                        val musicRootPreferences: org.michimusic.data.repository.MusicRootPreferences = koinInject()
-                        val safMediaRepository: org.michimusic.data.repository.SafMediaRepository = koinInject()
-                        val audioController: org.michimusic.player.AudioController = koinInject()
-                        var currentRoot by remember { mutableStateOf(musicRootPreferences.currentRoot()) }
+                        val musicRootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
+                        val currentRoot by musicRootAuthority.currentRoot.collectAsStateWithLifecycle()
+                        val lastScan by musicRootAuthority.lastScan.collectAsStateWithLifecycle()
                         var folderBusy by remember { mutableStateOf(false) }
+                        var folderProgress by remember { mutableStateOf(0) }
                         var folderMessage by remember { mutableStateOf<String?>(null) }
+                        var permissionRevoked by remember { mutableStateOf(musicRootAuthority.permissionRevoked()) }
+                        LaunchedEffect(currentRoot) {
+                            permissionRevoked = musicRootAuthority.permissionRevoked()
+                        }
 
                         val treeLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                             androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
@@ -553,24 +556,33 @@ fun SettingsScreen(
                             if (uri != null) {
                                 scope.launch {
                                     folderBusy = true
+                                    folderProgress = 0
                                     folderMessage = null
-                                    val displayName = safMediaRepository.treeDisplayName(uri)
-                                    val indexed = safMediaRepository.indexTree(uri)
-                                    if (indexed < 0) {
-                                        folderMessage = "No se pudo leer la carpeta. La biblioteca no cambió."
+                                    try {
+                                        val result = musicRootAuthority.apply(
+                                            org.michimusic.mobile.library.MusicRootSelection.CustomTree(uri),
+                                            onProgress = { folderProgress = it },
+                                        )
+                                        if (result.success) {
+                                            permissionRevoked = false
+                                            folderMessage = if (result.trackCount == 0) {
+                                                "Carpeta vacía confirmada. La biblioteca local está vacía."
+                                            } else {
+                                                "Biblioteca actualizada: ${result.trackCount} pista(s) en ${result.root.label}"
+                                            }
+                                        } else {
+                                            permissionRevoked =
+                                                result.error == org.michimusic.mobile.library.MusicRootError.PERMISSION_DENIED
+                                            folderMessage = result.message
+                                                ?: "No se pudo cambiar la carpeta. La biblioteca anterior sigue intacta."
+                                        }
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        throw e
+                                    } catch (_: Exception) {
+                                        folderMessage = "No se pudo cambiar la carpeta. La biblioteca anterior sigue intacta."
+                                    } finally {
                                         folderBusy = false
-                                        return@launch
                                     }
-                                    val saved = musicRootPreferences.setCustomRoot(uri, displayName)
-                                    if (saved) {
-                                        currentRoot = musicRootPreferences.currentRoot()
-                                        audioController.clearQueue()
-                                        localMediaRepository.invalidateCache()
-                                        folderMessage = "Biblioteca actualizada: $indexed pista(s) en ${currentRoot.label}"
-                                    } else {
-                                        folderMessage = "No se pudo guardar el permiso de la carpeta."
-                                    }
-                                    folderBusy = false
                                 }
                             }
                         }
@@ -606,10 +618,9 @@ fun SettingsScreen(
                                         )
                                         Spacer(Modifier.height(2.dp))
                                         Text(
-                                            text = if (folderBusy) {
-                                                "Actualizando biblioteca…"
-                                            } else {
-                                                currentRoot.label
+                                            text = when {
+                                                folderBusy -> "Actualizando biblioteca… ${folderProgress.coerceAtLeast(0)} pista(s)"
+                                                else -> currentRoot.label
                                             },
                                             style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
                                         )
@@ -622,11 +633,29 @@ fun SettingsScreen(
                                     )
                                 }
 
+                                if (permissionRevoked) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = "El permiso de esta carpeta se revocó. Vuelve a elegirla para recuperar el acceso.",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFFFFB4AB)),
+                                    )
+                                }
+
                                 if (folderMessage != null) {
                                     Spacer(Modifier.height(8.dp))
                                     Text(
                                         text = folderMessage!!,
                                         style = MaterialTheme.typography.bodySmall.copy(color = TertiaryCyan),
+                                    )
+                                }
+
+                                lastScan?.takeIf { it.sourceId == currentRoot.sourceId }?.let { scan ->
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = scan.error?.let { "Último escaneo: $it" }
+                                            ?: "Último escaneo: ${scan.trackCount} pista(s) encontradas",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
+                                        modifier = Modifier.testTag("settings_library_last_scan"),
                                     )
                                 }
 
@@ -637,13 +666,19 @@ fun SettingsScreen(
                                         onClick = {
                                             scope.launch {
                                                 folderBusy = true
-                                                audioController.clearQueue()
-                                                safMediaRepository.clearIndexedTree()
-                                                musicRootPreferences.restoreDefault()
-                                                localMediaRepository.invalidateCache()
-                                                currentRoot = musicRootPreferences.currentRoot()
-                                                folderMessage = "Biblioteca restaurada a Music/"
-                                                folderBusy = false
+                                                folderMessage = null
+                                                try {
+                                                    val result = musicRootAuthority.restoreDefault()
+                                                    if (result.success) {
+                                                        permissionRevoked = false
+                                                        folderMessage = "Biblioteca restaurada a Music/"
+                                                    } else {
+                                                        folderMessage = result.message
+                                                            ?: "No se pudo restaurar Music/. La biblioteca anterior sigue intacta."
+                                                    }
+                                                } finally {
+                                                    folderBusy = false
+                                                }
                                             }
                                         },
                                         modifier = Modifier.testTag("settings_library_restore_music"),
@@ -655,19 +690,28 @@ fun SettingsScreen(
                                         onClick = {
                                             scope.launch {
                                                 folderBusy = true
-                                                val root = musicRootPreferences.currentRoot()
-                                                val indexed = if (!root.isDefault && root.treeUri != null) {
-                                                    safMediaRepository.indexTree(android.net.Uri.parse(root.treeUri))
-                                                } else {
-                                                    0
+                                                folderProgress = 0
+                                                folderMessage = null
+                                                try {
+                                                    val result = musicRootAuthority.rescan { folderProgress = it }
+                                                    if (result.success) {
+                                                        permissionRevoked = false
+                                                        folderMessage = if (currentRoot.isDefault) {
+                                                            "Biblioteca actualizada."
+                                                        } else if (result.trackCount == 0) {
+                                                            "La carpeta no contiene pistas compatibles."
+                                                        } else {
+                                                            "Biblioteca actualizada: ${result.trackCount} pista(s)."
+                                                        }
+                                                    } else {
+                                                        permissionRevoked =
+                                                            result.error == org.michimusic.mobile.library.MusicRootError.PERMISSION_DENIED
+                                                        folderMessage = result.message
+                                                            ?: "No se pudo volver a leer la carpeta."
+                                                    }
+                                                } finally {
+                                                    folderBusy = false
                                                 }
-                                                if (indexed < 0) {
-                                                    folderMessage = "No se pudo volver a leer la carpeta."
-                                                } else {
-                                                    localMediaRepository.invalidateCache()
-                                                    folderMessage = "Biblioteca actualizada."
-                                                }
-                                                folderBusy = false
                                             }
                                         },
                                         modifier = Modifier.testTag("settings_library_rescan"),
@@ -717,7 +761,6 @@ fun SettingsScreen(
                             }
                         }
                     }
-
                     SettingsSection.ACCESSIBILITY -> {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             SettingsSectionCard(

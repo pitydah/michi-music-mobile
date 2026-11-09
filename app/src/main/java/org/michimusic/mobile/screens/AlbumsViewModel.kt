@@ -8,6 +8,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Playlist
@@ -17,6 +19,7 @@ import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.LocalMediaRepository.LocalAlbum
 import org.michimusic.data.repository.MediaResult
 import org.michimusic.data.repository.PlaylistRepository
+import org.michimusic.mobile.library.MusicRootAuthority
 
 class AlbumsViewModel(
     private val repo: LocalMediaRepository,
@@ -24,6 +27,7 @@ class AlbumsViewModel(
     private val playlistRepo: PlaylistRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val favoritesRepo: org.michimusic.data.repository.FavoritesRepository? = null,
+    rootAuthority: MusicRootAuthority? = null,
 ) : ViewModel() {
 
     private val _favoriteTrackIds = MutableStateFlow<Set<String>>(emptySet())
@@ -62,6 +66,16 @@ class AlbumsViewModel(
 
     private var loadJob: Job? = null
     private val loadEpoch = java.util.concurrent.atomic.AtomicLong()
+
+    init {
+        if (rootAuthority != null) {
+            viewModelScope.launch {
+                rootAuthority.revision.drop(1).collect {
+                    loadMedia(forceRefresh = true)
+                }
+            }
+        }
+    }
 
     fun cancelLoading() {
         loadEpoch.incrementAndGet()

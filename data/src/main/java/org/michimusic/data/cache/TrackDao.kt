@@ -6,6 +6,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -29,6 +30,13 @@ interface TrackDao {
 
     @Query("DELETE FROM cached_tracks WHERE sourceId = :sourceId")
     suspend fun deleteForSource(sourceId: String)
+
+    /** Atomically replaces one root's index; a failed insert rolls back the delete. */
+    @Transaction
+    suspend fun replaceForSource(sourceId: String, tracks: List<CachedTrack>) {
+        deleteForSource(sourceId)
+        if (tracks.isNotEmpty()) insertAll(tracks)
+    }
 
     @Query("SELECT * FROM cached_tracks WHERE downloaded = 1")
     fun getDownloadedTracks(): Flow<List<CachedTrack>>
