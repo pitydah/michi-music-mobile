@@ -79,6 +79,9 @@ val defaultNavTabs = listOf(
 
 internal enum class DockLayout { SINGLE_ROW, TWO_BY_TWO }
 
+// Longest label ("Dispositivos") at the 8.sp floor, before Android font scaling.
+private const val MIN_DOCK_LABEL_WIDTH_DP = 48f
+
 internal fun dockLayout(screenWidthDp: Int, fontScale: Float): DockLayout =
     if (screenWidthDp <= 412 && fontScale.isFinite() && fontScale >= 1.7f) {
         DockLayout.TWO_BY_TWO
@@ -86,12 +89,26 @@ internal fun dockLayout(screenWidthDp: Int, fontScale: Float): DockLayout =
         DockLayout.SINGLE_ROW
     }
 
-// A five-item dock needs a two-row fallback BEFORE labels shrink below a usable
-// size. Keep the pre-UI5 four-item policy unchanged for compatible call sites.
-internal fun dockLayoutForTabCount(screenWidthDp: Int, fontScale: Float, tabCount: Int): DockLayout =
-    if (tabCount >= 5 && (screenWidthDp <= 520 || !fontScale.isFinite() || fontScale >= 1.3f)) {
-        DockLayout.TWO_BY_TWO // legacy name: 3+2 when the fifth tab is present
-    } else dockLayout(screenWidthDp, fontScale)
+// Five destinations stay on one compact row whenever the shortest readable
+// label fits. The fallback is driven by available width per tab and font scale,
+// never by an arbitrary 520 dp breakpoint or merely by the fifth destination.
+internal fun dockLayoutForTabCount(screenWidthDp: Int, fontScale: Float, tabCount: Int): DockLayout {
+    if (tabCount < 5) return dockLayout(screenWidthDp, fontScale)
+    if (!fontScale.isFinite()) return DockLayout.SINGLE_ROW
+
+    // Keep the first configurable normal-size row intact even at 320 dp.
+    if (fontScale <= 1.02f) return DockLayout.SINGLE_ROW
+
+    val outer = if (screenWidthDp <= 340) 10f else 16f
+    val inner = if (screenWidthDp <= 340) 4f else 8f
+    val labelBudget = (screenWidthDp - outer * 2f - inner * 2f) / tabCount - 8f
+    val minimumReadableLabel = MIN_DOCK_LABEL_WIDTH_DP * fontScale
+    return if (labelBudget < minimumReadableLabel) {
+        DockLayout.TWO_BY_TWO // legacy name: stacked fallback for high text scales
+    } else {
+        DockLayout.SINGLE_ROW
+    }
+}
 
 @Composable
 fun BottomNavBar(
@@ -238,7 +255,7 @@ private fun DockTab(
                 softWrap = preserveFullLabelSize,
                 overflow = TextOverflow.Ellipsis,
                 autoSize = if (preserveFullLabelSize) null else TextAutoSize.StepBased(
-                    minFontSize = 7.sp,
+                    minFontSize = 8.sp,
                     maxFontSize = 11.sp,
                     stepSize = 0.5.sp,
                 ),

@@ -1,11 +1,18 @@
 package org.michimusic.mobile.ui.components
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
@@ -18,9 +25,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,15 +87,97 @@ class M60_2DockNavigationTest {
         assertEquals(listOf("home"), destinations)
     }
 
-    @Test fun fiveDestinationsUseTwoRowsWithoutBreakingLegacyPolicy() {
+    @Test fun fiveDestinationsUseOneRowAtNormalScaleOnEverySupportedPhoneWidth() {
+        for (width in listOf(320, 360, 393, 412, 480, 520)) {
+            assertEquals(
+                "Five-tab dock must stay compact at ${width}dp / 100%",
+                DockLayout.SINGLE_ROW,
+                dockLayoutForTabCount(width, 1.0f, 5),
+            )
+        }
+        // Four-destination call sites keep the pre-UI5 accessibility fallback.
         assertEquals(DockLayout.TWO_BY_TWO, dockLayout(360, 2.0f))
         assertEquals(DockLayout.SINGLE_ROW, dockLayout(360, 1.5f))
-        assertEquals(DockLayout.SINGLE_ROW, dockLayout(600, 2.0f))
-        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(320, 1.0f, 5))
-        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(480, 1.0f, 5))
-        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(360, 2.0f, 5))
-        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(600, 2.0f, 5))
-        assertEquals(DockLayout.SINGLE_ROW, dockLayoutForTabCount(600, 1.0f, 5))
+    }
+
+    @Test fun fiveDestinationFallbackFollowsPerTabLabelBudgetNotAFixedBreakpoint() {
+        val expected = mapOf(
+            1.0f to setOf(320, 360, 393, 412, 480, 520),
+            1.3f to setOf(412, 480, 520),
+            1.5f to setOf(480, 520),
+            1.7f to setOf(520),
+            2.0f to emptySet(),
+        )
+        for ((scale, singleRowWidths) in expected) {
+            for (width in listOf(320, 360, 393, 412, 480, 520)) {
+                val actual = dockLayoutForTabCount(width, scale, 5)
+                val wanted = if (width in singleRowWidths) DockLayout.SINGLE_ROW else DockLayout.TWO_BY_TWO
+                assertEquals("Unexpected dock layout at ${width}dp / ${scale}x", wanted, actual)
+            }
+        }
+    }
+
+    @Test fun fiveTabGeometryKeepsOneRowAndLegalTargetsAcrossWidthAndScaleMatrix() {
+        val scenarios = buildList {
+            for (width in listOf(320, 360, 393, 412, 480, 520)) {
+                for (scale in listOf(1.0f, 1.3f, 1.5f, 1.7f, 2.0f)) {
+                    add(DockScenario(width, scale))
+                }
+            }
+        }
+        var scenario by mutableStateOf(scenarios.first())
+        compose.setContent {
+            val configuration = Configuration().apply {
+                screenWidthDp = scenario.width
+                fontScale = scenario.scale
+            }
+            CompositionLocalProvider(
+                LocalConfiguration provides configuration,
+                LocalDensity provides Density(density = 1f, fontScale = scenario.scale),
+            ) {
+                MichiTheme {
+                    Box(Modifier.width(scenario.width.dp)) {
+                        BottomNavBar(currentRoute = "home", onTabSelected = {})
+                    }
+                }
+            }
+        }
+
+        for (current in scenarios) {
+            compose.runOnIdle { scenario = current }
+            compose.waitForIdle()
+            val expected = dockLayoutForTabCount(current.width, current.scale, 5)
+            val tabs = listOf("home", "library", "playlist", "search", "devices")
+            val bounds = tabs.associateWith { route ->
+                compose.onNodeWithTag("nav_tab_$route")
+                    .assertContentDescriptionEquals(defaultNavTabs.first { it.route == route }.label)
+                    .assertHeightIsAtLeast(48.dp)
+                    .fetchSemanticsNode().boundsInRoot
+            }
+            tabs.forEach { route ->
+                val bound = bounds.getValue(route)
+                assertTrue("${route} target width at $current", bound.width >= 48f)
+                val layout = labelLayout("nav_label_$route")
+                val label = compose.onNodeWithTag("nav_label_$route", useUnmergedTree = true)
+                    .fetchSemanticsNode().boundsInRoot
+                assertTrue("Label must start inside $route at $current", label.left >= bound.left)
+                assertTrue("Label must end inside $route at $current", label.right <= bound.right + 0.5f)
+                if (expected == DockLayout.SINGLE_ROW) {
+                    assertEquals("$route should stay on one row at $current", 1, layout.lineCount)
+                }
+            }
+
+            val tops = tabs.map { bounds.getValue(it).top }
+            if (expected == DockLayout.SINGLE_ROW) {
+                assertTrue("All five tabs must share one row at $current: $tops", tops.distinct().size == 1)
+            } else {
+                val firstRow = tops.take(3).distinct()
+                val secondRow = tops.drop(3).distinct()
+                assertEquals("First stacked row at $current", 1, firstRow.size)
+                assertEquals("Second stacked row at $current", 1, secondRow.size)
+                assertTrue("Stacked rows must not overlap at $current", secondRow.single() >= bounds.getValue("home").bottom)
+            }
+        }
     }
 
     @Test fun twoByTwoDockKeepsAllFullLabelsAndTouchTargets() {
@@ -99,7 +191,9 @@ class M60_2DockNavigationTest {
                 LocalDensity provides Density(density = 1f, fontScale = 2f),
             ) {
                 MichiTheme {
-                    BottomNavBar(currentRoute = "home", onTabSelected = {})
+                    Box(Modifier.width(360.dp)) {
+                        BottomNavBar(currentRoute = "home", onTabSelected = {})
+                    }
                 }
             }
         }
@@ -133,7 +227,7 @@ class M60_2DockNavigationTest {
 
     @Test fun singleRowDockKeepsLabelInsideItsSelectionAtOneAndHalfScale() {
         val configuration = Configuration().apply {
-            screenWidthDp = 360
+            screenWidthDp = 480
             fontScale = 1.5f
         }
         compose.setContent {
@@ -142,7 +236,9 @@ class M60_2DockNavigationTest {
                 LocalDensity provides Density(density = 1f, fontScale = 1.5f),
             ) {
                 MichiTheme {
-                    BottomNavBar(currentRoute = "devices", onTabSelected = {})
+                    Box(Modifier.width(480.dp)) {
+                        BottomNavBar(currentRoute = "devices", onTabSelected = {})
+                    }
                 }
             }
         }
@@ -176,6 +272,20 @@ class M60_2DockNavigationTest {
             .performKeyInput { pressKey(Key.Enter) }
 
         assertEquals(listOf("library"), destinations)
+    }
+
+    private data class DockScenario(val width: Int, val scale: Float) {
+        override fun toString(): String = "${width}dp / ${scale}x"
+    }
+
+    private fun labelLayout(tag: String): TextLayoutResult {
+        val node = compose.onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode()
+        val action = node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
+        assertNotNull("Missing text layout action for $tag", action)
+        val results = mutableListOf<TextLayoutResult>()
+        action!!.invoke(results)
+        assertTrue("No text layout result for $tag", results.isNotEmpty())
+        return results.last()
     }
 
     @Test fun dpadFollowsTwoByTwoGeometryAtTwoHundredPercentFont() {
