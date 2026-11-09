@@ -53,6 +53,26 @@ class MusicRootAuthorityTest {
     }
 
     @Test
+    fun persistenceFailureDropsTheStagedSourceAndKeepsTheOldRoot() = runTest {
+        val prefs = mockk<MusicRootPreferences>(relaxed = true)
+        val saf = mockk<SafMediaRepository>(relaxed = true)
+        val local = mockk<LocalMediaRepository>(relaxed = true)
+        val audio = mockk<AudioController>(relaxed = true)
+        val sourceId = customRootSourceId(tree)
+        every { prefs.currentRoot() } returns MusicRoot.Default
+        every { prefs.saveRoot(any()) } returns false
+        coEvery { saf.indexTree(tree, any()) } returns TreeIndexResult.Success(tree, sourceId, "Mi música", 1)
+        val authority = authority(prefs, saf, local, audio)
+
+        val result = authority.apply(MusicRootSelection.CustomTree(tree))
+
+        assertFalse(result.success)
+        assertEquals(MusicRootError.SAVE_FAILED, result.error)
+        coVerify { saf.clearSource(sourceId) }
+        verify(exactly = 0) { audio.clearQueue() }
+    }
+
+    @Test
     fun confirmedCustomRootActivatesNewSourceAndClearsLocalQueue() = runTest {
         val prefs = mockk<MusicRootPreferences>(relaxed = true)
         val saf = mockk<SafMediaRepository>(relaxed = true)
