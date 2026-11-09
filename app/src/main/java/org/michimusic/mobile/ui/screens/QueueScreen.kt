@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.ui.res.painterResource
+import org.michimusic.mobile.R
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.GraphicEq
@@ -37,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +53,10 @@ import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.TrackActionBottomSheet
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
@@ -86,9 +93,12 @@ import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.player.AudioController
+import org.michimusic.mobile.playback.RemoteCommandStatus
+import org.michimusic.mobile.playback.remoteQueueRemovalUnambiguous
 
 @Composable
 fun QueueScreen(
+    onNavigateToPlaylists: () -> Unit = {},
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     controller: AudioController = koinInject(),
     favoritesRepo: FavoritesRepository = koinInject(),
@@ -102,10 +112,47 @@ fun QueueScreen(
     val queue = if (isRemote) sessionState.queue else localState.queue
     val currentIndex = if (isRemote) sessionState.queueIndex else localState.queueIndex
     val isPlaying = if (isRemote) sessionState.isPlaying else localState.isPlaying
-    var showClearConfirmation by remember { mutableStateOf(false) }
+    var clearRequest by remember { mutableStateOf<QueueClearRequest?>(null) }
 
-    var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
+    // QueueEntry.entryId (local) identifies the occurrence; a Track ID does not.
+    val queueTrackIds = queue.map { it.id }
+    val localEntryIds = if (isRemote) emptyList() else localState.queueEntries.map { it.entryId }
+    val endpointId = sessionState.activeEndpoint.id
+    val lastCommand = sessionState.lastRemoteCommand?.takeIf {
+        isRemote && it.endpointId == endpointId
+    }
+    val remotePending = lastCommand?.status == RemoteCommandStatus.PENDING
+    val canEditQueue = queueActionsEnabled(
+        remote = isRemote,
+        controllerReady = isReady,
+        remoteConnected = sessionState.activeEndpoint.isConnected,
+        remoteCommandPending = remotePending,
+    )
+    var selectedTrackForMenu by remember { mutableStateOf<QueueActionSelection?>(null) }
     var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
+    var queueNotice by remember { mutableStateOf<String?>(null) }
+
+    fun isValidSelection(selection: QueueActionSelection): Boolean = queueActionSelectionIsCurrent(
+        selected = selection,
+        currentTrackIds = queueTrackIds,
+        currentEntryIds = localEntryIds,
+        currentEndpointId = endpointId,
+        remote = isRemote,
+    )
+    fun actOnSelection(selection: QueueActionSelection, action: () -> Unit) {
+        if (!canEditQueue || !isValidSelection(selection)) {
+            selectedTrackForMenu = null
+            queueNotice = "La cola cambió o está sincronizando; selecciona la pista nuevamente"
+            return
+        }
+        action()
+    }
+    LaunchedEffect(selectedTrackForMenu, queueTrackIds, localEntryIds, endpointId, isRemote) {
+        if (selectedTrackForMenu?.let { !isValidSelection(it) } == true) {
+            selectedTrackForMenu = null
+            queueNotice = "La cola cambió; selecciona la pista nuevamente"
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -138,17 +185,41 @@ fun QueueScreen(
                     )
                 }
 
-                if (queue.isNotEmpty() && (isReady || isRemote)) {
+                // Queue contains tracks, not a verified originating playlist ID.
+                // Navigate to the collection instead of fabricating a playlist route.
+                Box(
+                    modifier = Modifier.size(MichiSpacing.minTouchTarget)
+                        .clickable(role = Role.Button, onClick = onNavigateToPlaylists)
+                        .semantics { contentDescription = "Abrir Playlists" }
+                        .testTag("queue_open_playlists"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Same Phosphor asset as the Playlists dock tab, never a fabricated playlist ID.
+                    Icon(
+                        painter = painterResource(R.drawable.ic_dock_playlists),
+                        contentDescription = null,
+                        tint = PureWhite,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                if (queue.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
                             .background(AeroGraphiteRaised)
                             .border(0.75.dp, org.michimusic.mobile.ui.theme.AeroHairline, RoundedCornerShape(12.dp))
                             .clickable(
+                                enabled = canEditQueue,
+                                role = Role.Button,
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = ripple(color = PrimaryPink),
-                                onClick = { showClearConfirmation = true },
+                                onClick = {
+                                    clearRequest = QueueClearRequest(endpointId, isRemote,
+                                        queueTrackIds, localEntryIds)
+                                },
                             )
+                            .semantics { contentDescription = "Vaciar cola de reproducción" }
+                            .testTag("queue_clear")
                             .height(48.dp)
                             .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center,
@@ -159,7 +230,7 @@ fun QueueScreen(
                         ) {
                             Icon(
                                 Icons.Default.DeleteSweep,
-                                contentDescription = "Limpiar cola",
+                                contentDescription = null,
                                 tint = PrimaryPink,
                                 modifier = Modifier.size(16.dp),
                             )
@@ -193,6 +264,7 @@ fun QueueScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Row(
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
@@ -207,6 +279,8 @@ fun QueueScreen(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = PureWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
 
@@ -214,11 +288,46 @@ fun QueueScreen(
                             text = if (currentIndex in queue.indices) "Pista ${currentIndex + 1} de ${queue.size}" else "Ninguna seleccionada",
                             fontSize = 12.sp,
                             color = TextSecondary,
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = 8.dp),
                         )
                     }
                 }
 
                 Spacer(Modifier.height(16.dp))
+            }
+
+            // Remote outcomes must remain visible even when the queue is not empty.
+            // ACCEPTED means received, not that playback/queue state was observed.
+            val commandFeedback = when (lastCommand?.status) {
+                RemoteCommandStatus.PENDING -> "Sincronizando cambios de cola con ${sessionState.activeEndpoint.name}…"
+                RemoteCommandStatus.ACCEPTED -> lastCommand.resultMessage
+                    ?: "Orden aceptada; falta confirmar la cola remota"
+                RemoteCommandStatus.REJECTED, RemoteCommandStatus.UNSUPPORTED,
+                RemoteCommandStatus.FAILED, RemoteCommandStatus.DISCONNECTED,
+                RemoteCommandStatus.TIMED_OUT -> lastCommand.resultMessage
+                    ?: "La operación de cola remota no se completó"
+                else -> null
+            }
+            if (isRemote && queueTrackIds.size != queueTrackIds.distinct().size) {
+                Text(
+                    "La cola remota contiene pistas repetidas; eliminar una aparición requiere identificadores del host",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                )
+            }
+            if (commandFeedback != null || queueNotice != null) {
+                Text(
+                    text = queueNotice ?: commandFeedback.orEmpty(),
+                    color = if (queueNotice != null || lastCommand?.status in setOf(
+                            RemoteCommandStatus.REJECTED, RemoteCommandStatus.UNSUPPORTED,
+                            RemoteCommandStatus.FAILED, RemoteCommandStatus.DISCONNECTED,
+                            RemoteCommandStatus.TIMED_OUT,
+                        )) org.michimusic.mobile.ui.theme.ErrorColor else TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).testTag("queue_feedback"),
+                )
             }
 
             // Queue List
@@ -233,12 +342,12 @@ fun QueueScreen(
                         modifier = Modifier.padding(24.dp),
                     ) {
                         val endpointName = sessionState.activeEndpoint.name
-                        val lastCmd = sessionState.lastRemoteCommand
-                        val isPending = isRemote && lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.PENDING
-                        val isFailed = isRemote && (
-                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.REJECTED ||
-                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.FAILED ||
-                            lastCmd?.status == org.michimusic.mobile.playback.RemoteCommandStatus.DISCONNECTED
+                        val lastCmd = lastCommand
+                        val isPending = lastCmd?.status == RemoteCommandStatus.PENDING
+                        val isFailed = lastCmd?.status in setOf(
+                            RemoteCommandStatus.REJECTED, RemoteCommandStatus.UNSUPPORTED,
+                            RemoteCommandStatus.FAILED, RemoteCommandStatus.DISCONNECTED,
+                            RemoteCommandStatus.TIMED_OUT,
                         )
 
                         Icon(
@@ -277,14 +386,31 @@ fun QueueScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(queue, key = { idx, track -> "${track.id}_$idx" }) { idx, track ->
+                    itemsIndexed(queue, key = { idx, track ->
+                        if (isRemote) "remote:$endpointId:$idx"
+                        else localEntryIds.getOrNull(idx)?.let { "entry:$it" } ?: "local:${track.id}:$idx"
+                    }) { idx, track ->
                         val isCurrent = idx == currentIndex
+                        val selection = QueueActionSelection(
+                            index = idx,
+                            trackId = track.id,
+                            orderedTrackIds = queueTrackIds,
+                            localEntryId = if (isRemote) null else localEntryIds.getOrNull(idx),
+                            endpointId = endpointId,
+                            remote = isRemote,
+                        )
                         GlassCard(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().testTag("queue_item_$idx"),
                             backgroundColor = if (isCurrent) AeroGraphiteRaised else GlassFillLow,
                             borderColor = GlassBorderLow,
                             accent = if (isCurrent) PrimaryPinkContainer else null,
-                            onClick = { sessionManager.playQueue(queue, idx) },
+                            onClick = if (canEditQueue) ({
+                                actOnSelection(selection) {
+                                    queueNotice = null
+                                    // Jump within this queue; NEVER transfer/rebuild it.
+                                    sessionManager.skipToQueueIndex(idx)
+                                }
+                            }) else null,
                         ) {
                             // Separate track metadata from queue actions. Four 44dp icons
                             // alongside title/artwork did not fit 320dp screens.
@@ -361,7 +487,12 @@ fun QueueScreen(
                                         MichiIconAction(
                                             icon = Icons.Default.KeyboardArrowUp,
                                             contentDescription = "Subir ${track.title} en la cola",
-                                            onClick = { sessionManager.moveQueueItem(idx, idx - 1) },
+                                            onClick = { actOnSelection(selection) {
+                                                queueNotice = null
+                                                sessionManager.moveQueueItem(idx, idx - 1)
+                                            } },
+                                            enabled = canEditQueue,
+                                            testTag = "queue_move_up_$idx",
                                             tint = TextSecondary,
                                             iconSize = 20.dp,
                                             minTargetSize = MichiSpacing.minTouchTarget,
@@ -371,7 +502,12 @@ fun QueueScreen(
                                         MichiIconAction(
                                             icon = Icons.Default.KeyboardArrowDown,
                                             contentDescription = "Bajar ${track.title} en la cola",
-                                            onClick = { sessionManager.moveQueueItem(idx, idx + 1) },
+                                            onClick = { actOnSelection(selection) {
+                                                queueNotice = null
+                                                sessionManager.moveQueueItem(idx, idx + 1)
+                                            } },
+                                            enabled = canEditQueue,
+                                            testTag = "queue_move_down_$idx",
                                             tint = TextSecondary,
                                             iconSize = 20.dp,
                                             minTargetSize = MichiSpacing.minTouchTarget,
@@ -379,8 +515,17 @@ fun QueueScreen(
                                     }
                                     MichiIconAction(
                                         icon = Icons.Default.Clear,
-                                        contentDescription = "Quitar ${track.title} de la cola",
-                                        onClick = { sessionManager.removeFromQueue(idx) },
+                                        contentDescription = if (isRemote && !remoteQueueRemovalUnambiguous(queueTrackIds, idx))
+                                            "No se puede quitar ${track.title}: identificador remoto repetido"
+                                        else "Quitar ${track.title} de la cola",
+                                        onClick = { actOnSelection(selection) {
+                                            if (!isRemote || remoteQueueRemovalUnambiguous(queueTrackIds, idx)) {
+                                                queueNotice = null
+                                                sessionManager.removeFromQueue(idx)
+                                            }
+                                        } },
+                                        enabled = canEditQueue && (!isRemote || remoteQueueRemovalUnambiguous(queueTrackIds, idx)),
+                                        testTag = "queue_remove_$idx",
                                         tint = org.michimusic.mobile.ui.theme.ErrorColor,
                                         iconSize = 18.dp,
                                         minTargetSize = MichiSpacing.minTouchTarget,
@@ -388,7 +533,14 @@ fun QueueScreen(
                                     MichiIconAction(
                                         icon = Icons.Default.MoreVert,
                                         contentDescription = "Opciones de ${track.title}",
-                                        onClick = { selectedTrackForMenu = track },
+                                        onClick = {
+                                            actOnSelection(selection) {
+                                                queueNotice = null
+                                                selectedTrackForMenu = selection
+                                            }
+                                        },
+                                        enabled = canEditQueue,
+                                        testTag = "queue_more_$idx",
                                         tint = TextSecondary,
                                         iconSize = 20.dp,
                                         minTargetSize = MichiSpacing.minTouchTarget,
@@ -405,19 +557,25 @@ fun QueueScreen(
             }
         }
 
-        if (showClearConfirmation) {
+        clearRequest?.let { request ->
             AlertDialog(
-                onDismissRequest = { showClearConfirmation = false },
+                onDismissRequest = { clearRequest = null },
                 title = { Text("Vaciar la cola") },
                 text = { Text("Se quitarán ${queue.size} pistas de la cola actual. No se eliminarán archivos de tu biblioteca.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        showClearConfirmation = false
-                        sessionManager.clearQueue()
+                        clearRequest = null
+                        if (canEditQueue && queue.isNotEmpty() && queueClearRequestIsCurrent(
+                                request, queueTrackIds, localEntryIds, endpointId, isRemote)) {
+                            queueNotice = null
+                            sessionManager.clearQueue()
+                        } else {
+                            queueNotice = "La cola cambió; no se ha vaciado ninguna cola"
+                        }
                     }) { Text("Vaciar cola") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showClearConfirmation = false }) { Text("Cancelar") }
+                    TextButton(onClick = { clearRequest = null }) { Text("Cancelar") }
                 },
                 containerColor = SurfaceDark,
                 titleContentColor = PureWhite,
@@ -425,34 +583,37 @@ fun QueueScreen(
             )
         }
 
-        selectedTrackForMenu?.let { track ->
+        selectedTrackForMenu?.takeIf { isValidSelection(it) }?.let { selected ->
+            val track = queue[selected.index]
             TrackActionBottomSheet(
                 track = track,
                 isFavorite = favoriteIds.contains(track.id),
                 onDismiss = { selectedTrackForMenu = null },
                 onPlayNow = {
-                    val idx = queue.indexOf(track).coerceAtLeast(0)
-                    sessionManager.playQueue(queue, idx)
+                    actOnSelection(selected) {
+                        queueNotice = null
+                        sessionManager.skipToQueueIndex(selected.index)
+                    }
                 },
                 onPlayNext = {
-                    sessionManager.playNext(track)
+                    actOnSelection(selected) { sessionManager.playNext(track) }
                 },
                 onAddToQueue = {
-                    sessionManager.addToQueue(track)
+                    actOnSelection(selected) { sessionManager.addToQueue(track) }
                 },
                 onAddToPlaylist = {
-                    trackToAddToPlaylist = track
+                    actOnSelection(selected) { trackToAddToPlaylist = track }
                 },
                 onToggleFavorite = {
-                    // The write can fail; an unhandled throw here would take the screen
-                    // scope down with it and the sheet would stay open with a stale heart.
-                    coroutineScope.launch {
-                        try {
-                            favoritesRepo.toggleFavorite(track.id)
-                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                            throw cancelled
-                        } catch (error: Exception) {
-                            android.util.Log.w("QueueScreen", "Favorite update failed", error)
+                    actOnSelection(selected) {
+                        coroutineScope.launch {
+                            try {
+                                favoritesRepo.toggleFavorite(track.id)
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                android.util.Log.w("QueueScreen", "Favorite update failed", error)
+                            }
                         }
                     }
                 },

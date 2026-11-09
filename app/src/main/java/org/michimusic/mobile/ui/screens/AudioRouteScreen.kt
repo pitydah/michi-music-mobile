@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,10 +26,12 @@ import androidx.compose.material.icons.rounded.BluetoothAudio
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Usb
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,12 +43,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.audioRouteEvidence
+import org.michimusic.mobile.ui.components.isObservedOutputInUse
+import org.michimusic.mobile.ui.components.usbDacRouteLabel
+import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
 import org.michimusic.mobile.ui.components.sampleRateLabel
 import org.michimusic.mobile.ui.motion.AeroObservedText
 import org.michimusic.mobile.ui.motion.AeroObservedRouteIcon
@@ -68,7 +75,10 @@ private sealed class AudioRoute {
 }
 
 @Composable
-fun AudioRouteScreen() {
+fun AudioRouteScreen(
+    onBack: (() -> Unit)? = null,
+    onNavigateToDevices: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -86,7 +96,11 @@ fun AudioRouteScreen() {
     val outputDevices by (usbDacManager?.outputDevices?.collectAsStateWithLifecycle() ?: remember {
         mutableStateOf(emptyList())
     })
+    val selectedUsbId by (usbDacManager?.selectedDeviceId?.collectAsStateWithLifecycle() ?: remember {
+        mutableStateOf<Int?>(null)
+    })
 
+    var pendingUsbConfirmation by remember { mutableStateOf<UsbPhysicalDescriptor?>(null) }
     var systemDevices by remember {
         mutableStateOf(audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList())
     }
@@ -124,6 +138,12 @@ fun AudioRouteScreen() {
                 .padding(MichiSpacing.screenHorizontal)
                 .verticalScroll(rememberScrollState()),
         ) {
+            if (onBack != null) {
+                TextButton(
+                    onClick = onBack,
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("audio_route_back"),
+                ) { Text("Volver") }
+            }
             Text(text = "SIGNAL TRUTH", style = MichiTypography.screenEyebrowTechnical)
             Text(
                 text = "Ruta de audio",
@@ -131,6 +151,29 @@ fun AudioRouteScreen() {
                 color = TextPrimary,
             )
             Spacer(Modifier.height(16.dp))
+            val preferredPresence = preferredPhysicalUsbPresence(
+                selectedUsbId,
+                systemDevices.associate { it.id to it.type },
+                outputDevices.filter { it.isUsbDac || it.isUsbHeadset }.map { it.id }.toSet(),
+            ) { type -> type in setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
+                AudioDeviceInfo.TYPE_USB_ACCESSORY, AudioDeviceInfo.TYPE_USB_HEADSET) }
+            preferredUsbGuidance(preferredPresence)?.let { guidance ->
+                Text(guidance, style = MaterialTheme.typography.bodySmall,
+                    color = if (preferredPresence == PreferredUsbPresence.DISCONNECTED)
+                        org.michimusic.mobile.ui.theme.PrimaryPinkContainer else TextSecondary,
+                    modifier = Modifier.testTag("audio_route_preferred_usb_status"))
+            }
+            if (selectedUsbId != null && usbDacManager != null) {
+                TextButton(
+                    onClick = { usbDacManager.clearDeviceSelection() },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("audio_route_automatic"),
+                ) { Text("Volver a ruta automática") }
+                Text("Esto cambia una preferencia; la ruta efectiva debe verificarse otra vez.",
+                    style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+            if (systemDevices.isEmpty()) {
+                Text("Android no comunica salidas en este momento.", color = TextSecondary)
+            }
 
             // Observed route receives material emphasis; it is not a bit-perfect claim.
             AeroSurface(role = AeroSurfaceRole.Raised, finish = AeroFinish.Anodized,
@@ -189,7 +232,20 @@ fun AudioRouteScreen() {
             Spacer(Modifier.height(8.dp))
 
             systemDevices.forEach { device ->
-                val deviceName = device.productName?.toString().takeIf { !it.isNullOrBlank() } ?: "Dispositivo ${device.id}"
+                val usbType = device.type in setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
+                    AudioDeviceInfo.TYPE_USB_ACCESSORY, AudioDeviceInfo.TYPE_USB_HEADSET)
+                val canSelect = canRequestPhysicalUsbOutput(
+                    deviceId = device.id,
+                    isUsbType = usbType,
+                    managerPresent = usbDacManager != null,
+                    physicalOutputIds = systemDevices.map { it.id }.toSet(),
+                    managedUsbOutputIds = outputDevices.filter { it.isUsbDac || it.isUsbHeadset }
+                        .map { it.id }.toSet(),
+                )
+                val observedHere = isObservedOutputInUse(routeStatus, device.id)
+                val requestedHere = (routeStatus as? AudioRouteStatus.Requested)
+                    ?.device?.androidDeviceId == device.id
+                val deviceName = device.productName?.toString().takeIf { !it.isNullOrBlank() } ?: "Salida disponible"
                 val typeName = when (device.type) {
                     AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz integrado"
                     AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Auricular telefónico integrado"
@@ -209,18 +265,78 @@ fun AudioRouteScreen() {
                     "Frecuencias: Según mixer de Android"
                 }
 
-                // Merely advertised device: quiet, plain, non-selected content surface.
-                AeroSurface(role = AeroSurfaceRole.Content, finish = AeroFinish.Plain,
-                    modifier = Modifier.fillMaxWidth()) {
+                // Only a real USB output can request a preferred route. Bluetooth and
+                // speakers remain informational. A request is never labelled confirmed.
+                AeroSurface(
+                    role = AeroSurfaceRole.Content,
+                    finish = if (observedHere) AeroFinish.Satin else AeroFinish.Plain,
+                    modifier = Modifier.fillMaxWidth().testTag("audio_route_output_${device.id}"),
+                    onClick = if (canSelect) ({
+                        // Recheck BOTH device inventories at tap time: hot-plug events can
+                        // invalidate the composition's cached list before the next frame.
+                        val liveDevices = runCatching {
+                            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+                        }.getOrDefault(emptyList())
+                        val liveTypes = liveDevices.associate { it.id to it.type }
+                        val displayed = UsbPhysicalDescriptor(
+                            device.id, device.type, device.address.orEmpty(),
+                            device.productName?.toString().orEmpty(),
+                        )
+                        val live = liveDevices.firstOrNull { it.id == device.id }?.let {
+                            UsbPhysicalDescriptor(it.id, it.type, it.address.orEmpty(),
+                                it.productName?.toString().orEmpty())
+                        }
+                        val managed = usbDacManager?.outputDevices?.value.orEmpty()
+                            .filter { it.isUsbDac || it.isUsbHeadset }.map { it.id }.toSet()
+                        // Android may recycle a numeric ID after hot unplug.
+                        // Never select a different physical type from the displayed row.
+                        if (usbDacManager != null && canRequestSamePhysicalUsbOutput(
+                                device.id, device.type, liveTypes, managed,
+                                isUsbAudioType = { type -> type in setOf(
+                                    AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_ACCESSORY,
+                                    AudioDeviceInfo.TYPE_USB_HEADSET) },
+                            )) {
+                            if (matchingUsbDescriptor(displayed, live)) {
+                                if (usbNeedsConfirmation(displayed)) pendingUsbConfirmation = displayed
+                                else usbDacManager.selectDevice(device.id)
+                            }
+                        }
+                    }) else null,
+                ) {
                     Column(Modifier.fillMaxWidth().padding(14.dp)) {
                         Text(deviceName, style = MaterialTheme.typography.bodyMedium, color = TextPrimary)
                         Text(typeName, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                        Text(sampleRatesStr, style = MaterialTheme.typography.labelSmall, color = TextSecondary.copy(alpha = 0.7f))
+                        if (usbType) Text(usbDacRouteLabel(routeStatus, device.id),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (observedHere) org.michimusic.mobile.ui.theme.PrimaryPinkContainer else TextSecondary)
+                        Text(audioRouteSelectionHint(canSelect, observedHere, requestedHere,
+                            preferredHere = selectedUsbId == device.id),
+                            style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                        Text(sampleRatesStr, style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary.copy(alpha = 0.7f))
                     }
                 }
                 Spacer(Modifier.height(8.dp))
             }
 
+            Spacer(Modifier.height(16.dp))
+            AeroSurface(role = AeroSurfaceRole.Raised, finish = AeroFinish.Satin,
+                modifier = Modifier.fillMaxWidth().testTag("audio_route_stream_guidance")) {
+                Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                    Text("Michi Music Stream", style = MaterialTheme.typography.titleMedium,
+                        color = TextPrimary)
+                    Text(STREAM_PROVISIONING_GUIDANCE,
+                        style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Text("Una salida de red se gestiona en Dispositivos, no como DAC USB del teléfono.",
+                        style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    if (onNavigateToDevices != null) {
+                        TextButton(
+                            onClick = onNavigateToDevices,
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("audio_route_open_devices"),
+                        ) { Text("Abrir Dispositivos") }
+                    }
+                }
+            }
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = TextSecondary.copy(alpha = 0.18f))
             Spacer(Modifier.height(16.dp))
@@ -239,6 +355,33 @@ fun AudioRouteScreen() {
             )
         }
     }
+
+        pendingUsbConfirmation?.let { candidate ->
+            AlertDialog(
+                onDismissRequest = { pendingUsbConfirmation = null },
+                title = { Text("Confirmar salida USB") },
+                text = { Text("Android no entrega una dirección estable para esta salida. " +
+                    "Verifica el DAC conectado: ${candidate.product.ifBlank { "USB Audio" }}. " +
+                    "Esto solicita la preferencia, no confirma la ruta de AudioTrack.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val live = runCatching { audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                            .firstOrNull { it.id == candidate.id } }.getOrNull()
+                        val liveDesc = live?.let { UsbPhysicalDescriptor(it.id, it.type,
+                            it.address.orEmpty(), it.productName?.toString().orEmpty()) }
+                        val managed = usbDacManager?.outputDevices?.value.orEmpty()
+                            .any { it.id == candidate.id && (it.isUsbDac || it.isUsbHeadset) }
+                        if (managed && matchingUsbDescriptor(candidate, liveDesc)) {
+                            usbDacManager?.selectDevice(candidate.id)
+                        }
+                        pendingUsbConfirmation = null
+                    }, modifier = Modifier.testTag("audio_route_confirm_usb")) { Text("Solicitar salida") }
+                },
+                dismissButton = { TextButton(onClick = { pendingUsbConfirmation = null }) {
+                    Text("Cancelar")
+                } },
+            )
+        }
 }
 
 private fun routeName(route: AudioRoute): String = when (route) {

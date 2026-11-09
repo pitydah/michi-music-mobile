@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
 class M60_2DockNavigationTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun fourTabsRetainSemanticsAndRealNavigation() {
+    @Test fun fiveTabsRetainSemanticsAndRealNavigation() {
         val destinations = mutableListOf<String>()
         compose.setContent {
             MichiTheme {
@@ -55,6 +55,7 @@ class M60_2DockNavigationTest {
             .assertContentDescriptionEquals("Biblioteca")
             .assertHeightIsAtLeast(48.dp)
             .performClick()
+        compose.onNodeWithTag("nav_tab_playlist").assertContentDescriptionEquals("Playlists")
         compose.onNodeWithTag("nav_tab_search").assertContentDescriptionEquals("Buscar")
         compose.onNodeWithTag("nav_tab_devices").assertContentDescriptionEquals("Dispositivos")
         assertEquals(listOf("library"), destinations)
@@ -76,10 +77,15 @@ class M60_2DockNavigationTest {
         assertEquals(listOf("home"), destinations)
     }
 
-    @Test fun compactTwoHundredPercentFontUsesTwoByTwoLayout() {
+    @Test fun fiveDestinationsUseTwoRowsWithoutBreakingLegacyPolicy() {
         assertEquals(DockLayout.TWO_BY_TWO, dockLayout(360, 2.0f))
         assertEquals(DockLayout.SINGLE_ROW, dockLayout(360, 1.5f))
         assertEquals(DockLayout.SINGLE_ROW, dockLayout(600, 2.0f))
+        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(320, 1.0f, 5))
+        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(480, 1.0f, 5))
+        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(360, 2.0f, 5))
+        assertEquals(DockLayout.TWO_BY_TWO, dockLayoutForTabCount(600, 2.0f, 5))
+        assertEquals(DockLayout.SINGLE_ROW, dockLayoutForTabCount(600, 1.0f, 5))
     }
 
     @Test fun twoByTwoDockKeepsAllFullLabelsAndTouchTargets() {
@@ -115,7 +121,12 @@ class M60_2DockNavigationTest {
             .assertHeightIsAtLeast(48.dp)
             .fetchSemanticsNode().boundsInRoot
 
+        val playlists = compose.onNodeWithTag("nav_tab_playlist")
+            .assertContentDescriptionEquals("Playlists")
+            .assertHeightIsAtLeast(48.dp)
+            .fetchSemanticsNode().boundsInRoot
         assertEquals(home.top, library.top, 0.5f)
+        assertEquals(home.top, playlists.top, 0.5f)
         assertEquals(search.top, devices.top, 0.5f)
         org.junit.Assert.assertTrue(search.top >= home.bottom)
     }

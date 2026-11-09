@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FolderSpecial
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.History
@@ -80,6 +81,14 @@ import org.michimusic.mobile.ui.components.AeroSurface
 import androidx.compose.material3.TextButton
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
+import android.os.Build
+import android.os.PowerManager
+import android.app.ActivityManager
+import org.michimusic.mobile.ui.theme.AeroAppearanceProfile
+import org.michimusic.mobile.ui.theme.glassSuspensionReason
+import org.michimusic.mobile.ui.theme.AeroSeekerStyle
+import org.michimusic.mobile.ui.components.AeroSegmentedChoice
+import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.shouldStackAudioActions
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
@@ -123,6 +132,7 @@ enum class SettingsSection {
     ROOT,
     AUDIO_QUALITY,
     LIBRARY_STORAGE,
+    APPEARANCE,
     ACCESSIBILITY,
     PRIVACY,
 }
@@ -227,6 +237,7 @@ fun SettingsScreen(
                                 SettingsSection.ROOT -> "Preferencias & Audio"
                                 SettingsSection.AUDIO_QUALITY -> "Calidad de Audio & DSP"
                                 SettingsSection.LIBRARY_STORAGE -> "Biblioteca & Almacenamiento"
+                                SettingsSection.APPEARANCE -> "Apariencia Aero"
                                 SettingsSection.ACCESSIBILITY -> "Accesibilidad & Visual"
                                 SettingsSection.PRIVACY -> "Privacidad & Datos"
                             },
@@ -291,6 +302,14 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 1.2.sp,
                             )
+                            SettingsCategoryNavCard(
+                                icon = Icons.Default.Palette,
+                                title = "Apariencia Aero",
+                                subtitle = "Acabados, microtexturas y materiales",
+                                accent = PrimaryPink,
+                                onClick = { currentSection = SettingsSection.APPEARANCE },
+                            )
+
                             SettingsCategoryNavCard(
                                 icon = Icons.Default.AccessibilityNew,
                                 title = "Accesibilidad & Visual",
@@ -761,6 +780,114 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    SettingsSection.APPEARANCE -> {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SettingsSectionCard(
+                                icon = Icons.Default.Palette,
+                                title = "Apariencia Aero",
+                                subtitle = "Intensidad de materiales y microtexturas",
+                                accent = PrimaryPink,
+                            ) {
+                                Text(
+                                    "Acabado de superficies",
+                                    color = TextPrimary, fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    AeroSegmentedChoice(
+                                        label = "Discreto",
+                                        selected = visualPrefs.appearanceProfile == AeroAppearanceProfile.DISCRETO,
+                                        onClick = { visualPreferencesRepo.setAppearanceProfile(AeroAppearanceProfile.DISCRETO) },
+                                        modifier = Modifier.weight(1f),
+                                        treatment = AeroSegmentTreatment.Filter,
+                                        testTag = "settings_appearance_discreet",
+                                    )
+                                    AeroSegmentedChoice(
+                                        label = "Equilibrado",
+                                        selected = visualPrefs.appearanceProfile == AeroAppearanceProfile.EQUILIBRADO,
+                                        onClick = { visualPreferencesRepo.setAppearanceProfile(AeroAppearanceProfile.EQUILIBRADO) },
+                                        modifier = Modifier.weight(1f),
+                                        treatment = AeroSegmentTreatment.Filter,
+                                        testTag = "settings_appearance_balanced",
+                                    )
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                AeroSegmentedChoice(
+                                    label = "Cristalino · banner desenfocado",
+                                    selected = visualPrefs.appearanceProfile == AeroAppearanceProfile.CRISTALINO,
+                                    onClick = { visualPreferencesRepo.setAppearanceProfile(AeroAppearanceProfile.CRISTALINO) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    treatment = AeroSegmentTreatment.Filter,
+                                    testTag = "settings_appearance_crystalline",
+                                )
+                                val appearanceContext = LocalContext.current
+                                val glassReason = glassSuspensionReason(
+                                    visualPrefs.appearanceProfile, Build.VERSION.SDK_INT,
+                                    visualPrefs.highContrast, visualPrefs.reducedMotion,
+                                    (appearanceContext.getSystemService(Context.POWER_SERVICE) as? PowerManager)
+                                        ?.isPowerSaveMode == true,
+                                    (appearanceContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+                                        ?.isLowRamDevice == true,
+                                )
+                                if (glassReason != null) Text(
+                                    glassReason, color = TextSecondary, fontSize = 12.sp,
+                                    modifier = Modifier.testTag("settings_appearance_glass_status"),
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "Cristalino desenfoca únicamente el banner real de una playlist " +
+                                        "en Android 12+; si falta imagen, compatibilidad o hay alto " +
+                                        "contraste/movimiento reducido, ahorro de batería o memoria limitada, " +
+                                        "conserva Aero ahumado. " +
+                                        "No incluye refracción AGSL ni blur de listas.",
+                                    color = TextSecondary, fontSize = 12.sp,
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                SettingSwitchRow(
+                                    title = "Microtexturas",
+                                    subtitle = "Grano fino y estable en los materiales Aero",
+                                    checked = visualPrefs.microtexturesEnabled,
+                                    onCheckedChange = { visualPreferencesRepo.setMicrotexturesEnabled(it) },
+                                    testTag = "settings_appearance_microtextures",
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                TextButton(
+                                    onClick = { visualPreferencesRepo.resetAppearance() },
+                                    modifier = Modifier.testTag("settings_appearance_reset"),
+                                ) {
+                                    Text("Restablecer apariencia", color = PrimaryPink)
+                                }
+                                Spacer(Modifier.height(18.dp))
+                                Text("Reproducción · Barra de progreso",
+                                    color = TextPrimary, fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(7.dp))
+                                // All five styles are selectable. Waveform choices are honest:
+                                // a missing local PCM decode shows the exact original seeker.
+                                AeroSeekerStyle.entries.forEach { choice ->
+                                    AeroSegmentedChoice(
+                                        label = choice.label,
+                                        selected = visualPrefs.seekerStyle == choice,
+                                        onClick = { visualPreferencesRepo.setSeekerStyle(choice) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        treatment = AeroSegmentTreatment.Filter,
+                                        testTag = "settings_seeker_${choice.name.lowercase()}",
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                }
+                                Text("Barras y Continuo analizan PCM real de archivos locales " +
+                                    "accesibles. Si falta el archivo, permiso o códec, se muestra " +
+                                    "la barra Original. Liquid Glass mantiene su acabado compatible.",
+                                    color = TextSecondary, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
                     SettingsSection.ACCESSIBILITY -> {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             SettingsSectionCard(
@@ -821,6 +948,7 @@ fun SettingsScreen(
                                     onCheckedChange = { isChecked ->
                                         listeningHistory = isChecked
                                         scope.launch {
+                                            if (!isChecked) PlaylistLaunchHistoryStore(context).clear()
                                             appDao.setSetting(
                                                 org.michimusic.data.cache.SettingsEntity(
                                                     key = DB_LISTENING_HISTORY_ENABLED,
@@ -900,16 +1028,20 @@ private fun SettingsAudioQuickActionCard(
     onClick: () -> Unit,
     modifier: Modifier,
 ) {
-    // Single satin equipment action: no nested Material button or second border.
+    // Keep the full tactile surface while giving short labels a denser Aero finish.
+    // heightIn is a FLOOR: long text is never forced into a fixed-height card.
+    val minHeight = aeroSettingsAudioQuickActionMinHeightDp(
+        androidx.compose.ui.platform.LocalConfiguration.current.fontScale,
+    ).dp
     AeroSurface(
         role = AeroSurfaceRole.Raised,
         finish = AeroFinish.Satin,
-        modifier = modifier.heightIn(min = 72.dp),
+        modifier = modifier.heightIn(min = minHeight),
         onClick = onClick,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = minHeight)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {

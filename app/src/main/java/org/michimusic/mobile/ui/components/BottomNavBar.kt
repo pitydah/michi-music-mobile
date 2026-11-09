@@ -65,13 +65,14 @@ data class NavTabItem(
 )
 
 /**
- * Phosphor Icons (MIT) for the four dock destinations. Geometry comes straight
+ * Phosphor Icons (MIT) for the five dock destinations. Geometry comes straight
  * from phosphoricons.com at the 256 viewport: no hand-drawn Canvas glyph remains
  * and the Wi-Fi mark identifies Devices without tracking signal strength.
  */
 val defaultNavTabs = listOf(
     NavTabItem("home", "Inicio", R.drawable.ic_dock_home),
     NavTabItem("library", "Biblioteca", R.drawable.ic_dock_library),
+    NavTabItem("playlist", "Playlists", R.drawable.ic_dock_playlists),
     NavTabItem("search", "Buscar", R.drawable.ic_dock_search),
     NavTabItem("devices", "Dispositivos", R.drawable.ic_dock_devices),
 )
@@ -85,6 +86,13 @@ internal fun dockLayout(screenWidthDp: Int, fontScale: Float): DockLayout =
         DockLayout.SINGLE_ROW
     }
 
+// A five-item dock needs a two-row fallback BEFORE labels shrink below a usable
+// size. Keep the pre-UI5 four-item policy unchanged for compatible call sites.
+internal fun dockLayoutForTabCount(screenWidthDp: Int, fontScale: Float, tabCount: Int): DockLayout =
+    if (tabCount >= 5 && (screenWidthDp <= 520 || !fontScale.isFinite() || fontScale >= 1.3f)) {
+        DockLayout.TWO_BY_TWO // legacy name: 3+2 when the fifth tab is present
+    } else dockLayout(screenWidthDp, fontScale)
+
 @Composable
 fun BottomNavBar(
     currentRoute: String?,
@@ -94,8 +102,10 @@ fun BottomNavBar(
     selectedRoute: String? = currentRoute,
 ) {
     val configuration = LocalConfiguration.current
-    val layout = dockLayout(configuration.screenWidthDp, configuration.fontScale)
-    val dockHeight = if (layout == DockLayout.TWO_BY_TWO) 144.dp else aeroDockHeightDp(configuration.fontScale).dp
+    val layout = dockLayoutForTabCount(configuration.screenWidthDp, configuration.fontScale, tabs.size)
+    val dockHeight = if (layout == DockLayout.TWO_BY_TWO) {
+        if (tabs.size >= 5 && configuration.fontScale >= 1.7f) 190.dp else 144.dp
+    } else aeroDockHeightDp(configuration.fontScale).dp
     val highContrast = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.highContrast
     // Native Compose equivalent of a fixed, responsive bottom glass navigation.
     // This is not a WebView: HTML/CSS cannot style the Android navigation surface.
@@ -117,7 +127,9 @@ fun BottomNavBar(
         ) {
             if (layout == DockLayout.TWO_BY_TWO) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    tabs.chunked(2).forEach { rowTabs ->
+                    // Keep five tabs on two lines rather than 2+2+1, which would
+                    // shrink the third row below the minimum accessible touch size.
+                    tabs.chunked(if (tabs.size >= 5) 3 else 2).forEach { rowTabs ->
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             rowTabs.forEach { tab ->
                                 DockTab(
@@ -222,8 +234,8 @@ private fun DockTab(
             BasicText(
                 text = tab.label,
                 modifier = Modifier.testTag("nav_label_${tab.route}"),
-                maxLines = 1,
-                softWrap = false,
+                maxLines = if (preserveFullLabelSize) 2 else 1,
+                softWrap = preserveFullLabelSize,
                 overflow = TextOverflow.Ellipsis,
                 autoSize = if (preserveFullLabelSize) null else TextAutoSize.StepBased(
                     minFontSize = 7.sp,

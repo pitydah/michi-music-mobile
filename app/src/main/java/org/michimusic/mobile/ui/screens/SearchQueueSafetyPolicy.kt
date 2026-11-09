@@ -1,5 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.mobile.screens.searchTextMatches
+
 /** Only an index that belongs to the exact current result list may be played. */
 internal fun safeSearchQueueIndex(candidate: Int, count: Int): Int? =
     candidate.takeIf { count > 0 && it >= 0 && it < count }
@@ -15,8 +17,8 @@ internal fun safeSearchQueueTrackIdIndex(ids: List<String>, selectedId: String):
 
 /** Live query guard: old results remain visible during SearchViewModel's debounce. */
 internal fun searchActionPermitted(query: String, filter: String, kind: String, matchedText: String): Boolean {
-    // SearchViewModel does not trim its query; the policy must match that contract.
-    if (query.length < 2 || query.isBlank() || !matchedText.contains(query, ignoreCase = true)) return false
+    // The ViewModel and click guard MUST share Unicode normalization.
+    if (query != query.trim() || !searchTextMatches(matchedText, query)) return false
     return when (kind) {
         "ARTIST" -> filter == "ALL" || filter == "ARTISTS"
         "ALBUM" -> filter == "ALL" || filter == "ALBUMS"

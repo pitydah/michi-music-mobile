@@ -42,11 +42,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.Role
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.AeroSeekerStyle
+import org.michimusic.mobile.ui.theme.resolvedAeroSeekerStyle
+import org.michimusic.mobile.ui.theme.aeroSeekerFallbackDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -333,11 +337,17 @@ fun GradientProgressBar(
     showThumb: Boolean = true,
     testTag: String = "progress_bar",
     appearance: ProgressAppearance = ProgressAppearance.STANDARD,
+    aeroStyle: AeroSeekerStyle = AeroSeekerStyle.ORIGINAL,
+    waveformAmplitudes: List<Float>? = null,
+    playing: Boolean = false,
 ) {
     val fraction = seekProgressFraction(currentValue, maxValue)
     val progress = fraction ?: 0f
     val canSeek = fraction != null
-    val reducedMotion = LocalVisualPreferences.current.reducedMotion
+    val prefs = LocalVisualPreferences.current
+    val reducedMotion = prefs.reducedMotion
+    val seekerStyle = if (canSeek) resolvedAeroSeekerStyle(aeroStyle, waveformAmplitudes, prefs.highContrast)
+        else AeroSeekerStyle.ORIGINAL
     var isDragging by remember { mutableStateOf(false) }
     val animatedThumbSize by animateDpAsState(
         targetValue = if (isDragging) 18.dp else 14.dp,
@@ -356,6 +366,9 @@ fun GradientProgressBar(
             .height(32.dp)
             .testTag(testTag)
             .semantics {
+                aeroSeekerFallbackDescription(aeroStyle, seekerStyle, prefs.highContrast)?.let {
+                    contentDescription = it
+                }
                 progressBarRangeInfo = if (canSeek) ProgressBarRangeInfo(progress, 0f..1f)
                 else ProgressBarRangeInfo.Indeterminate
                 if (canSeek) {
@@ -390,6 +403,7 @@ fun GradientProgressBar(
     ) {
         val totalWidth = maxWidth
 
+        if (seekerStyle == AeroSeekerStyle.ORIGINAL) {
         // Background Track
         Box(
             modifier = Modifier
@@ -398,10 +412,19 @@ fun GradientProgressBar(
                 .clip(CircleShape)
                 .background(AeroTrack),
         )
+        } else {
+            AeroSeekerTrack(
+                style = seekerStyle, progress = progress, playing = playing,
+                reducedMotion = reducedMotion, dragging = isDragging,
+                amplitudes = waveformAmplitudes,
+                modifier = Modifier.fillMaxWidth().height(32.dp),
+            )
+        }
 
-        // Elapsed progress: Aurora is anchored to the FULL track, not rescaled on
-        // every seek, so the blue > cyan > lavender positions remain stable.
-        Box(
+        // The legacy elapsed rectangle belongs ONLY to ORIGINAL. For every other
+        // style AeroSeekerTrack paints both full-range rail and played portion.
+        // A second overlaid progress box hides waveform/glass pixels.
+        if (seekerStyle == AeroSeekerStyle.ORIGINAL) Box(
             modifier = Modifier
                 .width(totalWidth * progress)
                 .height(animatedTrackHeight)

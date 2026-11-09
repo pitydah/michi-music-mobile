@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +45,9 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import org.michimusic.mobile.ui.components.AeroSegmentedChoice
+import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,8 +90,29 @@ fun PlaylistScreen(
     val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsStateWithLifecycle()
     val createPlaylistError by viewModel.createPlaylistError.collectAsStateWithLifecycle()
     var showCreateDialog by remember { mutableStateOf(false) }
+    val appContext = LocalContext.current.applicationContext
+    val visualStore = remember(appContext) { PlaylistVisualStore(appContext) }
+    val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
+    var visualById by remember { mutableStateOf<Map<String, PlaylistVisualState>>(emptyMap()) }
+    var catalogSort by remember { mutableStateOf(PlaylistCatalogSort.NAME) }
+    val visualScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.loadPlaylists() }
+    LaunchedEffect(Unit) { catalogSort = visualStore.readCatalogSort() }
+    LaunchedEffect(playlists, visualRevision) {
+        visualById = visualStore.readMany(playlists.map { it.id })
+    }
+    val indexed = remember(playlists) { playlists.associateBy { it.id } }
+    val orderedPlaylists = remember(playlists, visualById, catalogSort) {
+        orderedPlaylistCatalog(
+            entries = playlists.map { PlaylistCatalogEntry(it.id, it.name, it.trackCount) },
+            pinnedIds = visualById.filterValues { it.pinned }.keys,
+            sort = catalogSort,
+        ).mapNotNull { indexed[it.id] }
+    }
+
+    val launchHistoryStore = remember(appContext) { PlaylistLaunchHistoryStore(appContext) }
+    val historyDao: org.michimusic.data.cache.AppDao = org.koin.compose.koinInject()
 
     Box(
         modifier = Modifier
@@ -129,7 +154,29 @@ fun PlaylistScreen(
                 )
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().testTag("playlist_catalog_sort"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AeroSegmentedChoice(
+                    label = "Nombre", selected = catalogSort == PlaylistCatalogSort.NAME,
+                    onClick = {
+                        catalogSort = PlaylistCatalogSort.NAME
+                        visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                    }, modifier = Modifier.weight(1f), treatment = AeroSegmentTreatment.Filter,
+                    testTag = "playlist_sort_name",
+                )
+                AeroSegmentedChoice(
+                    label = "Más canciones", selected = catalogSort == PlaylistCatalogSort.TRACKS,
+                    onClick = {
+                        catalogSort = PlaylistCatalogSort.TRACKS
+                        visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                    }, modifier = Modifier.weight(1f), treatment = AeroSegmentTreatment.Filter,
+                    testTag = "playlist_sort_tracks",
+                )
+            }
+            Spacer(Modifier.height(12.dp))
 
             if (isLoading) {
                 Box(
@@ -172,7 +219,7 @@ fun PlaylistScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(playlists, key = { it.id }) { playlist ->
+                    items(orderedPlaylists, key = { it.id }) { playlist ->
                         AeroCard(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -187,13 +234,21 @@ fun PlaylistScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
-                                org.michimusic.mobile.ui.components.PlaylistCoverMosaic(
-                                    coverIds = playlist.coverIds,
-                                    coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
-                                    modifier = Modifier.size(52.dp),
-                                    size = 52.dp,
-                                    cornerRadius = 12.dp,
-                                )
+                                if (visualById[playlist.id]?.coverUri != null) {
+                                    AlbumArtView(
+                                        coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
+                                        imageModel = visualById[playlist.id]?.coverUri,
+                                        modifier = Modifier.size(52.dp), cornerRadius = 12.dp,
+                                    )
+                                } else {
+                                    org.michimusic.mobile.ui.components.PlaylistCoverMosaic(
+                                        coverIds = playlist.coverIds,
+                                        coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
+                                        modifier = Modifier.size(52.dp),
+                                        size = 52.dp,
+                                        cornerRadius = 12.dp,
+                                    )
+                                }
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -209,6 +264,11 @@ fun PlaylistScreen(
                                         fontSize = 12.sp,
                                         color = TextSecondary,
                                     )
+                                    if (visualById[playlist.id]?.pinned == true) {
+                                        Text("Fijada", color = PrimaryPinkContainer,
+                                            style = MichiTypography.microLabel,
+                                            modifier = Modifier.testTag("playlist_pinned_${playlist.id}"))
+                                    }
                                 }
 
                                 MichiIconAction(
@@ -216,7 +276,23 @@ fun PlaylistScreen(
                                     contentDescription = "Reproducir ${playlist.name}",
                                     onClick = {
                                         if (sessionManager != null) {
-                                            viewModel.playPlaylist(playlist.id, audioController = audioController, sessionManager = sessionManager)
+                                            viewModel.playPlaylist(
+                                                playlist.id, audioController = audioController,
+                                                sessionManager = sessionManager,
+                                                onResult = { result ->
+                                                    if (result is org.michimusic.mobile.screens.PlayPlaylistResult.Success) {
+                                                        visualScope.launch {
+                                                            // Privacy is authoritative. A queue acceptance is
+                                                            // evidence of a command, NOT that a song was heard.
+                                                            val allowed = runCatching {
+                                                                historyDao.getSetting("listening_history_enabled") != "false"
+                                                            }.getOrDefault(false)
+                                                            if (!allowed) launchHistoryStore.clear()
+                                                            else launchHistoryStore.recordAccepted(playlist.id, result.trackCount)
+                                                        }
+                                                    }
+                                                },
+                                            )
                                         } else {
                                             viewModel.playPlaylist(playlist.id, audioController = audioController)
                                         }

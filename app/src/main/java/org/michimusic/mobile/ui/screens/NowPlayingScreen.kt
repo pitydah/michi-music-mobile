@@ -99,6 +99,11 @@ import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.playback.SignalTruthResolver
 import org.michimusic.player.AudioController
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import org.michimusic.mobile.ui.seeker.LocalWaveformDecoder
+import org.michimusic.mobile.ui.seeker.eligibleWaveformPath
+import org.michimusic.mobile.ui.theme.AeroSeekerStyle
 
 private fun cycleSleepTimer(current: Long): Long = when {
     current <= 0L -> 15 * 60_000L
@@ -134,6 +139,42 @@ fun NowPlayingScreen(
     val safeDurationSeconds = if (seekableDuration) durationSeconds else 0f
     val safePositionSeconds = if (seekableDuration && positionSeconds.isFinite())
         positionSeconds.coerceIn(0f, safeDurationSeconds) else 0f
+
+    // UI5.11 visual data is neither a decoder in the playback chain nor Signal Truth.
+    // A change of track/source/authority/style invalidates the previous visual frame
+    // synchronously, avoiding a waveform from the preceding track during recomposition.
+    val visualPrefs = LocalVisualPreferences.current
+    val seekerStyle = visualPrefs.seekerStyle
+    val remoteHost = presentation.isRemoteActive && !presentation.isStreamReceiver
+    val waveformKey = listOf(
+        currentTrack?.id.orEmpty(), currentTrack?.filepath.orEmpty(),
+        currentTrack?.size.toString(), currentTrack?.duration.toString(),
+        currentTrack?.source.toString(), remoteHost.toString(),
+        seekerStyle.name, visualPrefs.highContrast.toString(),
+    ).joinToString(separator = "\u001f")
+    val contextForWaveform = LocalContext.current.applicationContext
+    val waveformSnapshot by produceState<Pair<String, List<Float>?>>(
+        initialValue = "" to null, key1 = waveformKey,
+    ) {
+        value = waveformKey to null
+        val track = currentTrack
+        if (track != null && seekableDuration && !visualPrefs.highContrast &&
+            (seekerStyle == AeroSeekerStyle.WAVEFORM_BARS ||
+                seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS)
+        ) {
+            val path = eligibleWaveformPath(
+                track.filepath,
+                streamingSource = track.source == org.michimusic.core.models.TrackSource.STREAMING,
+                remoteHost = remoteHost,
+            )
+            if (path != null) {
+                value = waveformKey to LocalWaveformDecoder.load(
+                    contextForWaveform, path, track.duration.takeIf { it > 0 } ?: presentation.duration,
+                )
+            }
+        }
+    }
+    val seekerSamples = waveformSnapshot.second.takeIf { waveformSnapshot.first == waveformKey }
 
     val isShuffle = presentation.shuffleMode == 1
     val repeatMode = presentation.repeatMode
@@ -347,6 +388,9 @@ fun NowPlayingScreen(
                     showThumb = true,
                     testTag = "now_playing_seeker",
                     appearance = ProgressAppearance.MICHI_AURORA,
+                    aeroStyle = seekerStyle,
+                    playing = isPlaying,
+                    waveformAmplitudes = seekerSamples,
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))

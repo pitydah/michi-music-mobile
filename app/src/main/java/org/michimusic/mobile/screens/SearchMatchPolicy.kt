@@ -11,8 +11,8 @@ import org.michimusic.core.models.Track
  * future change to the matching rule lands in exactly one place.
  */
 internal fun trackTitleMatches(track: Track, lowerQuery: String): Boolean =
-    track.title.lowercase().contains(lowerQuery)
+    searchTextMatches(track.title, lowerQuery)
 
 /** Album membership uses the album name, mirroring the album grouping in the view model. */
 internal fun trackAlbumMatches(track: Track, lowerQuery: String): Boolean =
-    track.album.lowercase().contains(lowerQuery)
+    searchTextMatches(track.album, lowerQuery)

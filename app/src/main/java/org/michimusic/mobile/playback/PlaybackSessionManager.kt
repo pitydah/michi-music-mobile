@@ -1166,13 +1166,65 @@ class PlaybackSessionManager(
 
     fun skipToQueueIndex(index: Int) {
         if (isRemotePlaybackHost) {
-            val targetEndpoint = _sessionState.value.activeEndpoint
+            val state = _sessionState.value
+            if (index !in state.queue.indices) return
+            val targetEndpoint = state.activeEndpoint
+            val selectedId = state.queue[index].id
             val opEpoch = _sessionEpoch.get()
+            // Never race two destructive/positional operations from the same UI session.
+            if (state.lastRemoteCommand?.let {
+                    it.endpointId == targetEndpoint.id && it.status == RemoteCommandStatus.PENDING
+                } == true) return
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                epoch = opEpoch,
+                action = "jump_queue_index",
+                param = index.toString(),
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = state.copy(lastRemoteCommand = cmd)
             scope.launch {
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                connectionManager.getClient(targetEndpoint.id)?.queueJump(index)
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                    _sessionState.value = _sessionState.value.copy(queueIndex = index)
+                fun stillCurrent(): Boolean = opEpoch == _sessionEpoch.get() &&
+                    _sessionState.value.activeEndpoint.id == targetEndpoint.id &&
+                    _sessionState.value.lastRemoteCommand?.commandId == cmd.commandId
+                if (!stillCurrent()) return@launch
+                val client = connectionManager.getClient(targetEndpoint.id)
+                val result = client?.queueJump(index)
+                if (!stillCurrent()) return@launch
+                val outcome = if (result?.isSuccess == true) {
+                    // The transport ACK does not prove that the host selected the index.
+                    val observed = runCatching { client?.getQueue()?.getOrNull() }.getOrNull()
+                    if (!stillCurrent()) return@launch
+                    if (observed != null) {
+                        val tracks = observed.tracks.map { it.toDomainTrack() }
+                        val observedIndex = observed.currentIndex.takeIf { it in tracks.indices } ?: -1
+                        _sessionState.value = _sessionState.value.copy(
+                            queue = tracks,
+                            queueIndex = observedIndex,
+                            currentTrack = tracks.getOrNull(observedIndex),
+                        )
+                        if (remoteQueueJumpWasObserved(index, selectedId, observedIndex, tracks.getOrNull(observedIndex)?.id)) {
+                            cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                        } else {
+                            cmd.copy(
+                                status = RemoteCommandStatus.ACCEPTED,
+                                epoch = opEpoch,
+                                resultMessage = "El host aceptó el salto, pero informó otra posición; se muestra la cola observada",
+                            )
+                        }
+                    } else {
+                        cmd.copy(
+                            status = RemoteCommandStatus.ACCEPTED,
+                            epoch = opEpoch,
+                            resultMessage = "Salto aceptado; no se pudo confirmar el índice remoto",
+                        )
+                    }
+                } else {
+                    val (failure, reason) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failure, epoch = opEpoch, resultMessage = reason)
+                }
+                if (stillCurrent()) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
         } else {
@@ -1211,6 +1263,19 @@ class PlaybackSessionManager(
             val currentQ = _sessionState.value.queue
             if (index in currentQ.indices) {
                 val item = currentQ[index]
+                if (!remoteQueueRemovalUnambiguous(currentQ.map { it.id }, index)) {
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = RemoteCommandRecord(
+                            endpointId = targetEndpoint.id,
+                            epoch = opEpoch,
+                            action = "remove_queue_item",
+                            param = item.id,
+                            status = RemoteCommandStatus.UNSUPPORTED,
+                            resultMessage = "No se puede eliminar una aparición repetida: el servidor no informa un ID único de elemento",
+                        ),
+                    )
+                    return
+                }
                 val cmd = RemoteCommandRecord(
                     endpointId = targetEndpoint.id,
                     epoch = opEpoch,

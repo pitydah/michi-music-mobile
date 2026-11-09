@@ -4,19 +4,25 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 class NavigationPresentationPolicyTest {
+ @Test fun queueOpensCollectionNotAnInventedPlaylistId() {
+  assertEquals("playlist",queuePlaylistsDestination())
+  assertEquals(MichiScreenLevel.PRIMARY,navigationPresentationFor(queuePlaylistsDestination()).level)
+ }
  @Test fun primaryDestinationsKeepCorrectDockTab() {
-  listOf("home","library","search","devices").forEach {route->
+  listOf("home","library","playlist","search","devices").forEach {route->
    val p=navigationPresentationFor(route)
    assertEquals(route,p.selectedPrimaryTab)
    assertEquals(MichiScreenLevel.PRIMARY,p.level)
    assertTrue(p.showDock);assertTrue(p.showMiniPlayer)
   }
  }
- @Test fun playlistsAndQueueRemainUnderLibrary(){
-  listOf("playlist","playlist/{playlistId}","playlist/my-id","queue").forEach {route->
+ @Test fun playlistDetailsKeepPlaylistsSelectedAndQueueRemainsLibrary(){
+  listOf("playlist/{playlistId}","playlist/my-id").forEach { route ->
    val p=navigationPresentationFor(route)
-   assertEquals("library",p.selectedPrimaryTab);assertEquals(MichiScreenLevel.DETAIL,p.level)
+   assertEquals("playlist",p.selectedPrimaryTab)
+   assertEquals(MichiScreenLevel.DETAIL,p.level)
   }
+  assertEquals("library",navigationPresentationFor("queue").selectedPrimaryTab)
  }
  @Test fun ecosystemRoutesRemainUnderDevices(){
   listOf("remote","synced","sync","audio-route").forEach {route->

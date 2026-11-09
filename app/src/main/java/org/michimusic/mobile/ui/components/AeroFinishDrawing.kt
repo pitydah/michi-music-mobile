@@ -49,6 +49,24 @@ internal fun Modifier.aeroFinishDrawing(
             override fun createShader(size: Size): Shader =
                 ImageShader(grain, TileMode.Repeated, TileMode.Repeated)
         } else null
+        // The same directional light is attenuated toward the right edge.
+        // This is a draw-only finish: no extra layout, background capture or GPU blur.
+        val edgeLight = if (spec.edgeAlpha > 0f) Brush.horizontalGradient(
+            0f to Color.White.copy(alpha = spec.edgeAlpha),
+            0.28f to Color.White.copy(alpha = spec.edgeAlpha * 0.68f),
+            1f to Color.White.copy(alpha = spec.edgeAlpha * 0.12f),
+        ) else null
+        val bottomShade = if (finish == AeroFinish.Anodized || finish == AeroFinish.Smoked) {
+            Brush.verticalGradient(
+                0f to Color.Transparent,
+                1f to Color.Black.copy(alpha = 0.028f),
+                startY = size.height * 0.72f,
+                endY = size.height.coerceAtLeast(1f),
+            )
+        } else null
+        val optical = org.michimusic.mobile.ui.theme.aeroOpticalEdgeLight(
+            finish, spec, size.width, size.height,
+        )
         val topY = 0.325.dp.toPx()
         val bottomY = (size.height - 0.5.dp.toPx()).coerceAtLeast(0f)
         val hairline = 0.65.dp.toPx()
@@ -56,13 +74,26 @@ internal fun Modifier.aeroFinishDrawing(
             light?.let { drawRect(brush = it) }
             grainBrush?.let { drawRect(brush = it, alpha = grainOpacity) }
             inset?.let { drawRect(brush = it) }
+            bottomShade?.let { drawRect(brush = it) }
             // The actual labels, artwork and interactive children are never tinted.
             drawContent()
-            if (spec.edgeAlpha > 0f) {
+            if (edgeLight != null && optical.enabled) {
                 drawLine(
-                    color = Color.White.copy(alpha = spec.edgeAlpha),
+                    brush = edgeLight,
                     start = Offset(0f, topY), end = Offset(size.width, topY),
                     strokeWidth = hairline,
+                )
+                // Directional bounce is confined to the perimeter, never applied
+                // as a transparency layer on text, buttons or album artwork.
+                if (optical.bottomAlpha > 0f) drawLine(
+                    color = Color.White.copy(alpha = optical.bottomAlpha),
+                    start = Offset(0f, bottomY), end = Offset(size.width, bottomY),
+                    strokeWidth = 0.45.dp.toPx(),
+                )
+                if (optical.leftAlpha > 0f) drawLine(
+                    color = Color.White.copy(alpha = optical.leftAlpha),
+                    start = Offset(0f, topY), end = Offset(0f, bottomY),
+                    strokeWidth = 0.45.dp.toPx(),
                 )
             }
             if (finish == AeroFinish.Inset) {

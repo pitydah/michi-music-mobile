@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
@@ -24,6 +25,7 @@ enum class SearchFilter(val displayName: String) {
     TRACKS("Canciones"),
     ARTISTS("Artistas"),
     ALBUMS("Álbumes"),
+    PLAYLISTS("Playlists"),
     LOSSLESS("Lossless / FLAC"),
     DOWNLOADED("Descargados"),
 }
@@ -93,41 +95,51 @@ class SearchViewModel(
     private var searchJob: Job? = null
     private var loadJob: Job? = null
     private val searchGeneration = java.util.concurrent.atomic.AtomicLong(0L)
+    private val loadGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     val currentSearchGeneration: Long get() = searchGeneration.get()
 
     init {
         if (rootAuthority != null) {
             viewModelScope.launch {
                 rootAuthority.revision.drop(1).collect {
-                    loadLocalTracks()
+                    // A confirmed root change must supersede any catalog scan that
+                    // started against the previous root, even if it is still running.
+                    loadLocalTracks(force = true)
                 }
             }
         }
     }
 
-    fun loadLocalTracks() {
-        // A retry that arrives while a catalog scan is still running would cancel
-        // that scan and restart it, leaving the first request's cancellation to
-        // settle state owned by the second one. The in-flight scan already reads
-        // the live catalog, so keep the first request authoritative.
-        if (loadJob?.isActive == true) return
+    fun loadLocalTracks(force: Boolean = false) {
+        // Normal retries keep an in-flight scan authoritative. A confirmed root
+        // revision is different: its old scan can never publish into the new root.
+        if (!force && loadJob?.isActive == true) return
+        val generation = loadGeneration.incrementAndGet()
+        if (force) loadJob?.cancel()
         loadJob = viewModelScope.launch(ioDispatcher) {
             _isSearching.value = true
             _error.value = null
             try {
                 val albums = localRepo.loadAlbums()
+                if (generation != loadGeneration.get() || !isActive) return@launch
                 localTracks = albums.flatMap { it.tracks }
-                syncedTracks = syncedRepo.getAllSynced().first()
+                val synced = syncedRepo.getAllSynced().first()
+                if (generation != loadGeneration.get() || !isActive) return@launch
+                syncedTracks = synced
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = e.message ?: "Error al cargar canciones"
+                if (generation == loadGeneration.get()) {
+                    _error.value = e.message ?: "Error al cargar canciones"
+                }
             } finally {
                 // Refresh results when an asynchronous library load changes the catalog.
-                // Cancelled loads must not publish stale data.
-                if (kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive == true &&
-                    _error.value == null && _query.value.length >= 2) setQuery(_query.value)
-                else if (_error.value != null || searchJob?.isActive != true) _isSearching.value = false
+                // Superseded loads must not publish stale data or completion state.
+                if (generation == loadGeneration.get()) {
+                    if (kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]?.isActive == true &&
+                        _error.value == null && _query.value.length >= 2) setQuery(_query.value)
+                    else if (_error.value != null || searchJob?.isActive != true) _isSearching.value = false
+                }
             }
         }
     }
@@ -149,7 +161,14 @@ class SearchViewModel(
         _structuredResults.value = StructuredSearchResults()
         _results.value = emptyList()
         _error.value = null
-        if (q.length < 2 || q.isBlank()) {
+        // Local playlist names/IDs are observed from PlaylistRepository in SearchScreen.
+        // Do not launch a track-catalog search when PLAYLISTS owns the filter.
+        if (_selectedFilter.value == SearchFilter.PLAYLISTS) {
+            _isSearching.value = false
+            searchJob = null
+            return
+        }
+        if (q != q.trim() || normalizedSearchText(q).length < 2) {
             _isSearching.value = false
             searchJob = null
             return
@@ -200,13 +219,13 @@ class SearchViewModel(
 
     private fun executeSearch(q: String, filter: SearchFilter, generation: Long) {
         if (generation != searchGeneration.get() || q != _query.value || filter != _selectedFilter.value) return
-        val lower = q.lowercase()
+        val lower = normalizedSearchText(q)
 
         val allCombinedTracks = getCombinedDeduplicatedTracks()
 
         // Typed Artists
         val artistMatches = if (filter == SearchFilter.ALL || filter == SearchFilter.ARTISTS) {
-            allCombinedTracks.filter { it.artist.lowercase().contains(lower) }
+            allCombinedTracks.filter { searchTextMatches(it.artist, lower) }
                 .groupBy { it.artist }
                 .map { (artistName, tracks) ->
                     SearchArtistResult(
@@ -215,7 +234,8 @@ class SearchViewModel(
                         sampleTrack = tracks.firstOrNull(),
                         tracks = tracks,
                     )
-                }.take(10)
+                }.sortedWith(compareBy<SearchArtistResult> { searchMatchRank(it.artist, lower) }
+                    .thenBy { normalizedSearchText(it.artist) }).take(10)
         } else emptyList()
 
         // Typed Albums
@@ -231,7 +251,9 @@ class SearchViewModel(
                         sampleTrack = first,
                         tracks = tracks,
                     )
-                }.take(10)
+                }.sortedWith(compareBy<SearchAlbumResult> { searchMatchRank(it.album, lower) }
+                    .thenBy { normalizedSearchText(it.album) }
+                    .thenBy { normalizedSearchText(it.artist) }).take(10)
         } else emptyList()
 
         // Typed Tracks
@@ -240,6 +262,7 @@ class SearchViewModel(
             SearchFilter.TRACKS -> allCombinedTracks.filter { trackTitleMatches(it, lower) }
             SearchFilter.ARTISTS -> emptyList()
             SearchFilter.ALBUMS -> emptyList()
+            SearchFilter.PLAYLISTS -> emptyList()
             SearchFilter.LOSSLESS -> allCombinedTracks.filter {
                 trackTitleMatches(it, lower) && it.isLossless
             }
@@ -257,7 +280,9 @@ class SearchViewModel(
                 source = if (track.source == TrackSource.SYNCED) "Sincronizada" else "Local",
                 availableLocations = locations,
             )
-        }.take(30)
+        }.sortedWith(compareBy<SearchTrackResult> { searchMatchRank(it.track.title, lower) }
+            .thenBy { normalizedSearchText(it.track.title) }
+            .thenBy { it.track.id }).take(30)
 
         val newStructuredResults = StructuredSearchResults(
             artists = artistMatches,
@@ -271,19 +296,20 @@ class SearchViewModel(
         // Compatibility list
         val legacyList = when (filter) {
             SearchFilter.ALL -> allCombinedTracks.filter {
-                it.title.lowercase().contains(lower) ||
-                    it.artist.lowercase().contains(lower) ||
-                    it.album.lowercase().contains(lower)
+                trackTitleMatches(it, lower) ||
+                    searchTextMatches(it.artist, lower) ||
+                    trackAlbumMatches(it, lower)
             }
-            SearchFilter.ARTISTS -> allCombinedTracks.filter { it.artist.lowercase().contains(lower) }
-            SearchFilter.ALBUMS -> allCombinedTracks.filter { it.album.lowercase().contains(lower) }
-            SearchFilter.TRACKS -> allCombinedTracks.filter { it.title.lowercase().contains(lower) }
+            SearchFilter.ARTISTS -> allCombinedTracks.filter { searchTextMatches(it.artist, lower) }
+            SearchFilter.ALBUMS -> allCombinedTracks.filter { trackAlbumMatches(it, lower) }
+            SearchFilter.PLAYLISTS -> emptyList()
+            SearchFilter.TRACKS -> allCombinedTracks.filter { trackTitleMatches(it, lower) }
             SearchFilter.LOSSLESS -> allCombinedTracks.filter {
-                (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
+                (trackTitleMatches(it, lower) || searchTextMatches(it.artist, lower) || trackAlbumMatches(it, lower)) &&
                     it.isLossless
             }
             SearchFilter.DOWNLOADED -> allCombinedTracks.filter {
-                (it.title.lowercase().contains(lower) || it.artist.lowercase().contains(lower) || it.album.lowercase().contains(lower)) &&
+                (trackTitleMatches(it, lower) || searchTextMatches(it.artist, lower) || trackAlbumMatches(it, lower)) &&
                     isTrackDownloaded(it)
             }
         }.map { track ->

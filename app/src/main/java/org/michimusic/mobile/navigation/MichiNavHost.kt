@@ -337,11 +337,21 @@ fun MichiNavHost(
                 composable("queue") {
                     QueueScreen(
                         sessionManager = sessionManager,
+                        onNavigateToPlaylists = {
+                            navController.navigate(queuePlaylistsDestination()) { launchSingleTop = true }
+                        },
                     )
                 }
                 composable("synced") { SyncedTracksScreen() }
                 composable("diagnostics") { DiagnosticsScreen() }
-                composable("audio-route") { AudioRouteScreen() }
+                composable("audio-route") {
+                    AudioRouteScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToDevices = {
+                            navController.navigate("devices") { launchSingleTop = true }
+                        },
+                    )
+                }
                 composable("remote") {
                     RemoteScreen(
                         onNavigateToSync = { navController.navigate("devices") },

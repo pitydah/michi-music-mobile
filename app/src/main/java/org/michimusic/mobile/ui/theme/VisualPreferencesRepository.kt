@@ -17,6 +17,10 @@ data class VisualPreferences(
     val highContrast: Boolean = false,
     val reducedMotion: Boolean = false,
     val hapticsEnabled: Boolean = true,
+    // UI5: defaults match the existing Aero appearance exactly.
+    val appearanceProfile: AeroAppearanceProfile = AeroAppearanceProfile.EQUILIBRADO,
+    val microtexturesEnabled: Boolean = true,
+    val seekerStyle: AeroSeekerStyle = AeroSeekerStyle.ORIGINAL,
 )
 
 /**
@@ -51,7 +55,10 @@ class VisualPreferencesRepository(
     private var owner: CoroutineScope? = null
 
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-        if (key == "high_contrast" || key == "reduced_motion" || key == "haptics_enabled") {
+        if (key == "high_contrast" || key == "reduced_motion" || key == "haptics_enabled" ||
+            key == "aero_appearance_profile" || key == "aero_microtextures_enabled" ||
+            key == "aero_seeker_style"
+        ) {
             // The listener fires on the thread that committed, which can be the UI thread:
             // reading the file again has to happen on IO.
             owner?.launch {
@@ -83,10 +90,24 @@ class VisualPreferencesRepository(
 
     private suspend fun readFromStorage(): VisualPreferences? = withContext(ioDispatcher) {
         runCatching {
+            // An unknown/corrupt profile can never prevent other preferences loading.
+            val profile = runCatching {
+                AeroAppearanceProfile.valueOf(prefs.getString("aero_appearance_profile", null)
+                    ?: AeroAppearanceProfile.EQUILIBRADO.name)
+            }.getOrDefault(AeroAppearanceProfile.EQUILIBRADO)
+            val microtextures = runCatching {
+                prefs.getBoolean("aero_microtextures_enabled", true)
+            }.getOrDefault(true)
+            val seekerStyle = savedAeroSeekerStyle(
+                runCatching { prefs.getString("aero_seeker_style", null) }.getOrNull()
+            )
             VisualPreferences(
                 highContrast = prefs.getBoolean("high_contrast", false),
                 reducedMotion = prefs.getBoolean("reduced_motion", false),
                 hapticsEnabled = prefs.getBoolean("haptics_enabled", true),
+                appearanceProfile = profile,
+                microtexturesEnabled = microtextures,
+                seekerStyle = seekerStyle,
             )
         }.getOrNull()
     }
@@ -105,5 +126,36 @@ class VisualPreferencesRepository(
     fun setHapticsEnabled(enabled: Boolean) {
         _preferences.value = _preferences.value.copy(hapticsEnabled = enabled)
         prefs.edit { putBoolean("haptics_enabled", enabled) }
+    }
+
+    /** Reuses the single michi_settings store and its existing in-memory flow. */
+    fun setAppearanceProfile(profile: AeroAppearanceProfile) {
+        _preferences.value = _preferences.value.copy(appearanceProfile = profile)
+        prefs.edit { putString("aero_appearance_profile", profile.name) }
+    }
+
+    fun setMicrotexturesEnabled(enabled: Boolean) {
+        _preferences.value = _preferences.value.copy(microtexturesEnabled = enabled)
+        prefs.edit { putBoolean("aero_microtextures_enabled", enabled) }
+    }
+
+    /** The existing StateFlow drives Now Playing without synchronous reads in Compose. */
+    fun setSeekerStyle(style: AeroSeekerStyle) {
+        _preferences.value = _preferences.value.copy(seekerStyle = style)
+        prefs.edit { putString("aero_seeker_style", style.name) }
+    }
+
+    /** Atomic visual reset; contrast, reduced motion and haptics are NOT modified. */
+    fun resetAppearance() {
+        _preferences.value = _preferences.value.copy(
+            appearanceProfile = AeroAppearanceProfile.EQUILIBRADO,
+            microtexturesEnabled = true,
+            seekerStyle = AeroSeekerStyle.ORIGINAL,
+        )
+        prefs.edit {
+            putString("aero_appearance_profile", AeroAppearanceProfile.EQUILIBRADO.name)
+            putBoolean("aero_microtextures_enabled", true)
+            putString("aero_seeker_style", AeroSeekerStyle.ORIGINAL.name)
+        }
     }
 }

@@ -313,8 +313,9 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t2").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t2").assertIsDisplayed()
     }
 
     @Test
@@ -329,6 +330,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
 
         composeTestRule.onNodeWithTag("remove_track_dialog").assertIsDisplayed()
@@ -347,6 +349,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_cancel_button").performClick()
 
@@ -370,6 +373,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -391,6 +395,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -515,6 +520,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -660,7 +666,7 @@ class PlaylistDetailScreenTest {
 
         composeTestRule.onNodeWithTag("playlist_detail_options_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
@@ -862,7 +868,7 @@ class PlaylistDetailScreenTest {
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
 
         // Remove track (3C) is still available.
-        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").assertIsDisplayed()
 
         // Add-tracks selector (3B) still opens.
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
@@ -926,6 +932,7 @@ class PlaylistDetailScreenTest {
         }
 
         composeTestRule.onNodeWithText("1 canción").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -1089,6 +1096,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_b").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 

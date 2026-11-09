@@ -18,6 +18,7 @@ fun navigationPresentationFor(route: String?): MichiNavigationPresentation {
     val primary = when (route) {
         "home" -> "home"
         "library" -> "library"
+        "playlist" -> "playlist"
         "search" -> "search"
         "devices" -> "devices"
         else -> null
@@ -27,9 +28,8 @@ fun navigationPresentationFor(route: String?): MichiNavigationPresentation {
     val section = when {
         primary != null -> primary
         route == "settings" || route == "diagnostics" -> null
-        route == "playlist" || route == "playlist/{playlistId}" ||
-            route?.startsWith("playlist/") == true || route == "queue" ||
-            route == "album/{albumId}" || route?.startsWith("album/") == true ||
+        route == "playlist/{playlistId}" || route?.startsWith("playlist/") == true -> "playlist"
+        route == "queue" || route == "album/{albumId}" || route?.startsWith("album/") == true ||
             route == "artist/{artistKey}" || route?.startsWith("artist/") == true -> "library"
         route == "synced" || route == "remote" || route == "sync" ||
             route == "audio-route" || route == "sync_wizard/{deviceId}" ||
@@ -43,3 +43,6 @@ fun navigationPresentationFor(route: String?): MichiNavigationPresentation {
         showMiniPlayer = !immersive,
     )
 }
+
+/** The queue owns Track IDs, never a specific playlist provenance. */
+fun queuePlaylistsDestination(): String = "playlist"

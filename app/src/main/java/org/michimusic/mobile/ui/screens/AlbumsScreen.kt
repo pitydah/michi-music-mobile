@@ -296,36 +296,8 @@ fun AlbumsScreen(
                             )
                         }
 
-                        // The playlists entry point carries its own label: an icon-only
-                        // action in the header left the whole feature discoverable only by
-                        // guessing what a music-note glyph opened.
-                        Row(
-                            modifier = Modifier
-                                .heightIn(min = MichiSpacing.minTouchTarget)
-                                .clip(MichiShapes.sm)
-                                .background(GlassFillLow)
-                                .border(0.65.dp, GlassBorderLow, MichiShapes.sm)
-                                .clickable(role = Role.Button, onClick = onNavigateToPlaylists)
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                .testTag("library_playlists_button"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.LibraryMusic,
-                                contentDescription = null,
-                                tint = PureWhite,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                text = "Listas",
-                                color = PureWhite,
-                                style = MichiTypography.metadata,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        }
-
+                        // UI5: Playlists is now a dock destination. Keep the existing
+                        // + shortcut to create a playlist without duplicating "Listas".
                         MichiIconAction(
                             icon = Icons.Filled.Add,
                             contentDescription = "Nueva Playlist",
