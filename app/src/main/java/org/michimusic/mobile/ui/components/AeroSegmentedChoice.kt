@@ -36,8 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -68,13 +69,21 @@ fun AeroSegmentRail(
     compact: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Inset,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val shape = RoundedCornerShape(if (compact) 14.dp else 17.dp)
     Row(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
-            .aeroFinishDrawing(AeroFinish.Inset, aeroFinishSpec(AeroFinish.Inset, highContrast), null)
+            .aeroFinishDrawing(material.finish, material.spec, null, shape)
             .border(0.65.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.12f), shape)
             .selectableGroup()
             .padding(if (compact) 3.dp else 4.dp),
@@ -91,13 +100,21 @@ fun AeroSegmentStack(
     compact: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Inset,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val shape = RoundedCornerShape(if (compact) 14.dp else 17.dp)
     Column(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
-            .aeroFinishDrawing(AeroFinish.Inset, aeroFinishSpec(AeroFinish.Inset, highContrast), null)
+            .aeroFinishDrawing(material.finish, material.spec, null, shape)
             .border(0.65.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.12f), shape)
             .selectableGroup()
             .padding(if (compact) 3.dp else 4.dp),

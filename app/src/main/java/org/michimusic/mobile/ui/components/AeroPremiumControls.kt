@@ -44,9 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.R
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
@@ -111,7 +112,16 @@ fun AeroActionButton(
     }
     // Saturated coral is painted, not a metallic grain. The neutral finishes
     // receive the fixed monochrome tile; no pixel work is done on press frames.
-    val finishSpec = aeroFinishSpec(finish, contrast).let {
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Raised,
+        requestedFinish = finish,
+        profile = visual.appearanceProfile,
+        highContrast = contrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+        interactionActive = enabled && isPressed,
+    )
+    val resolvedFinish = material.finish
+    val finishSpec = material.spec.let {
         if (kind == AeroActionKind.Primary) it.copy(grainAlpha = 0f) else it
     }
     val grain = if (finishSpec.grainAlpha > 0f) ImageBitmap.imageResource(R.drawable.aero_graphite_grain) else null
@@ -124,7 +134,7 @@ fun AeroActionButton(
                 else Modifier)
             .clip(shape)
             .background(Brush.verticalGradient(base))
-            .aeroFinishDrawing(finish, finishSpec, grain)
+            .aeroFinishDrawing(resolvedFinish, finishSpec, grain, shape)
             .border(if (contrast) 1.3.dp else 0.8.dp, line, shape)
             .clickable(
                 enabled = enabled,

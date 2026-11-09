@@ -83,6 +83,7 @@ import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
 import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AlbumArtView
@@ -570,6 +571,7 @@ fun ArtistDetailScreen(
                                             modifier = Modifier.size(142.dp),
                                             cornerRadius = 13.dp,
                                             inset = 3.dp,
+                                            emphasis = AeroArtworkEmphasis.Featured,
                                         ) {
                                             AlbumArtView(
                                                 coverStyle = coverStyleFor(group.album.coverId.ifBlank { group.album.title }),

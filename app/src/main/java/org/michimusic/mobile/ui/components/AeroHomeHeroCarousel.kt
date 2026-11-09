@@ -55,6 +55,7 @@ import org.michimusic.mobile.ui.screens.HomeHeroItem
 import org.michimusic.mobile.ui.screens.HomeHeroKind
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroGradientRole
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -62,7 +63,7 @@ import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TextSecondary
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.aeroVerticalGradientBrush
 
 /** Compact editorial pager over real library items. It never changes playback by swiping. */
@@ -137,13 +138,22 @@ private fun HomeHeroCard(
     val visual = LocalVisualPreferences.current
     val fontScale = LocalDensity.current.fontScale
     val shape = RoundedCornerShape(20.dp)
-    val grain = if (visual.highContrast) null else ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Raised,
+        requestedFinish = AeroFinish.Anodized,
+        profile = visual.appearanceProfile,
+        highContrast = visual.highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
+    val grain = if (material.spec.grainAlpha > 0f) {
+        ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    } else null
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(aeroVerticalGradientBrush(AeroGradientRole.Hero, visual.highContrast))
-            .aeroFinishDrawing(AeroFinish.Anodized, aeroFinishSpec(AeroFinish.Anodized, visual.highContrast), grain)
+            .aeroFinishDrawing(material.finish, material.spec, grain, shape)
             .border(
                 if (visual.highContrast) 1.2.dp else 0.65.dp,
                 if (visual.highContrast) Color.White.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.16f),
@@ -180,7 +190,12 @@ private fun HomeHeroCard(
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 11.dp else 15.dp),
             ) {
                 val coverSize = if (compact) 92.dp else 112.dp
-                AeroArtworkMat(modifier = Modifier.size(coverSize), cornerRadius = 12.dp, inset = 2.dp) {
+                AeroArtworkMat(
+                    modifier = Modifier.size(coverSize),
+                    cornerRadius = 12.dp,
+                    inset = 2.dp,
+                    emphasis = AeroArtworkEmphasis.Hero,
+                ) {
                     if (item.kind == HomeHeroKind.PLAYLIST && item.coverIds.isNotEmpty()) {
                         PlaylistCoverMosaic(
                             coverIds = item.coverIds,

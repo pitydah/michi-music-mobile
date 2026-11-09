@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.components.premium
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,8 +14,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
@@ -56,14 +62,36 @@ fun MichiBottomSheet(
         contentColor = PureWhite,
         tonalElevation = 0.dp,
         dragHandle = {
-            Spacer(
-                Modifier
-                    .padding(vertical = 12.dp)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(if (highContrast) PureWhite else PureWhite.copy(alpha = 0.25f)),
-            )
+            // The specular line is painted inside the sheet's own drag-handle slot,
+            // not on the full-window root, so it moves with the sheet and cannot
+            // leave the historical displaced rectangle during open/close.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawWithCache {
+                        val line = 0.65.dp.toPx()
+                        val light = Brush.horizontalGradient(
+                            0f to Color.Transparent,
+                            0.12f to PureWhite.copy(alpha = 0.22f),
+                            0.50f to PureWhite.copy(alpha = 0.10f),
+                            0.88f to PureWhite.copy(alpha = 0.22f),
+                            1f to Color.Transparent,
+                        )
+                        onDrawBehind {
+                            if (!highContrast) drawRect(brush = light, size = Size(size.width, line))
+                        }
+                    }
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Spacer(
+                    Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(if (highContrast) PureWhite else PureWhite.copy(alpha = 0.25f)),
+                )
+            }
         },
         content = content,
     )

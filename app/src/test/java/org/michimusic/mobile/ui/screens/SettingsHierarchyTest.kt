@@ -22,6 +22,7 @@ import org.michimusic.data.cache.AppDao
 import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.library.MusicRootChange
 import org.michimusic.data.repository.MusicRoot
+import org.michimusic.mobile.ui.theme.AeroCoverFlowReflection
 import org.michimusic.mobile.ui.theme.VisualPreferences
 import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
 import org.michimusic.player.PlayerDependencies
@@ -169,6 +170,25 @@ class SettingsHierarchyTest {
         composeTestRule.waitForIdle()
 
         io.mockk.coVerify(atLeast = 1) { mockRootAuthority.rescan(any()) }
+    }
+
+    @Test
+    fun testCoverFlowReflectionControlInvokesPersistedPreference() {
+        composeTestRule.setContent {
+            org.koin.compose.KoinContext {
+                SettingsScreen(initialSection = SettingsSection.APPEARANCE)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_coverflow_reflection_intenso")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.waitForIdle()
+
+        io.mockk.verify(atLeast = 1) {
+            mockVisualRepo.setCoverFlowReflection(AeroCoverFlowReflection.INTENSO)
+        }
     }
 
     @Test

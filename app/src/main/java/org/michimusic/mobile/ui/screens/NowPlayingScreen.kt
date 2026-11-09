@@ -64,6 +64,7 @@ import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
 import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
 import org.michimusic.mobile.ui.motion.AeroTrackArtworkMotion
@@ -92,7 +93,7 @@ import org.michimusic.mobile.ui.theme.SurfaceContainerLowest
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.components.aeroFinishDrawing
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
@@ -300,6 +301,7 @@ fun NowPlayingScreen(
                         .aeroNowPlayingHeroEnter(currentTrack != null),
                     cornerRadius = 18.dp,
                     inset = 4.dp,
+                    emphasis = AeroArtworkEmphasis.Hero,
                 ) {
                     AeroTrackArtworkMotion(
                         track = currentTrack,
@@ -689,7 +691,15 @@ private fun SignalTruthDialog(
     isRemote: Boolean,
     onDismiss: () -> Unit,
 ) {
-    val floating = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
+    val visual = LocalVisualPreferences.current
+    val floating = aeroMaterialStyle(AeroSurfaceRole.Floating, visual.highContrast)
+    val smokedMaterial = aeroResolveMaterial(
+        role = AeroSurfaceRole.Floating,
+        requestedFinish = AeroFinish.Smoked,
+        profile = visual.appearanceProfile,
+        highContrast = visual.highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val provenanceItems = remember(observation, activeEndpoint, currentTrack, isRemote) {
         SignalTruthResolver.resolveProvenance(
             observation = observation,
@@ -709,10 +719,10 @@ private fun SignalTruthDialog(
                 .clip(RoundedCornerShape(26.dp))
                 .background(floating.fill)
                 .aeroFinishDrawing(
-                    AeroFinish.Smoked,
-                    aeroFinishSpec(AeroFinish.Smoked, LocalVisualPreferences.current.highContrast)
-                        .copy(grainAlpha = 0f),
+                    smokedMaterial.finish,
+                    smokedMaterial.spec.copy(grainAlpha = 0f),
                     null,
+                    RoundedCornerShape(26.dp),
                 )
                 .border(floating.borderWidth, floating.outline, RoundedCornerShape(26.dp)),
         ) {

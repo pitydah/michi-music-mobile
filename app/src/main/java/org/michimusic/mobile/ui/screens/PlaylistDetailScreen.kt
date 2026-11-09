@@ -74,9 +74,11 @@ import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.RenamePlaylistDialog
+import org.michimusic.mobile.ui.components.aeroMenuTopLight
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
@@ -229,7 +231,9 @@ fun PlaylistDetailScreen(
                         DropdownMenu(
                             expanded = showOptionsMenu,
                             onDismissRequest = { showOptionsMenu = false },
-                            modifier = Modifier.testTag("playlist_detail_options_menu"),
+                            modifier = Modifier
+                                .aeroMenuTopLight(LocalVisualPreferences.current.highContrast)
+                                .testTag("playlist_detail_options_menu"),
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Renombrar") },
@@ -611,7 +615,9 @@ private fun PlaylistTrackRow(
                 DropdownMenu(
                     expanded = showTrackMenu,
                     onDismissRequest = { showTrackMenu = false },
-                    modifier = Modifier.testTag("playlist_detail_track_menu_${track.id}"),
+                    modifier = Modifier
+                        .aeroMenuTopLight(LocalVisualPreferences.current.highContrast)
+                        .testTag("playlist_detail_track_menu_${track.id}"),
                 ) {
                     DropdownMenuItem(
                         text = { Text("Mover arriba") },

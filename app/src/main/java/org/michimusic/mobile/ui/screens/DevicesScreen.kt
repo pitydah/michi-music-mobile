@@ -98,6 +98,7 @@ import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
+import org.michimusic.mobile.ui.components.aeroMenuTopLight
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.isProvisionedMichiStream
 import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
@@ -958,6 +959,9 @@ private fun DevicesTopBar(
                     androidx.compose.material3.DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
+                        modifier = Modifier.aeroMenuTopLight(
+                            LocalVisualPreferences.current.highContrast,
+                        ),
                     ) {
                         // Compact layout exposes the same actions via overflow.
                         if (compactHeader) {

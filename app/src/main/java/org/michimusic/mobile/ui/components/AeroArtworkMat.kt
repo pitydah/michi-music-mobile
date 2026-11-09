@@ -11,9 +11,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
@@ -29,12 +35,13 @@ fun AeroArtworkMat(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 22.dp,
     inset: Dp = 5.dp,
+    emphasis: AeroArtworkEmphasis = AeroArtworkEmphasis.Standard,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val highContrast = LocalVisualPreferences.current.highContrast
+    val depth = aeroArtworkDepth(emphasis, highContrast)
     val outer = RoundedCornerShape(cornerRadius + inset)
     val inner = RoundedCornerShape(cornerRadius)
-    val isHeroArtwork = inset >= 4.dp
     val rim = if (highContrast) {
         Brush.linearGradient(listOf(Color.White, Color.White))
     } else {
@@ -44,11 +51,42 @@ fun AeroArtworkMat(
     }
     Box(
         modifier = modifier
-            // No shadow for scrolling thumbnails; restrained elevation on hero artwork.
-            .then(if (!highContrast && isHeroArtwork) Modifier.shadow(8.dp, outer, clip = false) else Modifier)
+            // Contact elevation is opt-in per semantic emphasis; dense rows stay flat.
+            .then(
+                if (depth.shadowElevationDp > 0) {
+                    Modifier.shadow(depth.shadowElevationDp.dp, outer, clip = false)
+                } else Modifier,
+            )
             .clip(outer)
             .background(if (highContrast) SurfaceObsidian else Color(0xFF1D242D))
             .border(BorderStroke(if (highContrast) 1.5.dp else 0.65.dp, rim), outer)
+            // One directional inner lip: lit at top-left, darker at bottom-right.
+            // It follows the rounded frame and never paints over the source image.
+            .drawWithCache {
+                val insetPx = inset.toPx()
+                val innerWidth = (size.width - insetPx * 2f).coerceAtLeast(0f)
+                val innerHeight = (size.height - insetPx * 2f).coerceAtLeast(0f)
+                val innerPath = aeroPerimeterPath(
+                    inner.createOutline(Size(innerWidth, innerHeight), layoutDirection, this),
+                )
+                val lipBrush = Brush.linearGradient(
+                    0f to Color.White.copy(alpha = depth.innerLightAlpha),
+                    0.45f to Color.White.copy(alpha = depth.innerLightAlpha * 0.18f),
+                    0.55f to Color.Black.copy(alpha = depth.innerShadeAlpha * 0.12f),
+                    1f to Color.Black.copy(alpha = depth.innerShadeAlpha),
+                    start = Offset.Zero,
+                    end = Offset(size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f)),
+                )
+                onDrawBehind {
+                    translate(insetPx, insetPx) {
+                        drawPath(
+                            path = innerPath,
+                            brush = lipBrush,
+                            style = Stroke(width = 0.55.dp.toPx(), join = StrokeJoin.Round),
+                        )
+                    }
+                }
+            }
             .padding(inset)
             .clip(inner)
             .background(SurfaceObsidian)

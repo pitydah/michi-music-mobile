@@ -25,7 +25,8 @@ import org.michimusic.player.PeqBand
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
 /** Calculated biquad curve of SAVED bands, never a claim that DSP is currently applied. */
@@ -38,6 +39,14 @@ fun PeqResponseCurve(
     val points = remember(bands, referenceSampleRate) {
         calculatedPeqResponse(bands, referenceSampleRate)
     }
+    val visual = LocalVisualPreferences.current
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Inset,
+        profile = visual.appearanceProfile,
+        highContrast = visual.highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     Column(modifier = modifier.fillMaxWidth()) {
         Text("Respuesta calculada · filtros PEQ guardados", color = OnSurfaceVariant, fontSize = 12.sp)
         // audioRateLabel keeps the Spanish decimal comma ("44,1 kHz") and drops a
@@ -48,9 +57,10 @@ fun PeqResponseCurve(
             modifier = Modifier.fillMaxWidth().height(116.dp)
                 .background(Color(0xFF121923), RoundedCornerShape(12.dp))
                 .aeroFinishDrawing(
-                    AeroFinish.Inset,
-                    aeroFinishSpec(AeroFinish.Inset, LocalVisualPreferences.current.highContrast),
+                    material.finish,
+                    material.spec,
                     null,
+                    RoundedCornerShape(12.dp),
                 )
                 .border(0.75.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                 .semantics {

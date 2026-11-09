@@ -105,9 +105,11 @@ class VisualPreferencesRepositoryTest {
         repo.setAppearanceProfile(AeroAppearanceProfile.DISCRETO)
         repo.setMicrotexturesEnabled(false)
         repo.setSeekerStyle(AeroSeekerStyle.WAVY)
+        repo.setCoverFlowReflection(AeroCoverFlowReflection.INTENSO)
         assertEquals(AeroAppearanceProfile.DISCRETO, repo.preferences.value.appearanceProfile)
         assertFalse(repo.preferences.value.microtexturesEnabled)
         assertEquals(AeroSeekerStyle.WAVY, repo.preferences.value.seekerStyle)
+        assertEquals(AeroCoverFlowReflection.INTENSO, repo.preferences.value.coverFlowReflection)
 
         val restarted = VisualPreferencesRepository(context, UnconfinedTestDispatcher(testScheduler))
         restarted.start(this)
@@ -115,12 +117,15 @@ class VisualPreferencesRepositoryTest {
         assertEquals(AeroAppearanceProfile.DISCRETO, restarted.preferences.value.appearanceProfile)
         assertFalse(restarted.preferences.value.microtexturesEnabled)
         assertEquals(AeroSeekerStyle.WAVY, restarted.preferences.value.seekerStyle)
+        assertEquals(AeroCoverFlowReflection.INTENSO, restarted.preferences.value.coverFlowReflection)
         restarted.resetAppearance()
         assertEquals(VisualPreferences(), restarted.preferences.value)
         assertEquals(AeroAppearanceProfile.EQUILIBRADO.name,
             prefs().getString("aero_appearance_profile", null))
         assertTrue(prefs().getBoolean("aero_microtextures_enabled", false))
         assertEquals(AeroSeekerStyle.ORIGINAL.name, prefs().getString("aero_seeker_style", null))
+        assertEquals(AeroCoverFlowReflection.NORMAL.name,
+            prefs().getString("aero_coverflow_reflection", null))
         restarted.stop()
         repo.stop()
     }
@@ -130,6 +135,7 @@ class VisualPreferencesRepositoryTest {
         prefs().edit().putBoolean("high_contrast", true)
             .putString("aero_appearance_profile", "UNKNOWN_FUTURE_VALUE")
             .putString("aero_microtextures_enabled", "wrong_type")
+            .putString("aero_coverflow_reflection", "UNKNOWN_FUTURE_MODE")
             .commit()
         val repo = VisualPreferencesRepository(context, UnconfinedTestDispatcher(testScheduler))
         repo.start(this)
@@ -137,6 +143,7 @@ class VisualPreferencesRepositoryTest {
         assertTrue(repo.preferences.value.highContrast)
         assertEquals(AeroAppearanceProfile.EQUILIBRADO, repo.preferences.value.appearanceProfile)
         assertTrue(repo.preferences.value.microtexturesEnabled)
+        assertEquals(AeroCoverFlowReflection.NORMAL, repo.preferences.value.coverFlowReflection)
         repo.stop()
     }
 }

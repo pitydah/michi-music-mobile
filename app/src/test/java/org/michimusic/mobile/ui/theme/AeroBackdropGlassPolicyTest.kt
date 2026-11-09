@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.theme
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,6 +20,15 @@ class AeroBackdropGlassPolicyTest {
         assertEquals(.84f, aeroPlaylistPanelOpacity(true, false))
         assertEquals(.92f, aeroPlaylistPanelOpacity(false, false))
     }
+    @Test fun glassRegionIsExactlyTheInformationTrayAndFailsClosed() {
+        assertEquals(300, aeroPlaylistGlassRegionTopPx(500, 200, glassEnabled = true))
+        assertNull(aeroPlaylistGlassRegionTopPx(500, 200, glassEnabled = false))
+        assertNull(aeroPlaylistGlassRegionTopPx(0, 200, glassEnabled = true))
+        assertNull(aeroPlaylistGlassRegionTopPx(500, 0, glassEnabled = true))
+        assertNull(aeroPlaylistGlassRegionTopPx(500, 500, glassEnabled = true))
+        assertNull(aeroPlaylistGlassRegionTopPx(500, 600, glassEnabled = true))
+    }
+
     @Test fun systemResourceConstraintsDisableRealBlur() {
         assertFalse(aeroPlaylistBannerBlurEnabled(AeroAppearanceProfile.CRISTALINO,
             35, true, false, false, powerSaveMode = true))

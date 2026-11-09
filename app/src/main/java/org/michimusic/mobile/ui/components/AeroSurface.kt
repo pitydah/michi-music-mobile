@@ -31,10 +31,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroAppearanceFinishSpec
-import org.michimusic.mobile.ui.theme.aeroInteractiveFinishSpec
 import org.michimusic.mobile.ui.theme.aeroFocusStrokeWidthDp
-import org.michimusic.mobile.ui.theme.aeroResolvedFinish
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -62,24 +60,27 @@ fun AeroSurface(
 ) {
     val visual = LocalVisualPreferences.current
     val highContrast = visual.highContrast
-    val resolvedFinish = aeroResolvedFinish(role, finish, highContrast)
-    // UI5: these settings alter real finish paint, without any new surface renderer.
-    // Defaults match existing tokens and high contrast still forces Plain.
-    val finishSpec = aeroAppearanceFinishSpec(
-        resolvedFinish, visual.appearanceProfile, highContrast, visual.microtexturesEnabled,
-    )
-    // Android caches drawable decoding; there is no per-frame bitmap decoding.
-    val grain = if (finishSpec.grainAlpha > 0f) ImageBitmap.imageResource(R.drawable.aero_graphite_grain) else null
-    val material = aeroMaterialStyle(role, LocalVisualPreferences.current.highContrast)
+    val material = aeroMaterialStyle(role, highContrast)
     val border = borderStroke ?: material.takeIf { it.borderWidth > 0.dp }?.let {
         BorderStroke(it.borderWidth, it.outline)
     }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val interactiveFinishSpec = aeroInteractiveFinishSpec(
-        resolvedFinish, finishSpec, (isPressed || isFocused) && onClick != null, highContrast,
+    val materialAppearance = aeroResolveMaterial(
+        role = role,
+        requestedFinish = finish,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+        interactionActive = (isPressed || isFocused) && onClick != null,
     )
+    val resolvedFinish = materialAppearance.finish
+    val interactiveFinishSpec = materialAppearance.spec
+    // Android caches drawable decoding; there is no per-frame bitmap decoding.
+    val grain = if (interactiveFinishSpec.grainAlpha > 0f) {
+        ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    } else null
     val focusStroke = aeroFocusStrokeWidthDp(isFocused, onClick != null, highContrast)
     val visibleBorder = if (focusStroke > 0f) BorderStroke(focusStroke.dp,
         if (highContrast) Color.White else PrimaryPinkContainer.copy(alpha = .85f)) else border
@@ -91,7 +92,7 @@ fun AeroSurface(
             .then(if (material.elevation > 0.dp) Modifier.shadow(material.elevation, shape) else Modifier)
             .clip(shape)
             .background(material.fill)
-            .aeroFinishDrawing(resolvedFinish, interactiveFinishSpec, grain)
+            .aeroFinishDrawing(resolvedFinish, interactiveFinishSpec, grain, shape)
             .then(if (visibleBorder != null) Modifier.border(visibleBorder, shape) else Modifier)
             .then(if (onClick != null) Modifier.clickable(
                 interactionSource = interactionSource,

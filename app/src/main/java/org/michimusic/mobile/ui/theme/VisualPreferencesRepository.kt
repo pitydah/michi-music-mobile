@@ -21,6 +21,7 @@ data class VisualPreferences(
     val appearanceProfile: AeroAppearanceProfile = AeroAppearanceProfile.EQUILIBRADO,
     val microtexturesEnabled: Boolean = true,
     val seekerStyle: AeroSeekerStyle = AeroSeekerStyle.ORIGINAL,
+    val coverFlowReflection: AeroCoverFlowReflection = AeroCoverFlowReflection.NORMAL,
 )
 
 /**
@@ -57,7 +58,7 @@ class VisualPreferencesRepository(
     private val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "high_contrast" || key == "reduced_motion" || key == "haptics_enabled" ||
             key == "aero_appearance_profile" || key == "aero_microtextures_enabled" ||
-            key == "aero_seeker_style"
+            key == "aero_seeker_style" || key == "aero_coverflow_reflection"
         ) {
             // The listener fires on the thread that committed, which can be the UI thread:
             // reading the file again has to happen on IO.
@@ -101,6 +102,9 @@ class VisualPreferencesRepository(
             val seekerStyle = savedAeroSeekerStyle(
                 runCatching { prefs.getString("aero_seeker_style", null) }.getOrNull()
             )
+            val coverFlowReflection = savedAeroCoverFlowReflection(
+                runCatching { prefs.getString("aero_coverflow_reflection", null) }.getOrNull()
+            )
             VisualPreferences(
                 highContrast = prefs.getBoolean("high_contrast", false),
                 reducedMotion = prefs.getBoolean("reduced_motion", false),
@@ -108,6 +112,7 @@ class VisualPreferencesRepository(
                 appearanceProfile = profile,
                 microtexturesEnabled = microtextures,
                 seekerStyle = seekerStyle,
+                coverFlowReflection = coverFlowReflection,
             )
         }.getOrNull()
     }
@@ -145,17 +150,24 @@ class VisualPreferencesRepository(
         prefs.edit { putString("aero_seeker_style", style.name) }
     }
 
+    fun setCoverFlowReflection(mode: AeroCoverFlowReflection) {
+        _preferences.value = _preferences.value.copy(coverFlowReflection = mode)
+        prefs.edit { putString("aero_coverflow_reflection", mode.name) }
+    }
+
     /** Atomic visual reset; contrast, reduced motion and haptics are NOT modified. */
     fun resetAppearance() {
         _preferences.value = _preferences.value.copy(
             appearanceProfile = AeroAppearanceProfile.EQUILIBRADO,
             microtexturesEnabled = true,
             seekerStyle = AeroSeekerStyle.ORIGINAL,
+            coverFlowReflection = AeroCoverFlowReflection.NORMAL,
         )
         prefs.edit {
             putString("aero_appearance_profile", AeroAppearanceProfile.EQUILIBRADO.name)
             putBoolean("aero_microtextures_enabled", true)
             putString("aero_seeker_style", AeroSeekerStyle.ORIGINAL.name)
+            putString("aero_coverflow_reflection", AeroCoverFlowReflection.NORMAL.name)
         }
     }
 }

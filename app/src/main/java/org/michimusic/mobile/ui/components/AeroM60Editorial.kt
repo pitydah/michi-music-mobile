@@ -53,7 +53,8 @@ import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
@@ -101,11 +102,21 @@ fun AeroLibraryFeature(
     onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Raised,
+        requestedFinish = AeroFinish.Anodized,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val shape = RoundedCornerShape(25.dp)
     // One opt-in machined finish over the EXISTING Aero hero gradient.
     // Colorful artwork remains the focal point; no animated blur and no second border.
-    val grain = if (highContrast) null else ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    val grain = if (material.spec.grainAlpha > 0f) {
+        ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    } else null
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
@@ -116,9 +127,10 @@ fun AeroLibraryFeature(
                 ),
             )
             .aeroFinishDrawing(
-                AeroFinish.Anodized,
-                aeroFinishSpec(AeroFinish.Anodized, highContrast),
+                material.finish,
+                material.spec,
                 grain,
+                shape,
             )
             .border(if (highContrast) 1.4.dp else 0.75.dp,
                 if (highContrast) Color.White.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.20f), shape)
@@ -143,7 +155,12 @@ fun AeroLibraryFeature(
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 17.dp),
             ) {
                 val coverSize = if (compact) 100.dp else 128.dp
-                AeroArtworkMat(modifier = Modifier.size(coverSize), cornerRadius = 13.dp, inset = 3.dp) {
+                AeroArtworkMat(
+                    modifier = Modifier.size(coverSize),
+                    cornerRadius = 13.dp,
+                    inset = 3.dp,
+                    emphasis = AeroArtworkEmphasis.Featured,
+                ) {
                     AlbumArtView(
                         coverStyle = coverStyleFor(featuredTrack.coverId.ifEmpty { featuredTrack.title }),
                         imageModel = featuredTrack.coverId,
@@ -221,8 +238,16 @@ fun AeroSignalRouteStrip(
     onDestinationClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
     val fontScale = LocalDensity.current.fontScale
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Satin,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val shape = RoundedCornerShape(18.dp)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val stacked = aeroM60StackSignal(maxWidth.value, fontScale)
@@ -234,9 +259,10 @@ fun AeroSignalRouteStrip(
                 .clip(shape)
                 .background(if (highContrast) Color(0xFF161D27) else Color(0xFF211A30))
                 .aeroFinishDrawing(
-                    AeroFinish.Satin,
-                    aeroFinishSpec(AeroFinish.Satin, highContrast).copy(grainAlpha = 0f),
+                    material.finish,
+                    material.spec.copy(grainAlpha = 0f),
                     null,
+                    shape,
                 )
                 .border(
                     width = if (highContrast) 1.2.dp else 0.75.dp,
@@ -479,6 +505,7 @@ fun MichiControlBadge(
             onDismissRequest = onDismiss,
             modifier = Modifier.widthIn(min = 240.dp, max = 320.dp)
                 .background(AeroGraphiteRaised)
+                .aeroMenuTopLight(LocalVisualPreferences.current.highContrast)
                 .testTag("michi_control_menu"),
         ) {
             Text("MICHI CONTROL", color = TertiaryCyan, fontSize = 11.sp,

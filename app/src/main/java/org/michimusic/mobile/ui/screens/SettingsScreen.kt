@@ -85,6 +85,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.app.ActivityManager
 import org.michimusic.mobile.ui.theme.AeroAppearanceProfile
+import org.michimusic.mobile.ui.theme.AeroCoverFlowReflection
 import org.michimusic.mobile.ui.theme.glassSuspensionReason
 import org.michimusic.mobile.ui.theme.AeroSeekerStyle
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
@@ -855,6 +856,34 @@ fun SettingsScreen(
                                     onCheckedChange = { visualPreferencesRepo.setMicrotexturesEnabled(it) },
                                     testTag = "settings_appearance_microtextures",
                                 )
+                                Spacer(Modifier.height(16.dp))
+                                Text(
+                                    "CoverFlow",
+                                    color = TextPrimary, fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "Intensidad del marco y la sombra de contacto. No duplica " +
+                                        "carátulas ni altera gestos, orden o selección.",
+                                    color = TextSecondary, fontSize = 12.sp,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    AeroCoverFlowReflection.entries.forEach { mode ->
+                                        AeroSegmentedChoice(
+                                            label = mode.label,
+                                            selected = visualPrefs.coverFlowReflection == mode,
+                                            onClick = { visualPreferencesRepo.setCoverFlowReflection(mode) },
+                                            modifier = Modifier.weight(1f),
+                                            treatment = AeroSegmentTreatment.Filter,
+                                            testTag = "settings_coverflow_reflection_${mode.name.lowercase()}",
+                                        )
+                                    }
+                                }
                                 Spacer(Modifier.height(8.dp))
                                 TextButton(
                                     onClick = { visualPreferencesRepo.resetAppearance() },

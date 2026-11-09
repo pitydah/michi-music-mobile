@@ -27,6 +27,19 @@ internal fun aeroPlaylistBannerBlurEnabled(
 internal fun aeroPlaylistPanelOpacity(glassEnabled: Boolean, highContrast: Boolean): Float =
     if (highContrast) 1f else if (glassEnabled) .84f else .92f
 
+/**
+ * Top of the ONLY blurred strip: the existing information tray. Returns null
+ * when glass is off or layout bounds are not usable, so the base banner stays
+ * sharp and no second, full-image blur is ever requested.
+ */
+internal fun aeroPlaylistGlassRegionTopPx(
+    heroHeightPx: Int,
+    trayHeightPx: Int,
+    glassEnabled: Boolean,
+): Int? = if (!glassEnabled || heroHeightPx <= 0 || trayHeightPx <= 0 ||
+    trayHeightPx >= heroHeightPx
+) null else heroHeightPx - trayHeightPx
+
 /** The selected profile and the *effective* visual behavior are different states. */
 internal fun glassSuspensionReason(
     profile: AeroAppearanceProfile,

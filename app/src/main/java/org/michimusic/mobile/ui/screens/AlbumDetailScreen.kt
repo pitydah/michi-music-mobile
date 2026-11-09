@@ -60,6 +60,8 @@ import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.screens.MediaLibraryState
 import org.michimusic.mobile.ui.components.AeroAlbumMicroActions
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
+import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AlbumArtView
@@ -244,18 +246,25 @@ fun AlbumDetailScreen(
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val coverSize = (maxWidth * 0.36f).coerceIn(112.dp, 144.dp)
                             @Composable fun cover() {
-                                AlbumArtView(
-                                    coverStyle = coverStyleFor(album.album.coverId.ifBlank { album.album.title }),
-                                    imageModel = album.album.coverId,
-                                    fallbackMediaUri = tracks.firstOrNull()?.filepath,
-                                    // Shared artwork owns the spatial animation when the source tile is present.
-                                    // The existing one-shot reveal remains a safe fallback for other entry routes.
-                                    modifier = Modifier.size(coverSize)
-                                        .then(if (aeroSharedAlbumAvailable(albumId, reducedMotion)) Modifier
-                                            else Modifier.aeroAlbumHeroReveal(albumHeroVisible))
-                                        .aeroSharedAlbumArtwork(albumId, eligible = true, reducedMotion = reducedMotion),
+                                AeroArtworkMat(
+                                    modifier = Modifier.size(coverSize),
                                     cornerRadius = 16.dp,
-                                )
+                                    inset = 2.dp,
+                                    emphasis = AeroArtworkEmphasis.Hero,
+                                ) {
+                                    AlbumArtView(
+                                        coverStyle = coverStyleFor(album.album.coverId.ifBlank { album.album.title }),
+                                        imageModel = album.album.coverId,
+                                        fallbackMediaUri = tracks.firstOrNull()?.filepath,
+                                        // Shared artwork owns the spatial animation when the source tile is present.
+                                        // The existing one-shot reveal remains a safe fallback for other entry routes.
+                                        modifier = Modifier.fillMaxSize()
+                                            .then(if (aeroSharedAlbumAvailable(albumId, reducedMotion)) Modifier
+                                                else Modifier.aeroAlbumHeroReveal(albumHeroVisible))
+                                            .aeroSharedAlbumArtwork(albumId, eligible = true, reducedMotion = reducedMotion),
+                                        cornerRadius = 16.dp,
+                                    )
+                                }
                             }
                             @Composable fun description() {
                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {

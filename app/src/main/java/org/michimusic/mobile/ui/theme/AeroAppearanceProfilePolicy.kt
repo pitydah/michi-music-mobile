@@ -33,8 +33,10 @@ fun aeroGlassDecision(
     ) return AeroGlassDecision.SMOKED_FALLBACK
     return when (surface) {
         AeroOpticalGlassSurface.PLAYLIST_BANNER -> AeroGlassDecision.BANNER_IMAGE_BLUR
-        // These surfaces deliberately have NO live backdrop renderer yet. A
-        // preference must not manufacture a claim of underlay refraction.
+        // AERO-OPTICS-07: no safe authentic backdrop capture exists between the
+        // now-playing screen and this technical sheet. Android 12 RenderEffect can
+        // blur the sheet's own content, not the window underneath, so Smoked is the
+        // honest fallback. Revisit only with a verified cross-window source.
         AeroOpticalGlassSurface.AUDIO_ROUTE_SELECTOR,
         AeroOpticalGlassSurface.DOCK,
         AeroOpticalGlassSurface.MINIPLAYER,

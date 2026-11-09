@@ -79,6 +79,7 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
 import org.michimusic.mobile.ui.components.AeroHomeHeroCarousel
 import org.michimusic.mobile.ui.components.AeroSectionHeading
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
@@ -825,6 +826,7 @@ private fun RecentTrackCard(
             modifier = Modifier.fillMaxWidth().aspectRatio(1f),
             cornerRadius = 14.dp,
             inset = 3.dp,
+            emphasis = AeroArtworkEmphasis.Featured,
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
