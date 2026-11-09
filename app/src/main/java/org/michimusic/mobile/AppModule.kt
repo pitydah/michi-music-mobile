@@ -7,6 +7,7 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 import org.michimusic.data.dataModule
 import org.michimusic.link.linkModule
+import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.remote.RemoteViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.screens.PlaylistsViewModel
@@ -22,6 +23,8 @@ val appModule = module {
     single { org.michimusic.mobile.library.LibraryScopeStore(get(), get()) }
     single { org.michimusic.mobile.ui.theme.VisualPreferencesRepository(get()) }
     single { org.michimusic.mobile.sync.AutoSyncScheduler(get(), get(), get()) }
+    // The single authority shared by the Wizard, Settings and library observers.
+    single { MusicRootAuthority(get(), get(), get(), get()) }
 
     viewModel {
         SyncViewModel(

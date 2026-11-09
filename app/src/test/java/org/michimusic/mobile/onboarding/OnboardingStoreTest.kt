@@ -31,7 +31,7 @@ class OnboardingStoreTest {
 
     @Test fun draftResumesAndOnlyFinishCompletes() = runTest {
         val store = store()
-        val draft = OnboardingSnapshot(step = 3, library = LibraryChoice.IMPORT_FILES,
+        val draft = OnboardingSnapshot(step = 3, library = LibraryChoice.CUSTOM_TREE,
             discoverLater = true, linkLater = true, audio = AudioChoice.USB_REMINDER)
         assertTrue(store.saveDraft(draft))
         assertEquals(draft, store.load())
@@ -41,8 +41,17 @@ class OnboardingStoreTest {
         assertEquals(AudioChoice.USB_REMINDER, store.load().audio)
     }
 
-    @Test fun unknownStoredValueFallsBackSafely() = runTest {
+    @Test fun legacyImportFilesChoiceMigratesToCustomTree() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "wizard_custom_migration_${System.nanoTime()}"
+        context.getSharedPreferences(name, Context.MODE_PRIVATE).edit()
+            .putString("library_v1", "IMPORT_FILES").commit()
+        val result = OnboardingStore(context, Dispatchers.Unconfined, name,
+            installTimes = { 0L to 0L }).load()
+        assertEquals(LibraryChoice.CUSTOM_TREE, result.library)
+    }
+
+    @Test fun unknownStoredValueFallsBackSafely() = runTest {        val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "wizard_invalid_test_${System.nanoTime()}"
         context.getSharedPreferences(name, Context.MODE_PRIVATE).edit()
             .putString("library_v1", "INVALID").putInt("step_v1", 99).commit()
@@ -99,7 +108,7 @@ class OnboardingStoreTest {
     @Test fun replayCompletionDoesNotClearOtherSettings() = runTest {
         val store = store()
         assertTrue(store.complete(OnboardingSnapshot(
-            completed = true, library = LibraryChoice.IMPORT_FILES,
+            completed = true, library = LibraryChoice.CUSTOM_TREE,
             discoverLater = true, linkLater = true, audio = AudioChoice.USB_REMINDER)))
         assertTrue(store.load().completed)
         assertTrue(store.complete(OnboardingSnapshot(

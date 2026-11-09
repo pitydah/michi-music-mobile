@@ -1,17 +1,10 @@
 package org.michimusic.mobile
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.SystemBarStyle
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,7 +19,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.koin.android.ext.android.inject
-import org.michimusic.data.repository.LocalMediaRepository
+import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.navigation.MichiNavHost
 import org.michimusic.mobile.onboarding.FirstRunWizard
 import org.michimusic.mobile.onboarding.OnboardingSnapshot
@@ -39,6 +32,7 @@ import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
 class MainActivity : ComponentActivity() {
 
     private val visualPreferencesRepository: VisualPreferencesRepository by inject()
+    private val musicRootAuthority: MusicRootAuthority by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,10 +108,34 @@ class MainActivity : ComponentActivity() {
                                         saved
                                     }
                                 },
-                                finish = { draft ->
-                                    val saved = onboardingStore.complete(draft)
-                                    if (saved) onboarding = draft.copy(completed = true)
-                                    saved
+                                finish = { draft, rootSelection ->
+                                    val rootChange = rootSelection?.let { selection ->
+                                        musicRootAuthority.apply(selection, clearPlayback = false)
+                                    }
+                                    if (rootChange != null && !rootChange.success) {
+                                        false
+                                    } else {
+                                        val saved = onboardingStore.complete(draft)
+                                        if (saved) {
+                                            onboarding = draft.copy(completed = true)
+                                            rootChange?.let { change ->
+                                                try {
+                                                    musicRootAuthority.activate(change)
+                                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                                    throw e
+                                                } catch (_: Exception) {
+                                                    // The root is already confirmed; a later cache read
+                                                    // recovers from a failed post-commit notification.
+                                                }
+                                            }
+                                            true
+                                        } else {
+                                            rootChange?.let { change ->
+                                                musicRootAuthority.rollback(change)
+                                            }
+                                            false
+                                        }
+                                    }
                                 },
                                 onCompleted = { destination ->
                                     completionRoute = destination.route

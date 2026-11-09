@@ -19,6 +19,9 @@ import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
 import org.michimusic.data.cache.AppDao
+import org.michimusic.mobile.library.MusicRootAuthority
+import org.michimusic.mobile.library.MusicRootChange
+import org.michimusic.data.repository.MusicRoot
 import org.michimusic.mobile.ui.theme.VisualPreferences
 import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
 import org.michimusic.player.PlayerDependencies
@@ -35,6 +38,7 @@ class SettingsHierarchyTest {
 
     private val mockAppDao: AppDao = mockk(relaxed = true)
     private val mockVisualRepo: VisualPreferencesRepository = mockk(relaxed = true)
+    private val mockRootAuthority: MusicRootAuthority = mockk(relaxed = true)
     private val rgProcessor = org.michimusic.player.ReplayGainAudioProcessor()
 
     @Before
@@ -43,12 +47,18 @@ class SettingsHierarchyTest {
         PlayerDependencies.replayGainProcessor = rgProcessor
         io.mockk.coEvery { mockAppDao.getSetting("listening_history_enabled") } returns "true"
         every { mockVisualRepo.preferences } returns MutableStateFlow(VisualPreferences(reducedMotion = true))
+        every { mockRootAuthority.currentRoot } returns MutableStateFlow(MusicRoot.Default)
+        every { mockRootAuthority.lastScan } returns MutableStateFlow(null)
+        every { mockRootAuthority.permissionRevoked() } returns false
+        io.mockk.coEvery { mockRootAuthority.rescan(any()) } returns
+            MusicRootChange(success = true, root = MusicRoot.Default)
 
         startKoin {
             modules(
                 module {
                     single<AppDao> { mockAppDao }
                     single<VisualPreferencesRepository> { mockVisualRepo }
+                    single<MusicRootAuthority> { mockRootAuthority }
                     // The auto-sync switch reads its initial state from the scheduler, so the
                     // settings screen needs one definition even when the test never toggles it.
                     single<org.michimusic.mobile.sync.AutoSyncScheduler> {
@@ -139,6 +149,25 @@ class SettingsHierarchyTest {
         composeTestRule.waitForIdle()
 
         assertEquals(ReplayGainMode.OFF, PlayerDependencies.replayGainMode)
+    }
+
+    @Test
+    fun testLibraryRootSectionExposesCurrentRootAndRescanAction() {
+        composeTestRule.setContent {
+            org.koin.compose.KoinContext {
+                SettingsScreen(initialSection = SettingsSection.LIBRARY_STORAGE)
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_library_root").assertExists()
+        composeTestRule.onNodeWithTag("settings_library_restore_music").assertExists()
+        composeTestRule.onNodeWithTag("settings_library_rescan")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.waitForIdle()
+
+        io.mockk.coVerify(atLeast = 1) { mockRootAuthority.rescan(any()) }
     }
 
     @Test

@@ -5,7 +5,7 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 import org.michimusic.data.cache.MichiDatabase
 import org.michimusic.data.repository.LocalMediaRepository
-import org.michimusic.data.repository.MusicFolderPreferences
+import org.michimusic.data.repository.MusicRootPreferences
 import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.data.repository.SyncedTrackRepository
 
@@ -48,8 +48,8 @@ val dataModule = module {
         org.michimusic.data.repository.DefaultMusicLibraryRepository(get(), get(), get(), get())
     }
     single { SyncedTrackRepository(get(), get()) }
-    single { MusicFolderPreferences(androidContext()) }
-    // MediaStore and persisted SAF imports share one local catalog in Home/Library.
+    single { MusicRootPreferences(androidContext()) }
+    // The local library is scoped to one root: Music/ by default or one SAF tree.
     single { LocalMediaRepository(androidContext(), get(), get(), get()) }
     single<org.michimusic.data.repository.FavoritesRepository> {
         org.michimusic.data.repository.DefaultFavoritesRepository(get())

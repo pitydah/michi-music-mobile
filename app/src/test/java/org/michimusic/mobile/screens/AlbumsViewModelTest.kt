@@ -4,6 +4,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -22,6 +23,7 @@ import org.michimusic.data.cache.AppDao
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.MediaResult
 import org.michimusic.data.repository.PlaylistRepository
+import org.michimusic.mobile.library.MusicRootAuthority
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumsViewModelTest {
@@ -47,6 +49,32 @@ class AlbumsViewModelTest {
     @Test
     fun `starts in loading state before loadMedia is called`() {
         assertTrue(viewModel.isLoading.value)
+    }
+
+
+    @Test
+    fun `confirmed root revision reloads the active catalog`() = runTest(testDispatcher) {
+        val revision = MutableStateFlow(0L)
+        val rootAuthority = mockk<MusicRootAuthority>(relaxed = true)
+        io.mockk.every { rootAuthority.revision } returns revision
+        coEvery { localRepo.fetchAlbumsResult() } returns MediaResult.Success(emptyList())
+        coEvery { appDao.getTopTracks(12) } returns emptyList()
+        coEvery { appDao.getRecentHistory(20) } returns emptyList()
+        coEvery { playlistRepo.getAllPlaylists() } returns emptyList()
+        val scoped = AlbumsViewModel(
+            localRepo,
+            appDao,
+            playlistRepo,
+            testDispatcher,
+            rootAuthority = rootAuthority,
+        )
+
+        scoped.loadMedia()
+        testScheduler.advanceUntilIdle()
+        revision.value = 1L
+        testScheduler.advanceUntilIdle()
+
+        coVerify(exactly = 2) { localRepo.fetchAlbumsResult() }
     }
 
     @Test

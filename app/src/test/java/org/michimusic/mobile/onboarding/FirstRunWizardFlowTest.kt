@@ -3,15 +3,21 @@ package org.michimusic.mobile.onboarding
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.michimusic.data.repository.SafMediaRepository
+import org.michimusic.data.repository.MusicRoot
+import org.michimusic.mobile.library.MusicRootAuthority
+import org.michimusic.mobile.library.MusicRootSelection
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -20,7 +26,12 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = android.app.Application::class)
 class FirstRunWizardFlowTest {
     @get:Rule val rule = createComposeRule()
-    private val saf: SafMediaRepository = mockk(relaxed = true)
+    private val roots: MusicRootAuthority = mockk(relaxed = true)
+
+    private fun rootAuthority(): MusicRootAuthority {
+        every { roots.currentRoot } returns MutableStateFlow(MusicRoot.Default)
+        return roots
+    }
 
     @Test fun skipEcosystemPersistsNoDiscoveryAndNeverBlocksNext() {
         val drafts = mutableListOf<OnboardingSnapshot>()
@@ -29,8 +40,8 @@ class FirstRunWizardFlowTest {
                 initial = OnboardingSnapshot(step = 2, discoverLater = true, linkLater = true),
                 replay = false,
                 saveDraft = { drafts += it; true },
-                finish = { true },
-                onCompleted = {}, onDismissReplay = {}, safRepository = saf,
+                finish = { _, _ -> true },
+                onCompleted = {}, onDismissReplay = {}, rootAuthority = rootAuthority(),
             )
         }
         rule.onNodeWithTag("wizard_skip_ecosystem").performClick()
@@ -50,8 +61,8 @@ class FirstRunWizardFlowTest {
                     discoverLater = true, linkLater = true),
                 replay = false,
                 saveDraft = { true },
-                finish = { committed = true; true },
-                onCompleted = { routed = it }, onDismissReplay = {}, safRepository = saf,
+                finish = { _, _ -> committed = true; true },
+                onCompleted = { routed = it }, onDismissReplay = {}, rootAuthority = rootAuthority(),
             )
         }
         rule.onNodeWithTag("wizard_next").performClick()
@@ -68,8 +79,8 @@ class FirstRunWizardFlowTest {
         rule.setContent {
             FirstRunWizard(
                 initial = OnboardingSnapshot(step = 4, library = LibraryChoice.LATER), replay = false,
-                saveDraft = { true }, finish = { true },
-                onCompleted = { routed = it }, onDismissReplay = {}, safRepository = saf,
+                saveDraft = { true }, finish = { _, _ -> true },
+                onCompleted = { routed = it }, onDismissReplay = {}, rootAuthority = rootAuthority(),
             )
         }
         rule.onNodeWithTag("wizard_next").performClick()
@@ -82,14 +93,32 @@ class FirstRunWizardFlowTest {
         rule.setContent {
             FirstRunWizard(
                 initial = OnboardingSnapshot(step = 4), replay = false,
-                saveDraft = { true }, finish = { false },
-                onCompleted = { routed = it }, onDismissReplay = {}, safRepository = saf,
+                saveDraft = { true }, finish = { _, _ -> false },
+                onCompleted = { routed = it }, onDismissReplay = {}, rootAuthority = rootAuthority(),
             )
         }
         rule.onNodeWithTag("wizard_next").performClick()
         rule.waitForIdle()
         assertEquals(null, routed)
         rule.onNodeWithTag("wizard_error").assertExists()
+    }
+
+
+    @Test fun rootChoiceIsStagedAndNotPersistedBeforeFinish() {
+        rule.setContent {
+            FirstRunWizard(
+                initial = OnboardingSnapshot(step = 1, library = LibraryChoice.PHONE),
+                replay = false,
+                saveDraft = { true },
+                finish = { _, _ -> true },
+                onCompleted = {}, onDismissReplay = {}, rootAuthority = rootAuthority(),
+            )
+        }
+        rule.onNodeWithText("Music/ del teléfono").performClick()
+        rule.waitForIdle()
+
+        coVerify(exactly = 0) { roots.apply(any(), any(), any()) }
+        coVerify(exactly = 0) { roots.restoreDefault(any()) }
     }
 
     @Test fun replayCloseKeepsPersistedOptionsUnchanged() {
@@ -99,8 +128,8 @@ class FirstRunWizardFlowTest {
             FirstRunWizard(
                 initial = OnboardingSnapshot(completed = true, library = LibraryChoice.LATER),
                 replay = true, saveDraft = { true },
-                finish = { completed = true; true },
-                onCompleted = {}, onDismissReplay = { dismissed = true }, safRepository = saf,
+                finish = { _, _ -> completed = true; true },
+                onCompleted = {}, onDismissReplay = { dismissed = true }, rootAuthority = rootAuthority(),
             )
         }
         rule.onNodeWithTag("wizard_back").performClick()
