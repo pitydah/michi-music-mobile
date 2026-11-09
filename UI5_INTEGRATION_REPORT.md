@@ -64,6 +64,19 @@ Todas las tareas Gradle se ejecutaron con el workflow gestionado
 La compilación de AndroidTest no equivale a ejecución instrumentada. No se
 ejecutaron pruebas físicas ni se instaló este candidato en el teléfono.
 
+## Revisión independiente
+
+La revisión independiente encontró un P1 real en la búsqueda: una consulta como
+`"rock "` se rechazaba antes de publicar una generación válida y podía dejar el
+spinner permanente. Se corrigió publicando el snapshot rechazado y se añadió una
+regresión que exige `requestGeneration >= 0` y ausencia de estado de búsqueda.
+
+También señaló que los tokens de acabado por defecto de UI5 no son idénticos a
+los de UI4: los roles, acabados y comportamiento de contraste se conservan, pero
+los valores alfa de `Satin`, `Anodized` y `Smoked` cambian deliberadamente. No se
+revirtió ese cambio visual de UI5; se documenta para no afirmar una preservación
+pixel-perfect.
+
 ## Límites que siguen abiertos
 
 - Casos físicos consolidados U45-01…U45-20 y de cola U45-21…U45-33.

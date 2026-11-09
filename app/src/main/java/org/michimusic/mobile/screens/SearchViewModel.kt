@@ -174,6 +174,14 @@ class SearchViewModel(
             return
         }
         if (q != q.trim() || normalizedSearchText(q).length < 2) {
+            // UI5 intentionally rejects padded/under-length queries. Publishing the
+            // rejected generation prevents the screen from treating the stale default
+            // snapshot as an unresolved search and showing a permanent spinner.
+            _structuredResults.value = StructuredSearchResults(
+                requestQuery = q,
+                requestFilter = _selectedFilter.value,
+                requestGeneration = generation,
+            )
             _isSearching.value = false
             searchJob = null
             return

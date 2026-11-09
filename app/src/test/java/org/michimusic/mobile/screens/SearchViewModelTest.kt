@@ -183,6 +183,21 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `a padded query is rejected without leaving an unresolved spinner state`() = runTest(testDispatcher) {
+        viewModel.setQuery("rock ")
+        testScheduler.advanceUntilIdle()
+
+        val snapshot = viewModel.structuredResults.value
+        assertEquals("rock ", snapshot.requestQuery)
+        assertEquals(SearchFilter.ALL, snapshot.requestFilter)
+        assertTrue(snapshot.requestGeneration >= 0L)
+        assertFalse(viewModel.isSearching.value)
+        assertTrue(snapshot.tracks.isEmpty())
+        assertTrue(snapshot.albums.isEmpty())
+        assertTrue(snapshot.artists.isEmpty())
+    }
+
+    @Test
     fun `a confirmed root revision supersedes an in-flight catalog scan`() = runTest(testDispatcher) {
         val authority = mockk<MusicRootAuthority>(relaxed = true)
         val revisions = MutableStateFlow(0L)
