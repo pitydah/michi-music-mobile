@@ -84,6 +84,7 @@ class SignalTruthResolverTest {
         val streamObservation = AudioSignalObservation(
             sourceFormat = SignalFormat(codec = "FLAC", bitDepth = 24, sampleRate = 96000, channels = 2),
             decodedFormat = SignalFormat(codec = "PCM", bitDepth = 24, sampleRate = 96000, channels = 2),
+            decodedObservedAtMs = 42L,
             dspStatus = DspPipelineStatus(isEqActive = false, isReplayGainActive = false),
             outputConfig = null,
         )
@@ -101,7 +102,8 @@ class SignalTruthResolverTest {
         assertEquals("local_phone", decoding.originEndpointId)
 
         val output = items.first { it.layer == SignalLayer.ANDROID_OUTPUT }
-        assertEquals(SignalEvidenceType.OBSERVED, output.evidenceType)
+        assertEquals(SignalEvidenceType.CONFIGURED, output.evidenceType)
+        assertEquals(0L, output.freshnessMs)
         assertTrue(output.value.contains("RTP Stream"))
 
         val physical = items.first { it.layer == SignalLayer.PHYSICAL_DEVICE }
@@ -287,6 +289,8 @@ class SignalTruthResolverTest {
             outputConfig = SignalFormat(codec = "AudioTrack", bitDepth = 24, sampleRate = 48000, channels = 2),
             dspStatus = DspPipelineStatus(isEqActive = true),
             observedAtMs = testTimestamp,
+            decodedObservedAtMs = testTimestamp,
+            outputObservedAtMs = testTimestamp,
         )
 
         val items = SignalTruthResolver.resolveProvenance(

@@ -24,6 +24,7 @@ class SignalTruthTracker(
     private val replayGainProcessor: ReplayGainAudioProcessor? = null,
     private val usbDacManager: UsbDacManager? = null,
     private val headphonePeq: HeadphonePeqAudioProcessor? = null,
+    private val headphoneProfileStore: HeadphoneProfileStore? = null,
 ) {
     private val _observation = MutableStateFlow(AudioSignalObservation())
     val observation: StateFlow<AudioSignalObservation> = _observation.asStateFlow()
@@ -33,6 +34,7 @@ class SignalTruthTracker(
     private var currentOutputConfig: SignalFormat? = null
     private var currentFileFacts: SourceAudioFileFacts? = null
     private var currentMetadataTrack: Track? = null
+    private var currentTrackIdentity: String? = null
     private var sourceObservedAtMs = 0L
     private var decodedObservedAtMs = 0L
     private var outputObservedAtMs = 0L
@@ -47,18 +49,24 @@ class SignalTruthTracker(
 
     fun setPlaybackActive(isPlaying: Boolean) {
         if (playbackActive != isPlaying) {
+            if (!isPlaying) replayGainProcessor?.invalidateRenderEvidence()
+            // Resuming needs new PEQ frames; a buffer from the previous play epoch is stale.
+            headphonePeq?.invalidateRenderEvidence()
             playbackActive = isPlaying
             recompute()
         }
     }
 
     fun clearPlayback(resetInstrumentation: Boolean = false) {
+        replayGainProcessor?.invalidateRenderEvidence()
+        headphonePeq?.invalidateRenderEvidence()
         playbackActive = false
         currentSourceFormat = null
         currentDecodedFormat = null
         currentOutputConfig = null
         currentFileFacts = null
         currentMetadataTrack = null
+        currentTrackIdentity = null
         sourceObservedAtMs = 0L
         decodedObservedAtMs = 0L
         outputObservedAtMs = 0L
@@ -90,10 +98,13 @@ class SignalTruthTracker(
 
     /** Media3 may reuse AudioTrack across gapless tracks. Preserve only the actual sink
      * and route observation; old source and decoder facts must expire immediately. */
-    fun onMediaItemTransitionPending() {
+    fun onMediaItemTransitionPending(trackIdentity: String? = null) {
         currentSourceFormat = null
         currentFileFacts = null
         currentMetadataTrack = null
+        currentTrackIdentity = trackIdentity
+        replayGainProcessor?.invalidateRenderEvidence()
+        headphonePeq?.invalidateRenderEvidence()
         currentDecodedFormat = null
         sourceObservedAtMs = 0L
         decodedObservedAtMs = 0L
@@ -106,12 +117,18 @@ class SignalTruthTracker(
             clearPlayback()
             return
         }
-        // Continuous playback: invalidate only source format awaiting MediaCodec event for new track.
-        // Preserves currentOutputConfig and valid decodedFormat across gapless/same-sink transitions.
+        replayGainProcessor?.invalidateRenderEvidence()
+        headphonePeq?.invalidateRenderEvidence()
+        // The decoder belongs to a track, not to the reusable AudioTrack sink.
+        // Even if this is called without onMediaItemTransitionPending(), never
+        // allow the previous track's PCM to appear under the new title.
         currentSourceFormat = null
+        currentDecodedFormat = null
         currentFileFacts = null
         currentMetadataTrack = null
+        currentTrackIdentity = track.id.toString()
         sourceObservedAtMs = 0L
+        decodedObservedAtMs = 0L
         trackGeneration++
         recompute()
     }
@@ -140,6 +157,9 @@ class SignalTruthTracker(
 
     /** File-only metadata is delivered asynchronously and guarded by the service transition epoch. */
     fun onTrackFileMetadata(track: Track, facts: SourceAudioFileFacts?) {
+        val nextIdentity = track.id.toString()
+        if (currentTrackIdentity != null && currentTrackIdentity != nextIdentity) return
+        currentTrackIdentity = nextIdentity
         currentMetadataTrack = track
         currentFileFacts = facts
         val previous = currentSourceFormat
@@ -179,7 +199,9 @@ class SignalTruthTracker(
 
     fun onPcmFormatDecoded(pcmFormat: PcmFormat?) {
         if (!instrumentationAvailable) return
-        val next = pcmFormat?.let {
+        val next = pcmFormat?.takeIf {
+            it.sampleRate > 0 && it.bitDepth > 0 && it.channels > 0
+        }?.let {
             SignalFormat(codec = it.codec, bitDepth = it.bitDepth, sampleRate = it.sampleRate, channels = it.channels)
         }
         if (currentDecodedFormat != next) decodedObservedAtMs = if (next != null) System.currentTimeMillis() else 0L
@@ -200,9 +222,11 @@ class SignalTruthTracker(
             androidx.media3.common.C.ENCODING_PCM_FLOAT -> 32
             else -> 0 // unsupported/unknown encoding must not be reported as 16-bit
         }
-        val next = SignalFormat(codec = "AudioTrack_PCM", bitDepth = bits, sampleRate = sampleRate, channels = channelCount)
+        val next = if (bits > 0 && sampleRate > 0 && channelCount > 0) {
+            SignalFormat(codec = "AudioTrack_PCM", bitDepth = bits, sampleRate = sampleRate, channels = channelCount)
+        } else null
         if (newAudioTrack || currentOutputConfig != next) outputObservedAtMs =
-            if (bits > 0 && sampleRate > 0 && channelCount > 0) System.currentTimeMillis() else 0L
+            if (next != null) System.currentTimeMillis() else 0L
         currentOutputConfig = next
         recompute()
     }
@@ -222,6 +246,9 @@ class SignalTruthTracker(
         val eqActive = playbackActive && audioEffects?.effectsState?.value?.isEnabled == true &&
             audioEffects?.hasActiveAudioSession == true
         val rgActive = playbackActive && instrumentationAvailable && replayGainProcessor?.isGainActive == true
+        val rgPcmReceipt = if (rgActive) replayGainProcessor?.currentRenderReceipt() else null
+        val peqReceipt = if (playbackActive && instrumentationAvailable)
+            headphonePeq?.currentRenderReceipt() else null
         val rgVol = replayGainProcessor?.currentReplayGainVolume ?: 1f
         val rgDb = if (rgVol > 0f) (20f * kotlin.math.log10(rgVol)) else 0f
         val preampDb = if (playbackActive && instrumentationAvailable) {
@@ -236,13 +263,20 @@ class SignalTruthTracker(
             isEqActive = eqActive,
             isReplayGainActive = rgActive,
             replayGainAppliedDb = if (rgActive) rgDb else 0f,
+            replayGainPcmObserved = rgPcmReceipt != null,
+            replayGainRampPendingFrames = rgPcmReceipt?.rampFramesRemaining ?: 0,
+            replayGainFramesProcessed = rgPcmReceipt?.processedFrames ?: 0L,
             bassBoostActive = bbActive,
             virtualizerActive = virtActive,
             preampAppliedDb = preampDb,
-            headphonePeqActive = playbackActive && headphonePeq?.isApplied == true,
-            headphoneHeadroomDb = if (playbackActive && headphonePeq?.isApplied == true) headphonePeq.appliedHeadroomDb else 0f,
-            headphoneFramesProcessed = if (playbackActive) headphonePeq?.framesProcessed ?: 0L else 0L,
-            headphoneClipSamples = if (playbackActive) headphonePeq?.clippedSamples ?: 0L else 0L,
+            headphonePeqConfigured = (headphoneProfileStore ?: PlayerDependencies.headphoneProfileStore)
+                ?.state?.value?.enabled == true,
+            headphonePeqActive = peqReceipt != null,
+            headphonePeqAppliedRevision = peqReceipt?.revision ?: -1L,
+            headphonePeqObservedAtMs = peqReceipt?.observedAtMs ?: 0L,
+            headphoneHeadroomDb = peqReceipt?.headroomDb ?: 0f,
+            headphoneFramesProcessed = peqReceipt?.processedFrames ?: 0L,
+            headphoneClipSamples = peqReceipt?.clippedSamples ?: 0L,
             upstreamPcmClipSamples = if (playbackActive) replayGainProcessor?.pcmClipSamples ?: 0L else 0L,
             upstreamSafetyReductionDb = if (playbackActive) replayGainProcessor?.safetyReductionDb ?: 0f else 0f,
         )
@@ -286,6 +320,7 @@ class SignalTruthTracker(
             trackGeneration = trackGeneration,
             audioTrackGeneration = currentAudioTrackGeneration,
             routeGeneration = routeGeneration,
+            trackIdentity = currentTrackIdentity,
         )
     }
 }

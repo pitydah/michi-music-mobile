@@ -7,6 +7,7 @@ import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.pow
@@ -38,6 +39,33 @@ class HeadphonePeqAudioProcessor : BaseAudioProcessor() {
         private set
     @Volatile var clippedSamples = 0L
         private set
+    // These counters belong to one actual render revision and playback epoch.
+    // No locks or allocations are added to the per-sample loop.
+    @Volatile private var revisionFramesProcessed = 0L
+    @Volatile private var revisionClipSamples = 0L
+    @Volatile private var revisionObservedAtMs = 0L
+    private val receiptEpoch = AtomicLong(0L)
+    @Volatile private var renderedReceiptEpoch = -1L
+    private var statisticsEpoch = -1L
+
+    /** A seek, pause, track change or handoff cannot reuse old PCM evidence. */
+    internal fun invalidateRenderEvidence() {
+        receiptEpoch.incrementAndGet()
+        renderedReceiptEpoch = -1L
+    }
+
+    internal fun currentRenderReceipt(): HeadphonePeqRenderReceipt? {
+        val request = pending
+        val epoch = receiptEpoch.get()
+        val receipt = HeadphonePeqReceiptPolicy.current(
+            request.revision, processingRevision, revisionFramesProcessed,
+            revisionClipSamples, appliedHeadroomDb, revisionObservedAtMs, request.active,
+            isApplied, request.gate.isAllowed())
+        return receipt?.takeIf {
+            pending === request && receiptEpoch.get() == epoch && renderedReceiptEpoch == epoch
+        }
+    }
+
     private var configured: List<PeqBand> = emptyList()
     @Volatile private var sampleRate = 0
     @Volatile private var channels = 0
@@ -66,7 +94,7 @@ class HeadphonePeqAudioProcessor : BaseAudioProcessor() {
         } else null
         pending = PeqRequest(validated, shouldEnable, previous.revision + 1L, gate,
             prepared, rate, channelCount, peqHeadroomDb(validated))
-        if (!active) isApplied = false
+        isApplied = false // pending revision is not yet a PCM receipt
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -102,6 +130,11 @@ class HeadphonePeqAudioProcessor : BaseAudioProcessor() {
         clippedSamples = 0L
         framesProcessed = 0L
         processingRevision = -1L
+        revisionFramesProcessed = 0L
+        revisionClipSamples = 0L
+        revisionObservedAtMs = 0L
+        statisticsEpoch = -1L
+        invalidateRenderEvidence()
         appliedHeadroomDb = 0f
         isApplied = false
         // Flush retains the immutable coefficients but resets all IIR memories.
@@ -122,6 +155,7 @@ class HeadphonePeqAudioProcessor : BaseAudioProcessor() {
             "Incomplete PCM frame: ${inputBuffer.remaining()} bytes, $bytesPerFrame bytes/frame"
         }
         val control = pending // one immutable revision per buffer
+        val bufferEpoch = receiptEpoch.get()
         val target = control.bands
         val output = replaceOutputBuffer(inputBuffer.remaining()).order(ByteOrder.LITTLE_ENDIAN)
         // A stale bank cannot execute with an old sample rate or channel layout.
@@ -140,6 +174,10 @@ class HeadphonePeqAudioProcessor : BaseAudioProcessor() {
             activeRevision = control.revision
             isApplied = false
             processingRevision = -1L
+            revisionFramesProcessed = 0L
+            revisionClipSamples = 0L
+            revisionObservedAtMs = 0L
+            renderedReceiptEpoch = -1L
             appliedHeadroomDb = 0f
             return
         }
@@ -199,8 +237,26 @@ class HeadphonePeqAudioProcessor : BaseAudioProcessor() {
         output.flip()
         clippedSamples += clippedThisBuffer
         framesProcessed += (output.limit() / bytesPerFrame).toLong()
-        processingRevision = control.revision
-        isApplied = control.gate.isAllowed() // do not claim processing if authority was revoked mid-buffer
+        // Complete once per PCM buffer; never allocate or lock inside the sample loop.
+        // A control change during rendering can never confirm the earlier revision.
+        if (bufferEpoch == receiptEpoch.get() && pending === control && control.gate.isAllowed()) {
+            if (processingRevision != control.revision || statisticsEpoch != bufferEpoch) {
+                revisionFramesProcessed = 0L
+                revisionClipSamples = 0L
+                // Capture one timestamp at the first PCM buffer of this epoch/revision.
+                revisionObservedAtMs = System.currentTimeMillis()
+            }
+            revisionFramesProcessed += (output.limit() / bytesPerFrame).toLong()
+            revisionClipSamples += clippedThisBuffer
+            processingRevision = control.revision
+            statisticsEpoch = bufferEpoch
+            isApplied = true
+            renderedReceiptEpoch = bufferEpoch
+        } else {
+            // Do not revive evidence when hotplug or track change races queueInput.
+            isApplied = false
+            renderedReceiptEpoch = -1L
+        }
     }
 
     private class Biquad(band: PeqBand, rate: Int) {

@@ -25,17 +25,19 @@ object SignalTruthResolver {
         activeEndpoint: PlaybackEndpoint,
         currentTrack: Track?,
         isRemote: Boolean,
+        streamSelectedBySession: Boolean = false,
     ): List<SignalProvenanceItem> {
-        val isStream = isRemote && !activeEndpoint.isLocal &&
-            (activeEndpoint.type == EndpointType.STREAM_RECEIVER || activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
+        // AUDIO_OUTPUT is a generic capability: it does not establish that the
+        // target is a Michi Stream receiver or that an RTP packet was delivered.
+        val isStream = SignalTruthEvidencePolicy.isMichiStream(
+            isRemote, activeEndpoint, streamSelectedBySession)
         val endpointId = activeEndpoint.id
         val observationFreshness = observation.observedAtMs
         val sourceFreshness = observation.sourceObservedAtMs
-        // A layer that has no timestamp of its own still inherits the freshness of the
-        // observation that proved it exists: zero here would tell the UI the evidence is
-        // stale, which is exactly the invented state this resolver must never report.
-        val decodedFreshness = observation.decodedObservedAtMs.takeIf { it > 0 } ?: observation.observedAtMs
-        val outputFreshness = observation.outputObservedAtMs.takeIf { it > 0 } ?: observation.observedAtMs
+        // Never borrow freshness from another layer. A recent route callback is
+        // not evidence that this decoder or AudioTrack was newly observed.
+        val decodedFreshness = observation.decodedObservedAtMs
+        val outputFreshness = observation.outputObservedAtMs
 
         // 1. FUENTE
         // K47-02: Remote playback MUST NEVER inherit observation.sourceFormat from local tracker.
@@ -100,9 +102,7 @@ object SignalTruthResolver {
                     confidenceNote = "Decodificación gestionada por el host remoto",
                 )
             }
-            observation.decodedFormat != null &&
-                observation.decodedFormat!!.sampleRate > 0 &&
-                observation.decodedFormat!!.bitDepth > 0 -> {
+            SignalTruthEvidencePolicy.hasTimedTechnicalFormat(observation.decodedFormat, decodedFreshness) -> {
                 val decoded = observation.decodedFormat!!
                 val bitStr = "${decoded.bitDepth}"
                 val rateKhz = if (decoded.sampleRate % 1000 == 0) "${decoded.sampleRate / 1000}"
@@ -149,16 +149,24 @@ object SignalTruthResolver {
                 // Only PCM processors ahead of the split may be attributed to Stream.
                 val hasEq = !isStream && dsp.isEqActive
                 val hasRg = dsp.isReplayGainActive
-                val preampDb = dsp.preampAppliedDb.takeIf { it.isFinite() } ?: 0f
+                val replayGainDb = SignalTruthEvidencePolicy.finiteDb(dsp.replayGainAppliedDb)
+                val preampDb = SignalTruthEvidencePolicy.finiteDb(dsp.preampAppliedDb) ?: 0f
                 val hasPreamp = kotlin.math.abs(preampDb) > 0.001f
                 val processing = mutableListOf<String>()
                 if (hasEq) processing += "EQ activo"
-                if (hasRg) processing += "ReplayGain activo (${String.format(java.util.Locale.US, "%.1f", dsp.replayGainAppliedDb)} dB)"
+                if (hasRg) processing += if (replayGainDb != null) {
+                    "ReplayGain activo (${String.format(java.util.Locale.US, "%.1f", replayGainDb)} dB)"
+                } else "ReplayGain activo (ganancia no verificada)"
                 if (hasPreamp) processing += "Preamp DSP (${String.format(java.util.Locale.US, "%+.1f", preampDb)} dB)"
-                if (dsp.upstreamSafetyReductionDb < -0.01f)
+                if (SignalTruthEvidencePolicy.finiteDb(dsp.upstreamSafetyReductionDb) != null &&
+                    dsp.upstreamSafetyReductionDb < -0.01f)
                     processing += "Protección de ganancia pre-RTP (${String.format(java.util.Locale.US, "%.1f", dsp.upstreamSafetyReductionDb)} dB)"
-                if (!isStream && dsp.headphonePeqActive)
-                    processing += "PEQ auriculares (headroom −${String.format(java.util.Locale.US, "%.1f", dsp.headphoneHeadroomDb)} dB)"
+                if (!isStream && dsp.headphonePeqActive) {
+                    val headroomDb = SignalTruthEvidencePolicy.finiteDb(dsp.headphoneHeadroomDb)
+                    processing += if (headroomDb != null) {
+                        "PEQ auriculares (headroom −${String.format(java.util.Locale.US, "%.1f", headroomDb)} dB)"
+                    } else "PEQ auriculares (headroom no verificado)"
+                }
                 val value = processing.joinToString(" · ").ifEmpty { "Sin EQ activo" }
                 SignalProvenanceItem(
                     layer = SignalLayer.PROCESSING,
@@ -194,20 +202,23 @@ object SignalTruthResolver {
                 )
             }
             isStream -> {
+                // Endpoint selection and decoded PCM do NOT prove RTP transmission,
+                // reception, or the physical DAC. This needs a transport receipt.
                 SignalProvenanceItem(
                     layer = SignalLayer.ANDROID_OUTPUT,
                     label = "Salida Android",
-                    value = "RTP Stream (altavoz local silenciado)",
-                    evidenceType = SignalEvidenceType.OBSERVED,
+                    value = "RTP Stream (entrega no verificada)",
+                    evidenceType = SignalEvidenceType.CONFIGURED,
                     originEndpointId = "local_phone",
-                    freshnessMs = decodedFreshness,
+                    freshnessMs = 0L,
+                    confidenceNote = "Destino seleccionado; faltan recibos de envío y recepción RTP",
                 )
             }
-            observation.outputConfig != null -> {
+            SignalTruthEvidencePolicy.hasTimedTechnicalFormat(observation.outputConfig, outputFreshness) -> {
                 SignalProvenanceItem(
                     layer = SignalLayer.ANDROID_OUTPUT,
                     label = "Salida Android",
-                    value = "AudioTrack",
+                    value = SignalTruthEvidencePolicy.describeAudioTrack(observation.outputConfig!!),
                     evidenceType = SignalEvidenceType.OBSERVED,
                     originEndpointId = "local_phone",
                     freshnessMs = outputFreshness,

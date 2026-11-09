@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioMixerAttributes
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -219,7 +220,10 @@ class UsbDacManager(
             return false
         }
         return runCatching {
+            // A rate can be exposed in multiple mixer profiles. The generic
+            // frequency setting must NEVER accidentally choose bit-perfect.
             val supported = audioManager?.getSupportedMixerAttributes(device).orEmpty()
+                .filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT }
             if (sampleRate == null) {
                 val cleared = audioManager?.let { manager ->
                     mediaAttributes?.let { attributes ->
@@ -233,7 +237,8 @@ class UsbDacManager(
             } else {
                 val match = supported.firstOrNull { it.format.sampleRate == sampleRate }
                 if (match == null) {
-                    _mixerState.value = _mixerState.value.copy(message = "Esta frecuencia no está ofrecida por Android")
+                    _mixerState.value = _mixerState.value.copy(message =
+                        "No hay perfil de mezclador normal para esta frecuencia; no se activó modo exclusivo")
                     false
                 } else {
                     val accepted = audioManager?.let { manager ->
@@ -265,7 +270,11 @@ class UsbDacManager(
         }
         lastMixerDevice = desired
         val rates = if (android.os.Build.VERSION.SDK_INT >= 34 && desired != null && isUsbAudioType(desired.type)) {
-            runCatching { audioManager?.getSupportedMixerAttributes(desired).orEmpty().map { it.format.sampleRate }
+            // Filter out optional BIT_PERFECT profiles: an ordinary rate choice
+            // is not permission to bypass Android's mixer, effects or volume.
+            runCatching { audioManager?.getSupportedMixerAttributes(desired).orEmpty()
+                .filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_DEFAULT }
+                .map { it.format.sampleRate }
                 .filter { it > 0 }.distinct().sorted().take(12) }.getOrDefault(emptyList())
         } else emptyList()
         if (_mixerState.value.deviceId != desired?.id) {
