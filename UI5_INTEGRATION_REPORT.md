@@ -81,7 +81,9 @@ No quedan marcadores de conflicto.
 ## UI5-APM-03 — Aero Precision Materials
 
 SHA inicial del sprint: `5b0563e9d02516feaadd87ebd96470c5b4e8aa2c`.
-El SHA final se registra en el commit documental posterior a la validación.
+SHA de implementación APM: `06b6be13159fa575712c446e76a3a98530468b1e`.
+El commit documental posterior registra la validación exacta y solo añade este
+informe.
 
 ### Tickets
 
@@ -119,7 +121,7 @@ Workflow gestionado `d080ab472a38d378cbda9fc236d6c0e9`.
 | `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **92 tests, 0 fallos, 8 skipped** |
 | Nuevas pruebas de resolver, perímetro, profundidad, glass regional, CoverFlow y persistencia | PASS |
 
-Capturas en `UI5_APM_03_work/` (fuera del repositorio):
+Capturas en `UI5_APM_03_06b6be1/` (fuera del repositorio):
 
 - `before-album-detail.png` / `after-album-detail.png`: marco, luz interior y
   sombra de contacto de la portada de álbum.
