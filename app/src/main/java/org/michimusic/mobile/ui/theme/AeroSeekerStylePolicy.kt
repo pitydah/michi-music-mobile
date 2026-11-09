@@ -29,7 +29,7 @@ fun resolvedAeroSeekerStyle(
     else -> requested
 }
 
-/** Motion only while active; gestures must temporarily flatten decorative waves. */
+/** Motion only while active; gestures freeze the decorative wave, never fake data. */
 fun aeroWavyMotionAllowed(
     style: AeroSeekerStyle,
     playing: Boolean,
@@ -49,4 +49,23 @@ fun aeroSeekerFallbackDescription(
         resolved == AeroSeekerStyle.ORIGINAL ->
         "Forma de onda no disponible; barra de progreso original"
     else -> null
+}
+
+/**
+ * Visible status for Now Playing only. A waveform that was actually attempted and
+ * still has no usable real amplitudes must not look like a style that silently did
+ * nothing. ORIGINAL/WAVY/LIQUID_GLASS are complete designs on their own, high
+ * contrast deliberately uses the legacy track, and an in-flight decode stays
+ * quiet instead of claiming a failure too early.
+ */
+fun aeroSeekerVisibleFallback(
+    requested: AeroSeekerStyle,
+    amplitudes: List<Float>?,
+    highContrast: Boolean,
+    waveformSettled: Boolean,
+): String? = when {
+    !waveformSettled || highContrast -> null
+    requested != AeroSeekerStyle.WAVEFORM_BARS && requested != AeroSeekerStyle.WAVEFORM_CONTINUOUS -> null
+    usableSeekerAmplitudes(amplitudes) -> null
+    else -> "Forma de onda no disponible; barra original"
 }

@@ -64,8 +64,10 @@ internal fun AeroSeekerTrack(
         val active = Brush.horizontalGradient(listOf(MichiAuroraBlue, MichiAuroraCyan, MichiAuroraLavender))
         when (style) {
             AeroSeekerStyle.WAVY -> {
+                // Always a recognizable sine. Paused, reduced-motion and dragging
+                // runs simply keep phase at zero instead of flattening the control.
                 val path = Path()
-                val amplitude = if (dragging) 0f else 2.7.dp.toPx()
+                val amplitude = 2.7.dp.toPx()
                 val period = 42.dp.toPx().coerceAtLeast(1f)
                 var x = 0f
                 while (x <= w) {
@@ -107,17 +109,60 @@ internal fun AeroSeekerTrack(
                 }
             }
             AeroSeekerStyle.LIQUID_GLASS -> {
-                // No fake backdrop blur. A contained, low-cost specular lens is the API-safe fallback.
-                val inset = 1.dp.toPx()
-                val top = y - 4.dp.toPx()
-                drawRoundRect(Color.White.copy(alpha = 0.12f), Offset(0f, top), Size(w, 8.dp.toPx()),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
-                drawRoundRect(brush = active, topLeft = Offset(0f, top),
-                    size = Size(playedWidth.coerceAtLeast(0f), 8.dp.toPx()),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()))
-                if (playedWidth > 2 * inset) drawLine(Color.White.copy(alpha = 0.50f),
-                    Offset(inset, top + inset), Offset(playedWidth - inset, top + inset),
-                    strokeWidth = 0.75.dp.toPx())
+                // Draw-only optical rail: glass casing, recessed channel and one
+                // specular line. No backdrop capture, blur, refraction or extra control.
+                val railHeight = 12.dp.toPx()
+                val railTop = y - railHeight / 2f
+                val railRadius = androidx.compose.ui.geometry.CornerRadius(railHeight / 2f)
+                val inset = 2.dp.toPx()
+                val innerHeight = 5.dp.toPx()
+                val innerTop = y - innerHeight / 2f
+                val innerRadius = androidx.compose.ui.geometry.CornerRadius(innerHeight / 2f)
+                val innerWidth = (w - inset * 2f).coerceAtLeast(1f)
+                val playedInner = (playedWidth - inset).coerceIn(0f, innerWidth)
+                drawRoundRect(
+                    Color.White.copy(alpha = 0.055f),
+                    Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
+                )
+                drawRoundRect(
+                    Color.White.copy(alpha = 0.18f),
+                    Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
+                    style = Stroke(width = 0.75.dp.toPx()),
+                )
+                drawRoundRect(
+                    Color.Black.copy(alpha = 0.30f),
+                    Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
+                )
+                drawRoundRect(
+                    Color.White.copy(alpha = 0.10f),
+                    Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
+                    style = Stroke(width = 0.5.dp.toPx()),
+                )
+                if (playedInner > 0f) {
+                    drawRoundRect(
+                        brush = active,
+                        topLeft = Offset(inset, innerTop),
+                        size = Size(playedInner, innerHeight),
+                        cornerRadius = innerRadius,
+                    )
+                }
+                if (w > inset * 3f) {
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.55f),
+                        start = Offset(inset * 1.5f, railTop + 0.9.dp.toPx()),
+                        end = Offset(w - inset * 1.5f, railTop + 0.9.dp.toPx()),
+                        strokeWidth = 0.75.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                }
+                // A small optical bead marks the playhead; it is not fake refraction.
+                if (playedInner > 0f) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.38f),
+                        radius = 1.4.dp.toPx(),
+                        center = Offset(playedWidth, y),
+                    )
+                }
             }
             AeroSeekerStyle.ORIGINAL -> Unit // Original uses the unmodified legacy implementation.
         }

@@ -1,5 +1,8 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -46,5 +49,30 @@ class AeroSeekerCompositionTest {
         compose.onNodeWithTag("now_playing_seeker")
             .assertContentDescriptionEquals("Forma de onda no disponible; barra de progreso original")
         assertEquals(1, compose.onAllNodesWithTag("now_playing_seeker").fetchSemanticsNodes().size)
+    }
+
+    @Test fun everyVisualStyleKeepsExactlyOneSemanticSeekControl() {
+        var style by mutableStateOf(AeroSeekerStyle.ORIGINAL)
+        var selected = -1f
+        compose.setContent {
+            MichiTheme {
+                GradientProgressBar(currentValue = 25f, maxValue = 100f,
+                    onSeek = { selected = it }, aeroStyle = style,
+                    waveformAmplitudes = List(64) { 0.5f },
+                    testTag = "now_playing_seeker")
+            }
+        }
+        AeroSeekerStyle.entries.forEach { requested ->
+            compose.runOnIdle {
+                style = requested
+                selected = -1f
+            }
+            compose.waitForIdle()
+            compose.onNodeWithTag("now_playing_seeker").assertExists()
+                .performTouchInput { click() }
+            assertEquals("One host for $requested", 1,
+                compose.onAllNodesWithTag("now_playing_seeker").fetchSemanticsNodes().size)
+            assertEquals("Gesture kept for $requested", 50f, selected, 4f)
+        }
     }
 }

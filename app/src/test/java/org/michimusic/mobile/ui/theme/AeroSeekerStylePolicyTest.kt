@@ -38,4 +38,29 @@ class AeroSeekerStylePolicyTest {
         assertFalse(aeroWavyMotionAllowed(AeroSeekerStyle.WAVY, false, false, false))
         assertTrue(aeroWavyMotionAllowed(AeroSeekerStyle.WAVY, true, false, false))
     }
+    @Test fun visibleFallbackOnlyAppearsAfterARealWaveformAttempt() {
+        assertEquals("Forma de onda no disponible; barra original",
+            aeroSeekerVisibleFallback(AeroSeekerStyle.WAVEFORM_BARS, null,
+                highContrast = false, waveformSettled = true))
+        assertEquals("Forma de onda no disponible; barra original",
+            aeroSeekerVisibleFallback(AeroSeekerStyle.WAVEFORM_CONTINUOUS, List(3) { 0.4f },
+                highContrast = false, waveformSettled = true))
+        assertEquals(null,
+            aeroSeekerVisibleFallback(AeroSeekerStyle.WAVEFORM_BARS, null,
+                highContrast = false, waveformSettled = false))
+        assertEquals(null,
+            aeroSeekerVisibleFallback(AeroSeekerStyle.WAVEFORM_CONTINUOUS, null,
+                highContrast = true, waveformSettled = true))
+        assertEquals(null,
+            aeroSeekerVisibleFallback(AeroSeekerStyle.WAVEFORM_BARS, List(64) { 0.5f },
+                highContrast = false, waveformSettled = true))
+    }
+    @Test fun completeDecorativeStylesNeverShowAWaveformStatus() {
+        for (style in listOf(AeroSeekerStyle.ORIGINAL, AeroSeekerStyle.WAVY,
+            AeroSeekerStyle.LIQUID_GLASS)) {
+            assertEquals(null,
+                aeroSeekerVisibleFallback(style, null,
+                    highContrast = false, waveformSettled = true))
+        }
+    }
 }

@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.components
 
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,5 +36,35 @@ class DockIconPolicyTest {
             listOf("home", "library", "playlist", "search", "devices"),
             defaultNavTabs.map { it.route },
         )
+    }
+
+    @Test
+    fun `dock tabs keep their chrome without the removed top rule`() {
+        val file = findFile(
+            "app/src/main/java/org/michimusic/mobile/ui/components/BottomNavBar.kt",
+        )
+        assertTrue("BottomNavBar.kt must exist at ${file.absolutePath}", file.exists())
+        val source = file.readText()
+        assertFalse(
+            "DockTab must not reintroduce the 24x2dp decorative accent line",
+            source.contains("Modifier.size(width = 24.dp, height = 2.dp)"),
+        )
+        assertTrue("Role.Tab semantics must stay declared", source.contains("role = Role.Tab"))
+        assertTrue(
+            "Selected background must stay declared",
+            source.contains("aeroDockPanelOpacity(emphasis, highContrast)"),
+        )
+        assertTrue(
+            "Selected border must stay declared",
+            source.contains("aeroDockBorderOpacity(emphasis, highContrast)"),
+        )
+    }
+
+    private fun findFile(path: String): File {
+        val direct = File(path)
+        if (direct.exists()) return direct
+        val sub = File("../$path")
+        if (sub.exists()) return sub
+        return File(path.removePrefix("app/"))
     }
 }

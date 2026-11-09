@@ -41,10 +41,12 @@ internal fun playlistTrackLayout(density: PlaylistTrackDensity): PlaylistTrackLa
 /** Opaque per-id key avoids preferences-key injection, separators and raw names. */
 internal fun playlistVisualKey(id: String, field: String): String {
     require(id.isNotBlank())
-    require(field in setOf("cover", "banner", "pinned", "focal"))
-    val hash = MessageDigest.getInstance("SHA-256").digest(id.toByteArray(Charsets.UTF_8))
-        .take(16).joinToString("") { "%02x".format(it) }
-    return "ui5_playlist_${hash}_$field"
+    require(field in setOf(
+        "cover", "banner", "pinned", "focal",
+        "cover_focal_x", "cover_focal_y", "cover_scale",
+        "banner_focal_x", "banner_focal_y", "banner_scale",
+    ))
+    return "ui5_playlist_${playlistIdHash(id)}_$field"
 }
 
 internal fun nextPlaylistBannerFocal(current: Float): Float = when {
@@ -56,6 +58,13 @@ internal fun nextPlaylistBannerFocal(current: Float): Float = when {
 /** Corrupt input must not become a persisted NaN or invalid drawing alignment. */
 internal fun safePlaylistBannerFocal(value: Float): Float =
     value.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f
+
+/** One alignment semantic for the hero and the editor preview. */
+internal fun playlistFocalAlignment(focalX: Float, focalY: Float): androidx.compose.ui.BiasAlignment =
+    androidx.compose.ui.BiasAlignment(
+        safePlaylistBannerFocal(focalX) * 2f - 1f,
+        safePlaylistBannerFocal(focalY) * 2f - 1f,
+    )
 
 /** UI5 may release only its own grants, never grants inherited from music imports. */
 internal fun playlistOwnedGrantKey(uri: String): String {

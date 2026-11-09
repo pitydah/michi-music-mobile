@@ -148,6 +148,52 @@ unitarias, no en certificación visual.
   Audio Route conservan Smoked.
 - Las capturas son de AVD API 36 y no equivalen a certificación Android física.
 
+## UI5-FINAL-04 — Functional Repair & Precision Polish
+
+SHA inicial: `710c1cbfae271b2eb6a8dc349d67106deb054a17`.
+
+### Tickets
+
+| Ticket | Estado | Implementación |
+|---|---|---|
+| UI5-SEEK-01 | DONE (código + pruebas + instrumentación) | Los cinco estilos comparten un único `now_playing_seeker` con semántica, tap y arrastre. Wavy conserva su forma al pausar/arrastrar y solo anima cuando corresponde. Liquid Glass usa un carril óptico propio de 12 dp, sin blur ni backdrop falso. Bars/Continuous solo dibujan amplitudes PCM reales. Si una waveform se intentó y terminó sin datos utilizables, aparece `now_playing_seeker_fallback` con «Forma de onda no disponible; barra original»; no hay datos sintéticos ni fallback silencioso. Se mantienen los límites de 12 min, 2 MiB y 20 s. |
+| UI5-DOCK-02 | DONE (código + prueba + instrumentación) | Se eliminó únicamente la línea coral de 24×2 dp y su spacer. El `DockTab` recupera altura mínima de 48 dp con `MichiSpacing.minTouchTarget`; fondo, borde, icono, tipografía, `Role.Tab`, cinco destinos y una sola fila se conservan. La regresión de 320 dp / fontScale 1.3 quedó cubierta por `DockLayoutComposeTest`. |
+| UI5-MC-01 | DONE (código + prueba + compilación) | Nueva política `michiControlGlyph()`: teléfono, escritorio, servidor, receptor, sala y desconocido tienen icono propio. El badge local usa `PhoneAndroid`, no auriculares. Píldora visual de 34 dp dentro de objetivo de 48 dp, icono 17 dp, texto 12 sp, chevron 13 dp y punto de estado de 4 dp. |
+| UI5-MC-02 | DONE (código + prueba) | El popup conserva su anclaje, cierre, foco y semántica; mantiene cabecera MICHI CONTROL, subtítulo, estados observados, error coral y luz especular. No inventa controladores, no presenta Stream sin `REMOTE_CONTROL` como seleccionable y no transfiere la cola al elegir controlador. |
+| UI5-PL-01 | DONE (código + pruebas) | Importación privada con validación MIME/magic/decodificación, límites de tamaño/dimensiones, normalización EXIF, temporal + rename atómico y limpieza. Tokens `michi-playlist://visuals/...` resuelven a copias privadas; los `content://` antiguos siguen siendo legibles. Un fallo de sustitución conserva la imagen anterior y no borra recursos compartidos. Editor «Editar apariencia de playlist» con Portada y Banner independientes: elegir, previsualizar, ajustar, quitar, deshacer, cancelar y confirmar. |
+| UI5-PL-02 | DONE (código + prueba) | `PlaylistVisualHero` es una sola tarjeta continua: banner a sangre, portada de 68 dp encastrada, placa informativa localizada, una silueta exterior y altura mínima de 190 dp. Cristalino desenfoca solo la banda detrás de la placa reutilizando el mismo painter; el banner base permanece nítido. |
+| UI5-PL-06 | DONE (código + prueba) | Cápsula Smoked para «PLAYLIST» y placa translúcida localizada para título/cantidad; fallback opaco en alto contraste. Sin análisis de brillo por fotograma. |
+| UI5-PL-04 | DONE (código + prueba) | Editor real de encuadre: arrastre sobre la vista previa, zoom acotado 1–3×, sliders accesibles de foco X/Y, restablecer, cancelar y confirmar. Persiste foco y escala por campo; la clave legacy `focal` sigue siendo compatible. |
+| UI5-PL-05 | DONE (código + prueba) | Estado vacío junto al hero, sin «Vista compacta» ni acciones de reproducción inaplicables, con botón principal «Añadir canciones» que reutiliza el selector existente. El `+` superior permanece. |
+
+### Validación UI5-FINAL-04
+
+Workflow gestionado `d080ab472a38d378cbda9fc236d6c0e9`.
+
+| Gate | Resultado |
+|---|---|
+| `:app:testNormalDebugUnitTest` completo | PASS |
+| `:app:testFdroidDebugUnitTest` completo | PASS |
+| Nuevos tests de seeker, Dock, Michi Control, store/import/editor de playlists | PASS |
+| `lint` | PASS |
+| `assembleNormalDebug`, `assembleNormalRelease` | PASS |
+| `assembleFdroidDebug`, `assembleFdroidRelease` | PASS |
+| `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **92 tests, 0 fallos, 8 skipped** |
+
+La prueba focal de Dock se ejecutó después de corregir la altura mínima de 48 dp y volvió a pasar antes de la suite completa.
+
+### Límites UI5-FINAL-04
+
+- El teléfono físico se desconectó antes de la certificación. No se declaran capturas
+  físicas nuevas de seekers, Dock, Michi Control o editor de playlists; la
+  validación de comportamiento es JVM + instrumentación Compose en AVD API 36.
+- La ruta de rotación EXIF está implementada, pero el fixture automatizado es un
+  PNG sin rotación; falta una imagen EXIF rotada real.
+- El límite de waveform de 12 minutos y el presupuesto de 2 MiB se conservan; una
+  pista fuera de esos límites muestra el fallback visible, no datos falsos.
+- TalkBack real, rotación, batería, jank y temperatura siguen pendientes de un
+  teléfono autorizado.
+
 ## Evidencia local
 
 La integración inicial usó el workflow gestionado

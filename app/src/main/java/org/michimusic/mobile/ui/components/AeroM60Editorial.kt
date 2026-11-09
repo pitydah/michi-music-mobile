@@ -19,7 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.DevicesOther
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.DropdownMenu
@@ -454,7 +456,7 @@ fun MichiControlBadge(
 ) {
     val entries = (listOf(PlaybackEndpoint.LocalPhone) + endpoints + activeEndpoint).distinctBy { it.id }
     Box(modifier = modifier) {
-        // Keep a 48dp actionable target while drawing a lighter 40dp pill.
+        // Keep a 48dp actionable target while drawing a lighter 34dp pill.
         // One click owner prevents nested pointer/semantics handlers.
         Box(
             modifier = Modifier
@@ -465,7 +467,7 @@ fun MichiControlBadge(
                     contentDescription = "Michi Control: ${activeEndpoint.name}. Abrir reproductores disponibles"
                 }
                 .testTag("michi_control_badge")
-                .padding(vertical = 4.dp),
+                .padding(vertical = 7.dp),
             contentAlignment = Alignment.Center,
         ) {
             Surface(
@@ -474,29 +476,33 @@ fun MichiControlBadge(
                 border = androidx.compose.foundation.BorderStroke(0.65.dp, Color.White.copy(alpha = 0.16f)),
             ) {
                 Row(
-                    modifier = Modifier.heightIn(min = 40.dp)
-                        .padding(horizontal = 9.dp),
+                    modifier = Modifier.heightIn(min = 34.dp)
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(Modifier.size(5.dp).background(
+                    Box(Modifier.size(4.dp).background(
                         if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan
                         else Color(0xFF647181), CircleShape))
                     Icon(
-                        imageVector = when {
-                            activeEndpoint.isLocal -> Icons.Filled.Headphones
-                            activeEndpoint.type == EndpointType.SERVER -> Icons.Filled.Dns
-                            else -> Icons.Filled.Speaker
+                        imageVector = when (michiControlGlyph(activeEndpoint)) {
+                            MichiControlGlyph.PHONE -> Icons.Filled.PhoneAndroid
+                            MichiControlGlyph.DESKTOP -> Icons.Filled.Computer
+                            MichiControlGlyph.SERVER -> Icons.Filled.Dns
+                            MichiControlGlyph.RECEIVER -> Icons.Filled.Speaker
+                            MichiControlGlyph.ROOM,
+                            MichiControlGlyph.UNKNOWN,
+                            -> Icons.Filled.DevicesOther
                         },
                         contentDescription = null,
                         tint = if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan else TextSecondary,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(17.dp),
                     )
                     Text(activeEndpoint.name, color = PureWhite, fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 136.dp))
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 132.dp))
                     Icon(Icons.Filled.ExpandMore, contentDescription = null,
-                        tint = TextSecondary, modifier = Modifier.size(14.dp))
+                        tint = TextSecondary, modifier = Modifier.size(13.dp))
                 }
             }
         }

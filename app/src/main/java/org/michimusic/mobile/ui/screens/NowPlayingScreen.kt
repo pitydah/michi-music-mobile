@@ -109,6 +109,14 @@ import androidx.compose.ui.platform.LocalContext
 import org.michimusic.mobile.ui.seeker.LocalWaveformDecoder
 import org.michimusic.mobile.ui.seeker.eligibleWaveformPath
 import org.michimusic.mobile.ui.theme.AeroSeekerStyle
+import org.michimusic.mobile.ui.theme.aeroSeekerVisibleFallback
+
+/** Never let a previous track's frame or an in-flight decode masquerade as "unavailable". */
+private data class SeekerWaveformState(
+    val key: String,
+    val amplitudes: List<Float>?,
+    val settled: Boolean,
+)
 
 private fun cycleSleepTimer(current: Long): Long = when {
     current <= 0L -> 15 * 60_000L
@@ -154,32 +162,38 @@ fun NowPlayingScreen(
     val waveformKey = listOf(
         currentTrack?.id.orEmpty(), currentTrack?.filepath.orEmpty(),
         currentTrack?.size.toString(), currentTrack?.duration.toString(),
+        presentation.duration.toString(),
         currentTrack?.source.toString(), remoteHost.toString(),
         seekerStyle.name, visualPrefs.highContrast.toString(),
     ).joinToString(separator = "\u001f")
     val contextForWaveform = LocalContext.current.applicationContext
-    val waveformSnapshot by produceState<Pair<String, List<Float>?>>(
-        initialValue = "" to null, key1 = waveformKey,
+    val waveformSnapshot by produceState(
+        initialValue = SeekerWaveformState("", null, settled = false),
+        key1 = waveformKey,
     ) {
-        value = waveformKey to null
+        value = SeekerWaveformState(waveformKey, null, settled = false)
         val track = currentTrack
-        if (track != null && seekableDuration && !visualPrefs.highContrast &&
-            (seekerStyle == AeroSeekerStyle.WAVEFORM_BARS ||
-                seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS)
-        ) {
+        val wantsWaveform = seekerStyle == AeroSeekerStyle.WAVEFORM_BARS ||
+            seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS
+        val amplitudes = if (track != null && seekableDuration && !visualPrefs.highContrast && wantsWaveform) {
             val path = eligibleWaveformPath(
                 track.filepath,
                 streamingSource = track.source == org.michimusic.core.models.TrackSource.STREAMING,
                 remoteHost = remoteHost,
             )
-            if (path != null) {
-                value = waveformKey to LocalWaveformDecoder.load(
-                    contextForWaveform, path, track.duration.takeIf { it > 0 } ?: presentation.duration,
-                )
-            }
-        }
+            val durationMs = track.duration.takeIf { it > 0 } ?: presentation.duration
+            path?.let { LocalWaveformDecoder.load(contextForWaveform, it, durationMs) }
+        } else null
+        value = SeekerWaveformState(waveformKey, amplitudes, settled = true)
     }
-    val seekerSamples = waveformSnapshot.second.takeIf { waveformSnapshot.first == waveformKey }
+    val waveformFresh = waveformSnapshot.key == waveformKey
+    val seekerSamples = waveformSnapshot.amplitudes.takeIf { waveformFresh }
+    val seekerFallbackNotice = aeroSeekerVisibleFallback(
+        requested = seekerStyle,
+        amplitudes = seekerSamples,
+        highContrast = visualPrefs.highContrast,
+        waveformSettled = waveformFresh && waveformSnapshot.settled,
+    ).takeIf { seekableDuration }
 
     val isShuffle = presentation.shuffleMode == 1
     val repeatMode = presentation.repeatMode
@@ -420,6 +434,21 @@ fun NowPlayingScreen(
                         text = if (seekableDuration) formatTimeSeconds(safeDurationSeconds) else "—:—",
                         style = MichiTypography.microLabel,
                         color = Color(0xCCFFFFFF),
+                    )
+                }
+
+                seekerFallbackNotice?.let { notice ->
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = notice,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("now_playing_seeker_fallback"),
+                        style = MichiTypography.microLabel,
+                        color = Color(0x99FFFFFF),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
