@@ -75,6 +75,7 @@ class MichiPlaybackService : MediaLibraryService() {
                 replayGainProcessor = replayGainProcessor,
                 usbDacManager = usbDacManager,
                 headphonePeq = headphonePeq,
+                headphoneProfileStore = headphoneStore,
             ).also { PlayerDependencies.signalTruthTracker = it }
 
             truthTracker.clearPlayback(resetInstrumentation = true)
@@ -172,7 +173,7 @@ class MichiPlaybackService : MediaLibraryService() {
                     val songId = mediaItem?.mediaId?.let { LibraryProvider.extractSongId(it) }
                     // A gapless transition may retain the same AudioTrack. Never carry
                     // previous source/decoder evidence, but preserve a still-active sink.
-                    if (mediaItem != null) truthTracker.onMediaItemTransitionPending()
+                    if (mediaItem != null) truthTracker.onMediaItemTransitionPending(songId?.toString())
                     else truthTracker.onTrackChanged(null)
                     truthTracker.setPlaybackActive(exoPlayer.isPlaying)
                     replayGainProcessor.onSongChanged(null)

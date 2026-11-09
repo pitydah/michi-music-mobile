@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,6 +73,7 @@ import org.michimusic.mobile.ui.motion.AeroTrackTitleMotion
 import org.michimusic.mobile.ui.motion.aeroNowPlayingHeroEnter
 import org.michimusic.mobile.ui.motion.aeroDynamicMeshEnabled
 import org.michimusic.mobile.ui.components.EqualizerDialog
+import org.michimusic.mobile.ui.components.SignalTruthMobileSheet
 import org.michimusic.mobile.ui.components.GradientProgressBar
 import org.michimusic.mobile.ui.components.ProgressAppearance
 import org.michimusic.mobile.ui.components.MichiControlBadge
@@ -99,6 +101,8 @@ import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.playback.SignalTruthResolver
+import org.michimusic.mobile.playback.SignalTruthEvidencePolicy
+import org.michimusic.mobile.playback.SignalTruthOwnerPolicy
 import org.michimusic.player.AudioController
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
@@ -223,16 +227,22 @@ fun NowPlayingScreen(
                 .padding(bottom = if (scrollablePlayer) 22.dp else 10.dp),
             verticalArrangement = Arrangement.spacedBy(if (compactLayout) 12.dp else 16.dp),
         ) {
-            val decoded = signalObservation.decodedFormat
-            val streamReceiver = sessionState.isRemoteActive && !activeEndpoint.isLocal &&
-                (activeEndpoint.type == EndpointType.STREAM_RECEIVER ||
-                    activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
+            val decoded = signalObservation.decodedFormat.takeIf {
+                SignalTruthOwnerPolicy.isVisibleTrackCurrent(
+                    signalObservation, currentTrack?.id?.toString())
+            }
+            // One shared policy for the capsule and technical inspector.
+            val streamReceiver = SignalTruthEvidencePolicy.isMichiStream(
+                sessionState.isRemoteActive, activeEndpoint, sessionManager.isStreamReceiver)
             val pcmLabel = if ((!sessionState.isRemoteActive || streamReceiver) &&
-                decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
+                decoded != null && SignalTruthEvidencePolicy.hasTimedTechnicalFormat(
+                    decoded, signalObservation.decodedObservedAtMs)) {
                 decodedPcmLabel(decoded.sampleRate, decoded.bitDepth)
             } else null
             val fileSummary = org.michimusic.mobile.playback.SignalSourcePresentation.describe(
-                if (sessionState.isRemoteActive && !streamReceiver) null else signalObservation.sourceFormat,
+                if (sessionState.isRemoteActive && !streamReceiver) null else
+                    signalObservation.sourceFormat.takeIf { SignalTruthOwnerPolicy.isVisibleTrackCurrent(
+                        signalObservation, currentTrack?.id?.toString()) },
                 currentTrack,
             )
             Row(
@@ -579,11 +589,12 @@ fun NowPlayingScreen(
         }
 
         if (showSignalTruthDialog) {
-            SignalTruthDialog(
+            SignalTruthMobileSheet(
                 observation = signalObservation,
                 activeEndpoint = sessionState.activeEndpoint,
                 currentTrack = currentTrack,
                 isRemote = sessionState.isRemoteActive,
+                streamSelectedBySession = sessionManager.isStreamReceiver,
                 onDismiss = { showSignalTruthDialog = false },
             )
         }

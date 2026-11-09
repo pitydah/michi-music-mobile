@@ -55,6 +55,7 @@ import org.michimusic.mobile.ui.components.usbDacRouteLabel
 import org.michimusic.mobile.ui.components.STREAM_PROVISIONING_GUIDANCE
 import org.michimusic.mobile.ui.components.sampleRateLabel
 import org.michimusic.mobile.ui.motion.AeroObservedText
+import org.michimusic.mobile.ui.components.UsbDacMixerControls
 import org.michimusic.mobile.ui.motion.AeroObservedRouteIcon
 import org.michimusic.mobile.ui.motion.AeroRouteCertaintyLabel
 import org.michimusic.player.AudioRouteStatus
@@ -227,6 +228,13 @@ fun AudioRouteScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+
+            // Real Android 14+ mixer controls are confined to a confirmed USB
+            // AudioTrack route; the UI cannot certify physical DAC delivery.
+            usbDacManager?.let { manager ->
+                UsbDacMixerControls(manager = manager, routeStatus = routeStatus)
+                Spacer(Modifier.height(16.dp))
+            }
 
             Text("Dispositivos disponibles (no necesariamente activos)", style = MaterialTheme.typography.titleMedium, color = TextSecondary)
             Spacer(Modifier.height(8.dp))

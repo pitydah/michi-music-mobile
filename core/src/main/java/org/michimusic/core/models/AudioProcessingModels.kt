@@ -68,6 +68,16 @@ data class DspPipelineStatus(
     val upstreamPcmClipSamples: Long = 0L,
     /** Applied gain reduction before RTP capture / PEQ (negative dB). */
     val upstreamSafetyReductionDb: Float = 0f,
+    /** PCM processor receipt, not Android/DAC output proof. */
+    val replayGainPcmObserved: Boolean = false,
+    val replayGainRampPendingFrames: Int = 0,
+    val replayGainFramesProcessed: Long = 0L,
+    /** Profile selection is not evidence of local PCM processing. */
+    val headphonePeqConfigured: Boolean = false,
+    /** Revision that actually processed PCM; -1 means no valid receipt. */
+    val headphonePeqAppliedRevision: Long = -1L,
+    /** Timestamp for the PEQ PCM receipt, never reused from route. */
+    val headphonePeqObservedAtMs: Long = 0L,
 )
 
 /**
@@ -90,6 +100,8 @@ data class AudioSignalObservation(
     val trackGeneration: Long = 0L,
     val audioTrackGeneration: Long = 0L,
     val routeGeneration: Long = 0L,
+    /** Origin track id, not a complete source/library/queue ownership receipt. */
+    val trackIdentity: String? = null,
 )
 
 @Serializable
