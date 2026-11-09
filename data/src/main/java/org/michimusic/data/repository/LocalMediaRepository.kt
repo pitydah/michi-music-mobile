@@ -26,7 +26,14 @@ open class LocalMediaRepository(
     private val context: Context? = null,
     private val replayGainDao: ReplayGainDao? = null,
     private val importedTrackDao: TrackDao? = null,
+    private val folderPreferences: MusicFolderPreferences? = null,
 ) {
+
+    private data class PendingTrack(
+        val track: Track,
+        val folder: String?,
+        val isMusic: Boolean,
+    )
 
     companion object {
         private const val CACHE_TTL_MS = 30_000L
@@ -191,6 +198,7 @@ open class LocalMediaRepository(
                 MediaStore.Audio.Media.IS_PODCAST,
                 MediaStore.Audio.Media.IS_AUDIOBOOK,
                 MediaStore.Audio.Media.IS_RECORDING,
+                MediaStore.Audio.Media.IS_MUSIC,
                 MediaStore.Audio.Media.RELATIVE_PATH,
                 MediaStore.Audio.Media.BUCKET_DISPLAY_NAME,
             )
@@ -203,8 +211,7 @@ open class LocalMediaRepository(
             is MediaResult.QueryFailed -> return queryResult
         }
 
-        val tracks = mutableListOf<Track>()
-        val allTrackIds = mutableListOf<String>()
+        val pendingTracks = mutableListOf<PendingTrack>()
 
         cursor.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -225,6 +232,7 @@ open class LocalMediaRepository(
             val podcastCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_PODCAST)
             val audiobookCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_AUDIOBOOK)
             val recordingCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_RECORDING)
+            val musicCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_MUSIC)
             val relativePathCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
             val bucketCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.BUCKET_DISPLAY_NAME)
 
@@ -259,28 +267,35 @@ open class LocalMediaRepository(
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                     id.toLong()
                 ).toString()
-                allTrackIds.add(trackId)
-                tracks.add(Track(
-                    id = trackId,
-                    title = title ?: "Unknown",
-                    artist = artist ?: "Unknown",
-                    album = album ?: "Unknown",
-                    albumId = c.getString(albumIdCol) ?: "",
-                    duration = duration.coerceAtLeast(0),
-                    filepath = contentUri,
-                    trackNumber = c.getInt(trackCol).coerceAtLeast(0),
-                    year = c.getInt(yearCol).coerceAtLeast(0),
-                    size = c.getLong(sizeCol).coerceAtLeast(0),
-                    format = (c.getString(mimeCol) ?: "").substringAfterLast("/"),
-                    coverId = c.getString(albumIdCol) ?: "",
-                    dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
-                    source = TrackSource.LOCAL,
-                    sourceMimeType = c.getString(mimeCol).orEmpty(),
-                    sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),
-                    trackNumberFromMediaStore = true,
-                ))
+                pendingTracks.add(
+                    PendingTrack(
+                        track = Track(
+                            id = trackId,
+                            title = title ?: "Unknown",
+                            artist = artist ?: "Unknown",
+                            album = album ?: "Unknown",
+                            albumId = c.getString(albumIdCol) ?: "",
+                            duration = duration.coerceAtLeast(0),
+                            filepath = contentUri,
+                            trackNumber = c.getInt(trackCol).coerceAtLeast(0),
+                            year = c.getInt(yearCol).coerceAtLeast(0),
+                            size = c.getLong(sizeCol).coerceAtLeast(0),
+                            format = (c.getString(mimeCol) ?: "").substringAfterLast("/"),
+                            coverId = c.getString(albumIdCol) ?: "",
+                            dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
+                            source = TrackSource.LOCAL,
+                            sourceMimeType = c.getString(mimeCol).orEmpty(),
+                            sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),
+                            trackNumberFromMediaStore = true,
+                        ),
+                        folder = topLevelFolder(relativePath, bucketDisplayName),
+                        isMusic = c.getInt(musicCol) == 1,
+                    ),
+                )
             }
         }
+
+        val tracks = folderScopedTracks(pendingTracks).toMutableList()
 
         val rgBatch = replayGainDao?.getAllReplayGains() ?: emptyList()
         val rgMap = rgBatch.associateBy { it.trackId }
@@ -309,6 +324,119 @@ open class LocalMediaRepository(
             }
         }
         return MediaResult.Success(processedTracks)
+    }
+
+    /**
+     * Applies the persisted folder scope to the rows that already passed the
+     * system/utility filters. An explicit selection is authoritative. With no
+     * explicit selection, the smart default keeps folders MediaStore tags as
+     * music plus Music and Download; if there is no music evidence at all, all
+     * candidates remain visible instead of turning a usable library into an
+     * empty one.
+     */
+    private fun folderScopedTracks(pending: List<PendingTrack>): List<Track> {
+        if (pending.isEmpty()) return emptyList()
+        val explicit = folderPreferences?.includedFolders()
+        val selection = explicit ?: smartIncludedFolders(
+            foldersWithMusic = pending.filter { it.isMusic }.mapNotNull { it.folder }.toSet(),
+            knownFolders = pending.mapNotNull { it.folder }.toSet(),
+        )
+        val scoped = when {
+            explicit == null && selection.isEmpty() -> pending
+            ALL_FOLDERS in selection -> pending
+            else -> pending.filter { it.folder != null && it.folder in selection }
+        }
+        return scoped.map { it.track }
+    }
+
+    /** Folder inventory for the Settings picker, including non-music candidates by design. */
+    open suspend fun listAudioFolders(): List<MediaFolder> = withContext(Dispatchers.IO) {
+        val ctx = context ?: return@withContext emptyList()
+        if (!hasAudioPermission(ctx)) return@withContext emptyList()
+        val queryResult = MediaQueryDispatcher(
+            ctx.contentResolver,
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+        )
+            .withColumns(
+                MediaStore.Audio.Media.TITLE,
+                MediaStore.Audio.Media.ARTIST,
+                MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.DURATION,
+                MediaStore.Audio.Media.IS_MUSIC,
+                MediaStore.Audio.Media.IS_RINGTONE,
+                MediaStore.Audio.Media.IS_ALARM,
+                MediaStore.Audio.Media.IS_NOTIFICATION,
+                MediaStore.Audio.Media.IS_PODCAST,
+                MediaStore.Audio.Media.IS_AUDIOBOOK,
+                MediaStore.Audio.Media.IS_RECORDING,
+                MediaStore.Audio.Media.RELATIVE_PATH,
+                MediaStore.Audio.Media.BUCKET_DISPLAY_NAME,
+            )
+            .setSortOrder(MediaStore.Audio.Media.BUCKET_DISPLAY_NAME + " ASC")
+            .dispatchWithResult()
+
+        val cursor = when (queryResult) {
+            is MediaResult.Success -> queryResult.data ?: return@withContext emptyList()
+            is MediaResult.PermissionDenied -> return@withContext emptyList()
+            is MediaResult.QueryFailed -> return@withContext emptyList()
+        }
+
+        val counts = mutableMapOf<String, IntArray>()
+        cursor.use { c ->
+            val titleCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val artistCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val albumCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val durationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val musicCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_MUSIC)
+            val ringtoneCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_RINGTONE)
+            val alarmCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_ALARM)
+            val notificationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_NOTIFICATION)
+            val podcastCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_PODCAST)
+            val audiobookCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_AUDIOBOOK)
+            val recordingCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_RECORDING)
+            val relativePathCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
+            val bucketCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.BUCKET_DISPLAY_NAME)
+            while (c.moveToNext()) {
+                if (!isRealTrack(
+                        isRingtone = c.getInt(ringtoneCol) == 1,
+                        isAlarm = c.getInt(alarmCol) == 1,
+                        isNotification = c.getInt(notificationCol) == 1,
+                        isPodcast = c.getInt(podcastCol) == 1,
+                        isAudiobook = c.getInt(audiobookCol) == 1,
+                    )
+                ) {
+                    continue
+                }
+                val relativePath = c.getString(relativePathCol)
+                val bucketDisplayName = c.getString(bucketCol)
+                if (isNonMusicAudio(
+                        isRecording = c.getInt(recordingCol) == 1,
+                        relativePath = relativePath,
+                        bucketDisplayName = bucketDisplayName,
+                    )
+                ) {
+                    continue
+                }
+                if (isLikelyNonMusicGenericAudio(
+                        title = c.getString(titleCol),
+                        artist = c.getString(artistCol),
+                        album = c.getString(albumCol),
+                        relativePath = relativePath,
+                        bucketDisplayName = bucketDisplayName,
+                        durationMs = c.getLong(durationCol),
+                    )
+                ) {
+                    continue
+                }
+                val folder = topLevelFolder(relativePath, bucketDisplayName) ?: continue
+                val entry = counts.getOrPut(folder) { IntArray(2) }
+                entry[0]++
+                if (c.getInt(musicCol) == 1) entry[1]++
+            }
+        }
+        counts.map { (name, values) ->
+            MediaFolder(name = name, trackCount = values[0], musicTrackCount = values[1])
+        }.sortedBy { it.name }
     }
 
     open suspend fun loadPlaylists(): List<Pair<Playlist, List<Track>>> {
