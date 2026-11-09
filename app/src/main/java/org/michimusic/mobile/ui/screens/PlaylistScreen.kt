@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
@@ -26,8 +25,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -41,13 +38,12 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
-import org.michimusic.mobile.ui.components.AeroSegmentedChoice
-import org.michimusic.mobile.ui.components.AeroSegmentTreatment
+import org.michimusic.mobile.ui.components.AeroActionButton
+import org.michimusic.mobile.ui.components.AeroActionKind
+import org.michimusic.mobile.ui.components.AeroFilterChip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,23 +52,12 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
-import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.GlassBorderHigh
-import org.michimusic.mobile.ui.theme.GlassBorderLow
-import org.michimusic.mobile.ui.theme.GlassFillHigh
-import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SecondaryPurple
-import org.michimusic.mobile.ui.theme.SurfaceDark
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
-import org.michimusic.mobile.ui.theme.TertiaryCyan
-import org.michimusic.mobile.ui.theme.TextDim
-import org.michimusic.mobile.ui.theme.TextMuted
-import org.michimusic.mobile.ui.theme.TextPrimary
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -154,27 +139,35 @@ fun PlaylistScreen(
                 )
             }
 
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().testTag("playlist_catalog_sort"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AeroSegmentedChoice(
-                    label = "Nombre", selected = catalogSort == PlaylistCatalogSort.NAME,
-                    onClick = {
-                        catalogSort = PlaylistCatalogSort.NAME
-                        visualScope.launch { visualStore.setCatalogSort(catalogSort) }
-                    }, modifier = Modifier.weight(1f), treatment = AeroSegmentTreatment.Filter,
-                    testTag = "playlist_sort_name",
+            if (playlists.isNotEmpty() && !isLoading) {
+                val pinnedCount = orderedPlaylists.count { visualById[it.id]?.pinned == true }
+                Text(
+                    text = "${orderedPlaylists.size} ${if (orderedPlaylists.size == 1) "playlist" else "playlists"}" +
+                        if (pinnedCount > 0) " · $pinnedCount ${if (pinnedCount == 1) "fijada" else "fijadas"}" else "",
+                    style = MichiTypography.microLabel,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 8.dp).testTag("playlist_catalog_summary"),
                 )
-                AeroSegmentedChoice(
-                    label = "Más canciones", selected = catalogSort == PlaylistCatalogSort.TRACKS,
-                    onClick = {
-                        catalogSort = PlaylistCatalogSort.TRACKS
-                        visualScope.launch { visualStore.setCatalogSort(catalogSort) }
-                    }, modifier = Modifier.weight(1f), treatment = AeroSegmentTreatment.Filter,
-                    testTag = "playlist_sort_tracks",
-                )
+                Spacer(Modifier.height(7.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().testTag("playlist_catalog_sort"),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    AeroFilterChip(
+                        label = "Nombre", selected = catalogSort == PlaylistCatalogSort.NAME,
+                        onClick = {
+                            catalogSort = PlaylistCatalogSort.NAME
+                            visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                        }, testTag = "playlist_sort_name",
+                    )
+                    AeroFilterChip(
+                        label = "Más canciones", selected = catalogSort == PlaylistCatalogSort.TRACKS,
+                        onClick = {
+                            catalogSort = PlaylistCatalogSort.TRACKS
+                            visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                        }, testTag = "playlist_sort_tracks",
+                    )
+                }
             }
             Spacer(Modifier.height(12.dp))
 
@@ -186,32 +179,41 @@ fun PlaylistScreen(
                     Text("Cargando playlists...", color = TextSecondary)
                 }
             } else if (playlists.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    AeroCard(
+                        modifier = Modifier.fillMaxWidth().testTag("playlist_empty_card"),
+                        finish = AeroFinish.Satin,
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.QueueMusic,
-                            contentDescription = null,
-                            tint = TextMuted,
-                            modifier = Modifier.size(56.dp),
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = "No hay playlists creadas",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = PureWhite,
-                        )
-                        Text(
-                            text = "Crea una lista o sincroniza desde Michi Desktop",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMuted,
-                            modifier = Modifier.padding(horizontal = 14.dp),
-                        )
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.QueueMusic,
+                                contentDescription = null,
+                                tint = PrimaryPinkContainer,
+                                modifier = Modifier.size(32.dp),
+                            )
+                            Text(
+                                text = "Crea tu primera playlist",
+                                style = MichiTypography.cardTitle,
+                                color = PureWhite,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "Agrupa canciones de tu biblioteca. También puedes crear listas desde cero y añadir música después.",
+                                style = MichiTypography.metadata,
+                                color = TextSecondary,
+                            )
+                            AeroActionButton(
+                                label = "Crear playlist",
+                                onClick = { showCreateDialog = true },
+                                icon = Icons.Default.Add,
+                                kind = AeroActionKind.Primary,
+                                modifier = Modifier.fillMaxWidth(),
+                                testTag = "playlist_empty_create",
+                            )
+                        }
                     }
                 }
             } else {
@@ -224,7 +226,7 @@ fun PlaylistScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("playlist_item_${playlist.id}"),
-                            finish = AeroFinish.Plain,
+                            finish = if (visualById[playlist.id]?.pinned == true) AeroFinish.Satin else AeroFinish.Plain,
                             onClick = { onNavigateToPlaylist(playlist.id) },
                         ) {
                             Row(
@@ -234,6 +236,14 @@ fun PlaylistScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
+                                val isPinned = visualById[playlist.id]?.pinned == true
+                                Box(
+                                    Modifier
+                                        .width(3.dp)
+                                        .height(38.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(if (isPinned) PrimaryPinkContainer else Color.Transparent),
+                                )
                                 if (visualById[playlist.id]?.coverUri != null) {
                                     AlbumArtView(
                                         coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),

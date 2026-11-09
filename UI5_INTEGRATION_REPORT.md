@@ -41,10 +41,48 @@ No quedan marcadores de conflicto.
 - Las pruebas de detalle de playlist desplazan la lista antes de interactuar
   con filas que quedan fuera del viewport tras el nuevo hero visual.
 
+## UI5-POLISH-02
+
+- **Inicio:** el hero editorial es ahora un pager manual de elementos reales de
+  la biblioteca (pista destacada, álbumes y playlists existentes). Cada página
+  tiene identidad estable, acción exacta y no reproduce al deslizar. Los
+  indicadores son discretos. `Escuchar`, `Todo` y `Mezclar` conservan sus tags y
+  callbacks, pero usan superficies más finas, radios menores y altura táctil de
+  48 dp. La etiqueta visible se acorta a `Escuchar`/`Abrir` cuando es necesario;
+  el nombre accesible conserva el elemento exacto y `Todo` anuncia
+  «Reproducir todas las canciones».
+- **Biblioteca:** las pestañas `Canciones / Álbumes / Artistas` usan una variante
+  compacta del rail sin reducir el objetivo de 48 dp. Los filtros
+  `Todo / Lossless / Descargadas` usan chips secundarios con menor masa visual,
+  selección semántica y los mismos `testTag`. CoverFlow, Mosaico y Lista no se
+  modificaron.
+- **Playlists:** el ordenamiento se oculta cuando no existen listas. El estado
+  vacío es una tarjeta editorial compacta bajo la cabecera con el flujo real de
+  `Crear playlist`. Con listas existentes se muestra un resumen, chips de orden
+  intrínsecos, una marca lateral para fijadas y filas con portada real, nombre,
+  cantidad y reproducción contextual. La edición, persistencia SAF, renombrado y
+  eliminación existentes no cambian.
+- **Dock:** se corrigió `DockLayoutComposeTest` para convertir 48 dp a píxeles con
+  la densidad del test; la comparación anterior mezclaba `boundsInRoot` en px con
+  un valor dp.
+- **Rescan:** volver a indexar la misma raíz SAF ya no llama a `clearQueue()`.
+  Solo una migración de identidad de fuente limpia la cola local.
+- **Buscar:** las consultas con espacios finales se normalizan a su forma
+  recortada y siguen encontrando resultados. Se conservan las guardas de
+  generación, filtro, raíz musical y snapshot vigente.
+- **Waveforms:** se mantiene la caché LRU privada en RAM de 24 entradas. La clave
+  exige `filepath`, tamaño y fecha de modificación fiables; los resultados
+  negativos y las fuentes mutables no se cachean, y dos decodificaciones no
+  corren en paralelo. No se escribe PCM ni rutas de audio en disco: una caché
+  persistente añadiría invalidación, limpieza y exposición de rutas sin una
+  necesidad medida que justifique ese coste. Esta es una decisión explícita, no
+  una omisión.
+
 ## Evidencia local
 
-Todas las tareas Gradle se ejecutaron con el workflow gestionado
-`34c7065a22805c88c3bc85848ca9b155`.
+La integración inicial usó el workflow gestionado
+`34c7065a22805c88c3bc85848ca9b155`. UI5-POLISH-02 usa el workflow
+`c5ddd3dc1e69939d98c02b7909da684a`.
 
 | Gate | Resultado |
 |---|---|
@@ -60,8 +98,12 @@ Todas las tareas Gradle se ejecutaron con el workflow gestionado
 | Contrato modal Aero | 16/16 PASS |
 | Contrato release Aero | 18/18 estático PASS |
 | Verificador launcher UI3 | PASS |
+| UI5-POLISH-02: app Normal/F-Droid, lint, AndroidTest compile, debug/release | PASS |
+| `DockLayoutComposeTest` + `Ui5PolishComposeTest` en AVD API 36 | PASS |
+| Matriz real-font 320/360/480 dp × 1.0/1.5/2.0 | PASS, sin elipsis ni targets <48 dp |
 
-La compilación de AndroidTest no equivale a ejecución instrumentada. No se
+La compilación de AndroidTest no equivale a ejecución de toda la suite. Las
+matrices focales de Dock y UI5-POLISH-02 sí se ejecutaron en el AVD API 36. No se
 ejecutaron pruebas físicas ni se instaló este candidato en el teléfono.
 
 ## Revisión independiente
@@ -70,6 +112,11 @@ La revisión independiente encontró un P1 real en la búsqueda: una consulta co
 `"rock "` se rechazaba antes de publicar una generación válida y podía dejar el
 spinner permanente. Se corrigió publicando el snapshot rechazado y se añadió una
 regresión que exige `requestGeneration >= 0` y ausencia de estado de búsqueda.
+
+UI5-POLISH-02 revisa deliberadamente ese comportamiento: una consulta con
+espacios finales ya no se rechaza, sino que se normaliza y busca `rock`. La
+prueba de generación sigue exigiendo que el snapshot resuelto no deje un spinner
+permanente.
 
 También señaló que los tokens de acabado por defecto de UI5 no son idénticos a
 los de UI4: los roles, acabados y comportamiento de contraste se conservan, pero

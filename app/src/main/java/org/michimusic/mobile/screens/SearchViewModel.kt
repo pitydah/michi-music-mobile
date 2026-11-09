@@ -157,6 +157,7 @@ class SearchViewModel(
 
     private fun scheduleSearch(q: String, debounce: Boolean) {
         val generation = searchGeneration.incrementAndGet()
+        val requestQuery = q.trim()
         searchJob?.cancel()
         _structuredResults.value = StructuredSearchResults()
         _results.value = emptyList()
@@ -165,7 +166,7 @@ class SearchViewModel(
         // Do not launch a track-catalog search when PLAYLISTS owns the filter.
         if (_selectedFilter.value == SearchFilter.PLAYLISTS) {
             _structuredResults.value = StructuredSearchResults(
-                requestQuery = q,
+                requestQuery = requestQuery,
                 requestFilter = SearchFilter.PLAYLISTS,
                 requestGeneration = generation,
             )
@@ -173,12 +174,11 @@ class SearchViewModel(
             searchJob = null
             return
         }
-        if (q != q.trim() || normalizedSearchText(q).length < 2) {
-            // UI5 intentionally rejects padded/under-length queries. Publishing the
-            // rejected generation prevents the screen from treating the stale default
-            // snapshot as an unresolved search and showing a permanent spinner.
+        if (normalizedSearchText(requestQuery).length < 2) {
+            // Under-length queries publish an empty generation-stamped snapshot so
+            // the screen can show guidance instead of a permanent loading spinner.
             _structuredResults.value = StructuredSearchResults(
-                requestQuery = q,
+                requestQuery = requestQuery,
                 requestFilter = _selectedFilter.value,
                 requestGeneration = generation,
             )
@@ -191,7 +191,7 @@ class SearchViewModel(
         searchJob = viewModelScope.launch(ioDispatcher) {
             try {
                 if (debounce) delay(250)
-                executeSearch(q, filter, generation)
+                executeSearch(requestQuery, filter, generation)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -231,7 +231,7 @@ class SearchViewModel(
     }
 
     private fun executeSearch(q: String, filter: SearchFilter, generation: Long) {
-        if (generation != searchGeneration.get() || q != _query.value || filter != _selectedFilter.value) return
+        if (generation != searchGeneration.get() || q != _query.value.trim() || filter != _selectedFilter.value) return
         val lower = normalizedSearchText(q)
 
         val allCombinedTracks = getCombinedDeduplicatedTracks()
@@ -331,7 +331,7 @@ class SearchViewModel(
 
         // Synchronous CPU work may finish after cancel(); the epoch prevents
         // obsolete A->B->A searches from publishing into a newer request.
-        if (generation == searchGeneration.get() && q == _query.value && filter == _selectedFilter.value) {
+        if (generation == searchGeneration.get() && q == _query.value.trim() && filter == _selectedFilter.value) {
             _structuredResults.value = newStructuredResults
             _results.value = legacyList
             _isSearching.value = false

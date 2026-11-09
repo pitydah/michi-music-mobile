@@ -167,6 +167,31 @@ class MusicRootAuthorityTest {
     }
 
     @Test
+    fun rescanningTheSameCustomRootPreservesTheLocalQueueAndPosition() = runTest {
+        val source = customRootSourceId(tree)
+        val custom = MusicRoot(
+            type = MusicRootType.CUSTOM_TREE,
+            treeUri = tree.toString(),
+            displayName = "Mi música",
+            sourceId = source,
+        )
+        val prefs = mockk<MusicRootPreferences>(relaxed = true)
+        val saf = mockk<SafMediaRepository>(relaxed = true)
+        val local = mockk<LocalMediaRepository>(relaxed = true)
+        val audio = mockk<AudioController>(relaxed = true)
+        every { prefs.currentRoot() } returns custom
+        coEvery { saf.indexTree(tree, any()) } returns TreeIndexResult.Success(tree, source, "Mi música", 4)
+        val authority = authority(prefs, saf, local, audio)
+
+        val result = authority.rescan()
+
+        assertTrue(result.success)
+        verify(exactly = 0) { prefs.saveRoot(any()) }
+        verify(exactly = 0) { audio.clearQueue() }
+        coVerify { local.invalidateCache() }
+    }
+
+    @Test
     fun revokedCustomPermissionIsReportedAsRecoverableFailure() = runTest {
         val custom = MusicRoot(
             type = MusicRootType.CUSTOM_TREE,

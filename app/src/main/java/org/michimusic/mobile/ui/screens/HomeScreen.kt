@@ -79,7 +79,7 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.AeroSurface
-import org.michimusic.mobile.ui.components.AeroLibraryFeature
+import org.michimusic.mobile.ui.components.AeroHomeHeroCarousel
 import org.michimusic.mobile.ui.components.AeroSectionHeading
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -115,6 +115,7 @@ fun HomeScreen(
     historyDao: org.michimusic.data.cache.AppDao = koinInject(),
 ) {
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
+    val albums by viewModel.albums.collectAsStateWithLifecycle()
     val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
     val topTracks by viewModel.topTracks.collectAsStateWithLifecycle()
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
@@ -150,6 +151,16 @@ fun HomeScreen(
         val indexed = allTracks.associateBy { it.id }
         ids.mapNotNull { indexed[it] }
     }
+    val homeHeroItems = remember(allTracks, albums, playlists, recentTracks, currentTrack?.id) {
+        buildHomeHeroItems(
+            allTracks = allTracks,
+            albums = albums,
+            playlists = playlists,
+            recentIds = recentTracks.mapTo(mutableSetOf()) { it.id },
+            currentTrackId = currentTrack?.id,
+        )
+    }
+    val tracksById = remember(allTracks) { allTracks.associateBy { it.id } }
 
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.error.collectAsStateWithLifecycle()
@@ -297,18 +308,30 @@ fun HomeScreen(
                 // M52: editorial collection hero; the current local track already lives
                 // in the MiniPlayer and must not occupy a second redundant hero.
                 item {
-                    if (allTracks.isNotEmpty()) {
-                        val featuredId = homeFeaturedTrackId(
-                            allTracks.map { it.id }, recentTracks.mapTo(mutableSetOf()) { it.id }, currentTrack?.id,
-                        )
-                        val featured = allTracks.firstOrNull { it.id == featuredId } ?: allTracks.first()
-                        AeroLibraryFeature(
-                            featuredTrack = featured,
-                            trackCount = allTracks.size,
-                            onFeatured = {
-                                val index = allTracks.indexOfFirst { it.id == featured.id }
-                                if (index >= 0) sessionManager.playQueue(allTracks, index)
-                                else scope.launch { snackbarHostState.showSnackbar("La pista ya no está disponible") }
+                    if (homeHeroItems.isNotEmpty()) {
+                        AeroHomeHeroCarousel(
+                            items = homeHeroItems,
+                            onPrimary = { item ->
+                                when (item.kind) {
+                                    HomeHeroKind.TRACK -> {
+                                        val index = allTracks.indexOfFirst { it.id == item.sourceId }
+                                        if (index >= 0) sessionManager.playQueue(allTracks, index)
+                                        else scope.launch {
+                                            snackbarHostState.showSnackbar("La pista ya no está disponible")
+                                        }
+                                    }
+                                    HomeHeroKind.ALBUM -> {
+                                        val albumTracks = item.trackIds.mapNotNull(tracksById::get)
+                                        if (albumTracks.isNotEmpty()) {
+                                            sessionManager.playQueue(albumTracks, 0)
+                                        } else {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("El álbum ya no está disponible")
+                                            }
+                                        }
+                                    }
+                                    HomeHeroKind.PLAYLIST -> onNavigateToPlaylist(item.sourceId)
+                                }
                             },
                             onPlayAll = { sessionManager.playQueue(allTracks, 0) },
                             onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },

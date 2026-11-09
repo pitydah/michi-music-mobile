@@ -85,11 +85,11 @@ import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
+import org.michimusic.mobile.ui.components.AeroFilterChip
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentStack
 import org.michimusic.mobile.ui.components.aeroSegmentStacking
-import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
@@ -378,7 +378,8 @@ fun AlbumsScreen(
                 )
             ) {
                 AeroSegmentStack(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 3.dp),
+                    compact = true,
                 ) {
                     LibraryTab.values().forEach { tab ->
                         AeroSegmentedChoice(
@@ -386,13 +387,15 @@ fun AlbumsScreen(
                             selected = selectedTab == tab,
                             onClick = { selectedTab = tab },
                             modifier = Modifier.fillMaxWidth(),
+                            compact = true,
                             testTag = "library_tab_${tab.name.lowercase()}",
                         )
                     }
                 }
             } else {
                 AeroSegmentRail(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 3.dp),
+                    compact = true,
                 ) {
                     LibraryTab.values().forEach { tab ->
                         AeroSegmentedChoice(
@@ -400,6 +403,7 @@ fun AlbumsScreen(
                             selected = selectedTab == tab,
                             onClick = { selectedTab = tab },
                             modifier = Modifier.weight(1f),
+                            compact = true,
                             testTag = "library_tab_${tab.name.lowercase()}",
                         )
                     }
@@ -408,15 +412,15 @@ fun AlbumsScreen(
 
             if (selectedTab == LibraryTab.SONGS) {
                 LazyRow(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 3.dp)
+                        .testTag("library_filter_row"),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     items(LibraryFilter.values()) { filter ->
-                        AeroSegmentedChoice(
+                        AeroFilterChip(
                             label = filter.displayName,
                             selected = selectedFilter == filter,
                             onClick = { selectedFilter = filter },
-                            treatment = AeroSegmentTreatment.Filter,
                             testTag = "library_filter_${filter.name.lowercase()}",
                         )
                     }

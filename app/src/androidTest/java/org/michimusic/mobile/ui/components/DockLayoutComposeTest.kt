@@ -51,6 +51,8 @@ class DockLayoutComposeTest {
             }
         }
         var scenario by mutableStateOf(scenarios.first())
+        // Bounds are pixels; convert 48 dp using the density supplied below.
+        val minTargetPx = 48.dp.value * 2f
         rule.setContent {
             val configuration = Configuration().apply {
                 screenWidthDp = scenario.width
@@ -86,8 +88,8 @@ class DockLayoutComposeTest {
             }
             tabs.forEach { route ->
                 val tab = bounds.getValue(route)
-                assertTrue("${route} width at $current", tab.width >= 48f)
-                assertTrue("${route} height at $current", tab.height >= 48f)
+                assertTrue("${route} width at $current", tab.width >= minTargetPx)
+                assertTrue("${route} height at $current", tab.height >= minTargetPx)
 
                 val layout = labelLayout("nav_label_$route")
                 assertFalse(

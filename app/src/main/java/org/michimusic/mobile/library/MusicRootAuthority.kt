@@ -186,7 +186,8 @@ class MusicRootAuthority(
             )
         when (val indexed = safRepository.indexTree(treeUri, onProgress)) {
             is TreeIndexResult.Success -> {
-                val activeRoot = if (indexed.sourceId == root.sourceId) {
+                val sourceChanged = indexed.sourceId != root.sourceId
+                val activeRoot = if (!sourceChanged) {
                     root
                 } else {
                     val migrated = root.copy(sourceId = indexed.sourceId)
@@ -203,7 +204,11 @@ class MusicRootAuthority(
                     migrated
                 }
                 localMediaRepository.invalidateCache()
-                audioController.clearQueue()
+                // Re-indexing the same root keeps deterministic SAF identities and file
+                // locations valid, so the active queue and position remain authoritative.
+                // Only a legacy source migration changes those identities enough to require
+                // dropping the local queue.
+                if (sourceChanged) audioController.clearQueue()
                 preferences.recordScan(indexed.trackCount, sourceId = activeRoot.sourceId)
                 _lastScan.value = RootScanSummary(
                     System.currentTimeMillis(),

@@ -33,6 +33,7 @@ class HomeRecentIntegrityTest {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
         every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t1))
+        every { mockViewModel.albums } returns MutableStateFlow(emptyList())
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList()) // No history
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
@@ -62,6 +63,7 @@ class HomeRecentIntegrityTest {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
         every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t1))
+        every { mockViewModel.albums } returns MutableStateFlow(emptyList())
         every { mockViewModel.recentTracks } returns MutableStateFlow(listOf(t1)) // Real history
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())

@@ -17,8 +17,9 @@ internal fun safeSearchQueueTrackIdIndex(ids: List<String>, selectedId: String):
 
 /** Live query guard: old results remain visible during SearchViewModel's debounce. */
 internal fun searchActionPermitted(query: String, filter: String, kind: String, matchedText: String): Boolean {
-    // The ViewModel and click guard MUST share Unicode normalization.
-    if (query != query.trim() || !searchTextMatches(matchedText, query)) return false
+    // The ViewModel and click guard MUST share Unicode normalization. Trailing
+    // whitespace is normalized rather than rejecting an otherwise valid query.
+    if (!searchTextMatches(matchedText, query)) return false
     return when (kind) {
         "ARTIST" -> filter == "ALL" || filter == "ARTISTS"
         "ALBUM" -> filter == "ALL" || filter == "ALBUMS"
@@ -32,4 +33,4 @@ internal fun searchSnapshotCurrent(
     resultQuery: String, resultFilter: String, resultEpoch: Long,
     query: String, filter: String, activeEpoch: Long,
 ): Boolean = resultEpoch >= 0L && resultEpoch == activeEpoch &&
-    resultQuery == query && resultFilter == filter
+    resultQuery == query.trim() && resultFilter == filter

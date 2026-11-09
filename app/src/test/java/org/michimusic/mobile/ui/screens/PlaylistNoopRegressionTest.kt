@@ -49,6 +49,50 @@ class PlaylistNoopRegressionTest {
     }
 
     @Test
+    fun emptyCatalogHidesSortingAndOffersTheRealCreateFlow() {
+        val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
+        every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.isCreatingPlaylist } returns MutableStateFlow(false)
+        every { mockViewModel.createPlaylistError } returns MutableStateFlow(null)
+
+        composeTestRule.setContent {
+            PlaylistScreen(
+                onNavigateToPlaylist = { },
+                viewModel = mockViewModel,
+                audioController = mockk(relaxed = true),
+                historyDao = historyDao,
+            )
+        }
+
+        composeTestRule.onNodeWithTag("playlist_catalog_sort").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("playlist_empty_card").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_empty_create").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("create_playlist_name_field").assertIsDisplayed()
+    }
+
+    @Test
+    fun populatedCatalogKeepsCompactSortingVisible() {
+        val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
+        val p1 = PlaylistItem(id = "p1", name = "Road Trip", trackCount = 8)
+        every { mockViewModel.playlists } returns MutableStateFlow(listOf(p1))
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+
+        composeTestRule.setContent {
+            PlaylistScreen(
+                onNavigateToPlaylist = { },
+                viewModel = mockViewModel,
+                audioController = mockk(relaxed = true),
+                historyDao = historyDao,
+            )
+        }
+
+        composeTestRule.onNodeWithTag("playlist_catalog_sort").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_sort_name").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_sort_tracks").assertIsDisplayed()
+    }
+
+    @Test
     fun clickingPlayIconOnPlaylistItem_triggersActualPlayback() {
         val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
         val mockAudioController = mockk<org.michimusic.player.AudioController>(relaxed = true)

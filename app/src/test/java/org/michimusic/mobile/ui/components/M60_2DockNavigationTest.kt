@@ -126,6 +126,8 @@ class M60_2DockNavigationTest {
             }
         }
         var scenario by mutableStateOf(scenarios.first())
+        // The matrix supplies density 1, so 48 dp is 48 px here.
+        val minTargetPx = with(Density(density = 1f)) { 48.dp.toPx() }
         compose.setContent {
             val configuration = Configuration().apply {
                 screenWidthDp = scenario.width
@@ -156,7 +158,7 @@ class M60_2DockNavigationTest {
             }
             tabs.forEach { route ->
                 val bound = bounds.getValue(route)
-                assertTrue("${route} target width at $current", bound.width >= 48f)
+                assertTrue("${route} target width at $current", bound.width >= minTargetPx)
                 val layout = labelLayout("nav_label_$route")
                 val label = compose.onNodeWithTag("nav_label_$route", useUnmergedTree = true)
                     .fetchSemanticsNode().boundsInRoot

@@ -183,18 +183,26 @@ class SearchViewModelTest {
     }
 
     @Test
-    fun `a padded query is rejected without leaving an unresolved spinner state`() = runTest(testDispatcher) {
+    fun `a trailing-space query normalizes and still finds the song`() = runTest(testDispatcher) {
+        val rock = Track(id = "rock-1", title = "Rock Song", artist = "The Band", album = "Live")
+        coEvery { localRepo.loadAlbums() } returns listOf(
+            LocalMediaRepository.LocalAlbum(
+                album = Album(id = "live", title = "Live", artist = "The Band"),
+                tracks = listOf(rock),
+            ),
+        )
+        viewModel.loadLocalTracks()
+        testScheduler.advanceUntilIdle()
+
         viewModel.setQuery("rock ")
         testScheduler.advanceUntilIdle()
 
         val snapshot = viewModel.structuredResults.value
-        assertEquals("rock ", snapshot.requestQuery)
+        assertEquals("rock", snapshot.requestQuery)
         assertEquals(SearchFilter.ALL, snapshot.requestFilter)
         assertTrue(snapshot.requestGeneration >= 0L)
         assertFalse(viewModel.isSearching.value)
-        assertTrue(snapshot.tracks.isEmpty())
-        assertTrue(snapshot.albums.isEmpty())
-        assertTrue(snapshot.artists.isEmpty())
+        assertTrue(snapshot.tracks.any { it.track.id == "rock-1" })
     }
 
     @Test

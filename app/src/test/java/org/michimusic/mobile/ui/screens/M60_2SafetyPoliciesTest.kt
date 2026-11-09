@@ -72,7 +72,7 @@ class M60_2SafetyPoliciesTest {
         assertEquals(false, searchActionPermitted("queen", "TRACKS", "ARTIST", "Queen"))
         assertEquals(false, searchActionPermitted("q", "ALL", "TRACK", "Queen"))
         assertEquals(false, searchActionPermitted("  ", "ALL", "TRACK", "Queen"))
-        assertEquals(false, searchActionPermitted(" queen ", "ALL", "TRACK", "Queen"))
+        assertEquals(true, searchActionPermitted(" queen ", "ALL", "TRACK", "Queen"))
         assertEquals(false, searchActionPermitted("queen", "NONE", "TRACK", "Queen"))
     }
 
@@ -82,6 +82,7 @@ class M60_2SafetyPoliciesTest {
         assertEquals(false, searchSnapshotCurrent("abc", "ALL", 13L, "abc", "ALL", 14L))
         assertEquals(false, searchSnapshotCurrent("abc", "ARTISTS", 14L, "abc", "ALL", 14L))
         assertEquals(false, searchSnapshotCurrent("old", "ALL", 14L, "new", "ALL", 14L))
+        assertEquals(true, searchSnapshotCurrent("abc", "ALL", 14L, "abc ", "ALL", 14L))
     }
 
     @Test fun seeksNeverOverflowOrExceedDuration() {
