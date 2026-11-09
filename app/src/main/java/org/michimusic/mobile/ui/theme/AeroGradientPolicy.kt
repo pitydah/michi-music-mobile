@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 
 /** Semantic decorative variants owned by Aero, not additional surface systems. */
 enum class AeroGradientRole { Inset, Raised, Hero, HeroToCanvas }
@@ -25,4 +27,11 @@ fun aeroGradientStops(role: AeroGradientRole, highContrast: Boolean): List<Color
         AeroGradientRole.HeroToCanvas ->
             listOf(Color(0xFF323C4A), Color(0xFF252E3A), SurfaceObsidian)
     }
+}
+
+/** Converts the semantic stops into a drawable vertical background without
+ * reintroducing decoration when high contrast intentionally collapses to one color. */
+fun aeroVerticalGradientBrush(role: AeroGradientRole, highContrast: Boolean): Brush {
+    val colors = aeroGradientStops(role, highContrast)
+    return if (colors.size == 1) SolidColor(colors.single()) else Brush.verticalGradient(colors)
 }

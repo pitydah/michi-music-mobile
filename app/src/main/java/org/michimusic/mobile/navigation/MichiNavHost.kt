@@ -2,12 +2,18 @@ package org.michimusic.mobile.navigation
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -22,6 +28,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import org.michimusic.mobile.ui.components.BottomNavBar
 import org.michimusic.mobile.ui.components.MiniPlayer
+import org.michimusic.mobile.ui.motion.LocalAeroAlbumShareEnabled
+import org.michimusic.mobile.ui.motion.LocalAeroAnimatedVisibilityScope
+import org.michimusic.mobile.ui.motion.LocalAeroSharedTransitionScope
+import org.michimusic.mobile.ui.motion.aeroAlbumRouteTransitionAllowed
 import org.michimusic.mobile.ui.screens.AlbumsScreen
 import org.michimusic.mobile.ui.screens.AlbumDetailScreen
 import org.michimusic.mobile.ui.screens.ArtistDetailScreen
@@ -41,11 +51,14 @@ import org.michimusic.mobile.ui.screens.SyncedTracksScreen
 import org.michimusic.mobile.onboarding.OnboardingSnapshot
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.MichiSpacing
+import org.michimusic.mobile.ui.theme.MichiMotion
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.player.AudioController
 import org.koin.compose.koinInject
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MichiNavHost(
     onReopenOnboarding: () -> Unit = {},
@@ -85,6 +98,7 @@ fun MichiNavHost(
     val localState by audioController.state.collectAsStateWithLifecycle()
     val presentation = resolvePlaybackPresentation(sessionState, localState)
     val hasMiniPlayer = presentation.hasActiveTrack
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion || LocalVisualPreferences.current.highContrast
 
     Scaffold(
         containerColor = SurfaceObsidian,
@@ -114,6 +128,10 @@ fun MichiNavHost(
                 .fillMaxSize()
                 .padding(if (isFullBleed) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding),
         ) {
+            // A single shared coordinate space includes the NavHost and the
+            // persistent MiniPlayer chrome. Album transitions keep their existing scope.
+            SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
             NavHost(
                 navController = navController,
                 startDestination = "home",
@@ -135,25 +153,82 @@ fun MichiNavHost(
                         onNavigateToPlaylist = { id -> navController.navigate("playlist/$id") },
                     )
                 }
-                composable("library") {
-                    AlbumsScreen(
-                        onNavigateToPlaylists = { navController.navigate("playlist") },
-                        onNavigateToAlbum = { id -> navController.navigate("album/${android.net.Uri.encode(id)}") },
-                        onNavigateToArtist = { credit -> navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=false") },
-                        sessionManager = sessionManager,
-                    )
+                // Route-local transitions only; all other destinations retain the M52 hard cut.
+                composable(
+                    route = "library",
+                    enterTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeIn(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else EnterTransition.None
+                    },
+                    exitTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeOut(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else ExitTransition.None
+                    },
+                    popEnterTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeIn(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else EnterTransition.None
+                    },
+                    popExitTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeOut(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else ExitTransition.None
+                    },
+                ) {
+                    CompositionLocalProvider(
+                        LocalAeroSharedTransitionScope provides this@SharedTransitionLayout,
+                        LocalAeroAnimatedVisibilityScope provides this@composable,
+                        LocalAeroAlbumShareEnabled provides true,
+                    ) {
+                        AlbumsScreen(
+                            onNavigateToPlaylists = { navController.navigate("playlist") },
+                            onNavigateToAlbum = { id -> navController.navigate("album/${android.net.Uri.encode(id)}") },
+                            onNavigateToArtist = { credit -> navController.navigate("artist/${encodeArtistCredit(credit)}?enrich=false") },
+                            sessionManager = sessionManager,
+                        )
+                    }
                 }
                 composable(
                     route = "album/{albumId}",
                     arguments = listOf(navArgument("albumId") { type = NavType.StringType }),
+                    enterTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeIn(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else EnterTransition.None
+                    },
+                    exitTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeOut(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else ExitTransition.None
+                    },
+                    popEnterTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeIn(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else EnterTransition.None
+                    },
+                    popExitTransition = {
+                        if (aeroAlbumRouteTransitionAllowed(initialState.destination.route, targetState.destination.route, reducedMotion))
+                            fadeOut(animationSpec = tween(MichiMotion.durationEmphasized))
+                        else ExitTransition.None
+                    },
                 ) { entry ->
                     val albumId = entry.arguments?.getString("albumId") ?: return@composable
-                    AlbumDetailScreen(
-                        albumId = albumId,
-                        onBack = { navController.popBackStack() },
-                        backLabel = albumDetailBackLabel(navController.previousBackStackEntry?.destination?.route),
-                        sessionManager = sessionManager,
-                    )
+                    // Artists can also open albums, but they have no matching mosaic tile.
+                    val openedFromLibrary = navController.previousBackStackEntry?.destination?.route == "library"
+                    CompositionLocalProvider(
+                        LocalAeroSharedTransitionScope provides this@SharedTransitionLayout,
+                        LocalAeroAnimatedVisibilityScope provides this@composable,
+                        LocalAeroAlbumShareEnabled provides openedFromLibrary,
+                    ) {
+                        AlbumDetailScreen(
+                            albumId = albumId,
+                            onBack = { navController.popBackStack() },
+                            backLabel = albumDetailBackLabel(navController.previousBackStackEntry?.destination?.route),
+                            sessionManager = sessionManager,
+                        )
+                    }
                 }
                 composable(
                     route = "artist/{artistKey}?enrich={enrich}",
@@ -219,9 +294,7 @@ fun MichiNavHost(
                     )
                 }
                 composable("nowplaying") {
-                    NowPlayingScreen(
-                        onBack = { navController.popBackStack() },
-                    )
+                    NowPlayingScreen(onBack = { navController.popBackStack() })
                 }
                 composable("settings") {
                     SettingsScreen(
@@ -278,11 +351,19 @@ fun MichiNavHost(
                 composable("sync") { SyncScreen(onNavigateToSynced = { navController.navigate("synced") }) }
             }
 
-            MiniPlayer(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                onClick = { navController.navigate("nowplaying") },
-                visible = miniPlayerVisible && hasMiniPlayer,
-            )
+                    // Player artwork uses local transitions only. The shared
+                    // coordinate space remains solely for the album route pair.
+                    MiniPlayer(
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        onClick = {
+                            if (currentRoute != "nowplaying") {
+                                navController.navigate("nowplaying") { launchSingleTop = true }
+                            }
+                        },
+                        visible = miniPlayerVisible && hasMiniPlayer,
+                    )
+                }
+            }
 
             pendingConfirmation?.let { conf ->
                 org.michimusic.mobile.ui.components.RemoteQueueConfirmationDialog(

@@ -20,6 +20,8 @@ gradle.properties.txt
 /remote/build
 /michi-link-client/build
 .kotlin
+__pycache__/
+*.py[cod]
 /app/release.jks
 /app/keystore.properties
 .atl/

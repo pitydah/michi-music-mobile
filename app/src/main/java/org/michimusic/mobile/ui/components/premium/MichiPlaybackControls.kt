@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.components.premium
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -213,11 +214,17 @@ private fun AeroPlayPauseAction(
                 strokeWidth = 2.5.dp,
             )
         } else {
-            AeroTransportGlyph(
-                symbol = if (state.isPlaying) TransportSymbol.Pause else TransportSymbol.Play,
-                color = if (canControl) PureWhite else OnSurfaceVariant.copy(alpha = .5f),
-                modifier = Modifier.size(43.dp).graphicsLayer { scaleX = scale; scaleY = scale },
-            )
+            Crossfade(
+                targetState = state.isPlaying,
+                animationSpec = if (preferences.reducedMotion) snap() else tween(150),
+                label = "aero_transport_play_pause_glyph",
+            ) { playing ->
+                AeroTransportGlyph(
+                    symbol = if (playing) TransportSymbol.Pause else TransportSymbol.Play,
+                    color = if (canControl) PureWhite else OnSurfaceVariant.copy(alpha = .5f),
+                    modifier = Modifier.size(48.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+                )
+            }
         }
     }
 }

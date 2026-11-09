@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -10,6 +11,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -299,5 +304,32 @@ class HomeScreenTest {
         assertEquals("real-playlist-42", navigatedPlaylistId)
         // Favoritos/Recientes still route through the separate type-based callback, untouched.
         io.mockk.verify(exactly = 0) { mockAudio.playQueue(any(), any()) }
+    }
+
+    @Test
+    fun `home header grows instead of covering the hero at two hundred percent font`() {
+        val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
+        every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
+        every { mockViewModel.allTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.playlists } returns MutableStateFlow(emptyList())
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.error } returns MutableStateFlow(null)
+        every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
+        every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
+
+        val mockSession = mockk<org.michimusic.mobile.playback.PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(org.michimusic.mobile.playback.PlaybackSessionState())
+
+        val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
+
+        composeTestRule.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            }
+        }
+
+        composeTestRule.onNodeWithTag("home_top_bar").assertHeightIsAtLeast(64.dp)
     }
 }

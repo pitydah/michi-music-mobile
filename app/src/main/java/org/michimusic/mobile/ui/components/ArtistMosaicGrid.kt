@@ -1,6 +1,11 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -61,7 +67,10 @@ import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.artist.resolveArtistProfileConsensus
 import org.michimusic.mobile.artist.resolveArtistArtworkConsensus
+import org.michimusic.mobile.ui.motion.aeroTilePressScale
 import org.michimusic.mobile.ui.theme.InterFontFamily
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.MichiMotion
 import org.michimusic.mobile.ui.theme.PrimaryPink
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -188,6 +197,7 @@ fun ArtistMosaicGrid(
                 portrait = portrait,
                 artwork = artwork,
                 onClick = { onOpenArtist(artist.credit) },
+                modifier = if (LocalVisualPreferences.current.reducedMotion) Modifier else Modifier.animateItem(),
             )
         }
     }
@@ -211,10 +221,27 @@ internal fun ArtistMosaicTile(
     val trackDescription = if (artist.trackCount == 1) "1 canción" else "${artist.trackCount} canciones"
     // One accessible target per artist: the whole tile opens the ficha. Cache retries and
     // identity review belong to the enrichment surface, never to a second CTA under a face.
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion
+    val scale by animateFloatAsState(
+        targetValue = aeroTilePressScale(pressed, reducedMotion),
+        animationSpec = if (reducedMotion) snap() else tween(
+            durationMillis = MichiMotion.durationFast,
+            easing = MichiMotion.easingDecelerate,
+        ),
+        label = "aero_artist_tile_press",
+    )
     Column(
         modifier = modifier.fillMaxWidth().padding(horizontal = 2.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(16.dp))
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(
+                role = Role.Button,
+                interactionSource = source,
+                indication = null,
+                onClick = onClick,
+            )
             .semantics(mergeDescendants = true) {
                 contentDescription = "Abrir artista $name. $albumDescription y $trackDescription"
             }

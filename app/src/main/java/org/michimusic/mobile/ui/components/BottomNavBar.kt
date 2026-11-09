@@ -40,6 +40,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.michimusic.mobile.ui.motion.aeroDockSelectionEmphasis
+import org.michimusic.mobile.ui.motion.aeroDockPanelOpacity
+import org.michimusic.mobile.ui.motion.aeroDockBorderOpacity
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
@@ -164,6 +167,7 @@ private fun DockTab(
     preserveFullLabelSize: Boolean,
 ) {
     val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    val emphasis = aeroDockSelectionEmphasis(isSelected)
     val itemColor by animateColorAsState(
         targetValue = when {
             isSelected && highContrast -> PureWhite
@@ -178,14 +182,10 @@ private fun DockTab(
     Box(
         modifier = modifier
             .clip(MichiShapes.md)
-            .background(
-                if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.22f else 0.10f)
-                else Color.Transparent,
-            )
+            .background(PrimaryPinkContainer.copy(alpha = aeroDockPanelOpacity(emphasis, highContrast)))
             .border(
                 width = if (highContrast) 1.dp else 0.65.dp,
-                color = if (isSelected) PrimaryPinkContainer.copy(alpha = if (highContrast) 0.9f else 0.32f)
-                else Color.Transparent,
+                color = PrimaryPinkContainer.copy(alpha = aeroDockBorderOpacity(emphasis, highContrast)),
                 shape = MichiShapes.md,
             )
             .semantics(mergeDescendants = true) {
@@ -202,10 +202,14 @@ private fun DockTab(
             .testTag("nav_tab_${tab.route}"),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
             Box(
                 Modifier.size(width = 24.dp, height = 2.dp).clip(RoundedCornerShape(2.dp))
-                    .background(if (isSelected) itemColor else Color.Transparent),
+                    .background(itemColor.copy(alpha = emphasis)),
             )
             Spacer(modifier = Modifier.height(4.dp))
             Icon(
@@ -217,11 +221,12 @@ private fun DockTab(
             Spacer(modifier = Modifier.height(4.dp))
             BasicText(
                 text = tab.label,
+                modifier = Modifier.testTag("nav_label_${tab.route}"),
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 autoSize = if (preserveFullLabelSize) null else TextAutoSize.StepBased(
-                    minFontSize = 8.sp,
+                    minFontSize = 7.sp,
                     maxFontSize = 11.sp,
                     stepSize = 0.5.sp,
                 ),

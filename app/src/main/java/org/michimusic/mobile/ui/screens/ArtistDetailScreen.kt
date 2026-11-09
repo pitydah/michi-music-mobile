@@ -88,6 +88,8 @@ import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
+import org.michimusic.mobile.ui.motion.aeroArtistHeroReveal
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -114,6 +116,7 @@ fun ArtistDetailScreen(
     val albums by viewModel.albums.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val mediaLoadError by viewModel.error.collectAsStateWithLifecycle()
+    val reducedMotion = LocalVisualPreferences.current.reducedMotion
     val scopeStore: LibraryScopeStore = koinInject()
     val libraryRepo: MusicLibraryRepository = koinInject()
     val activeScope by scopeStore.activeScope.collectAsStateWithLifecycle()
@@ -463,13 +466,15 @@ fun ArtistDetailScreen(
                             }
                         }
                         item("artist_hero") {
-                            ArtistDetailHero(
-                                artistCredit = artistCredit,
-                                portrait = effectivePortrait,
-                                albumCount = localAlbums.size,
-                                trackCount = tracks.size,
-                                artwork = effectiveHeroArtwork,
-                            )
+                            Box(Modifier.fillMaxWidth().aeroArtistHeroReveal(artistCredit)) {
+                                ArtistDetailHero(
+                                    artistCredit = artistCredit,
+                                    portrait = effectivePortrait,
+                                    albumCount = localAlbums.size,
+                                    trackCount = tracks.size,
+                                    artwork = effectiveHeroArtwork,
+                                )
+                            }
                         }
                         if (profileStatus == ArtistProfileStatus.CONFLICT) {
                             item("artist_profile_ambiguous") {
@@ -544,7 +549,9 @@ fun ArtistDetailScreen(
                                     val identity = albumNavigationIdentity(group, activeScope)
                                     val uniqueAlbum = albumIdentityCounts[identity] == 1
                                     Column(
-                                        modifier = Modifier.width(142.dp)
+                                        modifier = Modifier
+                                            .then(if (reducedMotion) Modifier else Modifier.animateItem())
+                                            .width(142.dp)
                                             .clip(RoundedCornerShape(13.dp))
                                             .clickable(role = Role.Button,
                                                 enabled = uniqueAlbum) {

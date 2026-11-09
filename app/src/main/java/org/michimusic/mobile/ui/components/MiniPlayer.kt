@@ -33,9 +33,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +48,9 @@ import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.ActivePlaybackPresentation
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
+import org.michimusic.mobile.ui.motion.AeroTrackArtworkMotion
+import org.michimusic.mobile.ui.motion.AeroTrackTitleMotion
+import org.michimusic.mobile.ui.motion.aeroNowPlayingTransitionPolicy
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.AeroFinish
@@ -108,12 +109,16 @@ fun MiniPlayerContent(
     val activeEndpoint = presentation.endpoint
     val isPlaying = presentation.isPlaying
     val progressFraction = presentation.progressFraction
-    val reducedMotion = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.reducedMotion
+    val visualPreferences = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current
+    val transitionPolicy = aeroNowPlayingTransitionPolicy(
+        reducedMotion = visualPreferences.reducedMotion,
+        highContrast = visualPreferences.highContrast,
+    )
 
     AnimatedVisibility(
         visible = visible && currentTrack != null,
-        enter = if (reducedMotion) EnterTransition.None else slideInVertically(initialOffsetY = { it }) + fadeIn(),
-        exit = if (reducedMotion) ExitTransition.None else slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        enter = if (!transitionPolicy.animateMiniPlayerVisibility) EnterTransition.None else slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = if (!transitionPolicy.animateMiniPlayerVisibility) ExitTransition.None else slideOutVertically(targetOffsetY = { it }) + fadeOut(),
         modifier = modifier,
     ) {
         if (currentTrack != null) {
@@ -170,58 +175,51 @@ fun MiniPlayerContent(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Album artwork thumbnail
-                            AlbumArtView(
-                                coverStyle = coverStyleFor(currentTrack.coverId.ifEmpty { currentTrack.title }),
-                                imageModel = currentTrack.coverId.takeIf { it.isNotBlank() },
-                                fallbackMediaUri = currentTrack.filepath,
-                                modifier = Modifier
-                                    .size(42.dp)
+                            AeroTrackArtworkMotion(
+                                track = currentTrack,
+                                modifier = Modifier.size(42.dp)
                                     .clip(MichiShapes.xs),
+                                cornerRadius = 8.dp,
                             )
 
                             Spacer(modifier = Modifier.width(12.dp))
 
                             // Title, Artist & Real Active Endpoint
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = currentTrack.title,
+                                AeroTrackTitleMotion(
+                                    trackId = currentTrack.id,
+                                    title = currentTrack.title,
                                     color = PureWhite,
                                     style = MichiTypography.trackTitle,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // A truncated artist already ends in an ellipsis, so
-                                    // keeping the separator dot next to it reads as a
-                                    // stray ".. •". The dot only separates two complete
-                                    // values; drop it as soon as the artist is clipped.
-                                    var artistTruncated by remember { mutableStateOf(false) }
                                     Text(
                                         text = currentTrack.artist,
                                         color = OnSurfaceVariant,
                                         style = MichiTypography.metadata,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        onTextLayout = { artistTruncated = it.hasVisualOverflow },
-                                        modifier = Modifier.weight(1f, fill = false),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("mini_player_artist"),
                                     )
-                                    if (!artistTruncated) {
-                                        Spacer(modifier = Modifier.width(5.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .size(5.dp)
-                                                .clip(CircleShape)
-                                                .background(if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer),
-                                        )
-                                        Spacer(modifier = Modifier.width(5.dp))
-                                    } else {
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                    }
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (activeEndpoint.isLocal) TertiaryCyan else PrimaryPinkContainer)
+                                            .testTag("mini_player_endpoint_status"),
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     Text(
                                         text = activeEndpoint.name,
                                         color = OnSurfaceVariant,
                                         style = MichiTypography.microLabel,
-                                        modifier = Modifier.widthIn(max = 84.dp),
+                                        modifier = Modifier
+                                            .widthIn(max = 84.dp)
+                                            .testTag("mini_player_endpoint"),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )

@@ -127,6 +127,42 @@ class ActivePlaybackPresentationTest {
     }
 
     @Test
+    fun `local player state wins when the mirrored session snapshot is stale`() {
+        val nextTrack = localTrack.copy(
+            id = "local_2",
+            title = "Next Song",
+            album = "Next Album",
+        )
+        val staleSession = PlaybackSessionState(
+            activeEndpoint = PlaybackEndpoint.LocalPhone,
+            isRemoteActive = false,
+            currentTrack = localTrack,
+            isPlaying = false,
+            position = 0L,
+            duration = 9000L,
+            queue = listOf(localTrack, nextTrack),
+            queueIndex = 0,
+        )
+        val localState = PlayerState(
+            currentTrack = nextTrack,
+            queue = listOf(localTrack, nextTrack),
+            queueIndex = 1,
+            isPlaying = true,
+            position = 4200L,
+            duration = 180000L,
+        )
+
+        val presentation = resolvePlaybackPresentation(staleSession, localState)
+
+        assertEquals("local_2", presentation.currentTrack?.id)
+        assertEquals("Next Song", presentation.currentTrack?.title)
+        assertEquals(4200L, presentation.position)
+        assertEquals(180000L, presentation.duration)
+        assertEquals(1, presentation.queueIndex)
+        assertTrue(presentation.isPlaying)
+    }
+
+    @Test
     fun `michi stream endpoint presents streaming track and receiver name`() {
         val sessionState = PlaybackSessionState(
             activeEndpoint = streamReceiverEndpoint,

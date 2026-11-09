@@ -87,6 +87,8 @@ import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
+import org.michimusic.mobile.ui.components.AeroSegmentStack
+import org.michimusic.mobile.ui.components.aeroSegmentStacking
 import org.michimusic.mobile.ui.components.AeroSegmentTreatment
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
@@ -247,99 +249,95 @@ fun AlbumsScreen(
                 .statusBarsPadding(),
         ) {
             // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 72.dp)
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "BIBLIOTECA",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = PrimaryPink,
-                        letterSpacing = 2.sp,
-                    )
-                    Text(
-                        text = "Tu biblioteca",
-                        style = MichiTypography.screenTitle.copy(fontSize = 22.sp, lineHeight = 27.sp),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("library_title"),
-                    )
-                    if (scopedArtistCollection?.ready == true || (!isLoading && allTracks.isNotEmpty())) {
-                        val displayTracks = if (scopedArtistCollection?.ready == true)
-                            scopedArtistCollection.albums.sumOf { it.tracks.size } else allTracks.size
-                        val displayAlbums = if (scopedArtistCollection?.ready == true)
-                            scopedArtistCollection.albums.size else albums.size
+            LibraryHeaderLayout(
+                titleContent = { titleModifier ->
+                    Column(modifier = titleModifier) {
                         Text(
-                            text = pluralStringResource(R.plurals.track_count, displayTracks, displayTracks) +
-                                "  ·  " +
-                                pluralStringResource(R.plurals.album_count, displayAlbums, displayAlbums),
-                            style = MichiTypography.microLabel,
-                            color = TextSecondary,
-                            maxLines = 1,
+                            text = "BIBLIOTECA",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryPink,
+                            letterSpacing = 2.sp,
+                        )
+                        Text(
+                            text = "Tu biblioteca",
+                            style = MichiTypography.screenTitle.copy(fontSize = 22.sp, lineHeight = 27.sp),
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 5.dp).testTag("library_real_count"),
+                            modifier = Modifier.testTag("library_title"),
                         )
+                        if (scopedArtistCollection?.ready == true || (!isLoading && allTracks.isNotEmpty())) {
+                            val displayTracks = if (scopedArtistCollection?.ready == true)
+                                scopedArtistCollection.albums.sumOf { it.tracks.size } else allTracks.size
+                            val displayAlbums = if (scopedArtistCollection?.ready == true)
+                                scopedArtistCollection.albums.size else albums.size
+                            Text(
+                                text = pluralStringResource(R.plurals.track_count, displayTracks, displayTracks) +
+                                    "  ·  " +
+                                    pluralStringResource(R.plurals.album_count, displayAlbums, displayAlbums),
+                                style = MichiTypography.microLabel,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 5.dp).testTag("library_real_count"),
+                            )
+                        }
                     }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (selectedTab == LibraryTab.ALBUMS && scopedAlbums.isNotEmpty()) {
-                        AlbumViewModeToggle(
-                            viewMode = viewMode,
-                            onViewModeChange = { viewMode = it },
-                        )
-                    }
-
-                    // The playlists entry point carries its own label: an icon-only
-                    // action in the header left the whole feature discoverable only by
-                    // guessing what a music-note glyph opened.
+                },
+                actionsContent = {
                     Row(
-                        modifier = Modifier
-                            .heightIn(min = MichiSpacing.minTouchTarget)
-                            .clip(MichiShapes.sm)
-                            .background(GlassFillLow)
-                            .border(0.65.dp, GlassBorderLow, MichiShapes.sm)
-                            .clickable(role = Role.Button, onClick = onNavigateToPlaylists)
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .testTag("library_playlists_button"),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = null,
+                        if (selectedTab == LibraryTab.ALBUMS && scopedAlbums.isNotEmpty()) {
+                            AlbumViewModeToggle(
+                                viewMode = viewMode,
+                                onViewModeChange = { viewMode = it },
+                            )
+                        }
+
+                        // The playlists entry point carries its own label: an icon-only
+                        // action in the header left the whole feature discoverable only by
+                        // guessing what a music-note glyph opened.
+                        Row(
+                            modifier = Modifier
+                                .heightIn(min = MichiSpacing.minTouchTarget)
+                                .clip(MichiShapes.sm)
+                                .background(GlassFillLow)
+                                .border(0.65.dp, GlassBorderLow, MichiShapes.sm)
+                                .clickable(role = Role.Button, onClick = onNavigateToPlaylists)
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .testTag("library_playlists_button"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LibraryMusic,
+                                contentDescription = null,
+                                tint = PureWhite,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "Listas",
+                                color = PureWhite,
+                                style = MichiTypography.metadata,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+
+                        MichiIconAction(
+                            icon = Icons.Filled.Add,
+                            contentDescription = "Nueva Playlist",
+                            onClick = { showCreatePlaylist = true },
                             tint = PureWhite,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            text = "Listas",
-                            color = PureWhite,
-                            style = MichiTypography.metadata,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
+                            iconSize = 24.dp,
+                            minTargetSize = MichiSpacing.minTouchTarget,
+                            testTag = "library_add_playlist_button",
                         )
                     }
-
-                    MichiIconAction(
-                        icon = Icons.Filled.Add,
-                        contentDescription = "Nueva Playlist",
-                        onClick = { showCreatePlaylist = true },
-                        tint = PureWhite,
-                        iconSize = 24.dp,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                        testTag = "library_add_playlist_button",
-                    )
-                }
-            }
+                },
+            )
 
             // Library Scope Selector (Todas / Este teléfono / etc.)
             if (shouldShowLibraryScopeSelector(availableLibraries.size, activeScope is org.michimusic.core.models.LibraryScope.All)) LazyRow(
@@ -401,17 +399,38 @@ fun AlbumsScreen(
 
             // M60: content type is the dominant library navigation level.
             // Collection scope above is omitted if there is no scope choice.
-            AeroSegmentRail(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            val libraryConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
+            if (aeroSegmentStacking(
+                    libraryConfiguration.screenWidthDp.toFloat(),
+                    libraryConfiguration.fontScale,
+                )
             ) {
-                LibraryTab.values().forEach { tab ->
-                    AeroSegmentedChoice(
-                        label = tab.displayName,
-                        selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
-                        modifier = Modifier.weight(1f),
-                        testTag = "library_tab_${tab.name.lowercase()}",
-                    )
+                AeroSegmentStack(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                ) {
+                    LibraryTab.values().forEach { tab ->
+                        AeroSegmentedChoice(
+                            label = tab.displayName,
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            modifier = Modifier.fillMaxWidth(),
+                            testTag = "library_tab_${tab.name.lowercase()}",
+                        )
+                    }
+                }
+            } else {
+                AeroSegmentRail(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                ) {
+                    LibraryTab.values().forEach { tab ->
+                        AeroSegmentedChoice(
+                            label = tab.displayName,
+                            selected = selectedTab == tab,
+                            onClick = { selectedTab = tab },
+                            modifier = Modifier.weight(1f),
+                            testTag = "library_tab_${tab.name.lowercase()}",
+                        )
+                    }
                 }
             }
 

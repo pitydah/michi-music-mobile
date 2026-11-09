@@ -309,11 +309,10 @@ fun DevicesScreen(
         modifier = modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
-            .statusBarsPadding()
             .testTag("devices_screen"),
     ) {
         AeroPremiumBackdrop(accent = TertiaryCyan)
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             // Header
             DevicesTopBar(
                 isSearching = isSearching,
@@ -1006,66 +1005,93 @@ private fun LocalDeviceCard(
             .fillMaxWidth()
             .testTag("local_device_card"),
     ) {
-        Row(
+        val fontScale = androidx.compose.ui.platform.LocalConfiguration.current.fontScale
+        val stackBadge = fontScale >= 1.5f
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(MichiSpacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(MichiShapes.sm)
-                    .background(PrimaryPinkContainer.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MichiSpacing.md),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PhoneAndroid,
-                    contentDescription = null,
-                    tint = PrimaryPinkContainer,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Este teléfono",
-                    style = MichiTypography.cardTitle,
-                )
-                val storageStr = if (availableStorageBytes > 0) {
-                    val gb = availableStorageBytes / (1024.0 * 1024.0 * 1024.0)
-                    String.format(java.util.Locale.US, "%.1f GB libres", gb)
-                } else {
-                    ""
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(MichiShapes.sm)
+                        .background(PrimaryPinkContainer.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PhoneAndroid,
+                        contentDescription = null,
+                        tint = PrimaryPinkContainer,
+                        modifier = Modifier.size(24.dp),
+                    )
                 }
-                val subtext = buildString {
-                    append("Reproducción en este teléfono")
-                    if (storageStr.isNotEmpty()) {
-                        append(" · ")
-                        append(storageStr)
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Este teléfono",
+                        style = MichiTypography.cardTitle,
+                        modifier = Modifier.testTag("local_device_title"),
+                    )
+                    val storageStr = if (availableStorageBytes > 0) {
+                        val gb = availableStorageBytes / (1024.0 * 1024.0 * 1024.0)
+                        String.format(java.util.Locale.US, "%.1f GB libres", gb)
+                    } else {
+                        ""
                     }
+                    val subtext = buildString {
+                        append("Reproducción en este teléfono")
+                        if (storageStr.isNotEmpty()) {
+                            append(" · ")
+                            append(storageStr)
+                        }
+                    }
+                    Text(
+                        text = subtext,
+                        style = MichiTypography.metadata,
+                    )
                 }
-                Text(
-                    text = subtext,
-                    style = MichiTypography.metadata,
-                )
+
+                if (!stackBadge) {
+                    LocalOutputBadge(isActiveOutput)
+                }
             }
 
-            Box(
-                modifier = Modifier
-                    .clip(MichiShapes.pill)
-                    .background((if (isActiveOutput) TertiaryCyan else TextSecondary).copy(alpha = 0.12f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                Text(
-                    text = if (isActiveOutput) "● Salida local" else "Disponible",
-                    style = MichiTypography.microLabel,
-                    color = if (isActiveOutput) TertiaryCyan else TextSecondary,
-                    fontWeight = FontWeight.Bold,
+            if (stackBadge) {
+                Spacer(Modifier.height(8.dp))
+                LocalOutputBadge(
+                    isActiveOutput = isActiveOutput,
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .testTag("local_device_badge"),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LocalOutputBadge(
+    isActiveOutput: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(MichiShapes.pill)
+            .background((if (isActiveOutput) TertiaryCyan else TextSecondary).copy(alpha = 0.12f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = if (isActiveOutput) "● Salida local" else "Disponible",
+            style = MichiTypography.microLabel,
+            color = if (isActiveOutput) TertiaryCyan else TextSecondary,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -1139,20 +1165,12 @@ private fun SyncTransferCard(
             }
 
             val progress = syncProgressPresentation(completed, total)
-            if (progress.fraction == null) {
-                androidx.compose.material3.LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = if (isCancelling) ErrorColor else AccentCoral,
-                    trackColor = SurfaceObsidian,
-                )
-            } else {
-                androidx.compose.material3.LinearProgressIndicator(
-                    progress = { progress.fraction },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                    color = if (isCancelling) ErrorColor else AccentCoral,
-                    trackColor = SurfaceObsidian,
-                )
-            }
+            org.michimusic.mobile.ui.motion.AeroTruthfulProgress(
+                fraction = progress.fraction,
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                color = if (isCancelling) ErrorColor else AccentCoral,
+                trackColor = SurfaceObsidian,
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

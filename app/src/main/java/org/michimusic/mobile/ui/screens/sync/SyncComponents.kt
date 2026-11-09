@@ -448,9 +448,13 @@ private fun AirCatStepperHeader(currentStage: Int, isError: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         stages.forEachIndexed { index, title ->
-            val isDone = index < currentStage || (index == 3 && currentStage == 3 && !isError)
-            val isActive = index == currentStage
-            val isFailed = isActive && isError
+            val visualStage = org.michimusic.mobile.ui.motion.aeroTransferStageVisual(
+                index, currentStage, isError,
+            )
+            val isDone = visualStage == org.michimusic.mobile.ui.motion.AeroTransferStageVisual.COMPLETED
+            val isActive = visualStage == org.michimusic.mobile.ui.motion.AeroTransferStageVisual.ACTIVE ||
+                visualStage == org.michimusic.mobile.ui.motion.AeroTransferStageVisual.FAILED
+            val isFailed = visualStage == org.michimusic.mobile.ui.motion.AeroTransferStageVisual.FAILED
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -462,20 +466,26 @@ private fun AirCatStepperHeader(currentStage: Int, isError: Boolean) {
                         .size(24.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
                         .background(
-                            when {
-                                isFailed -> org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.2f)
-                                isDone -> org.michimusic.mobile.ui.theme.TertiaryCyan.copy(alpha = 0.2f)
-                                isActive -> org.michimusic.mobile.ui.theme.TertiaryCyan
-                                else -> org.michimusic.mobile.ui.theme.SurfaceObsidian
-                            }
+                            org.michimusic.mobile.ui.motion.aeroStageColor(
+                                target = when {
+                                    isFailed -> org.michimusic.mobile.ui.theme.ErrorColor.copy(alpha = 0.2f)
+                                    isDone -> org.michimusic.mobile.ui.theme.TertiaryCyan.copy(alpha = 0.2f)
+                                    isActive -> org.michimusic.mobile.ui.theme.TertiaryCyan
+                                    else -> org.michimusic.mobile.ui.theme.SurfaceObsidian
+                                },
+                                label = "aircat_stage_fill_$index",
+                            )
                         )
                         .border(
                             0.75.dp,
-                            when {
-                                isFailed -> org.michimusic.mobile.ui.theme.ErrorColor
-                                isDone || isActive -> org.michimusic.mobile.ui.theme.TertiaryCyan
-                                else -> org.michimusic.mobile.ui.theme.TextMuted.copy(alpha = 0.4f)
-                            },
+                            org.michimusic.mobile.ui.motion.aeroStageColor(
+                                target = when {
+                                    isFailed -> org.michimusic.mobile.ui.theme.ErrorColor
+                                    isDone || isActive -> org.michimusic.mobile.ui.theme.TertiaryCyan
+                                    else -> org.michimusic.mobile.ui.theme.TextMuted.copy(alpha = 0.4f)
+                                },
+                                label = "aircat_stage_border_$index",
+                            ),
                             androidx.compose.foundation.shape.CircleShape
                         ),
                     contentAlignment = Alignment.Center,
@@ -714,8 +724,10 @@ private fun AirCatActiveTransferView(
 ) {
     val transferredMb = progress.bytesTransferred / (1024.0 * 1024.0)
     val totalMb = progress.totalBytes / (1024.0 * 1024.0)
-    val pct = if (progress.totalBytes > 0) ((progress.bytesTransferred.toDouble() / progress.totalBytes.toDouble()) * 100.0).toInt().coerceIn(0, 100) else null
-    val fraction = if (progress.totalBytes > 0) (progress.bytesTransferred.toFloat() / progress.totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+    val fraction = org.michimusic.mobile.ui.motion.aeroMeasuredFraction(
+        progress.bytesTransferred, progress.totalBytes,
+    )
+    val pct = fraction?.let { (it * 100f).toInt().coerceIn(0, 100) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -752,8 +764,8 @@ private fun AirCatActiveTransferView(
             )
         }
 
-        LinearProgressIndicator(
-            progress = { fraction },
+        org.michimusic.mobile.ui.motion.AeroTruthfulProgress(
+            fraction = fraction,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp)

@@ -57,6 +57,7 @@ import org.michimusic.mobile.ui.theme.aeroFinishSpec
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.motion.AeroObservedText
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -108,12 +109,12 @@ fun AeroLibraryFeature(
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
-            .background(Brush.verticalGradient(
-                    org.michimusic.mobile.ui.theme.aeroGradientStops(
-                        org.michimusic.mobile.ui.theme.AeroGradientRole.Hero,
-                        highContrast,
-                    ),
-                ))
+            .background(
+                org.michimusic.mobile.ui.theme.aeroVerticalGradientBrush(
+                    org.michimusic.mobile.ui.theme.AeroGradientRole.Hero,
+                    highContrast,
+                ),
+            )
             .aeroFinishDrawing(
                 AeroFinish.Anodized,
                 aeroFinishSpec(AeroFinish.Anodized, highContrast),
@@ -308,16 +309,16 @@ fun AeroSignalRouteStrip(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Text(
-                        destination,
+                    AeroObservedText(
+                        value = destination,
                         color = PureWhite,
-                        fontFamily = InterFontFamily,
-                        fontSize = 15.sp,
-                        lineHeight = 19.sp,
-                        fontWeight = FontWeight.Medium,
+                        style = androidx.compose.ui.text.TextStyle(
+                            fontFamily = InterFontFamily,
+                            fontSize = 15.sp,
+                            lineHeight = 19.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
                         maxLines = if (stacked) 3 else 2,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -361,16 +362,16 @@ fun AeroSignalRouteStrip(
                 // A single centered, full-width note. No additional click target.
                 // Center every visual line, including a wrapped second line;
                 // the underlying signalDescription remains unmodified.
-                Text(
-                    text = signalDescription,
+                AeroObservedText(
+                    value = signalDescription,
                     modifier = Modifier.fillMaxWidth().testTag("signal_strip_footer"),
-                    textAlign = TextAlign.Center,
                     color = TextSecondary,
-                    fontFamily = InterFontFamily,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
+                    style = androidx.compose.ui.text.TextStyle(
+                        fontFamily = InterFontFamily,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    ),
                     maxLines = if (stacked) 3 else 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

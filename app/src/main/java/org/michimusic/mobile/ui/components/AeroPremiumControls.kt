@@ -77,8 +77,12 @@ fun AeroActionButton(
     val source = remember { MutableInteractionSource() }
     val isPressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (enabled && isPressed && !visual.reducedMotion) 0.975f else 1f,
-        animationSpec = if (visual.reducedMotion) snap() else tween(125),
+        targetValue = org.michimusic.mobile.ui.motion.aeroPressScale(
+            enabled = enabled,
+            pressed = isPressed,
+            reducedMotion = visual.reducedMotion,
+        ),
+        animationSpec = if (visual.reducedMotion) snap() else tween(org.michimusic.mobile.ui.theme.MichiMotion.feedbackDurationMs),
         label = "aero_button_pressed_scale",
     )
     val shape = RoundedCornerShape(16.dp)

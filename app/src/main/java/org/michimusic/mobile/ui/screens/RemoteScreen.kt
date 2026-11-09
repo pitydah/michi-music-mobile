@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,6 +57,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.michimusic.mobile.remote.RemoteConnectionState
 import org.michimusic.mobile.remote.RemoteUiState
 import org.michimusic.mobile.remote.RemoteViewModel
+import org.michimusic.mobile.ui.motion.AeroObservedText
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AeroSurface
 import org.michimusic.mobile.ui.components.AeroActionButton
@@ -344,8 +346,11 @@ fun RemoteScreenContent(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     // Pending Command Banner
+                    // Do not keep a zero-height lazy item after a pending command;
+                    // otherwise Arrangement.spacedBy would leave a permanent gap.
                     if (state.pendingCommand) {
-                        item {
+                        item(key = "remote_pending_command") {
+                            org.michimusic.mobile.ui.motion.AeroPendingReveal(visible = true) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -372,6 +377,7 @@ fun RemoteScreenContent(
                                     )
                                 }
                             }
+                            }
                         }
                     }
 
@@ -384,6 +390,7 @@ fun RemoteScreenContent(
                                 .background(AeroGraphiteRaised)
                                 .border(0.75.dp, AeroHairline, RoundedCornerShape(20.dp))
                                 .clickable { onNavigateToSync() }
+                                .heightIn(min = 48.dp)
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                                 .testTag("connection_status_indicator"),
                             contentAlignment = Alignment.Center,
@@ -398,13 +405,15 @@ fun RemoteScreenContent(
                                         .clip(CircleShape)
                                         .background(TertiaryCyan),
                                 )
-                                Text(
-                                    text = "Controlando: $sourceTitle",
+                                AeroObservedText(
+                                    value = "Controlando: $sourceTitle",
                                     color = TertiaryCyan,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    style = androidx.compose.ui.text.TextStyle(
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    ),
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Start,
                                 )
                             }
                         }

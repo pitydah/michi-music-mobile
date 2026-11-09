@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.components.premium
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -26,6 +27,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.motion.AeroAnimatedGlyph
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -79,13 +81,13 @@ fun MichiIconAction(
 
     // Discrete tactile response without disruptive circular disc ripples (Apple Music style)
     val animatedScale by animateFloatAsState(
-        targetValue = if (isPressed && enabled && !visualPrefs.reducedMotion) 0.90f else 1.0f,
-        animationSpec = tween(durationMillis = 120),
+        targetValue = if (isPressed && enabled && !isLoading && !visualPrefs.reducedMotion) 0.90f else 1.0f,
+        animationSpec = if (visualPrefs.reducedMotion) snap() else tween(durationMillis = 120),
         label = "michi_icon_scale",
     )
     val animatedAlpha by animateFloatAsState(
-        targetValue = if (isPressed && enabled) 0.60f else 1.0f,
-        animationSpec = tween(durationMillis = 120),
+        targetValue = if (isPressed && enabled && !isLoading) 0.60f else 1.0f,
+        animationSpec = if (visualPrefs.reducedMotion) snap() else tween(durationMillis = 120),
         label = "michi_icon_alpha",
     )
 
@@ -129,11 +131,12 @@ fun MichiIconAction(
                     strokeWidth = 2.dp,
                 )
             } else {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null, // Semantics hoisted on parent touch target
+                AeroAnimatedGlyph(
+                    icon = icon,
                     tint = effectiveTint,
-                    modifier = Modifier.size(iconSize),
+                    size = iconSize,
+                    reducedMotion = visualPrefs.reducedMotion,
+                    label = "michi_icon_glyph",
                 )
             }
         }

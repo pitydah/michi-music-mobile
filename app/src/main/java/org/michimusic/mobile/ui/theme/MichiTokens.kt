@@ -57,6 +57,11 @@ object MichiMotion {
     val easingStandard: Easing = FastOutSlowInEasing
     val easingEmphasized: Easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)
     val easingDecelerate: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
+
+    // UI4: single source for Aero press-feedback. Preserves UI3's existing feel.
+    const val feedbackPressedScale = 0.975f
+    const val feedbackRestScale = 1.0f
+    const val feedbackDurationMs = 125
 }
 
 /**
