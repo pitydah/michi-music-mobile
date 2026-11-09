@@ -1,18 +1,14 @@
 package org.michimusic.data.repository
 
-import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
-import android.database.Cursor
+import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.provider.OpenableColumns
+import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.michimusic.core.models.Track
-import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.CachedTrack
 import org.michimusic.data.cache.TrackDao
-import org.michimusic.data.local.ReplayGainReader
 
 class SafMediaRepository(
     private val context: Context,
@@ -45,87 +41,145 @@ class SafMediaRepository(
     }
 
     /**
-     * Imports an audio file picked via OpenDocument into our track index.
+     * Indexes every supported audio document below a user-selected tree. The tree
+     * grant is persisted before any row is written; a failed grant leaves the
+     * previous index untouched.
      */
-    suspend fun importAudioUri(uri: Uri): Track? = withContext(Dispatchers.IO) {
-        // A transient URI grant would disappear at restart; never report it as a
-        // durable library import when the provider cannot persist read permission.
-        if (!hasPermission(uri) && !takePersistablePermission(uri)) return@withContext null
-
-        val metadata = extractMetadata(context.contentResolver, uri) ?: return@withContext null
-        val id = "saf_${uri.hashCode().toUInt()}"
-        val rg = ReplayGainReader.read(context, uri.toString())
-
-        val cachedTrack = CachedTrack(
-            id = id,
-            title = metadata.title,
-            artist = metadata.artist,
-            album = metadata.album,
-            duration = metadata.duration,
-            size = metadata.size,
-            format = metadata.mimeType.substringAfterLast("/"),
-            filepath = uri.toString(),
-            downloaded = true,
+    suspend fun indexTree(treeUri: Uri): Int = withContext(Dispatchers.IO) {
+        if (!hasPermission(treeUri) && !takePersistablePermission(treeUri)) return@withContext -1
+        val resolver = context.contentResolver
+        val rootDocumentId = try {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } catch (_: IllegalArgumentException) {
+            return@withContext -1
+        }
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
         )
+        val pendingDirs = ArrayDeque<String>()
+        pendingDirs.add(rootDocumentId)
+        val seenDocuments = HashSet<String>()
+        val indexed = mutableListOf<CachedTrack>()
+        var queryFailed = false
 
-        trackDao.insert(cachedTrack)
-        // Invalidate the same cache used by Home after a file is imported in
-        // onboarding or in Settings; it must be re-queried on return.
-        localMediaRepository?.invalidateCache()
-
-        Track(
-            id = id,
-            title = metadata.title,
-            artist = metadata.artist,
-            album = metadata.album,
-            duration = metadata.duration,
-            filepath = uri.toString(),
-            size = metadata.size,
-            format = cachedTrack.format,
-            source = TrackSource.LOCAL,
-            replayGainTrack = rg.trackGain,
-            replayGainAlbum = rg.albumGain,
-        )
-    }
-
-    data class SafMetadata(
-        val title: String,
-        val artist: String = "Unknown Artist",
-        val album: String = "Unknown Album",
-        val size: Long = 0L,
-        val duration: Long = 0L,
-        val mimeType: String = "audio/*",
-    )
-
-    private fun extractMetadata(contentResolver: ContentResolver, uri: Uri): SafMetadata? {
-        var displayName: String? = null
-        var size = 0L
-
-        try {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (nameIndex != -1) {
-                        displayName = cursor.getString(nameIndex)
+        while (pendingDirs.isNotEmpty()) {
+            val directoryId = pendingDirs.removeFirst()
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directoryId)
+            val cursor = try {
+                resolver.query(childrenUri, projection, null, null, null)
+            } catch (_: Exception) {
+                queryFailed = true
+                null
+            }
+            if (cursor == null) {
+                queryFailed = true
+                continue
+            }
+            cursor.use { c ->
+                val idCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val sizeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                if (idCol < 0 || nameCol < 0 || mimeCol < 0) return@use
+                while (c.moveToNext()) {
+                    val documentId = c.getString(idCol) ?: continue
+                    val displayName = c.getString(nameCol).orEmpty()
+                    val mime = c.getString(mimeCol).orEmpty()
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        if (seenDocuments.add(documentId)) pendingDirs.add(documentId)
+                        continue
                     }
-                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (sizeIndex != -1 && !cursor.isNull(sizeIndex)) {
-                        size = cursor.getLong(sizeIndex)
+                    if (!isSupportedAudioDocument(mime, displayName)) continue
+                    if (!seenDocuments.add(documentId)) continue
+                    val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    val metadata = retrieverMetadata(documentUri)
+                    val title = metadata.title.ifBlank {
+                        displayName.substringBeforeLast('.').ifBlank { displayName }
                     }
+                    indexed.add(
+                        CachedTrack(
+                            id = treeTrackId(documentId),
+                            title = title,
+                            artist = metadata.artist,
+                            album = metadata.album,
+                            duration = metadata.duration,
+                            size = if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L,
+                            format = sourceFileExtension(displayName)
+                                .ifBlank { mime.substringAfterLast('/') },
+                            filepath = documentUri.toString(),
+                            downloaded = true,
+                            sourceId = CUSTOM_ROOT_SOURCE_ID,
+                        ),
+                    )
                 }
             }
-        } catch (_: Exception) {
-            return null
         }
 
-        val rawName = displayName ?: uri.lastPathSegment?.substringAfterLast(":")?.substringAfterLast("/") ?: "Imported Track"
-        val title = rawName.substringBeforeLast(".")
-        val mime = contentResolver.getType(uri) ?: "audio/*"
-
-        return SafMetadata(
-            title = title,
-            size = size,
-            mimeType = mime,
-        )
+        if (queryFailed) return@withContext -1
+        trackDao.deleteForSource(CUSTOM_ROOT_SOURCE_ID)
+        if (indexed.isNotEmpty()) trackDao.insertAll(indexed)
+        localMediaRepository?.invalidateCache()
+        indexed.size
     }
+
+    suspend fun clearIndexedTree() = withContext(Dispatchers.IO) {
+        trackDao.deleteForSource(CUSTOM_ROOT_SOURCE_ID)
+        localMediaRepository?.invalidateCache()
+    }
+
+    fun treeDisplayName(treeUri: Uri): String {
+        val documentUri = try {
+            DocumentsContract.buildDocumentUriUsingTree(
+                treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri),
+            )
+        } catch (_: IllegalArgumentException) {
+            return MusicRoot.CUSTOM_FALLBACK_NAME
+        }
+        return try {
+            context.contentResolver.query(
+                documentUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }?.let(::normalizeTreeDisplayName)
+                ?: MusicRoot.CUSTOM_FALLBACK_NAME
+        } catch (_: Exception) {
+            MusicRoot.CUSTOM_FALLBACK_NAME
+        }
+    }
+
+    private data class TreeMetadata(
+        val title: String = "",
+        val artist: String = "Unknown Artist",
+        val album: String = "Unknown Album",
+        val duration: Long = 0L,
+    )
+
+    private fun retrieverMetadata(uri: Uri): TreeMetadata {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(context, uri)
+            TreeMetadata(
+                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).orEmpty(),
+                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                    ?.takeIf { it.isNotBlank() } ?: "Unknown Artist",
+                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                    ?.takeIf { it.isNotBlank() } ?: "Unknown Album",
+                duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+            )
+        } catch (_: Exception) {
+            TreeMetadata()
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
 }

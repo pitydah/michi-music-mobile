@@ -27,6 +27,9 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId ORDER BY title")
     fun getTracksForSource(sourceId: String): Flow<List<CachedTrack>>
 
+    @Query("DELETE FROM cached_tracks WHERE sourceId = :sourceId")
+    suspend fun deleteForSource(sourceId: String)
+
     @Query("SELECT * FROM cached_tracks WHERE downloaded = 1")
     fun getDownloadedTracks(): Flow<List<CachedTrack>>
 

@@ -540,60 +540,65 @@ fun SettingsScreen(
 
                     SettingsSection.LIBRARY_STORAGE -> {
                         val localMediaRepository: org.michimusic.data.repository.LocalMediaRepository = koinInject()
-                        val musicFolderPreferences: org.michimusic.data.repository.MusicFolderPreferences = koinInject()
-                        var showLibraryFolderDialog by remember { mutableStateOf(false) }
-                        var libraryFolders by remember {
-                            mutableStateOf<List<org.michimusic.data.repository.MediaFolder>>(emptyList())
+                        val musicRootPreferences: org.michimusic.data.repository.MusicRootPreferences = koinInject()
+                        val safMediaRepository: org.michimusic.data.repository.SafMediaRepository = koinInject()
+                        val audioController: org.michimusic.player.AudioController = koinInject()
+                        var currentRoot by remember { mutableStateOf(musicRootPreferences.currentRoot()) }
+                        var folderBusy by remember { mutableStateOf(false) }
+                        var folderMessage by remember { mutableStateOf<String?>(null) }
+
+                        val treeLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                            androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+                        ) { uri ->
+                            if (uri != null) {
+                                scope.launch {
+                                    folderBusy = true
+                                    folderMessage = null
+                                    val displayName = safMediaRepository.treeDisplayName(uri)
+                                    val indexed = safMediaRepository.indexTree(uri)
+                                    if (indexed < 0) {
+                                        folderMessage = "No se pudo leer la carpeta. La biblioteca no cambió."
+                                        folderBusy = false
+                                        return@launch
+                                    }
+                                    val saved = musicRootPreferences.setCustomRoot(uri, displayName)
+                                    if (saved) {
+                                        currentRoot = musicRootPreferences.currentRoot()
+                                        audioController.clearQueue()
+                                        localMediaRepository.invalidateCache()
+                                        folderMessage = "Biblioteca actualizada: $indexed pista(s) en ${currentRoot.label}"
+                                    } else {
+                                        folderMessage = "No se pudo guardar el permiso de la carpeta."
+                                    }
+                                    folderBusy = false
+                                }
+                            }
                         }
-                        var libraryFolderSelection by remember {
-                            mutableStateOf(musicFolderPreferences.includedFolders())
-                        }
-                        val currentFolderSelection = libraryFolderSelection
-                        val folderSummary = when {
-                            currentFolderSelection == null ->
-                                "Automático: música + Music/Download"
-                            currentFolderSelection.contains(org.michimusic.data.repository.ALL_FOLDERS) ->
-                                "Todas las carpetas de audio"
-                            else -> "${currentFolderSelection.size} carpeta(s) seleccionada(s)"
-                        }
+
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             SettingsSectionCard(
                                 icon = Icons.Default.FolderSpecial,
                                 title = "Biblioteca & Almacenamiento",
-                                subtitle = "Escaneo, carátulas e importación",
+                                subtitle = "Carpeta de música, carátulas y sincronización",
                                 accent = TertiaryCyan,
                             ) {
-                                var importedCount by remember { mutableStateOf<Int?>(null) }
-                                val safMediaRepository: org.michimusic.data.repository.SafMediaRepository = koinInject()
-                                val openDocLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-                                    androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
-                                ) { uris ->
-                                    if (uris.isNotEmpty()) {
-                                        scope.launch {
-                                            var imported = 0
-                                            for (uri in uris) {
-                                                val track = safMediaRepository.importAudioUri(uri)
-                                                if (track != null) imported++
-                                            }
-                                            importedCount = imported
-                                        }
-                                    }
-                                }
-
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(GlassFillLow)
                                         .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                                        .clickable { openDocLauncher.launch(arrayOf("audio/*", "application/ogg")) }
-                                        .padding(14.dp),
+                                        .clickable(enabled = !folderBusy) {
+                                            treeLauncher.launch(null)
+                                        }
+                                        .padding(14.dp)
+                                        .testTag("settings_library_root"),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Importar audio (SAF)",
+                                            text = "Carpeta de música",
                                             style = MaterialTheme.typography.bodyMedium.copy(
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = PureWhite,
@@ -601,10 +606,10 @@ fun SettingsScreen(
                                         )
                                         Spacer(Modifier.height(2.dp))
                                         Text(
-                                            text = if (importedCount != null) {
-                                                "$importedCount pista(s) importada(s)"
+                                            text = if (folderBusy) {
+                                                "Actualizando biblioteca…"
                                             } else {
-                                                "Seleccionar archivos locales o de almacenamiento externo"
+                                                currentRoot.label
                                             },
                                             style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
                                         )
@@ -617,46 +622,58 @@ fun SettingsScreen(
                                     )
                                 }
 
-                                Spacer(Modifier.height(12.dp))
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(GlassFillLow)
-                                        .border(1.dp, GlassBorderLow, RoundedCornerShape(12.dp))
-                                        .clickable {
-                                            scope.launch {
-                                                libraryFolders = localMediaRepository.listAudioFolders()
-                                                libraryFolderSelection = musicFolderPreferences.includedFolders()
-                                                showLibraryFolderDialog = true
-                                            }
-                                        }
-                                        .padding(14.dp)
-                                        .testTag("settings_library_folders"),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Carpetas de la biblioteca",
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = PureWhite,
-                                            ),
-                                        )
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            text = folderSummary,
-                                            style = MaterialTheme.typography.bodySmall.copy(color = TextMuted),
-                                        )
-                                    }
-                                    Icon(
-                                        Icons.Default.ChevronRight,
-                                        contentDescription = null,
-                                        tint = TertiaryCyan,
-                                        modifier = Modifier.size(20.dp),
+                                if (folderMessage != null) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = folderMessage!!,
+                                        style = MaterialTheme.typography.bodySmall.copy(color = TertiaryCyan),
                                     )
+                                }
+
+                                Spacer(Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(
+                                        enabled = !folderBusy && !currentRoot.isDefault,
+                                        onClick = {
+                                            scope.launch {
+                                                folderBusy = true
+                                                audioController.clearQueue()
+                                                safMediaRepository.clearIndexedTree()
+                                                musicRootPreferences.restoreDefault()
+                                                localMediaRepository.invalidateCache()
+                                                currentRoot = musicRootPreferences.currentRoot()
+                                                folderMessage = "Biblioteca restaurada a Music/"
+                                                folderBusy = false
+                                            }
+                                        },
+                                        modifier = Modifier.testTag("settings_library_restore_music"),
+                                    ) {
+                                        Text("Restaurar Music/")
+                                    }
+                                    TextButton(
+                                        enabled = !folderBusy,
+                                        onClick = {
+                                            scope.launch {
+                                                folderBusy = true
+                                                val root = musicRootPreferences.currentRoot()
+                                                val indexed = if (!root.isDefault && root.treeUri != null) {
+                                                    safMediaRepository.indexTree(android.net.Uri.parse(root.treeUri))
+                                                } else {
+                                                    0
+                                                }
+                                                if (indexed < 0) {
+                                                    folderMessage = "No se pudo volver a leer la carpeta."
+                                                } else {
+                                                    localMediaRepository.invalidateCache()
+                                                    folderMessage = "Biblioteca actualizada."
+                                                }
+                                                folderBusy = false
+                                            }
+                                        },
+                                        modifier = Modifier.testTag("settings_library_rescan"),
+                                    ) {
+                                        Text("Volver a escanear")
+                                    }
                                 }
 
                                 Spacer(Modifier.height(12.dp))
@@ -696,24 +713,6 @@ fun SettingsScreen(
                                         scope.launch { autoSyncScheduler.setEnabled(it) }
                                     },
                                     testTag = "settings_auto_sync",
-                                )
-                            }
-
-                            if (showLibraryFolderDialog) {
-                                LibraryFolderDialog(
-                                    folders = libraryFolders,
-                                    initialSelection = libraryFolderSelection,
-                                    onDismiss = { showLibraryFolderDialog = false },
-                                    onSave = { selection ->
-                                        if (selection == null) {
-                                            musicFolderPreferences.clearSelection()
-                                        } else {
-                                            musicFolderPreferences.setIncludedFolders(selection)
-                                        }
-                                        libraryFolderSelection = selection
-                                        scope.launch { localMediaRepository.invalidateCache() }
-                                        showLibraryFolderDialog = false
-                                    },
                                 )
                             }
                         }

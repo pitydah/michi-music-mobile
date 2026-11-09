@@ -71,6 +71,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import org.koin.compose.koinInject
+import org.michimusic.data.repository.MusicRootPreferences
 import org.michimusic.data.repository.SafMediaRepository
 import org.michimusic.mobile.R
 import org.michimusic.mobile.ui.theme.InterFontFamily
@@ -91,8 +92,11 @@ fun FirstRunWizard(
     onCompleted: (OnboardingDestination) -> Unit,
     onDismissReplay: () -> Unit,
     safRepository: SafMediaRepository = koinInject(),
+    rootPreferences: MusicRootPreferences? = null,
+    onRootChanged: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val rootPrefs = rootPreferences ?: remember(context) { MusicRootPreferences(context) }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var step by rememberSaveable { mutableIntStateOf(if (replay) 0 else initial.step.coerceIn(0, 4)) }
@@ -102,8 +106,8 @@ fun FirstRunWizard(
     var audio by rememberSaveable { mutableStateOf(initial.audio) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var imported by rememberSaveable { mutableIntStateOf(0) }
-    var importFailed by rememberSaveable { mutableIntStateOf(0) }
+    var indexed by rememberSaveable { mutableIntStateOf(0) }
+    var musicRoot by remember { mutableStateOf(rootPrefs.currentRoot()) }
     var mediaPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -131,32 +135,28 @@ fun FirstRunWizard(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { mediaPermissionGranted = it }
-    val filesLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris ->
-        if (uris.isNotEmpty()) {
+    val treeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) {
             scope.launch {
                 busy = true
                 error = null
-                importFailed = 0
                 try {
-                    for (uri in uris) {
-                        try {
-                            if (safRepository.importAudioUri(uri) != null) imported++
-                            else importFailed++
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            importFailed++
-                        }
-                    }
-                    if (importFailed > 0) {
-                        error = "${importFailed} archivo(s) no pudieron importarse. Puedes reintentarlo desde Ajustes."
+                    val displayName = safRepository.treeDisplayName(uri)
+                    indexed = safRepository.indexTree(uri)
+                    if (indexed < 0) {
+                        error = "No se pudo leer la carpeta. La biblioteca no cambió."
+                    } else if (rootPrefs.setCustomRoot(uri, displayName)) {
+                        musicRoot = rootPrefs.currentRoot()
+                        onRootChanged()
+                    } else {
+                        error = "No se pudo guardar el permiso de la carpeta."
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    error = "No fue posible importar los archivos. Reintenta desde Ajustes."
+                    error = "No fue posible leer la carpeta elegida. Reintenta desde Ajustes."
                 } finally {
                     busy = false
                 }
@@ -288,27 +288,35 @@ fun FirstRunWizard(
                         }
                     }
                     1 -> {
-                        Description("Elige cómo quieres incorporar música. También puedes hacerlo después desde Ajustes.")
+                        Description("Elige la carpeta que será tu biblioteca local. Music/ es la opción predeterminada.")
                         Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Choice("Música de mi teléfono", "Buscar audio local mediante Android.",
-                                iconRes = R.drawable.wizard_fluent_phone, selected = library == LibraryChoice.PHONE, onClick = { library = LibraryChoice.PHONE })
-                            Choice("Importar archivos", "Selecciona canciones con el explorador de Android.",
+                            Choice("Music/ del teléfono", "Incluye todas sus subcarpetas.",
+                                iconRes = R.drawable.wizard_fluent_phone, selected = library == LibraryChoice.PHONE, onClick = {
+                                    library = LibraryChoice.PHONE
+                                    rootPrefs.restoreDefault()
+                                    musicRoot = rootPrefs.currentRoot()
+                                    onRootChanged()
+                                            })
+                            Choice("Elegir otra carpeta", "Usar el selector nativo de Android; el permiso queda guardado.",
                                 iconRes = R.drawable.wizard_fluent_document_folder, selected = library == LibraryChoice.IMPORT_FILES, onClick = { library = LibraryChoice.IMPORT_FILES })
                             Choice("Más tarde", "Entrar sin configurar una biblioteca todavía.",
                                 iconRes = R.drawable.wizard_fluent_history, selected = library == LibraryChoice.LATER, onClick = { library = LibraryChoice.LATER })
                         }
                         if (library == LibraryChoice.PHONE) {
-                            if (mediaPermissionGranted) Description("Acceso a música local concedido.")
+                            if (mediaPermissionGranted) Description("Acceso a música local concedido. Biblioteca: Music/")
                             else OutlinedButton(onClick = { permissionLauncher.launch(permission) }, modifier = Modifier.heightIn(min = 48.dp)) {
                                 Text("Dar acceso a mi música")
                             }
                         } else if (library == LibraryChoice.IMPORT_FILES) {
                             OutlinedButton(
-                                onClick = { filesLauncher.launch(arrayOf("audio/*", "application/ogg")) },
+                                onClick = { treeLauncher.launch(null) },
+                                enabled = !busy,
                                 modifier = Modifier.heightIn(min = 48.dp),
-                            ) { Icon(Icons.Default.AudioFile, null); Text("  Seleccionar archivos") }
-                            if (imported > 0) Description("$imported archivo(s) importado(s) en esta sesión.")
-                            else Description("Aún no has seleccionado archivos en esta sesión; puedes hacerlo después.")
+                            ) { Icon(Icons.Default.AudioFile, null); Text("  Elegir carpeta") }
+                            Description("Carpeta actual: ${musicRoot.label}")
+                            if (indexed > 0) Description("$indexed pista(s) encontradas en la carpeta elegida.")
+                            else if (!musicRoot.isDefault) Description("La carpeta está lista; las pistas aparecerán al escanear.")
+                            else Description("Aún no has elegido otra carpeta; Music/ sigue siendo la predeterminada.")
                         }
                     }
                     2 -> {
@@ -341,13 +349,13 @@ fun FirstRunWizard(
                             border = BorderStroke(1.dp, Color(0xFF424B58))) {
                             Column(modifier = Modifier.padding(horizontal = 14.dp)) {
                                 SummaryRow("Biblioteca", R.drawable.wizard_fluent_library, when (library) {
-                                    LibraryChoice.PHONE -> if (mediaPermissionGranted) "Permiso concedido; se revisará la biblioteca" else "Permiso de audio pendiente"
-                                    LibraryChoice.IMPORT_FILES -> if (imported > 0) "$imported archivos importados en esta sesión"
-                                        else "Importar archivos cuando quieras"
+                                    LibraryChoice.PHONE -> if (mediaPermissionGranted) "Music/ y sus subcarpetas" else "Permiso de audio pendiente para Music/"
+                                    LibraryChoice.IMPORT_FILES -> if (!musicRoot.isDefault) "Carpeta: ${musicRoot.label}"
+                                        else "Puedes elegir una carpeta cuando quieras"
                                     LibraryChoice.LATER -> "Configurar después"
                                 }, status = when (library) {
                                     LibraryChoice.PHONE -> if (mediaPermissionGranted) "LISTO" else "PENDIENTE"
-                                    LibraryChoice.IMPORT_FILES -> if (imported > 0) "LISTO" else "OPCIONAL"
+                                    LibraryChoice.IMPORT_FILES -> if (!musicRoot.isDefault) "LISTO" else "OPCIONAL"
                                     LibraryChoice.LATER -> "OPCIONAL"
                                 })
                                 SummaryRow("Ecosistema", R.drawable.wizard_fluent_phone_laptop,

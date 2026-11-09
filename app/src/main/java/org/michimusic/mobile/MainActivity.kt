@@ -35,10 +35,13 @@ import org.michimusic.mobile.onboarding.OnboardingStore
 import org.michimusic.mobile.ui.theme.MichiTheme
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
+import org.michimusic.player.AudioController
 
 class MainActivity : ComponentActivity() {
 
     private val visualPreferencesRepository: VisualPreferencesRepository by inject()
+    private val localMediaRepository: LocalMediaRepository by inject()
+    private val audioController: AudioController by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -125,6 +128,10 @@ class MainActivity : ComponentActivity() {
                                     showReplay = false
                                 },
                                 onDismissReplay = { showReplay = false },
+                                onRootChanged = {
+                                    audioController.clearQueue()
+                                    lifecycleScope.launch { localMediaRepository.invalidateCache() }
+                                },
                             )
                         }
                     }
