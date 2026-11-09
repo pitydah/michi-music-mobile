@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.michimusic.core.models.AudioProcessingMode
 import org.michimusic.mobile.playback.ReplayGainQuickEngine
 import org.michimusic.mobile.playback.ReplayGainQuickResult
 import org.michimusic.mobile.playback.ReplayGainQuickStore
@@ -41,14 +42,14 @@ internal fun SignalTruthReplayGainControls() {
         SignalTruthReplayGainCoordinator(
             engine = object : ReplayGainQuickEngine {
                 override fun currentMode(): ReplayGainMode? =
-                    PlayerDependencies.replayGainProcessor?.currentMode
+                    PlayerDependencies.replayGainMode.takeIf { PlayerDependencies.replayGainProcessor != null }
 
                 override fun configure(mode: ReplayGainMode, withPreampDb: Float, withoutPreampDb: Float): Boolean {
                     if (PlayerDependencies.replayGainProcessor == null) return false
                     PlayerDependencies.configureReplayGain(
                         mode, ReplayGainPreAmp(with = withPreampDb, without = withoutPreampDb))
                     PlayerDependencies.signalTruthTracker?.recompute()
-                    return PlayerDependencies.replayGainProcessor?.currentMode == mode
+                    return PlayerDependencies.replayGainMode == mode
                 }
             },
             store = object : ReplayGainQuickStore {
@@ -67,7 +68,7 @@ internal fun SignalTruthReplayGainControls() {
         )
     }
     var feedback by remember { mutableStateOf<ReplayGainQuickResult?>(null) }
-    val active = PlayerDependencies.replayGainProcessor?.currentMode
+    val active = PlayerDependencies.replayGainMode.takeIf { PlayerDependencies.replayGainProcessor != null }
     val enabled = active != null && outputAuthority.isLocal && outputAuthority.endpointId == "local_phone"
     val modes = listOf(ReplayGainMode.OFF, ReplayGainMode.TRACK,
         ReplayGainMode.ALBUM, ReplayGainMode.DYNAMIC)
@@ -96,7 +97,7 @@ internal fun SignalTruthReplayGainControls() {
         if (!enabled) {
             Text("Ajustes deshabilitados: procesador local o autorización de salida no disponible.",
                 style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
-        } else if (PlayerDependencies.replayGainProcessor?.isBypassed == true) {
+        } else if (PlayerDependencies.audioModeManager?.currentMode?.value == AudioProcessingMode.TRANSPARENT) {
             Text("Modo transparente: la selección se guarda, pero ReplayGain está omitido.",
                 style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
         }
