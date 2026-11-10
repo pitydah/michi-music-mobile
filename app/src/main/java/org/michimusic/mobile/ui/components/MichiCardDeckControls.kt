@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -106,7 +106,7 @@ internal fun CompactDeckFallback(
             ) {
                 onOpen?.let { open ->
                     MichiIconAction(
-                        icon = Icons.Default.OpenInNew,
+                        icon = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = if (circularArtwork) "Abrir artista seleccionado"
                             else "Abrir álbum seleccionado",
                         onClick = open, minTargetSize = 48.dp, iconSize = 22.dp,

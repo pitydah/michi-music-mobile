@@ -318,6 +318,87 @@ Workflow `b17f738d7f3ca6022094235b1566b319`.
 - **NO-GO de release** hasta que el propietario autorice el cierre y el PR deje
   de ser draft. No se hace merge, release, reset ni force push en este bloque.
 
+## UI6 — Álbumes y artistas en tarjetas
+
+- Commit: `0550d68` — `feat(ui6): integrate album and artist card views`.
+- Alcance: 14 archivos, +1736/−48. No sustituye Mosaico, CoverFlow ni Lista.
+- Álbumes: cuarta vista `Tarjetas` con `MichiCardDeck`. El selector es un menú
+  anclado de cuatro opciones (`Mosaico`, `CoverFlow`, `Tarjetas`, `Lista`), con
+  la vista actual marcada y `testTag` por opción. `Mosaico` sigue siendo el
+  valor predeterminado.
+- Identidad: las tarjetas consumen la misma presentación
+  `albumCoverFlowPresentation` que CoverFlow. Una selección ambigua no se
+  convierte en índice persistido; la tarjeta frontal es la única accionable.
+  Deslizar no abre el álbum, no reproduce y no elimina nada. Abrir usa el mismo
+  callback de navegación; las acciones de reproducción, aleatorio y añadir a
+  playlist reutilizan `CoverFlowAlbumActions`.
+- Artistas: `ArtistMosaicGrid` conserva el mosaico circular por defecto y añade
+  una alternativa `Tarjetas` con retratos circulares, no portadas de álbum. La
+  selección se reconcilia por crédito canónico y se reinicia por
+  `libraryScopeKey`.
+- Movimiento/contraste: `MichiCardDeck` respeta movimiento reducido y alto
+  contraste; la pila conserva profundidad sin rotación decorativa en contraste
+  alto.
+- Correcciones de integración: comprobación nullable de `localImagePath`,
+  captura de `availableHeight` fuera del DSL de `Column`, e imports inválidos de
+  `assertExists`/`assertDoesNotExist` retirados del test UI6.
+- Validación: compilación Normal PASS; tests UI6 declarados PASS
+  (`MichiArtworkMemoryTest`, `MichiCardDeckTest`, `MichiCardDeckUiTest`,
+  `AlbumArtistCardContractsUiTest`, `AlbumViewModeComponentsTest`,
+  `AlbumViewModePolicyTest`); 16 regresiones focales de álbum, artista,
+  CoverFlow y Dock PASS.
+
+## Signal Truth R17 — recuperación USB y evidencia causal
+
+- Commit: `34ccb3d` — `feat(signal-truth): integrate mobile R17 and USB recovery`.
+- Alcance: 17 archivos, +484/−38. SHA-256 del parche aplicado:
+  `b77aa76604b3710c151efcf302233eb8620822fc0938d5f4d67bf3b7edebfbfc`.
+  El parche aplicó limpio sobre el HEAD de UI6; no se usó `--3way` ni `--reject`.
+- Reproducción: `LocalPlaybackGateway.playFromUserGesture(): Boolean` conserva
+  un resultado booleano hasta `PlaybackSessionManager`. Solo una acción local
+  explícita puede solicitar la recuperación; `true` significa que el
+  MediaController aceptó la petición, nunca que AudioTrack o el DAC confirmen
+  sonido.
+- USB: tras perder el DAC observado, la reproducción queda en pausa y conserva
+  pista/posición. Un Play manual busca un altavoz del teléfono seguro, solicita
+  la preferencia nativa y la valida antes de reanudar. No hay cambio automático
+  a otro DAC. Un error de salida de AudioTrack no se interpreta como archivo
+  corrupto ni salta de pista.
+- Signal Truth: los ajustes configurados pero fuera de la ruta activa se separan
+  en `controls`; no se dibujan como etapas del flujo. PEQ solo aparece activo con
+  evidencia de fotogramas de la revisión vigente.
+- Michi Stream: un contador de envíos UDP de la sesión activa se muestra como
+  recibo del emisor local, nunca como recepción, reproducción o DAC remoto. La
+  hoja rechaza muestras de sesiones mezcladas y solo consulta mientras está
+  abierta.
+- Validación: compilación app/player/link-client PASS; tests USB DAC/hotplug,
+  proyector Signal Truth, recibo de auriculares y recibo RTP PASS; suites
+  completas `:player:testDebugUnitTest` y `:app:testNormalDebugUnitTest` PASS.
+- Límite: la desconexión física de un DAC y la recepción RTP real siguen
+  requiriendo hardware; no se declaran certificadas.
+
+## Cierre técnico master — UI6 + R17
+
+- HEAD de integración: `34ccb3dc56f12e692242e7d6c15973820d6e4973`
+  (`0550d68` UI6 → `34ccb3d` R17; base `4ded35616034eca14361983f8a5a43e538c770af`).
+- Suites completas `:data:testDebugUnitTest`, `:player:testDebugUnitTest`,
+  `:app:testNormalDebugUnitTest` y `:app:testFdroidDebugUnitTest` PASS.
+- `lint`, `assembleNormalDebug` y `assembleFdroidDebug` PASS.
+- Instrumentación Normal en AVD API 36: **92 tests, 0 fallos, 8 skipped**.
+- Tests UI6 declarados y 16 regresiones focales de álbum/artista/CoverFlow/Dock
+  PASS. Tests R17 de USB DAC/hotplug, proyector Signal Truth, recibo de
+  auriculares y recibo RTP PASS.
+- Los builds release locales quedaron bloqueados por metadatos corruptos de la
+  caché de transformación de Gradle
+  (`~/.gradle/caches/8.13/transforms/6e33aecd2a956a578b7ba21f1e65716f/metadata.bin`).
+  No es un fallo de código; la autoridad de release es la CI exacta (Jobs E/F).
+- El teléfono físico no está conectado; la certificación Android física,
+  TalkBack, rotación, batería/temperatura y jank real siguen pendientes. El AVD
+  API 36 no sustituye esa certificación.
+- GO técnico para integración en master. NO-GO para release/merge hasta la
+  certificación física y autorización explícita. El PR histórico #18 permanece
+  en draft; este bloque no crea ramas ni PRs nuevas.
+
 ## Evidencia local
 
 La integración inicial usó el workflow gestionado
