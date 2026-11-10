@@ -213,6 +213,65 @@ La prueba focal de Dock se ejecutó después de corregir la altura mínima de 48
 - TalkBack real, rotación, batería, jank y temperatura siguen pendientes de un
   teléfono autorizado.
 
+## UI5-POST — M1 a M3 (parcial, M4/M5 pendientes)
+
+Base congelada: `95133dd2b8788f99a6dda9b7c132c02cf949c177`.
+Plan: `MICHI_UI5_PLAN_MAESTRO_CONSOLIDADO.md` (SHA-256 no fijado en este
+informe porque el archivo se leyó desde Descargas).
+
+### M1 — seeker y editor
+
+| Ticket | Estado | Implementación |
+|---|---|---|
+| U5-POST-01 | DONE | `PlaybackSessionManager.seekTo()` mantiene el seek local inmediato y, en remoto, envía posiciones a un `Channel.CONFLATED` con ventana de 120 ms. El worker comprueba epoch y endpoint antes de `sendSeek`; no se confirma una posición por el resultado HTTP. |
+| U5-POST-02 | DONE | `GradientProgressBar` conserva un único host semántico/gestual de 48 dp (`heightIn(min = MichiSpacing.minTouchTarget)`) con el dibujo de 32 dp centrado. No hay handlers superpuestos ni un segundo control de seek. |
+| U5-POST-03 | DONE | El preview del editor usa la misma altura mínima que el hero (`PLAYLIST_HERO_MIN_HEIGHT_DP`), `ContentScale.Crop`, alineación focal, escala y `TransformOrigin`; el recorte mostrado corresponde al encuadre final. |
+| U5-POST-04 | DONE | `PlaylistPrivateImageImporter.pruneOrphans()` elimina solo copias privadas publicadas y no referenciadas. `PlaylistVisualStore.pruneOrphanPrivateImages()` conserva tokens referenciados y archivos ajenos, y se invoca al abrir Playlists y el detalle. |
+
+### M2 — UI5-HEADER-06
+
+- `MichiNavHost` deja de consumir el inset superior del sistema en el `Scaffold`;
+  conserva horizontal y bottom. Cada destino mantiene su `statusBarsPadding`, por
+  lo que el fondo de la pantalla llega a y=0 sin crear una banda opaca.
+- `PlaylistScreen` gana `AeroPremiumBackdrop` y `statusBarsPadding`, igual que
+  Inicio, Biblioteca, Buscar y Dispositivos.
+- Capturas AVD: `01-home-top.png`, `02-library-top.png`, `03-playlists-top.png`,
+  `04-search-top.png`, `05-devices-top.png`. No se observa banda negra ni doble
+  techo en las cinco capturas comparadas.
+
+### M3 — playlist hero editorial
+
+- `PLAYLIST_HERO_MIN_HEIGHT_DP` pasa a 220 dp (rango objetivo 210–250).
+- `playlistHeroCoverSizeDp()` devuelve 104 dp en 340 dp o más y 92 dp en pantallas
+  estrechas; la portada deja de ser una miniatura.
+- La placa de texto usa `weight(1f, fill = false)`, por lo que se ajusta al
+  contenido en vez de ocupar todo el ancho restante. El banner sigue siendo la
+  superficie dominante, la portada es el segundo ancla y se conserva una sola
+  silueta exterior.
+- Captura AVD `07-playlist-hero-m3.png`: banner amarillo dominante, portada
+  I Love 80s de 104 dp y placa localizada; el estado vacío y `Añadir canciones`
+  permanecen debajo.
+
+### Validación M1–M3
+
+Workflow `b17f738d7f3ca6022094235b1566b319`.
+
+| Gate | Resultado |
+|---|---|
+| `:app:compileNormalDebugKotlin` | PASS |
+| `:app:testNormalDebugUnitTest` + `:app:testFdroidDebugUnitTest` | PASS |
+| `PlaylistHeroPolicyTest`, `PlaylistVisualStoreTest`, `PlaylistDetailScreenTest`, `RemoteCommandAuthorityTest` | PASS |
+| `lint` + `assembleNormalDebug` + `assembleFdroidDebug` | PASS |
+| `:app:connectedNormalDebugAndroidTest` API 36 | **92 tests, 0 fallos, 8 skipped** |
+| Builds release locales | BLOQUEADO por metadata corrupta de transform de Gradle (`/home/cristian/.gradle/caches/8.13/transforms/6e33aecd...`); la CI debe ser la autoridad |
+
+### Pendiente
+
+- M4 UI5-EDITORIAL-05: controles compactos y Home editorial inteligente.
+- M5 auditoría acumulada, CI exacta del nuevo HEAD y certificación física.
+- La CI exacta de `95133dd` sigue siendo 8/8 verde. El SHA final de este
+  incremento y su CI exacta se registran en el PR #18; el PR permanece en draft.
+
 ## Evidencia local
 
 La integración inicial usó el workflow gestionado

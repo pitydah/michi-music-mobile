@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,6 +106,23 @@ class PlaybackSessionManager(
     private val _sessionEpoch = java.util.concurrent.atomic.AtomicLong(1L)
     val currentSessionEpoch: Long get() = _sessionEpoch.get()
 
+    /**
+     * Remote scrub events are coalesced into at most one HTTP command per
+     * [REMOTE_SEEK_COALESCE_MS]. The channel is conflated, so only the latest
+     * position survives and the final release position is always sent.
+     */
+    private data class RemoteSeekRequest(
+        val endpointId: String,
+        val epoch: Long,
+        val positionMs: Long,
+    )
+
+    private val remoteSeekRequests = Channel<RemoteSeekRequest>(Channel.CONFLATED)
+
+    private companion object {
+        const val REMOTE_SEEK_COALESCE_MS = 120L
+    }
+
     fun nextSessionEpoch(): Long {
         _issuedTickets.clear()
         return _sessionEpoch.incrementAndGet()
@@ -136,6 +154,16 @@ class PlaybackSessionManager(
                 org.michimusic.player.PlayerDependencies.publishOutputAuthority(
                     state.activeEndpoint.id, state.activeEndpoint.isLocal && !state.isRemoteActive
                 )
+            }
+        }
+        scope.launch {
+            for (request in remoteSeekRequests) {
+                delay(REMOTE_SEEK_COALESCE_MS)
+                if (!isRemotePlaybackHost) continue
+                if (request.epoch != _sessionEpoch.get() ||
+                    _sessionState.value.activeEndpoint.id != request.endpointId
+                ) continue
+                connectionManager.getClient(request.endpointId)?.sendSeek(request.positionMs)
             }
         }
         rtpAudioSender.onError = { ex ->
@@ -1154,11 +1182,13 @@ class PlaybackSessionManager(
     fun seekTo(positionMs: Long) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
-            val opEpoch = _sessionEpoch.get()
-            scope.launch {
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                connectionManager.getClient(targetEndpoint.id)?.sendSeek(positionMs)
-            }
+            remoteSeekRequests.trySend(
+                RemoteSeekRequest(
+                    endpointId = targetEndpoint.id,
+                    epoch = _sessionEpoch.get(),
+                    positionMs = positionMs,
+                ),
+            )
         } else {
             audioController?.seekTo(positionMs)
         }

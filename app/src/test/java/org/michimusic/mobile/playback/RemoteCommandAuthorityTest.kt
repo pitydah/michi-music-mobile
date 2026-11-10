@@ -2,6 +2,7 @@ package org.michimusic.mobile.playback
 
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.verify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
@@ -352,5 +353,31 @@ class RemoteCommandAuthorityTest {
         // Active endpoint must remain LocalPhone, and stale command response must NOT overwrite it
         assertEquals(PlaybackEndpoint.LocalPhone.id, sessionManager.sessionState.value.activeEndpoint.id)
         assertFalse(sessionManager.sessionState.value.isRemoteActive)
+    }
+
+    @Test
+    fun remoteSeek_burstIsCoalescedAndFinalPositionWins() = runTest(testDispatcher) {
+        val client = mockk<LinkClient>(relaxed = true)
+        every { connectionManager.getClient("desktop-node-1") } returns client
+        every { client.baseUrl } returns "http://192.168.1.50:8400"
+        every { client.deviceToken } returns "valid-token"
+        coEvery { client.sendSeek(any()) } returns Result.success("OK")
+
+        sessionManager.attachRemote(remoteEndpoint) { _, _ -> }
+
+        repeat(100) { index ->
+            sessionManager.seekTo(index * 100L)
+        }
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { client.sendSeek(9_900L) }
+    }
+
+    @Test
+    fun localSeek_staysImmediateWithoutRemoteHttp() = runTest(testDispatcher) {
+        sessionManager.seekTo(1_234L)
+
+        verify(exactly = 1) { audioController.seekTo(1_234L) }
+        coVerify(exactly = 0) { connectionManager.getClient(any()) }
     }
 }

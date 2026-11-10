@@ -359,6 +359,20 @@ internal class PlaylistVisualStore(
         }
     }
 
+    /** Best-effort GC for abandoned private copies; referenced files are never touched. */
+    suspend fun pruneOrphanPrivateImages(): Int = withContext(io) {
+        synchronized(mutationLock) {
+            val referenced = prefs.all.values.flatMap { value ->
+                when (value) {
+                    is String -> listOf(value)
+                    is Set<*> -> value.filterIsInstance<String>()
+                    else -> emptyList()
+                }
+            }.filter { playlistPrivateImageFileName(it) != null }.toSet()
+            importer.pruneOrphans(referenced)
+        }
+    }
+
     suspend fun clear(id: String): Boolean = withContext(io) {
         synchronized(mutationLock) {
             val old = listOf("cover", "banner").mapNotNull {

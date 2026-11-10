@@ -543,7 +543,8 @@ private fun PlaylistVisualPreview(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(146.dp)
+            // Mirror the final hero height so the staged focal/zoom crop is truthful.
+            .height(PLAYLIST_HERO_MIN_HEIGHT_DP.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(listOf(AeroGraphite, SurfaceObsidian)))
             .border(0.65.dp, PureWhite.copy(alpha = 0.14f), RoundedCornerShape(12.dp))

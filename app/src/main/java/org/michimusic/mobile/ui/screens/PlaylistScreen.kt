@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -84,7 +86,10 @@ fun PlaylistScreen(
     val visualScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.loadPlaylists() }
-    LaunchedEffect(Unit) { catalogSort = visualStore.readCatalogSort() }
+    LaunchedEffect(Unit) {
+        catalogSort = visualStore.readCatalogSort()
+        visualStore.pruneOrphanPrivateImages()
+    }
     LaunchedEffect(playlists, visualRevision) {
         visualById = visualStore.readMany(playlists.map { it.id })
     }
@@ -104,9 +109,13 @@ fun PlaylistScreen(
             .fillMaxSize()
             .background(SurfaceObsidian)
     ) {
+        // Fifth primary destination: same top-chrome surface as the other tabs.
+        // The background now reaches physical y=0 while content keeps the inset.
+        AeroPremiumBackdrop(accent = PrimaryPinkContainer)
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
             Spacer(Modifier.height(16.dp))

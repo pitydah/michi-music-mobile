@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -86,6 +87,9 @@ internal fun PlaylistVisualHero(
 ) {
     val shape = RoundedCornerShape(18.dp)
     val plateShape = RoundedCornerShape(14.dp)
+    val coverSize = playlistHeroCoverSizeDp(
+        LocalConfiguration.current.screenWidthDp.toFloat(),
+    ).dp
     val bannerPainter = rememberAsyncImagePainter(
         model = visual.bannerUri,
         contentScale = ContentScale.Crop,
@@ -162,7 +166,7 @@ internal fun PlaylistVisualHero(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 190.dp)
+            .heightIn(min = PLAYLIST_HERO_MIN_HEIGHT_DP.dp)
             .clip(shape)
             .background(fallbackBrush)
             .onSizeChanged { heroSize = it }
@@ -207,7 +211,7 @@ internal fun PlaylistVisualHero(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             AeroArtworkMat(
-                modifier = Modifier.size(68.dp),
+                modifier = Modifier.size(coverSize),
                 cornerRadius = 12.dp,
                 inset = 2.dp,
                 emphasis = AeroArtworkEmphasis.Featured,
@@ -233,7 +237,7 @@ internal fun PlaylistVisualHero(
                         coverIds = coverIds,
                         coverStyle = coverStyleFor(title),
                         modifier = Modifier.matchParentSize().testTag("playlist_visual_cover"),
-                        size = 68.dp,
+                        size = coverSize,
                         cornerRadius = 12.dp,
                     )
                 }
@@ -241,7 +245,7 @@ internal fun PlaylistVisualHero(
 
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1f, fill = false)
                     .clip(plateShape)
                     .border(
                         width = if (highContrast) 1.dp else 0.65.dp,

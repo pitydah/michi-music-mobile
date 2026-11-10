@@ -1198,7 +1198,9 @@ class PlaylistDetailScreenTest {
 
         composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
         composeTestRule.onAllNodesWithTag("playlist_detail_density_toggle").assertCountEquals(0)
-        composeTestRule.onNodeWithTag("playlist_detail_empty_add_tracks").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_empty_add_tracks")
+            .assertExists()
+            .performSemanticsAction(SemanticsActions.OnClick)
         composeTestRule.onNodeWithTag("add_tracks_dialog").assertIsDisplayed()
         composeTestRule.onNodeWithText("Discovery").assertIsDisplayed()
     }

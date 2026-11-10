@@ -60,6 +60,14 @@ internal fun safePlaylistBannerFocal(value: Float): Float =
     value.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0.5f
 
 /** One alignment semantic for the hero and the editor preview. */
+/** Shared by the final hero and the editor preview so focal/zoom crops match. */
+internal const val PLAYLIST_HERO_MIN_HEIGHT_DP = 220
+
+/** The independent cover is a focal anchor, not a sticker; shrink only on narrow screens. */
+internal fun playlistHeroCoverSizeDp(screenWidthDp: Float): Float =
+    if (!screenWidthDp.isFinite()) 104f
+    else if (screenWidthDp < 340f) 92f else 104f
+
 internal fun playlistFocalAlignment(focalX: Float, focalY: Float): androidx.compose.ui.BiasAlignment =
     androidx.compose.ui.BiasAlignment(
         safePlaylistBannerFocal(focalX) * 2f - 1f,

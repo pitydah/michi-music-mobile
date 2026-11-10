@@ -246,6 +246,24 @@ internal class PlaylistPrivateImageImporter(private val context: Context) {
         return directory
     }
 
+    /**
+     * Deletes only published private copies whose generated name is unreferenced.
+     * Foreign files, temp files and tokens still present in preferences survive.
+     */
+    fun pruneOrphans(referencedTokens: Set<String>): Int {
+        val directory = importDirectory() ?: return 0
+        val referencedNames = referencedTokens.mapNotNull(::playlistPrivateImageFileName).toSet()
+        var removed = 0
+        directory.listFiles()?.forEach { file ->
+            if (!file.isFile || Files.isSymbolicLink(file.toPath())) return@forEach
+            val token = "$PLAYLIST_PRIVATE_IMAGE_SCHEME://$PLAYLIST_PRIVATE_IMAGE_HOST/${file.name}"
+            if (playlistPrivateImageFileName(token) == null) return@forEach
+            if (file.name in referencedNames) return@forEach
+            if (runCatching { file.delete() }.getOrDefault(false)) removed++
+        }
+        return removed
+    }
+
     private fun decodeBounds(file: File): BitmapFactory.Options {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, options)

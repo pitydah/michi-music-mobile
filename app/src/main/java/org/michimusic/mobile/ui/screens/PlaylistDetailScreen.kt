@@ -159,7 +159,10 @@ fun PlaylistDetailScreen(
         }
     }
     LaunchedEffect(playlistId) { visualState = visualStore.read(playlistId) }
-    LaunchedEffect(Unit) { trackDensity = visualStore.readDensity() }
+    LaunchedEffect(Unit) {
+        trackDensity = visualStore.readDensity()
+        visualStore.pruneOrphanPrivateImages()
+    }
 
     LaunchedEffect(playlistId) {
         viewModel.loadPlaylistDetail(playlistId)

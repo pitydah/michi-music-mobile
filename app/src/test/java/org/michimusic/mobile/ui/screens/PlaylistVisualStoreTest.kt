@@ -152,6 +152,22 @@ class PlaylistVisualStoreTest {
         store.clear("p2")
     }
 
+    @Test fun orphanPrivateCopiesArePrunedWithoutTouchingReferencedOrForeignFiles() = runTest {
+        val importer = PlaylistPrivateImageImporter(context)
+        val keep = importPng(importer, "p1", "cover")
+        val orphan = importPng(importer, "p1", "banner")
+        val root = File(context.filesDir, PLAYLIST_PRIVATE_IMAGE_DIRECTORY).apply { mkdirs() }
+        val foreign = File(root, "foreign.jpg").apply { writeBytes(PlaylistTestImages.png64x32) }
+        context.getSharedPreferences("michi_settings", 0).edit()
+            .putString(playlistVisualKey("p1", "cover"), keep.token)
+            .commit()
+        val store = PlaylistVisualStore(context, UnconfinedTestDispatcher(testScheduler))
+        assertEquals(1, store.pruneOrphanPrivateImages())
+        assertNotNull(importer.resolve(keep.token))
+        assertNull(importer.resolve(orphan.token))
+        assertTrue(foreign.exists())
+    }
+
     private fun importPng(
         importer: PlaylistPrivateImageImporter,
         id: String,
