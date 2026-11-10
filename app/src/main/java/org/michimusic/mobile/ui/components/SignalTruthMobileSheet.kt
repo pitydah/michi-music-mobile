@@ -34,11 +34,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
 import org.michimusic.core.models.AudioSignalObservation
 import org.michimusic.core.models.SignalEvidenceType
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.playback.PlaybackEndpoint
+import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.SignalDestination
 import org.michimusic.mobile.playback.SignalGraphUi
 import org.michimusic.mobile.playback.SignalStageAction
@@ -58,6 +60,10 @@ import org.michimusic.player.UsbDacManager
 
 private enum class SignalQuickPanel { MENU, MODE, HEADPHONES, REPLAY_GAIN }
 
+/** One coherent sender-side sample, never a receiver or DAC acknowledgement. */
+private data class SenderSample(val sessionId: String? = null, val packets: Long = 0L,
+    val active: Boolean = false)
+
 /** Mobile-first inspector: real stages, one expanded stage, no playback side-effects.
  * DSP changes are delegated to the existing editor; mixer controls to UsbDacManager.
  * This is presentation, NOT a substitute for owner-bound playback evidence receipts.
@@ -70,6 +76,7 @@ fun SignalTruthMobileSheet(
     currentTrack: Track?,
     isRemote: Boolean,
     streamSelectedBySession: Boolean,
+    queueEntryId: String? = null,
     onDismiss: () -> Unit,
 ) {
     var showEqEditor by remember { mutableStateOf(false) }
@@ -78,6 +85,29 @@ fun SignalTruthMobileSheet(
         isStream -> SignalDestination.MICHI_STREAM
         isRemote -> SignalDestination.REMOTE_HOST
         else -> SignalDestination.LOCAL
+    }
+    // These are *sender* receipts sampled from the live ReceiverLite session,
+    // NEVER proof that the remote receiver rendered PCM or that its DAC is active.
+    val streamManager = if (isStream) runCatching { koinInject<PlaybackSessionManager>() }.getOrNull() else null
+    var senderSample by remember(isStream, activeEndpoint.id) { mutableStateOf(SenderSample()) }
+    LaunchedEffect(streamManager, isStream, activeEndpoint.id) {
+        if (isStream && streamManager != null) {
+            while (true) {
+                val session = streamManager.sessionState.value
+                val liveId = streamManager.activeReceiverSessionId
+                val valid = session.isRemoteActive && session.activeEndpoint.id == activeEndpoint.id &&
+                    streamManager.isStreamReceiver && !liveId.isNullOrBlank()
+                val snapshot = if (valid) streamManager.getRtpMetrics() else null
+                // A sender rotation can occur during sampling. Reject mixed generations.
+                val sameSession = liveId == streamManager.activeReceiverSessionId
+                val active = valid && sameSession && snapshot?.isActive == true
+                senderSample = if (active) SenderSample(liveId, snapshot!!.packetsSent.coerceAtLeast(0L), true)
+                    else SenderSample()
+                delay(1000L) // lifecycle cancellation stops polling when sheet closes
+            }
+        } else {
+            senderSample = SenderSample()
+        }
     }
     // Do not inspect phone route or show USB controls while controlling a remote endpoint.
     val usbManager = if (destination == SignalDestination.LOCAL) {
@@ -103,11 +133,14 @@ fun SignalTruthMobileSheet(
         SignalTruthResolver.resolveProvenance(safeObservation, activeEndpoint, currentTrack, isRemote,
             streamSelectedBySession)
     }
-    // This is a provisional UI key, not full queue-entry / library ownership.
-    // No proof is elevated because two StateFlows can update at different times.
-    val ownerKey = "${activeEndpoint.id}/${currentTrack?.id ?: "none"}/" +
-        "${observation.trackGeneration}/${observation.audioTrackGeneration}/${observation.routeGeneration}"
-    val graph = remember(provenanceItems, safeObservation, destination, ownerKey, routeEvidence, usbConfirmed) {
+    // The queue entry/source/transport session disambiguate the UI expansion.
+    // They are NOT independent receipts from the audio decoder or remote DAC.
+    val ownerKey = listOf(activeEndpoint.id, currentTrack?.source?.name ?: "unknown-source",
+        currentTrack?.id ?: "none", queueEntryId ?: "unknown-entry",
+        senderSample.sessionId ?: "no-rtp-session", observation.trackGeneration.toString(),
+        observation.audioTrackGeneration.toString(), observation.routeGeneration.toString())
+        .joinToString("/")
+    val graph = remember(provenanceItems, safeObservation, destination, ownerKey, routeEvidence, usbConfirmed, senderSample) {
         SignalTruthGraphProjector.project(
             provenance = provenanceItems,
             observation = safeObservation,
@@ -117,12 +150,15 @@ fun SignalTruthMobileSheet(
             routeObserved = routeEvidence?.hasCurrentEvidence == true &&
                 safeObservation.outputObservedAtMs > 0L,
             canConfigureUsb = usbConfirmed,
+            rtpSenderSessionId = senderSample.sessionId,
+            rtpPacketsSent = senderSample.packets,
+            rtpSenderActive = senderSample.active,
         )
     }
     // Only one stage can be expanded. A new track/epoch drops old expansion.
     var expandedStageId by remember(graph.ownerKey) { mutableStateOf<String?>(null) }
-    LaunchedEffect(graph.nodes.map { it.stableId }) {
-        if (expandedStageId != null && graph.nodes.none { it.stableId == expandedStageId }) {
+    LaunchedEffect(graph.nodes.map { it.stableId }, graph.controls.map { it.stableId }) {
+        if (expandedStageId != null && (graph.nodes + graph.controls).none { it.stableId == expandedStageId }) {
             expandedStageId = null
         }
     }
@@ -263,21 +299,46 @@ private fun SignalGraphList(
                         "Existe registro temporal para esta etapa. No confirma flujo activo ahora."
                     } else "Sin recibo temporal propio de esta etapa.",
                         style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
-                    when (stage.action) {
-                        SignalStageAction.OPEN_EQ -> OutlinedButton(onClick = onOpenEqualizer) {
-                            Text("Editar ecualizador")
-                        }
-                        SignalStageAction.USB_MIXER -> if (usbManager != null) {
-                            UsbDacMixerControls(manager = usbManager, routeStatus = routeStatus)
-                        }
-                        SignalStageAction.REPLAY_GAIN -> SignalTruthReplayGainControls()
-                        SignalStageAction.HEADPHONE_PROFILE -> SignalTruthHeadphoneControls()
-                        SignalStageAction.NONE -> Unit
-                    }
+                    SignalStageEditor(stage.action, onOpenEqualizer, usbManager, routeStatus)
                 }
             }
             HorizontalDivider(color = OnSurfaceVariant.copy(alpha = 0.12f))
         }
+        if (graph.controls.isNotEmpty()) {
+            item(key = "inactive-settings-heading") {
+                Text("Ajustes disponibles (fuera de la ruta activa)",
+                    style = MaterialTheme.typography.titleSmall, color = OnSurfaceVariant,
+                    modifier = Modifier.padding(top = 20.dp, bottom = 6.dp))
+            }
+            itemsIndexed(graph.controls, key = { _, control -> control.stableId }) { _, control ->
+                val expanded = control.stableId == expandedStageId
+                SignalGraphStage(control, expanded, onClick = { onExpand(control.stableId) })
+                if (expanded) {
+                    Column(modifier = Modifier.padding(start = 26.dp, bottom = 12.dp)) {
+                        SignalStageEditor(control.action, onOpenEqualizer, usbManager, routeStatus)
+                    }
+                }
+                HorizontalDivider(color = OnSurfaceVariant.copy(alpha = 0.12f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignalStageEditor(
+    action: SignalStageAction,
+    onOpenEqualizer: () -> Unit,
+    usbManager: UsbDacManager?,
+    routeStatus: AudioRouteStatus,
+) {
+    when (action) {
+        SignalStageAction.OPEN_EQ -> OutlinedButton(onClick = onOpenEqualizer) { Text("Editar ecualizador") }
+        SignalStageAction.USB_MIXER -> if (usbManager != null) {
+            UsbDacMixerControls(manager = usbManager, routeStatus = routeStatus)
+        }
+        SignalStageAction.REPLAY_GAIN -> SignalTruthReplayGainControls()
+        SignalStageAction.HEADPHONE_PROFILE -> SignalTruthHeadphoneControls()
+        SignalStageAction.NONE -> Unit
     }
 }
 

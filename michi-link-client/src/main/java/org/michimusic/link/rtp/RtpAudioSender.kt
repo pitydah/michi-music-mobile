@@ -50,13 +50,14 @@ class RtpAudioSender(
     
     private var sequenceNumber: Int = 0
     private var timestamp: Long = 0L
-    private var isStreaming = false
+    @Volatile private var isStreaming = false
 
     private var audioChannel: Channel<ByteArray>? = null
     private var senderJob: Job? = null
 
     var onError: ((Exception) -> Unit)? = null
 
+    @Volatile
     var packetsSent: Long = 0
         private set
     var pcmBytesReceived: Long = 0

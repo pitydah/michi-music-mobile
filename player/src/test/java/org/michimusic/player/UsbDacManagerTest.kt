@@ -410,4 +410,45 @@ class UsbDacManagerTest {
         assertFalse(manager.routeStatus.value is AudioRouteStatus.Confirmed)
         assertEquals(AudioRouteStatus.Requested(dac), manager.routeStatus.value)
     }
+
+    @Test fun missingNativeSpeakerDoesNotClearUsbRecoveryEvenIfFakeSourceListsSpeaker() {
+        val observer = FakeAudioRouteObserver()
+        val source = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, source, observer)
+        val speaker = OutputDescriptor(7, "Altavoz", AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
+        val dac = OutputDescriptor(101, "USB DAC", AudioDeviceInfo.TYPE_USB_DEVICE)
+        source.updateDevices(listOf(speaker, dac))
+        manager.selectDevice(dac.androidDeviceId)
+        var pauses = 0
+        manager.onUsbDisconnectedListener = { pauses++ }
+        source.updateDevices(listOf(speaker))
+        assertEquals(1, pauses)
+        assertTrue(manager.isRecoveryRequired)
+        assertTrue(manager.routeStatus.value is AudioRouteStatus.Failed)
+        // A passive rescan must not re-enable the speaker or play music.
+        source.updateDevices(listOf(speaker))
+        assertTrue(manager.isRecoveryRequired)
+        assertEquals(1, pauses)
+        // JVM fake source cannot prove a native AudioDeviceInfo is present.
+        assertFalse(manager.recoverToSpeakerAfterManualPlay())
+        assertTrue(manager.isRecoveryRequired)
+        assertNull(manager.selectedDeviceId.value)
+        assertTrue(manager.routeStatus.value is AudioRouteStatus.Failed)
+    }
+
+    @Test fun manualPlayWithoutSpeakerDoesNotSilentlyUseSecondDac() {
+        val observer = FakeAudioRouteObserver()
+        val source = FakeAudioDeviceSource()
+        val manager = UsbDacManager(mockContext, source, observer)
+        val first = OutputDescriptor(101, "Old USB", AudioDeviceInfo.TYPE_USB_DEVICE)
+        val second = OutputDescriptor(202, "Other USB", AudioDeviceInfo.TYPE_USB_HEADSET)
+        source.updateDevices(listOf(first, second))
+        manager.selectDevice(first.androidDeviceId)
+        source.updateDevices(listOf(second))
+        assertTrue(manager.isRecoveryRequired)
+        assertFalse(manager.recoverToSpeakerAfterManualPlay())
+        assertTrue(manager.isRecoveryRequired)
+        assertNull(manager.selectedDeviceId.value)
+        assertTrue(manager.routeStatus.value is AudioRouteStatus.Failed)
+    }
 }

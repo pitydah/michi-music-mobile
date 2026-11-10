@@ -30,7 +30,10 @@ class SignalTruthGraphProjectorTest {
         val g = graph()
         assertEquals(listOf("source", "decode", "audio-track", "route", "physical"),
             g.nodes.map { it.stableId.substringAfter(':') })
-        assertTrue(g.nodes.none { it.stableId.endsWith(":eq") })
+        assertTrue(g.nodes.none { it.stableId.endsWith(":eq") || it.stableId.endsWith(":peq") })
+        assertEquals(3, g.controls.size)
+        assertTrue(g.controls.all { it.evidenceType == SignalEvidenceType.CONFIGURED &&
+            it.freshnessMs == 0L && it.stableId.startsWith("settings:") })
     }
     @Test fun localDspAddsSeparateOrderedStagesWithoutPromotingEvidence() {
         val g = graph(dsp = DspPipelineStatus(
@@ -65,6 +68,18 @@ class SignalTruthGraphProjectorTest {
         assertEquals(SignalStageAction.USB_MIXER,
             graph(routeObserved = true, usb = true).nodes.first { it.stableId == "main:route" }.action)
     }
+    @Test fun localBypassStagesRemainEditableWithoutFakeProcessing() {
+        val local = graph()
+        assertEquals(SignalStageAction.REPLAY_GAIN,
+            local.controls.single { it.stableId == "settings:replaygain" }.action)
+        assertEquals(SignalStageAction.OPEN_EQ,
+            local.controls.single { it.stableId == "settings:eq" }.action)
+        assertTrue(local.nodes.none { it.stableId.startsWith("settings:") })
+        val stream = graph(destination = SignalDestination.MICHI_STREAM)
+        assertTrue(stream.controls.isEmpty())
+        val remote = graph(destination = SignalDestination.REMOTE_HOST)
+        assertTrue(remote.controls.isEmpty())
+    }
     @Test fun nonFiniteGainIsNotPrintedAsNaN() {
         val g = graph(dsp = DspPipelineStatus(isReplayGainActive = true, replayGainAppliedDb = Float.NaN,
             preampAppliedDb = Float.POSITIVE_INFINITY))
@@ -94,11 +109,42 @@ class SignalTruthGraphProjectorTest {
             peq.nodes.first { it.stableId == "main:peq" }.action)
         assertEquals(SignalEvidenceType.CONFIGURED,
             peq.nodes.first { it.stableId == "main:peq" }.evidenceType)
-        assertFalse(graph().nodes.any { it.action == SignalStageAction.HEADPHONE_PROFILE })
+        assertEquals(SignalStageAction.HEADPHONE_PROFILE,
+            graph().controls.single { it.stableId == "settings:headphones" }.action)
         assertFalse(graph(destination = SignalDestination.MICHI_STREAM,
             dsp = DspPipelineStatus(headphonePeqActive = true)).nodes.any {
                 it.action == SignalStageAction.HEADPHONE_PROFILE
             })
+    }
+
+    @Test fun rtpSenderReceiptIsLocalOnlyAndDoesNotConfirmReceiver() {
+        val g = SignalTruthGraphProjector.project(
+            legacy, AudioSignalObservation(), SignalDestination.MICHI_STREAM,
+            "receiver/track/epoch", rtpSenderSessionId = "session-1", rtpPacketsSent = 42, rtpSenderActive = true)
+        val sender = g.nodes.single { it.stableId == "rtp:rtp" }
+        val receiver = g.nodes.single { it.stableId == "rtp:remote-receiver" }
+        assertEquals(SignalEvidenceType.OBSERVED, sender.evidenceType)
+        assertTrue(sender.summary.contains("42"))
+        assertEquals(0L, sender.freshnessMs)
+        assertEquals(SignalEvidenceType.UNKNOWN, receiver.evidenceType)
+        assertEquals(SignalEvidenceType.UNKNOWN,
+            g.nodes.single { it.stableId == "rtp:physical" }.evidenceType)
+    }
+
+    @Test fun newerSenderPacketCountChangesProjectedSummary() {
+        fun project(packets: Long) = SignalTruthGraphProjector.project(
+            legacy, AudioSignalObservation(), SignalDestination.MICHI_STREAM,
+            "receiver/epoch", rtpSenderSessionId = "session-live", rtpPacketsSent = packets,
+            rtpSenderActive = true).nodes.single { it.stableId == "rtp:rtp" }.summary
+        assertTrue(project(12L) != project(18L))
+    }
+
+    @Test fun rtpPacketsWithoutSessionCannotBeAttributed() {
+        val g = SignalTruthGraphProjector.project(
+            legacy, AudioSignalObservation(), SignalDestination.MICHI_STREAM,
+            "unknown", rtpSenderSessionId = null, rtpPacketsSent = 400)
+        assertEquals(SignalEvidenceType.CONFIGURED,
+            g.nodes.single { it.stableId == "rtp:rtp" }.evidenceType)
     }
 
 }

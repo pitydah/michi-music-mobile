@@ -22,10 +22,11 @@ class SignalTruthGraphHeadphoneReceiptTest {
         )
 
     @Test fun selectedButDisconnectedProfileIsConfiguredNotObserved() {
-        val node = project(DspPipelineStatus(headphonePeqConfigured = true))
-            .nodes.single { it.stableId == "main:peq" }
-        assertEquals(SignalEvidenceType.CONFIGURED, node.evidenceType)
-        assertTrue(node.summary.contains("pendiente"))
+        val result = project(DspPipelineStatus(headphonePeqConfigured = true))
+        assertTrue(result.nodes.none { it.stableId == "main:peq" })
+        val control = result.controls.single { it.stableId == "settings:headphones" }
+        assertEquals(SignalEvidenceType.CONFIGURED, control.evidenceType)
+        assertTrue(control.summary.contains("pendiente"))
     }
     @Test fun processorRevisionWithFramesCanBeObserved() {
         val node = project(DspPipelineStatus(headphonePeqConfigured = true,

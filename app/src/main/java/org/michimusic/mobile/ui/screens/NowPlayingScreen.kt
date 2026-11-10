@@ -624,6 +624,10 @@ fun NowPlayingScreen(
                 currentTrack = currentTrack,
                 isRemote = sessionState.isRemoteActive,
                 streamSelectedBySession = sessionManager.isStreamReceiver,
+                queueEntryId = if (!sessionState.isRemoteActive && currentTrack != null) {
+                    playerState.queueEntries.getOrNull(playerState.queueIndex)
+                        ?.takeIf { it.canonicalTrackId == currentTrack.id }?.entryId
+                } else null,
                 onDismiss = { showSignalTruthDialog = false },
             )
         }

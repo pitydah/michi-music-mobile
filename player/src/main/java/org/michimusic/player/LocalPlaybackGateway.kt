@@ -7,6 +7,10 @@ interface LocalPlaybackGateway {
     val state: StateFlow<PlayerState>
     val isReady: StateFlow<Boolean>
     fun play()
+    /** Non-AudioController gateways must explicitly implement the gesture path.
+     * False means no user-authorized resume was issued, never an audio proof.
+     */
+    fun playFromUserGesture(): Boolean = false
     fun pause()
     fun seekTo(position: Long)
     fun skipNext()

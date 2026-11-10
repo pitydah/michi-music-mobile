@@ -218,6 +218,38 @@ class PlayerController(
 
     init {
         player.addListener(object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (!playWhenReady) return
+                val manager = usbDacManager
+                if (manager?.isRecoveryRequired == true) {
+                    // Programmatic play and audio focus callbacks are not explicit consent.
+                    Log.w(TAG, "USB desconectado: Play bloqueado hasta acción explícita en Michi")
+                    player.pause()
+                    return
+                }
+                val pendingSpeaker = manager?.speakerRecoveryPendingDeviceId
+                if (pendingSpeaker != null) {
+                    val native = manager.preferredDeviceFlow.value
+                    if (!UsbHotplugResumePolicy.nativeSpeakerMatches(pendingSpeaker, native?.id, native?.type)) {
+                        manager.failSpeakerRecovery()
+                        player.pause()
+                        return
+                    }
+                    try {
+                        player.setPreferredAudioDevice(native)
+                        manager.markSpeakerPreferenceRequested()
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Error solicitando altavoz tras desconexión USB", error)
+                        manager.failSpeakerRecovery()
+                        player.pause()
+                        return
+                    }
+                }
+                if (UsbHotplugResumePolicy.needsPrepare(player.playbackState, player.mediaItemCount)) {
+                    player.prepare() // preserve the current item and position
+                }
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 val status = if (isPlaying) {
                     PlaybackStatus.Playing
@@ -368,13 +400,20 @@ class PlayerController(
             }
             controllerScope.launch {
                 usbDacManager.routeStatus.collect { route ->
-                    if (player.playWhenReady && usbRouteMismatchRequiresPause(
-                            route,
-                            setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
-                                AudioDeviceInfo.TYPE_USB_HEADSET,
-                                AudioDeviceInfo.TYPE_USB_ACCESSORY),
-                        )) {
-                        Log.w(TAG, "Ruta DAC solicitada distinta a salida observada; pausando sin fallback silencioso")
+                    val usbMismatch = usbRouteMismatchRequiresPause(
+                        route,
+                        setOf(AudioDeviceInfo.TYPE_USB_DEVICE,
+                            AudioDeviceInfo.TYPE_USB_HEADSET,
+                            AudioDeviceInfo.TYPE_USB_ACCESSORY),
+                    )
+                    val speakerMismatch = UsbHotplugResumePolicy.recoveredSpeakerMismatch(
+                        route, usbDacManager.recoveredSpeakerDeviceId)
+                    if (speakerMismatch) {
+                        // Re-arm even while paused: a later Play must not inherit this route.
+                        if (player.playWhenReady) player.pause()
+                        usbDacManager.failSpeakerRecovery()
+                    } else if (player.playWhenReady && usbMismatch) {
+                        Log.w(TAG, "Ruta USB solicitada distinta a salida observada; pausando")
                         player.pause()
                     }
                 }
@@ -388,6 +427,7 @@ class PlayerController(
                         val requestedId = usbDacManager.selectedDeviceId.value
                             ?: usbDacManager.dacState.value.deviceId.takeIf { it != 0 }
                         routeObserver?.onRoutingFailed(requestedId, RouteFailure.ROUTING_REJECTED)
+                        if (requestedId == usbDacManager.recoveredSpeakerDeviceId) usbDacManager.failSpeakerRecovery()
                         if (player.playWhenReady && requestedId != null) player.pause()
                     }
                 }

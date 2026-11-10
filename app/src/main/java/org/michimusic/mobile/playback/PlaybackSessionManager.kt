@@ -1150,7 +1150,11 @@ class PlaybackSessionManager(
 
     fun playPause() {
         val isPlaying = _sessionState.value.isPlaying
-        if (isPlaying) pause() else play()
+        if (isPlaying) pause() else if (_sessionState.value.isRemoteActive) play()
+        else if (audioController?.playFromUserGesture() != true) {
+            _sessionState.value = _sessionState.value.copy(
+                statusMessage = "No se pudo reanudar. Selecciona una salida de audio disponible.")
+        }
     }
 
     fun skipNext() {

@@ -31,6 +31,8 @@ internal data class SignalGraphUi(
     val destination: SignalDestination,
     val nodes: List<SignalStageUi>,
     val edges: List<SignalEdgeUi>,
+    /** Available settings are NEVER edges or stages of the active signal path. */
+    val controls: List<SignalStageUi> = emptyList(),
 )
 
 /** R3-A: turns the legacy 5-layer read model into variable-length paths and explicit RTP branches.
@@ -46,9 +48,22 @@ internal object SignalTruthGraphProjector {
         routeDescription: String? = null,
         routeObserved: Boolean = false,
         canConfigureUsb: Boolean = false,
+        rtpSenderSessionId: String? = null,
+        rtpPacketsSent: Long = 0L,
+        rtpSenderActive: Boolean = false,
     ): SignalGraphUi {
         val nodes = mutableListOf<SignalStageUi>()
         val edges = mutableListOf<SignalEdgeUi>()
+        val controls = mutableListOf<SignalStageUi>()
+        fun inactiveControl(id: String, label: String, summary: String, action: SignalStageAction) {
+            controls += SignalStageUi(
+                stableId = "settings:$id", branchId = "settings", label = label,
+                summary = summary, evidenceType = SignalEvidenceType.CONFIGURED,
+                origin = "local_phone", freshnessMs = 0L,
+                note = "Configuración disponible fuera de la ruta de procesamiento activa",
+                action = action,
+            )
+        }
         fun legacy(layer: SignalLayer): SignalProvenanceItem? = provenance.firstOrNull { it.layer == layer }
         fun add(
             id: String, branch: String, label: String, summary: String,
@@ -104,6 +119,9 @@ internal object SignalTruthGraphProjector {
                     else "El modo guardado no certifica muestras procesadas de esta revisión",
                 action = if (destination == SignalDestination.LOCAL)
                     SignalStageAction.REPLAY_GAIN else SignalStageAction.NONE)
+        } else if (destination == SignalDestination.LOCAL) {
+            inactiveControl("replaygain", "ReplayGain", "Desactivado · ajuste disponible",
+                SignalStageAction.REPLAY_GAIN)
         }
         val preamp = dsp.preampAppliedDb.takeIf { it.isFinite() }
         if (preamp != null && abs(preamp) > 0.001f) {
@@ -118,10 +136,18 @@ internal object SignalTruthGraphProjector {
         }
         if (destination == SignalDestination.MICHI_STREAM) {
             val split = nodes.last().stableId
-            // R2 can prove the destination was selected, NOT that a UDP packet was received.
+            // A successful sender-side UDP call proves only local send, not arrival.
+            // The session is explicitly supplied by the active ReceiverLite authority.
+            val hasSenderReceipt = SignalTruthRtpSenderReceipt.isValid(
+                destination, rtpSenderSessionId, rtpPacketsSent, rtpSenderActive)
             val rtp = add("rtp", "rtp", "Transporte Michi Stream",
-                "RTP solicitado · recepción no verificada", SignalEvidenceType.CONFIGURED,
-                origin, note = "No hay recibo de emisión, reproducción ni DAC remoto", after = split)
+                if (hasSenderReceipt) "UDP enviado desde teléfono · $rtpPacketsSent paquetes" else
+                    "RTP solicitado · envío no observado",
+                if (hasSenderReceipt) SignalEvidenceType.OBSERVED else SignalEvidenceType.CONFIGURED,
+                origin, note = if (hasSenderReceipt)
+                    "Contador de envíos UDP de sesión activa; recepción, reproducción y DAC remoto no verificados" else
+                    "Sin contador válido de envíos de la sesión; ningún recibo del receptor",
+                after = split)
             add("remote-receiver", "rtp", "Receptor remoto",
                 "Estado de reproducción desconocido", SignalEvidenceType.UNKNOWN,
                 "remote_receiver", after = rtp)
@@ -135,7 +161,7 @@ internal object SignalTruthGraphProjector {
         // The phone's PCM PEQ runs upstream of AudioTrack; Android session EQ,
         // BassBoost and Virtualizer are attached to the AudioTrack audio session.
         // These are distinct causal boundaries and must not be drawn out of order.
-        if (dsp.headphonePeqConfigured || dsp.headphonePeqActive) {
+        if (dsp.headphonePeqActive) {
             val peqObserved = dsp.headphonePeqActive &&
                 dsp.headphonePeqAppliedRevision >= 0L && dsp.headphoneFramesProcessed > 0L &&
                 dsp.headphonePeqObservedAtMs > 0L
@@ -147,11 +173,17 @@ internal object SignalTruthGraphProjector {
                     "Recibo de fotogramas PCM de la revisión PEQ vigente; no certifica AudioTrack, RTP ni DAC físico"
                 else "El preset elegido no demuestra aplicación: requiere ruta local autorizada y nuevos fotogramas PCM",
                 action = SignalStageAction.HEADPHONE_PROFILE)
+        } else {
+            inactiveControl("headphones", "Perfil de auriculares",
+                if (dsp.headphonePeqConfigured) "Perfil seleccionado · aplicación pendiente de ruta"
+                else "Sin perfil PEQ aplicado", SignalStageAction.HEADPHONE_PROFILE)
         }
         addLegacy(SignalLayer.ANDROID_OUTPUT, "main", "audio-track", "AudioTrack Android")
         if (dsp.isEqActive) add("eq", "main", "Ecualizador de sesión Android",
             "EQ configurado", SignalEvidenceType.CONFIGURED, origin,
             note = processor?.confidenceNote, action = SignalStageAction.OPEN_EQ)
+        if (!dsp.isEqActive) inactiveControl("eq", "Ecualizador",
+            "EQ desactivado · ajuste disponible", SignalStageAction.OPEN_EQ)
         if (dsp.bassBoostActive) add("bass", "main", "Refuerzo de graves",
             "Efecto de sesión configurado", SignalEvidenceType.CONFIGURED, origin)
         if (dsp.virtualizerActive) add("virtualizer", "main", "Virtualización",
@@ -162,6 +194,6 @@ internal object SignalTruthGraphProjector {
             origin, note = "La ruta observada no confirma el formato físico del DAC",
             action = if (routeObserved && canConfigureUsb) SignalStageAction.USB_MIXER else SignalStageAction.NONE)
         addLegacy(SignalLayer.PHYSICAL_DEVICE, "main", "physical", "Dispositivo físico")
-        return SignalGraphUi(ownerKey, destination, nodes, edges)
+        return SignalGraphUi(ownerKey, destination, nodes, edges, controls)
     }
 }

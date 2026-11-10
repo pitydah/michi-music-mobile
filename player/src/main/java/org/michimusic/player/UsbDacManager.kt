@@ -179,6 +179,15 @@ class UsbDacManager(
 
     val routeStatus: StateFlow<AudioRouteStatus> = routeObserver.routeStatus
 
+    /** True after a watched USB device disappears; never cleared by an automatic scan. */
+    val isRecoveryRequired: Boolean get() = recoveryRequired
+    /** A one-shot native speaker preference must be applied before unpausing. */
+    private var pendingSpeakerRecoveryId: Int? = null
+    val speakerRecoveryPendingDeviceId: Int? get() = pendingSpeakerRecoveryId
+    /** Tracks the specific speaker requested, to detect a different observed sink. */
+    private var authorizedSpeakerId: Int? = null
+    val recoveredSpeakerDeviceId: Int? get() = authorizedSpeakerId
+
     /**
      * Listener invocado cuando un dispositivo de salida USB se desconecta.
      * Utilizado para pausar la reproducción de inmediato y prevenir sonido abrupto por el altavoz.
@@ -302,6 +311,8 @@ class UsbDacManager(
         if (lostId != null && !recoveryRequired) {
             // Pause BEFORE Android silently changes to a speaker or a different DAC.
             recoveryRequired = true
+            pendingSpeakerRecoveryId = null
+            authorizedSpeakerId = null
             issuedRouteRequest = false
             lastIssuedDescriptor = null
             _selectedDeviceId.value = null
@@ -401,6 +412,8 @@ class UsbDacManager(
             return
         }
         recoveryRequired = false
+        pendingSpeakerRecoveryId = null
+        authorizedSpeakerId = null
         issuedRouteRequest = false // explicit reselect is a genuine retry
         _selectedDeviceId.value = deviceId
         scanDevices()
@@ -409,8 +422,49 @@ class UsbDacManager(
     fun clearDeviceSelection() {
         issuedRouteRequest = false // user deliberately returns to automatic routing
         recoveryRequired = false
+        pendingSpeakerRecoveryId = null
+        authorizedSpeakerId = null
         _selectedDeviceId.value = null
         scanDevices()
+    }
+
+    /** Only invoked by the app's dedicated user-gesture playback path.
+     * No AudioDeviceInfo means no reliable selection: fail closed.
+     */
+    fun recoverToSpeakerAfterManualPlay(): Boolean {
+        if (!recoveryRequired) return true
+        val speaker = UsbHotplugResumePolicy.safePhoneSpeaker(source.getOutputDevices()) ?: return false
+        val native = runCatching {
+            audioManager?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull {
+                UsbHotplugResumePolicy.nativeSpeakerMatches(speaker.androidDeviceId, it.id, it.type)
+            }
+        }.getOrNull() ?: return false
+        selectDevice(speaker.androidDeviceId)
+        val selected = _preferredDeviceFlow.value
+        val accepted = !recoveryRequired && _selectedDeviceId.value == speaker.androidDeviceId &&
+            UsbHotplugResumePolicy.nativeSpeakerMatches(_selectedDeviceId.value, selected?.id, selected?.type) &&
+            selected?.id == native.id
+        if (!accepted) {
+            failSpeakerRecovery()
+            return false
+        }
+        pendingSpeakerRecoveryId = speaker.androidDeviceId
+        authorizedSpeakerId = speaker.androidDeviceId
+        return true
+    }
+
+    /** This confirms only the ExoPlayer route preference request, NOT the AudioTrack. */
+    fun markSpeakerPreferenceRequested() { pendingSpeakerRecoveryId = null }
+
+    /** Restore the safety latch if the route request is rejected or routed elsewhere. */
+    fun failSpeakerRecovery() {
+        val failureId = authorizedSpeakerId ?: pendingSpeakerRecoveryId
+        recoveryRequired = true
+        pendingSpeakerRecoveryId = null
+        authorizedSpeakerId = null
+        _selectedDeviceId.value = null
+        _preferredDeviceFlow.value = null
+        routeObserver.onRoutingFailed(failureId, RouteFailure.ROUTING_REJECTED)
     }
 
     fun getPreferredUsbDevice(): AudioDeviceInfo? = preferredUsbDevice

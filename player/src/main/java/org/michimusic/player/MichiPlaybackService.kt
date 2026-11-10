@@ -243,6 +243,15 @@ class MichiPlaybackService : MediaLibraryService() {
 
                 override fun onPlayerError(error: PlaybackException) {
                     playbackSuccessJob?.cancel()
+                    // A disconnected DAC may invalidate AudioTrack. Never mistake an
+                    // output failure for a corrupt file and jump to the next song.
+                    // Keep current media item and seek position for a new *manual* Play.
+                    if (UsbHotplugResumePolicy.isOutputFailure(error.errorCode)) {
+                        android.util.Log.w("MichiPlaybackService",
+                            "Audio output failed; awaiting explicit recovery, code=${error.errorCode}")
+                        exoPlayer.pause()
+                        return
+                    }
                     val currentTrackId = exoPlayer.currentMediaItem?.mediaId
                     consecutiveErrorCount++
                     lastFailedTrackId = currentTrackId

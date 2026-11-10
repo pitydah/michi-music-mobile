@@ -192,6 +192,33 @@ class AudioController(
         mediaController?.play()
     }
 
+    /** Only a direct Michi UI gesture may request recovery from USB hot-unplug.
+     * True means MediaController accepted a local play request, not that AudioTrack
+     * confirmed an audible route. All physical observations remain separate.
+     */
+    override fun playFromUserGesture(): Boolean {
+        ensureConnected()
+        val ctrl = mediaController ?: return false
+        val owner = PlayerDependencies.outputAuthority.value
+        if (!owner.isLocal || owner.endpointId != "local_phone" || ctrl.mediaItemCount <= 0) {
+            return false
+        }
+        val manager = PlayerDependencies.usbDacManager
+        if (manager?.isRecoveryRequired == true && !manager.recoverToSpeakerAfterManualPlay()) {
+            Log.w(TAG, "USB: salida local segura no disponible; conserva pausa")
+            return false
+        }
+        return try {
+            ctrl.play()
+            true
+        } catch (error: RuntimeException) {
+            // A synchronous rejection cannot be reported as an accepted play request.
+            if (manager?.recoveredSpeakerDeviceId != null) manager.failSpeakerRecovery()
+            Log.w(TAG, "Play no aceptado por MediaController", error)
+            false
+        }
+    }
+
     override fun pause() {
         ensureConnected()
         Log.d(TAG, "pause requested")
