@@ -3,6 +3,9 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +31,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -37,23 +41,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.MoveDirection
@@ -63,13 +71,17 @@ import org.michimusic.mobile.ui.components.AddTracksDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.DeletePlaylistDialog
 import org.michimusic.mobile.ui.components.GlassCard
+import org.michimusic.mobile.ui.components.AeroActionButton
+import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.RenamePlaylistDialog
+import org.michimusic.mobile.ui.components.aeroMenuTopLight
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
@@ -105,7 +117,52 @@ fun PlaylistDetailScreen(
     var showDeletePlaylistDialog by remember { mutableStateOf(false) }
     var showRenamePlaylistDialog by remember { mutableStateOf(false) }
     var showOptionsMenu by remember { mutableStateOf(false) }
+    var showVisualEditor by remember { mutableStateOf(false) }
+    var isSavingVisual by remember { mutableStateOf(false) }
+    var visualEditError by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val appContext = LocalContext.current.applicationContext
+    val visualStore = remember(appContext) { PlaylistVisualStore(appContext) }
+    val visualScope = rememberCoroutineScope()
+    var visualState by remember(playlistId) { mutableStateOf(PlaylistVisualState()) }
+    var trackDensity by remember { mutableStateOf(PlaylistTrackDensity.COMPACT) }
+    var coverRequestId by remember { mutableStateOf<String?>(null) }
+    var bannerRequestId by remember { mutableStateOf<String?>(null) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val requestId = coverRequestId
+        coverRequestId = null
+        if (uri != null && requestId == playlistId) visualScope.launch {
+            when (val result = visualStore.importPickedImage(playlistId, "cover", uri)) {
+                is PlaylistImageImportResult.Success -> {
+                    visualState = visualStore.read(playlistId)
+                    snackbarHostState.showSnackbar("Portada actualizada")
+                }
+                is PlaylistImageImportResult.Failure -> snackbarHostState.showSnackbar(
+                    "${playlistImageImportErrorMessage(result.reason)} La portada anterior se mantiene.",
+                )
+            }
+        }
+    }
+    val bannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val requestId = bannerRequestId
+        bannerRequestId = null
+        if (uri != null && requestId == playlistId) visualScope.launch {
+            when (val result = visualStore.importPickedImage(playlistId, "banner", uri)) {
+                is PlaylistImageImportResult.Success -> {
+                    visualState = visualStore.read(playlistId)
+                    snackbarHostState.showSnackbar("Banner actualizado")
+                }
+                is PlaylistImageImportResult.Failure -> snackbarHostState.showSnackbar(
+                    "${playlistImageImportErrorMessage(result.reason)} El banner anterior se mantiene.",
+                )
+            }
+        }
+    }
+    LaunchedEffect(playlistId) { visualState = visualStore.read(playlistId) }
+    LaunchedEffect(Unit) {
+        trackDensity = visualStore.readDensity()
+        visualStore.pruneOrphanPrivateImages()
+    }
 
     LaunchedEffect(playlistId) {
         viewModel.loadPlaylistDetail(playlistId)
@@ -156,33 +213,21 @@ fun PlaylistDetailScreen(
                 Spacer(Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "PLAYLIST",
-                        style = MichiTypography.screenEyebrow,
-                    )
-                    Text(
-                        text = when (val state = uiState) {
-                            is PlaylistDetailUiState.Found -> state.playlist.name
-                            PlaylistDetailUiState.NotFound -> "Playlist no encontrada"
-                            is PlaylistDetailUiState.Error -> "Error"
-                            PlaylistDetailUiState.Loading -> "Cargando..."
-                        },
-                        style = MichiTypography.sectionTitle,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("playlist_detail_title"),
-                    )
-                    if (uiState is PlaylistDetailUiState.Found) {
-                        // Count of tracks actually resolvable/renderable (state.playlist.tracks),
-                        // not the persisted trackCount - a stored trackId can outlive the file it
-                        // points to (moved/deleted device track, unreachable remote fallback), so
-                        // the header must match what PlaylistTracksList below actually renders.
-                        val count = (uiState as PlaylistDetailUiState.Found).playlist.tracks.size
+                    // The found playlist's PLAYLIST capsule, title and count live
+                    // in the continuous hero below; keep fallback labels and
+                    // semantics for loading/not-found/error.
+                    if (uiState !is PlaylistDetailUiState.Found) {
+                        Text("PLAYLIST", style = MichiTypography.screenEyebrow)
                         Text(
-                            text = if (count == 1) "1 canción" else "$count canciones",
-                            fontSize = 13.sp,
-                            color = TextSecondary,
-                            modifier = Modifier.testTag("playlist_detail_track_count"),
+                            text = when (uiState) {
+                                PlaylistDetailUiState.NotFound -> "Playlist no encontrada"
+                                is PlaylistDetailUiState.Error -> "Error"
+                                else -> "Cargando..."
+                            },
+                            style = MichiTypography.sectionTitle,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("playlist_detail_title"),
                         )
                     }
                 }
@@ -202,7 +247,9 @@ fun PlaylistDetailScreen(
                         DropdownMenu(
                             expanded = showOptionsMenu,
                             onDismissRequest = { showOptionsMenu = false },
-                            modifier = Modifier.testTag("playlist_detail_options_menu"),
+                            modifier = Modifier
+                                .aeroMenuTopLight(LocalVisualPreferences.current.highContrast)
+                                .testTag("playlist_detail_options_menu"),
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Renombrar") },
@@ -214,6 +261,113 @@ fun PlaylistDetailScreen(
                                     showRenamePlaylistDialog = true
                                 },
                                 modifier = Modifier.testTag("playlist_detail_rename_menu_item"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Editar apariencia de playlist") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Tune, contentDescription = null, tint = TextMuted)
+                                },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    visualEditError = null
+                                    showVisualEditor = true
+                                },
+                                modifier = Modifier.testTag("playlist_detail_edit_visual"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cambiar portada") },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    coverRequestId = playlistId
+                                    coverPicker.launch(arrayOf("image/*"))
+                                },
+                                modifier = Modifier.testTag("playlist_detail_edit_cover"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Cambiar banner") },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    bannerRequestId = playlistId
+                                    bannerPicker.launch(arrayOf("image/*"))
+                                },
+                                modifier = Modifier.testTag("playlist_detail_edit_banner"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Quitar portada personalizada") },
+                                enabled = visualState.coverUri != null,
+                                onClick = {
+                                    showOptionsMenu = false
+                                    visualScope.launch {
+                                        val removed = visualStore.saveImage(playlistId, "cover", null)
+                                        visualState = visualStore.read(playlistId)
+                                        snackbarHostState.showSnackbar(
+                                            if (removed) "Portada personalizada quitada"
+                                            else "No se pudo quitar la portada personalizada.",
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.testTag("playlist_detail_remove_cover"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Quitar banner personalizado") },
+                                enabled = visualState.bannerUri != null,
+                                onClick = {
+                                    showOptionsMenu = false
+                                    visualScope.launch {
+                                        val removed = visualStore.saveImage(playlistId, "banner", null)
+                                        visualState = visualStore.read(playlistId)
+                                        snackbarHostState.showSnackbar(
+                                            if (removed) "Banner personalizado quitado"
+                                            else "No se pudo quitar el banner personalizado.",
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.testTag("playlist_detail_remove_banner"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (visualState.pinned) "Quitar fijación" else "Fijar playlist") },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    visualScope.launch {
+                                        visualStore.setPinned(playlistId, !visualState.pinned)
+                                        visualState = visualStore.read(playlistId)
+                                    }
+                                },
+                                modifier = Modifier.testTag("playlist_detail_pin"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ajustar encuadre y escala") },
+                                enabled = visualState.bannerUri != null,
+                                onClick = {
+                                    showOptionsMenu = false
+                                    visualEditError = null
+                                    showVisualEditor = true
+                                },
+                                modifier = Modifier.testTag("playlist_detail_banner_focal"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Restablecer portada y banner") },
+                                onClick = {
+                                    showOptionsMenu = false
+                                    visualScope.launch {
+                                        val result = visualStore.applyVisualEdit(
+                                            playlistId,
+                                            PlaylistVisualEditRequest(
+                                                cover = PlaylistVisualImageChange.Remove,
+                                                banner = PlaylistVisualImageChange.Remove,
+                                            ),
+                                        )
+                                        visualState = visualStore.read(playlistId)
+                                        snackbarHostState.showSnackbar(
+                                            if (result is PlaylistVisualEditResult.Success) {
+                                                "Portada y banner restablecidos"
+                                            } else {
+                                                "No se pudo restablecer la apariencia."
+                                            },
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.testTag("playlist_detail_clear_images"),
                             )
                             DropdownMenuItem(
                                 text = { Text("Eliminar playlist") },
@@ -246,7 +400,7 @@ fun PlaylistDetailScreen(
                 }
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(12.dp))
 
             when (val state = uiState) {
                 PlaylistDetailUiState.Loading -> {
@@ -261,14 +415,47 @@ fun PlaylistDetailScreen(
                 }
 
                 is PlaylistDetailUiState.Found -> {
+                    PlaylistVisualHero(
+                        id = playlistId,
+                        title = state.playlist.name,
+                        trackCount = state.playlist.tracks.size,
+                        coverIds = state.playlist.coverIds,
+                        visual = visualState,
+                        modifier = Modifier.testTag("playlist_detail_visual_identity"),
+                    )
                     // Gate on resolvable tracks, not the persisted trackCount: a playlist can
                     // have trackCount > 0 while every stored id has become unresolvable, in
                     // which case there is nothing to render and the empty state is correct.
                     if (state.playlist.tracks.isEmpty()) {
-                        EmptyPlaylistState()
+                        // The empty state sits close to the hero, hides density and play
+                        // affordances, and keeps one obvious primary action. The top "+"
+                        // remains a complementary shortcut.
+                        EmptyPlaylistState(
+                            onAddTracks = {
+                                viewModel.loadAvailableTracks()
+                                showAddTracksDialog = true
+                            },
+                        )
                     } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text("Canciones", color = PureWhite, style = MichiTypography.metadata)
+                            TextButton(
+                                onClick = {
+                                    val next = if (trackDensity == PlaylistTrackDensity.COMPACT)
+                                        PlaylistTrackDensity.EXPANDED else PlaylistTrackDensity.COMPACT
+                                    trackDensity = next
+                                    visualScope.launch { visualStore.setDensity(next) }
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("playlist_detail_density_toggle"),
+                            ) { Text(if (trackDensity == PlaylistTrackDensity.COMPACT) "Vista compacta" else "Vista ampliada") }
+                        }
                         PlaylistTracksList(
                             tracks = state.playlist.tracks,
+                            density = trackDensity,
                             removeEnabled = !isRemovingTrack,
                             moveEnabled = !isReorderingTrack,
                             onRemoveClick = { track -> trackPendingRemoval = track },
@@ -307,6 +494,44 @@ fun PlaylistDetailScreen(
             modifier = Modifier.align(Alignment.BottomCenter),
         )
 
+        if (showVisualEditor) {
+            PlaylistVisualEditorDialog(
+                visual = visualState,
+                isSaving = isSavingVisual,
+                errorMessage = visualEditError,
+                onDismiss = {
+                    if (!isSavingVisual) {
+                        showVisualEditor = false
+                        visualEditError = null
+                    }
+                },
+                onConfirm = { request ->
+                    if (!isSavingVisual) {
+                        isSavingVisual = true
+                        visualEditError = null
+                        visualScope.launch {
+                            when (val result = visualStore.applyVisualEdit(playlistId, request)) {
+                                PlaylistVisualEditResult.Success -> {
+                                    visualState = visualStore.read(playlistId)
+                                    showVisualEditor = false
+                                    isSavingVisual = false
+                                    snackbarHostState.showSnackbar("Apariencia actualizada")
+                                }
+                                is PlaylistVisualEditResult.Rejected -> {
+                                    val fieldLabel = if (result.field == "banner") "Banner" else "Portada"
+                                    visualEditError = "$fieldLabel: ${playlistImageImportErrorMessage(result.reason)}"
+                                    isSavingVisual = false
+                                    snackbarHostState.showSnackbar(
+                                        "$fieldLabel sin cambios. ${playlistImageImportErrorMessage(result.reason)}",
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
         if (showAddTracksDialog) {
             AddTracksDialog(
                 availableTracks = pickableTracks,
@@ -339,7 +564,10 @@ fun PlaylistDetailScreen(
                     viewModel.deletePlaylist(playlistId) { success ->
                         if (success) {
                             showDeletePlaylistDialog = false
-                            onBack()
+                            visualScope.launch {
+                                visualStore.clear(playlistId)
+                                onBack()
+                            }
                         }
                     }
                 },
@@ -366,6 +594,7 @@ fun PlaylistDetailScreen(
 @Composable
 private fun PlaylistTracksList(
     tracks: List<Track>,
+    density: PlaylistTrackDensity,
     removeEnabled: Boolean,
     moveEnabled: Boolean,
     onRemoveClick: (Track) -> Unit,
@@ -377,11 +606,12 @@ private fun PlaylistTracksList(
         modifier = Modifier
             .fillMaxSize()
             .testTag("playlist_detail_track_list"),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(playlistTrackLayout(density).gapDp.dp),
     ) {
         itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
             PlaylistTrackRow(
                 track,
+                density = density,
                 removeEnabled = removeEnabled,
                 moveEnabled = moveEnabled,
                 canMoveUp = index > 0,
@@ -399,6 +629,7 @@ private fun PlaylistTracksList(
 @Composable
 private fun PlaylistTrackRow(
     track: Track,
+    density: PlaylistTrackDensity,
     removeEnabled: Boolean,
     moveEnabled: Boolean,
     canMoveUp: Boolean,
@@ -409,6 +640,7 @@ private fun PlaylistTrackRow(
     onMoveDown: () -> Unit,
 ) {
     var showTrackMenu by remember { mutableStateOf(false) }
+    val rowLayout = playlistTrackLayout(density)
 
     AeroCard(
         modifier = Modifier
@@ -420,7 +652,7 @@ private fun PlaylistTrackRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = rowLayout.verticalPaddingDp.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -429,7 +661,7 @@ private fun PlaylistTrackRow(
                 imageModel = track.coverId,
                 fallbackMediaUri = track.filepath,
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(rowLayout.artworkDp.dp)
                     .clip(RoundedCornerShape(8.dp)),
             )
 
@@ -448,6 +680,15 @@ private fun PlaylistTrackRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (density == PlaylistTrackDensity.EXPANDED &&
+                    (track.album.isNotBlank() || track.format.isNotBlank())) {
+                    Text(
+                        listOfNotNull(track.album.takeIf { it.isNotBlank() },
+                            track.format.takeIf { it.isNotBlank() }).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
 
             // Secondary reorder action, tucked behind a small overflow menu so it doesn't
@@ -466,7 +707,9 @@ private fun PlaylistTrackRow(
                 DropdownMenu(
                     expanded = showTrackMenu,
                     onDismissRequest = { showTrackMenu = false },
-                    modifier = Modifier.testTag("playlist_detail_track_menu_${track.id}"),
+                    modifier = Modifier
+                        .aeroMenuTopLight(LocalVisualPreferences.current.highContrast)
+                        .testTag("playlist_detail_track_menu_${track.id}"),
                 ) {
                     DropdownMenuItem(
                         text = { Text("Mover arriba") },
@@ -492,48 +735,63 @@ private fun PlaylistTrackRow(
                         },
                         modifier = Modifier.testTag("playlist_detail_move_down_${track.id}"),
                     )
+                    // UI5: one 48dp overflow target instead of two trailing targets.
+                    // Removing still invokes the original confirmation dialog callback.
+                    DropdownMenuItem(
+                        text = { Text("Quitar de la playlist") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Delete, contentDescription = null, tint = TextMuted)
+                        },
+                        enabled = removeEnabled,
+                        onClick = {
+                            showTrackMenu = false
+                            onRemoveClick()
+                        },
+                        modifier = Modifier.testTag("playlist_detail_remove_track_${track.id}"),
+                    )
                 }
             }
-
-            MichiIconAction(
-                icon = Icons.Filled.Delete,
-                contentDescription = "Quitar de la playlist",
-                onClick = onRemoveClick,
-                enabled = removeEnabled,
-                tint = TextMuted,
-                iconSize = 20.dp,
-                minTargetSize = MichiSpacing.minTouchTarget,
-                testTag = "playlist_detail_remove_track_${track.id}",
-            )
         }
     }
 }
 
 @Composable
-private fun EmptyPlaylistState() {
-    Box(
+private fun EmptyPlaylistState(onAddTracks: () -> Unit) {
+    Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .padding(top = 18.dp)
             .testTag("playlist_detail_empty_state"),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = null,
-                tint = TextMuted,
-                modifier = Modifier.size(56.dp),
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Esta playlist todavía no tiene canciones",
-                style = MaterialTheme.typography.titleMedium,
-                color = PureWhite,
-            )
-        }
+        Icon(
+            Icons.AutoMirrored.Filled.QueueMusic,
+            contentDescription = null,
+            tint = TextMuted,
+            modifier = Modifier.size(56.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Esta playlist todavía no tiene canciones",
+            style = MaterialTheme.typography.titleMedium,
+            color = PureWhite,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Añade canciones de tu biblioteca para empezar.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+        )
+        Spacer(Modifier.height(16.dp))
+        AeroActionButton(
+            label = "Añadir canciones",
+            onClick = onAddTracks,
+            icon = Icons.Filled.Add,
+            kind = AeroActionKind.Primary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("playlist_detail_empty_add_tracks"),
+        )
     }
 }
 

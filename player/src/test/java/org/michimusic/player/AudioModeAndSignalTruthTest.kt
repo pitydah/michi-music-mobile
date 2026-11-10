@@ -296,7 +296,7 @@ class AudioModeAndSignalTruthTest {
     }
 
     @Test
-    fun gaplessTrackChangeMaintainsActiveOutputAndDecodedMeasurements() {
+    fun gaplessTrackChangeRetainsAudioTrackButInvalidatesPriorDecoderEvidence() {
         val tracker = SignalTruthTracker()
         tracker.setPlaybackActive(true)
 
@@ -318,9 +318,12 @@ class AudioModeAndSignalTruthTest {
         )
         tracker.onTrackChanged(dummyTrack)
 
-        // Measurements from continuous pipeline are NOT wiped out
-        assertEquals(44100, tracker.observation.value.decodedFormat?.sampleRate)
+        // The sink can survive a gapless transition, but PCM from track 1 must not
+        // appear as decoder evidence for track 2 until a new decoder callback arrives.
+        assertNull(tracker.observation.value.decodedFormat)
         assertEquals(44100, tracker.observation.value.outputConfig?.sampleRate)
+        tracker.onPcmFormatDecoded(PcmFormat(sampleRate = 44100, channels = 2, bitDepth = 16))
+        assertEquals(44100, tracker.observation.value.decodedFormat?.sampleRate)
     }
 
     @Test

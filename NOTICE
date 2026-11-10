@@ -34,3 +34,10 @@ projects:
 3. OkHttp
    - Copyright 2016 Square, Inc.
    - Licensed under the Apache License, Version 2.0
+
+4. Phosphor Icons — Playlists navigation pictogram (vector-derived).
+   Copyright (c) 2023 Phosphor Icons
+   Licensed under the MIT License (SPDX: MIT).
+   https://github.com/phosphor-icons/core
+   Redistribution must preserve the Phosphor MIT copyright and permission text;
+   see docs/THIRD_PARTY.md.

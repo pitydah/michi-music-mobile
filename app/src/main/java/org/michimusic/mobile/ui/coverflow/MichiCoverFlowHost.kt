@@ -40,7 +40,7 @@ import org.michimusic.mobile.library.coverflow.CoverFlowAlbum
 import org.michimusic.mobile.ui.components.aeroCoverFlowShouldAnimate
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.coverStyleFor
-import org.michimusic.mobile.ui.theme.AeroHairline
+import org.michimusic.mobile.ui.theme.aeroCoverFlowFrame
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 
 /**
@@ -128,7 +128,8 @@ fun MichiCoverFlowHost(
     BoxWithConstraints(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         // Avoid invalid pager sizes during zero-constraint measurement.
         if (maxWidth <= 0.dp || maxHeight <= 0.dp) return@BoxWithConstraints
-        // No fake floor reflection: the real album art provides the visual emphasis.
+        // No fake floor mirror: intensity only changes the static frame and contact
+        // elevation of the raised cover. The real album art remains the emphasis.
 
         // Constrain the card to the actual viewport: very small windows must not clip covers.
         val pageWidth = coverFlowPageWidthDp(maxWidth.value).dp
@@ -145,6 +146,12 @@ fun MichiCoverFlowHost(
             val album = albums.getOrNull(page) ?: return@HorizontalPager
             val signedOffset = (state.currentPage - page) + state.currentPageOffsetFraction
             val visual = coverFlowGeometry(signedOffset, reducedMotion)
+            val reflection = aeroCoverFlowFrame(
+                mode = visualPrefs.coverFlowReflection,
+                raised = visual.raised,
+                reducedMotion = reducedMotion,
+                highContrast = highContrast,
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -155,12 +162,16 @@ fun MichiCoverFlowHost(
                         scaleX = visual.scale
                         scaleY = visual.scale
                         alpha = if (highContrast) 1f else visual.opacity
-                        shadowElevation = if (visual.raised && !reducedMotion && !highContrast) 3f * density else 0f
+                        shadowElevation = reflection.shadowElevationDp * density
                     }
                     .clip(RoundedCornerShape(16.dp))
                     .then(
-                        if (visual.raised) {
-                            Modifier.border(0.65.dp, AeroHairline, RoundedCornerShape(16.dp))
+                        if (reflection.borderAlpha > 0f) {
+                            Modifier.border(
+                                reflection.borderWidthDp.dp,
+                                Color.White.copy(alpha = reflection.borderAlpha),
+                                RoundedCornerShape(16.dp),
+                            )
                         } else Modifier
                     )
                     .clickable {

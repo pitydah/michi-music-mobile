@@ -58,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,7 +79,8 @@ import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.AeroSurface
-import org.michimusic.mobile.ui.components.AeroLibraryFeature
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
+import org.michimusic.mobile.ui.components.AeroHomeHeroCarousel
 import org.michimusic.mobile.ui.components.AeroSectionHeading
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -111,12 +113,22 @@ fun HomeScreen(
     viewModel: AlbumsViewModel = koinViewModel(),
     sessionManager: PlaybackSessionManager = koinInject(),
     audioController: AudioController = koinInject(),
+    historyDao: org.michimusic.data.cache.AppDao = koinInject(),
 ) {
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
+    val albums by viewModel.albums.collectAsStateWithLifecycle()
     val recentTracks by viewModel.recentTracks.collectAsStateWithLifecycle()
     val topTracks by viewModel.topTracks.collectAsStateWithLifecycle()
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val appContext = LocalContext.current.applicationContext
+    val playlistVisualStore = remember(appContext) { PlaylistVisualStore(appContext) }
+    val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
+    var pinnedPlaylistIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(playlists, visualRevision) {
+        pinnedPlaylistIds = playlistVisualStore.readMany(playlists.map { it.id })
+            .filterValues { it.pinned }.keys
+    }
 
     val sessionState by sessionManager.sessionState.collectAsStateWithLifecycle()
     val activeEndpoint = sessionState.activeEndpoint
@@ -134,8 +146,22 @@ fun HomeScreen(
     val libraryPicks = remember(allTracks, recentTracks, currentTrack?.id) {
         val excluded = recentTracks.mapTo(mutableSetOf()) { it.id }
         currentTrack?.id?.let(excluded::add)
-        allTracks.filterNot { it.id in excluded }.distinctBy { it.id }.take(6)
+        val ids = variedHomeLibraryPickIds(
+            allTracks.map { HomeEditorialCandidate(it.id, it.artist, it.album) }, excluded,
+        )
+        val indexed = allTracks.associateBy { it.id }
+        ids.mapNotNull { indexed[it] }
     }
+    val homeHeroItems = remember(allTracks, albums, playlists, recentTracks, currentTrack?.id) {
+        buildHomeHeroItems(
+            allTracks = allTracks,
+            albums = albums,
+            playlists = playlists,
+            recentIds = recentTracks.mapTo(mutableSetOf()) { it.id },
+            currentTrackId = currentTrack?.id,
+        )
+    }
+    val tracksById = remember(allTracks) { allTracks.associateBy { it.id } }
 
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.error.collectAsStateWithLifecycle()
@@ -151,9 +177,20 @@ fun HomeScreen(
     var showCreatePlaylist by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val launchHistoryStore = remember(appContext) { PlaylistLaunchHistoryStore(appContext) }
+    var lastAcceptedPlaylistId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(viewModel) {
         viewModel.loadMedia()
+    }
+    LaunchedEffect(playlists, historyDao) {
+        val enabled = runCatching {
+            historyDao.getSetting("listening_history_enabled") != "false"
+        }.getOrDefault(false)
+        if (!enabled) launchHistoryStore.clear()
+        val history = if (enabled) launchHistoryStore.read() else null
+        lastAcceptedPlaylistId = validPlaylistContinuityId(history, enabled,
+            playlists.associate { it.id to it.trackCount })
     }
 
     Box(
@@ -272,17 +309,30 @@ fun HomeScreen(
                 // M52: editorial collection hero; the current local track already lives
                 // in the MiniPlayer and must not occupy a second redundant hero.
                 item {
-                    if (allTracks.isNotEmpty()) {
-                        val featured = visibleRecent.firstOrNull { recent -> allTracks.any { it.id == recent.id } }
-                            ?: allTracks.firstOrNull { it.id != currentTrack?.id }
-                            ?: allTracks.first()
-                        AeroLibraryFeature(
-                            featuredTrack = featured,
-                            trackCount = allTracks.size,
-                            onFeatured = {
-                                val index = allTracks.indexOfFirst { it.id == featured.id }
-                                if (index >= 0) sessionManager.playQueue(allTracks, index)
-                                else scope.launch { snackbarHostState.showSnackbar("La pista ya no está disponible") }
+                    if (homeHeroItems.isNotEmpty()) {
+                        AeroHomeHeroCarousel(
+                            items = homeHeroItems,
+                            onPrimary = { item ->
+                                when (item.kind) {
+                                    HomeHeroKind.TRACK -> {
+                                        val index = allTracks.indexOfFirst { it.id == item.sourceId }
+                                        if (index >= 0) sessionManager.playQueue(allTracks, index)
+                                        else scope.launch {
+                                            snackbarHostState.showSnackbar("La pista ya no está disponible")
+                                        }
+                                    }
+                                    HomeHeroKind.ALBUM -> {
+                                        val albumTracks = item.trackIds.mapNotNull(tracksById::get)
+                                        if (albumTracks.isNotEmpty()) {
+                                            sessionManager.playQueue(albumTracks, 0)
+                                        } else {
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("El álbum ya no está disponible")
+                                            }
+                                        }
+                                    }
+                                    HomeHeroKind.PLAYLIST -> onNavigateToPlaylist(item.sourceId)
+                                }
                             },
                             onPlayAll = { sessionManager.playQueue(allTracks, 0) },
                             onShuffle = { sessionManager.playQueue(allTracks.shuffled(), 0) },
@@ -357,6 +407,7 @@ fun HomeScreen(
                         topTracksCount = topTracks.size,
                         recentTracksCount = recentTracks.size,
                         playlists = playlists,
+                        pinnedPlaylistIds = pinnedPlaylistIds,
                         onCreatePlaylist = { showCreatePlaylist = true },
                         onPlaylistClick = { type ->
                             when (type) {
@@ -370,8 +421,50 @@ fun HomeScreen(
                     )
                 }
 
+                // A real previously accepted queue request is the ONLY authority for
+                // this continuity shortcut. Never infer playlist provenance from a track.
+                val lastPlaylist = lastAcceptedPlaylistId?.let { id ->
+                    playlists.singleOrNull { it.id == id && it.trackCount > 0 }
+                }
+                if (lastPlaylist != null) {
+                    item(key = "playlist_continuity") {
+                        AeroCard(
+                            modifier = Modifier.fillMaxWidth().testTag("home_playlist_continuity"),
+                            finish = AeroFinish.Satin,
+                            onClick = { onNavigateToPlaylist(lastPlaylist.id) },
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                                Text("ÚLTIMA PLAYLIST ENVIADA", style = MichiTypography.screenEyebrow)
+                                Text(lastPlaylist.name, style = MichiTypography.sectionTitle,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("Abre la lista para continuar. La posición exacta no se conserva aquí.",
+                                    style = MichiTypography.metadata, color = TextSecondary)
+                            }
+                        }
+                    }
+                }
+
+                // The honest empty state remains discoverable when all library tracks
+                // are already recent. Never recycle them as invented "new picks".
+                if (libraryPicks.isEmpty() && allTracks.isNotEmpty() && recentTracks.isNotEmpty()) {
+                    item(key = "home_explore_all_recent") {
+                        AeroCard(
+                            modifier = Modifier.fillMaxWidth().testTag("home_explore_all_recent"),
+                            finish = AeroFinish.Satin,
+                            onClick = onNavigateToSearch,
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                                Text("EXPLORA TU BIBLIOTECA", style = MichiTypography.screenEyebrow)
+                                Text("Ya escuchaste las selecciones recientes",
+                                    style = MichiTypography.sectionTitle)
+                                Text("Buscar otras canciones o artistas de tu colección",
+                                    style = MichiTypography.metadata, color = TextSecondary)
+                            }
+                        }
+                    }
+                }
                 // 4. Quick Picks Showcase
-                if (recentTracks.isNotEmpty() && libraryPicks.isNotEmpty()) {
+                if (libraryPicks.isNotEmpty()) {
                     item {
                         QuickPicksSection(
                             tracks = libraryPicks,
@@ -733,6 +826,7 @@ private fun RecentTrackCard(
             modifier = Modifier.fillMaxWidth().aspectRatio(1f),
             cornerRadius = 14.dp,
             inset = 3.dp,
+            emphasis = AeroArtworkEmphasis.Featured,
         ) {
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
@@ -789,6 +883,7 @@ private fun YourPlaylistsSection(
     topTracksCount: Int,
     recentTracksCount: Int,
     playlists: List<Playlist>,
+    pinnedPlaylistIds: Set<String>,
     onCreatePlaylist: () -> Unit,
     onPlaylistClick: (String) -> Unit,
     onNavigateToPlaylist: (String) -> Unit,
@@ -853,10 +948,12 @@ private fun YourPlaylistsSection(
                 contentPadding = PaddingValues(horizontal = 4.dp),
                 modifier = Modifier.testTag("your_playlists_list"),
             ) {
-                items(playlists, key = { it.id }) { playlist ->
+                items(playlists.sortedWith(compareBy<Playlist> { it.id !in pinnedPlaylistIds }
+                    .thenBy { it.name.lowercase() }), key = { it.id }) { playlist ->
                     PlaylistTile(
                         title = playlist.name,
-                        subtitle = "${playlist.trackCount} canciones",
+                        subtitle = if (playlist.id in pinnedPlaylistIds)
+                            "Fijada · ${playlist.trackCount} canciones" else "${playlist.trackCount} canciones",
                         icon = Icons.Filled.LibraryMusic,
                         accentColor = SecondaryPurple,
                         modifier = Modifier

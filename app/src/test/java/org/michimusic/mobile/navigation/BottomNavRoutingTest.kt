@@ -38,6 +38,7 @@ private fun TestNavHost(navController: NavHostController) {
     NavHost(navController = navController, startDestination = "home") {
         composable("home") { Text("Home", modifier = Modifier.testTag("screen_home")) }
         composable("library") { Text("Library", modifier = Modifier.testTag("screen_library")) }
+        composable("playlist") { Text("Playlists", modifier = Modifier.testTag("screen_playlists")) }
         composable("search") { Text("Search", modifier = Modifier.testTag("screen_search")) }
         composable("devices") { Text("Devices", modifier = Modifier.testTag("screen_devices")) }
         composable("settings") { Text("Settings", modifier = Modifier.testTag("screen_settings")) }
@@ -81,6 +82,20 @@ class BottomNavRoutingTest {
 
         composeTestRule.onNodeWithTag("screen_home").assertExists()
         assertEquals("home", navController.currentBackStackEntry?.destination?.route)
+    }
+
+    @Test
+    fun `playlists tab opens the existing collection root and discards detail`() {
+        setContentWithNavHost()
+        composeTestRule.runOnUiThread { navController.navigate("playlist/pl-1") }
+        composeTestRule.waitForIdle()
+        composeTestRule.runOnUiThread { navController.selectTab("playlist") }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("screen_playlists").assertExists()
+        assertEquals("playlist", navController.currentBackStackEntry?.destination?.route)
+        composeTestRule.runOnUiThread { navController.selectTab("home") }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("screen_home").assertExists()
     }
 
     @Test

@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,6 +106,23 @@ class PlaybackSessionManager(
     private val _sessionEpoch = java.util.concurrent.atomic.AtomicLong(1L)
     val currentSessionEpoch: Long get() = _sessionEpoch.get()
 
+    /**
+     * Remote scrub events are coalesced into at most one HTTP command per
+     * [REMOTE_SEEK_COALESCE_MS]. The channel is conflated, so only the latest
+     * position survives and the final release position is always sent.
+     */
+    private data class RemoteSeekRequest(
+        val endpointId: String,
+        val epoch: Long,
+        val positionMs: Long,
+    )
+
+    private val remoteSeekRequests = Channel<RemoteSeekRequest>(Channel.CONFLATED)
+
+    private companion object {
+        const val REMOTE_SEEK_COALESCE_MS = 120L
+    }
+
     fun nextSessionEpoch(): Long {
         _issuedTickets.clear()
         return _sessionEpoch.incrementAndGet()
@@ -136,6 +154,16 @@ class PlaybackSessionManager(
                 org.michimusic.player.PlayerDependencies.publishOutputAuthority(
                     state.activeEndpoint.id, state.activeEndpoint.isLocal && !state.isRemoteActive
                 )
+            }
+        }
+        scope.launch {
+            for (request in remoteSeekRequests) {
+                delay(REMOTE_SEEK_COALESCE_MS)
+                if (!isRemotePlaybackHost) continue
+                if (request.epoch != _sessionEpoch.get() ||
+                    _sessionState.value.activeEndpoint.id != request.endpointId
+                ) continue
+                connectionManager.getClient(request.endpointId)?.sendSeek(request.positionMs)
             }
         }
         rtpAudioSender.onError = { ex ->
@@ -1154,11 +1182,13 @@ class PlaybackSessionManager(
     fun seekTo(positionMs: Long) {
         if (isRemotePlaybackHost) {
             val targetEndpoint = _sessionState.value.activeEndpoint
-            val opEpoch = _sessionEpoch.get()
-            scope.launch {
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                connectionManager.getClient(targetEndpoint.id)?.sendSeek(positionMs)
-            }
+            remoteSeekRequests.trySend(
+                RemoteSeekRequest(
+                    endpointId = targetEndpoint.id,
+                    epoch = _sessionEpoch.get(),
+                    positionMs = positionMs,
+                ),
+            )
         } else {
             audioController?.seekTo(positionMs)
         }
@@ -1166,13 +1196,65 @@ class PlaybackSessionManager(
 
     fun skipToQueueIndex(index: Int) {
         if (isRemotePlaybackHost) {
-            val targetEndpoint = _sessionState.value.activeEndpoint
+            val state = _sessionState.value
+            if (index !in state.queue.indices) return
+            val targetEndpoint = state.activeEndpoint
+            val selectedId = state.queue[index].id
             val opEpoch = _sessionEpoch.get()
+            // Never race two destructive/positional operations from the same UI session.
+            if (state.lastRemoteCommand?.let {
+                    it.endpointId == targetEndpoint.id && it.status == RemoteCommandStatus.PENDING
+                } == true) return
+            val cmd = RemoteCommandRecord(
+                endpointId = targetEndpoint.id,
+                epoch = opEpoch,
+                action = "jump_queue_index",
+                param = index.toString(),
+                status = RemoteCommandStatus.PENDING,
+            )
+            _sessionState.value = state.copy(lastRemoteCommand = cmd)
             scope.launch {
-                if (opEpoch != _sessionEpoch.get() || _sessionState.value.activeEndpoint.id != targetEndpoint.id) return@launch
-                connectionManager.getClient(targetEndpoint.id)?.queueJump(index)
-                if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                    _sessionState.value = _sessionState.value.copy(queueIndex = index)
+                fun stillCurrent(): Boolean = opEpoch == _sessionEpoch.get() &&
+                    _sessionState.value.activeEndpoint.id == targetEndpoint.id &&
+                    _sessionState.value.lastRemoteCommand?.commandId == cmd.commandId
+                if (!stillCurrent()) return@launch
+                val client = connectionManager.getClient(targetEndpoint.id)
+                val result = client?.queueJump(index)
+                if (!stillCurrent()) return@launch
+                val outcome = if (result?.isSuccess == true) {
+                    // The transport ACK does not prove that the host selected the index.
+                    val observed = runCatching { client?.getQueue()?.getOrNull() }.getOrNull()
+                    if (!stillCurrent()) return@launch
+                    if (observed != null) {
+                        val tracks = observed.tracks.map { it.toDomainTrack() }
+                        val observedIndex = observed.currentIndex.takeIf { it in tracks.indices } ?: -1
+                        _sessionState.value = _sessionState.value.copy(
+                            queue = tracks,
+                            queueIndex = observedIndex,
+                            currentTrack = tracks.getOrNull(observedIndex),
+                        )
+                        if (remoteQueueJumpWasObserved(index, selectedId, observedIndex, tracks.getOrNull(observedIndex)?.id)) {
+                            cmd.copy(status = RemoteCommandStatus.CONFIRMED, epoch = opEpoch)
+                        } else {
+                            cmd.copy(
+                                status = RemoteCommandStatus.ACCEPTED,
+                                epoch = opEpoch,
+                                resultMessage = "El host aceptó el salto, pero informó otra posición; se muestra la cola observada",
+                            )
+                        }
+                    } else {
+                        cmd.copy(
+                            status = RemoteCommandStatus.ACCEPTED,
+                            epoch = opEpoch,
+                            resultMessage = "Salto aceptado; no se pudo confirmar el índice remoto",
+                        )
+                    }
+                } else {
+                    val (failure, reason) = resolveFailureStatus(client, result)
+                    cmd.copy(status = failure, epoch = opEpoch, resultMessage = reason)
+                }
+                if (stillCurrent()) {
+                    _sessionState.value = _sessionState.value.copy(lastRemoteCommand = outcome)
                 }
             }
         } else {
@@ -1211,6 +1293,19 @@ class PlaybackSessionManager(
             val currentQ = _sessionState.value.queue
             if (index in currentQ.indices) {
                 val item = currentQ[index]
+                if (!remoteQueueRemovalUnambiguous(currentQ.map { it.id }, index)) {
+                    _sessionState.value = _sessionState.value.copy(
+                        lastRemoteCommand = RemoteCommandRecord(
+                            endpointId = targetEndpoint.id,
+                            epoch = opEpoch,
+                            action = "remove_queue_item",
+                            param = item.id,
+                            status = RemoteCommandStatus.UNSUPPORTED,
+                            resultMessage = "No se puede eliminar una aparición repetida: el servidor no informa un ID único de elemento",
+                        ),
+                    )
+                    return
+                }
                 val cmd = RemoteCommandRecord(
                     endpointId = targetEndpoint.id,
                     epoch = opEpoch,

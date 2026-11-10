@@ -32,7 +32,8 @@ import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillLow
 import org.michimusic.mobile.ui.components.aeroFinishDrawing
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -62,6 +63,14 @@ fun StorageBreakdownBar(
     val usedBeforeSync = systemAndOtherBytes + currentLocalMusicBytes
     val freeBeforeSync = (totalStorageBytes - usedBeforeSync).coerceAtLeast(0L)
     val freeAfterSync = (freeBeforeSync - newSyncBytes - safetyBufferBytes).coerceAtLeast(0L)
+    val visual = LocalVisualPreferences.current
+    val insetMaterial = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Inset,
+        profile = visual.appearanceProfile,
+        highContrast = visual.highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
 
     val wSystem = (systemAndOtherBytes.toFloat() / total).coerceIn(0f, 1f)
     val wLocal = (currentLocalMusicBytes.toFloat() / total).coerceIn(0f, 1f)
@@ -104,9 +113,10 @@ fun StorageBreakdownBar(
                 .background(GlassFillLow)
                 // Recess the occupancy rail, never recolor its semantic segments.
                 .aeroFinishDrawing(
-                    AeroFinish.Inset,
-                    aeroFinishSpec(AeroFinish.Inset, LocalVisualPreferences.current.highContrast),
+                    insetMaterial.finish,
+                    insetMaterial.spec,
                     null,
+                    RoundedCornerShape(8.dp),
                 )
                 .border(1.dp, GlassBorderLow, RoundedCornerShape(8.dp))
         ) {

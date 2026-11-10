@@ -36,8 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
@@ -65,19 +66,28 @@ fun aeroSegmentStacking(availableWidthDp: Float, fontScale: Float): Boolean =
 @Composable
 fun AeroSegmentRail(
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
     content: @Composable RowScope.() -> Unit,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
-    val shape = RoundedCornerShape(17.dp)
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Inset,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
+    val shape = RoundedCornerShape(if (compact) 14.dp else 17.dp)
     Row(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
-            .aeroFinishDrawing(AeroFinish.Inset, aeroFinishSpec(AeroFinish.Inset, highContrast), null)
-            .border(0.8.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.13f), shape)
+            .aeroFinishDrawing(material.finish, material.spec, null, shape)
+            .border(0.65.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.12f), shape)
             .selectableGroup()
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(if (compact) 3.dp else 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = content,
     )
@@ -87,19 +97,28 @@ fun AeroSegmentRail(
 @Composable
 fun AeroSegmentStack(
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
-    val shape = RoundedCornerShape(17.dp)
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Inset,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
+    val shape = RoundedCornerShape(if (compact) 14.dp else 17.dp)
     Column(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
             .background(if (highContrast) Color(0xFF111820) else Color(0xFF161D26))
-            .aeroFinishDrawing(AeroFinish.Inset, aeroFinishSpec(AeroFinish.Inset, highContrast), null)
-            .border(0.8.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.13f), shape)
+            .aeroFinishDrawing(material.finish, material.spec, null, shape)
+            .border(0.65.dp, Color.White.copy(alpha = if (highContrast) 0.8f else 0.12f), shape)
             .selectableGroup()
-            .padding(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(if (compact) 3.dp else 4.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 4.dp),
         content = content,
     )
 }
@@ -112,6 +131,7 @@ fun AeroSegmentedChoice(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     treatment: AeroSegmentTreatment = AeroSegmentTreatment.Rail,
+    compact: Boolean = false,
     testTag: String? = null,
 ) {
     val visual = LocalVisualPreferences.current
@@ -122,50 +142,151 @@ fun AeroSegmentedChoice(
         animationSpec = if (visual.reducedMotion) snap() else tween(durationMillis = 160),
         label = "aero_segment_ink",
     )
-    val shape = RoundedCornerShape(if (treatment == AeroSegmentTreatment.Rail) 13.dp else 14.dp)
+    val shape = RoundedCornerShape(
+        when {
+            compact -> 11.dp
+            treatment == AeroSegmentTreatment.Rail -> 13.dp
+            else -> 14.dp
+        },
+    )
     val colors = if (selected && contrast) listOf(Color(0xFF493440), Color(0xFF312834))
         else if (selected) listOf(Color(0xFF39303B), Color(0xFF282630))
         else if (treatment == AeroSegmentTreatment.Filter) listOf(Color(0xFF252C36), Color(0xFF1E252D))
         else listOf(Color.Transparent, Color.Transparent)
-    val border = if (selected) activeTint.copy(alpha = if (contrast) 0.85f else 0.36f)
+    val border = if (selected) activeTint.copy(alpha = if (contrast) 0.85f else if (compact) 0.30f else 0.36f)
         else if (contrast) Color.White.copy(alpha = 0.65f)
         else Color.White.copy(alpha = if (treatment == AeroSegmentTreatment.Filter) 0.13f else 0f)
+    val visualMinHeight = if (treatment == AeroSegmentTreatment.Filter) {
+        36.dp
+    } else {
+        aeroSegmentMinHeightDp(LocalConfiguration.current.fontScale).dp
+    }
     Box(
+        // The selectable host owns the 48dp touch target; the visible pill can be
+        // lighter without shrinking the hit area or changing semantics.
         modifier = modifier
-            .heightIn(min = aeroSegmentMinHeightDp(LocalConfiguration.current.fontScale).dp)
+            .heightIn(min = if (treatment == AeroSegmentTreatment.Filter) 48.dp else visualMinHeight)
             .clip(shape)
-            .background(Brush.verticalGradient(colors))
-            .border(if (contrast) 1.2.dp else 0.8.dp, border, shape)
             .selectable(
                 selected = selected,
                 role = if (treatment == AeroSegmentTreatment.Rail) Role.Tab else Role.Button,
                 onClick = onClick,
             )
-            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
-            .padding(horizontal = if (treatment == AeroSegmentTreatment.Filter) 15.dp else 8.dp, vertical = 8.dp),
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        // A single-word label such as "Personalizado" cannot wrap, so a fixed 13.sp
-        // broke it mid-word on a 320 dp screen. One line without soft wrap lets
-        // auto-size shrink it by at most 3.sp; multi-word labels keep two lines so
-        // they still wrap naturally before any shrinking happens.
-        val singleWord = label.none { it.isWhitespace() }
-        val maxLines = if (singleWord) 1 else 2
-        val softWrap = !singleWord
-        val autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 13.sp, stepSize = 0.5.sp)
-        BasicText(
-            text = label,
-            maxLines = maxLines,
-            softWrap = softWrap,
-            overflow = TextOverflow.Ellipsis,
-            autoSize = autoSize,
-            style = TextStyle(
-                color = ink,
-                fontFamily = InterFontFamily,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-            ),
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = visualMinHeight)
+                .clip(shape)
+                .background(Brush.verticalGradient(colors))
+                .border(if (contrast) 1.2.dp else 0.8.dp, border, shape)
+                .padding(
+                    horizontal = when {
+                        compact -> 8.dp
+                        treatment == AeroSegmentTreatment.Filter -> 15.dp
+                        else -> 8.dp
+                    },
+                    vertical = if (compact) 4.dp else 8.dp,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            // A single-word label such as "Personalizado" cannot wrap, so a fixed 13.sp
+            // broke it mid-word on a 320 dp screen. One line without soft wrap lets
+            // auto-size shrink it by at most 3.sp; multi-word labels keep two lines so
+            // they still wrap naturally before any shrinking happens.
+            val singleWord = label.none { it.isWhitespace() }
+            val maxLines = if (singleWord) 1 else 2
+            val softWrap = !singleWord
+            val autoSize = TextAutoSize.StepBased(
+                minFontSize = 10.sp,
+                maxFontSize = if (compact) 12.sp else 13.sp,
+                stepSize = 0.5.sp,
+            )
+            BasicText(
+                text = label,
+                maxLines = maxLines,
+                softWrap = softWrap,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (testTag != null) Modifier.testTag("${testTag}_label") else Modifier,
+                autoSize = autoSize,
+                style = TextStyle(
+                    color = ink,
+                    fontFamily = InterFontFamily,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = if (compact) 12.sp else 13.sp,
+                    lineHeight = if (compact) 17.sp else 19.sp,
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * Secondary filter chip: lighter than a tab rail or an action button while
+ * retaining the same 48 dp interaction contract and selected semantics.
+ */
+@Composable
+fun AeroFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String? = null,
+) {
+    val visual = LocalVisualPreferences.current
+    val contrast = visual.highContrast
+    val shape = RoundedCornerShape(50)
+    val ink by animateColorAsState(
+        targetValue = if (selected || contrast) PureWhite else TextSecondary,
+        animationSpec = if (visual.reducedMotion) snap() else tween(140),
+        label = "aero_filter_chip_ink",
+    )
+    Box(
+        // 48dp selectable host, 34dp visible chip. The extra transparent ring is
+        // intentional: it preserves the touch target without inflating the pill.
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .selectable(selected = selected, role = Role.Button, onClick = onClick)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .heightIn(min = 34.dp)
+                .clip(shape)
+                .background(
+                    if (selected) PrimaryPinkContainer.copy(alpha = if (contrast) 0.28f else 0.13f)
+                    else Color.Transparent,
+                )
+                .border(
+                    width = if (contrast) 1.1.dp else 0.6.dp,
+                    color = when {
+                        selected -> PrimaryPinkContainer.copy(alpha = if (contrast) 0.88f else 0.42f)
+                        contrast -> Color.White.copy(alpha = 0.7f)
+                        else -> Color.White.copy(alpha = 0.13f)
+                    },
+                    shape = shape,
+                )
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            BasicText(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = if (testTag != null) Modifier.testTag("${testTag}_label") else Modifier,
+                autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 12.sp, stepSize = 0.5.sp),
+                style = TextStyle(
+                    color = ink,
+                    fontFamily = InterFontFamily,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                ),
+            )
+        }
     }
 }

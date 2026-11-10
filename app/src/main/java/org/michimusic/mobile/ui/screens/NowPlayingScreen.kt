@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,6 +65,7 @@ import org.koin.compose.koinInject
 import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.ui.components.AlbumArtView
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
 import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroSignalRouteStrip
 import org.michimusic.mobile.ui.motion.AeroTrackArtworkMotion
@@ -71,6 +73,7 @@ import org.michimusic.mobile.ui.motion.AeroTrackTitleMotion
 import org.michimusic.mobile.ui.motion.aeroNowPlayingHeroEnter
 import org.michimusic.mobile.ui.motion.aeroDynamicMeshEnabled
 import org.michimusic.mobile.ui.components.EqualizerDialog
+import org.michimusic.mobile.ui.components.SignalTruthMobileSheet
 import org.michimusic.mobile.ui.components.GradientProgressBar
 import org.michimusic.mobile.ui.components.ProgressAppearance
 import org.michimusic.mobile.ui.components.MichiControlBadge
@@ -92,13 +95,28 @@ import org.michimusic.mobile.ui.theme.SurfaceContainerLowest
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.components.aeroFinishDrawing
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.SecondaryPurple
 import org.michimusic.mobile.playback.SignalTruthResolver
+import org.michimusic.mobile.playback.SignalTruthEvidencePolicy
+import org.michimusic.mobile.playback.SignalTruthOwnerPolicy
 import org.michimusic.player.AudioController
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import org.michimusic.mobile.ui.seeker.LocalWaveformDecoder
+import org.michimusic.mobile.ui.seeker.eligibleWaveformPath
+import org.michimusic.mobile.ui.theme.AeroSeekerStyle
+import org.michimusic.mobile.ui.theme.aeroSeekerVisibleFallback
+
+/** Never let a previous track's frame or an in-flight decode masquerade as "unavailable". */
+private data class SeekerWaveformState(
+    val key: String,
+    val amplitudes: List<Float>?,
+    val settled: Boolean,
+)
 
 private fun cycleSleepTimer(current: Long): Long = when {
     current <= 0L -> 15 * 60_000L
@@ -134,6 +152,48 @@ fun NowPlayingScreen(
     val safeDurationSeconds = if (seekableDuration) durationSeconds else 0f
     val safePositionSeconds = if (seekableDuration && positionSeconds.isFinite())
         positionSeconds.coerceIn(0f, safeDurationSeconds) else 0f
+
+    // UI5.11 visual data is neither a decoder in the playback chain nor Signal Truth.
+    // A change of track/source/authority/style invalidates the previous visual frame
+    // synchronously, avoiding a waveform from the preceding track during recomposition.
+    val visualPrefs = LocalVisualPreferences.current
+    val seekerStyle = visualPrefs.seekerStyle
+    val remoteHost = presentation.isRemoteActive && !presentation.isStreamReceiver
+    val waveformKey = listOf(
+        currentTrack?.id.orEmpty(), currentTrack?.filepath.orEmpty(),
+        currentTrack?.size.toString(), currentTrack?.duration.toString(),
+        presentation.duration.toString(),
+        currentTrack?.source.toString(), remoteHost.toString(),
+        seekerStyle.name, visualPrefs.highContrast.toString(),
+    ).joinToString(separator = "\u001f")
+    val contextForWaveform = LocalContext.current.applicationContext
+    val waveformSnapshot by produceState(
+        initialValue = SeekerWaveformState("", null, settled = false),
+        key1 = waveformKey,
+    ) {
+        value = SeekerWaveformState(waveformKey, null, settled = false)
+        val track = currentTrack
+        val wantsWaveform = seekerStyle == AeroSeekerStyle.WAVEFORM_BARS ||
+            seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS
+        val amplitudes = if (track != null && seekableDuration && !visualPrefs.highContrast && wantsWaveform) {
+            val path = eligibleWaveformPath(
+                track.filepath,
+                streamingSource = track.source == org.michimusic.core.models.TrackSource.STREAMING,
+                remoteHost = remoteHost,
+            )
+            val durationMs = track.duration.takeIf { it > 0 } ?: presentation.duration
+            path?.let { LocalWaveformDecoder.load(contextForWaveform, it, durationMs) }
+        } else null
+        value = SeekerWaveformState(waveformKey, amplitudes, settled = true)
+    }
+    val waveformFresh = waveformSnapshot.key == waveformKey
+    val seekerSamples = waveformSnapshot.amplitudes.takeIf { waveformFresh }
+    val seekerFallbackNotice = aeroSeekerVisibleFallback(
+        requested = seekerStyle,
+        amplitudes = seekerSamples,
+        highContrast = visualPrefs.highContrast,
+        waveformSettled = waveformFresh && waveformSnapshot.settled,
+    ).takeIf { seekableDuration }
 
     val isShuffle = presentation.shuffleMode == 1
     val repeatMode = presentation.repeatMode
@@ -181,16 +241,22 @@ fun NowPlayingScreen(
                 .padding(bottom = if (scrollablePlayer) 22.dp else 10.dp),
             verticalArrangement = Arrangement.spacedBy(if (compactLayout) 12.dp else 16.dp),
         ) {
-            val decoded = signalObservation.decodedFormat
-            val streamReceiver = sessionState.isRemoteActive && !activeEndpoint.isLocal &&
-                (activeEndpoint.type == EndpointType.STREAM_RECEIVER ||
-                    activeEndpoint.capabilities.contains("AUDIO_OUTPUT"))
+            val decoded = signalObservation.decodedFormat.takeIf {
+                SignalTruthOwnerPolicy.isVisibleTrackCurrent(
+                    signalObservation, currentTrack?.id?.toString())
+            }
+            // One shared policy for the capsule and technical inspector.
+            val streamReceiver = SignalTruthEvidencePolicy.isMichiStream(
+                sessionState.isRemoteActive, activeEndpoint, sessionManager.isStreamReceiver)
             val pcmLabel = if ((!sessionState.isRemoteActive || streamReceiver) &&
-                decoded != null && decoded.sampleRate > 0 && decoded.bitDepth > 0) {
+                decoded != null && SignalTruthEvidencePolicy.hasTimedTechnicalFormat(
+                    decoded, signalObservation.decodedObservedAtMs)) {
                 decodedPcmLabel(decoded.sampleRate, decoded.bitDepth)
             } else null
             val fileSummary = org.michimusic.mobile.playback.SignalSourcePresentation.describe(
-                if (sessionState.isRemoteActive && !streamReceiver) null else signalObservation.sourceFormat,
+                if (sessionState.isRemoteActive && !streamReceiver) null else
+                    signalObservation.sourceFormat.takeIf { SignalTruthOwnerPolicy.isVisibleTrackCurrent(
+                        signalObservation, currentTrack?.id?.toString()) },
                 currentTrack,
             )
             Row(
@@ -259,6 +325,7 @@ fun NowPlayingScreen(
                         .aeroNowPlayingHeroEnter(currentTrack != null),
                     cornerRadius = 18.dp,
                     inset = 4.dp,
+                    emphasis = AeroArtworkEmphasis.Hero,
                 ) {
                     AeroTrackArtworkMotion(
                         track = currentTrack,
@@ -347,6 +414,9 @@ fun NowPlayingScreen(
                     showThumb = true,
                     testTag = "now_playing_seeker",
                     appearance = ProgressAppearance.MICHI_AURORA,
+                    aeroStyle = seekerStyle,
+                    playing = isPlaying,
+                    waveformAmplitudes = seekerSamples,
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -364,6 +434,21 @@ fun NowPlayingScreen(
                         text = if (seekableDuration) formatTimeSeconds(safeDurationSeconds) else "—:—",
                         style = MichiTypography.microLabel,
                         color = Color(0xCCFFFFFF),
+                    )
+                }
+
+                seekerFallbackNotice?.let { notice ->
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = notice,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("now_playing_seeker_fallback"),
+                        style = MichiTypography.microLabel,
+                        color = Color(0x99FFFFFF),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -533,11 +618,12 @@ fun NowPlayingScreen(
         }
 
         if (showSignalTruthDialog) {
-            SignalTruthDialog(
+            SignalTruthMobileSheet(
                 observation = signalObservation,
                 activeEndpoint = sessionState.activeEndpoint,
                 currentTrack = currentTrack,
                 isRemote = sessionState.isRemoteActive,
+                streamSelectedBySession = sessionManager.isStreamReceiver,
                 onDismiss = { showSignalTruthDialog = false },
             )
         }
@@ -645,7 +731,15 @@ private fun SignalTruthDialog(
     isRemote: Boolean,
     onDismiss: () -> Unit,
 ) {
-    val floating = aeroMaterialStyle(AeroSurfaceRole.Floating, LocalVisualPreferences.current.highContrast)
+    val visual = LocalVisualPreferences.current
+    val floating = aeroMaterialStyle(AeroSurfaceRole.Floating, visual.highContrast)
+    val smokedMaterial = aeroResolveMaterial(
+        role = AeroSurfaceRole.Floating,
+        requestedFinish = AeroFinish.Smoked,
+        profile = visual.appearanceProfile,
+        highContrast = visual.highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val provenanceItems = remember(observation, activeEndpoint, currentTrack, isRemote) {
         SignalTruthResolver.resolveProvenance(
             observation = observation,
@@ -665,10 +759,10 @@ private fun SignalTruthDialog(
                 .clip(RoundedCornerShape(26.dp))
                 .background(floating.fill)
                 .aeroFinishDrawing(
-                    AeroFinish.Smoked,
-                    aeroFinishSpec(AeroFinish.Smoked, LocalVisualPreferences.current.highContrast)
-                        .copy(grainAlpha = 0f),
+                    smokedMaterial.finish,
+                    smokedMaterial.spec.copy(grainAlpha = 0f),
                     null,
+                    RoundedCornerShape(26.dp),
                 )
                 .border(floating.borderWidth, floating.outline, RoundedCornerShape(26.dp)),
         ) {

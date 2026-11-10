@@ -59,8 +59,9 @@ import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.screens.MediaLibraryState
-import org.michimusic.mobile.ui.components.AeroActionButton
-import org.michimusic.mobile.ui.components.AeroActionKind
+import org.michimusic.mobile.ui.components.AeroAlbumMicroActions
+import org.michimusic.mobile.ui.components.AeroArtworkEmphasis
+import org.michimusic.mobile.ui.components.AeroArtworkMat
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.AlbumArtView
@@ -135,9 +136,6 @@ fun AlbumDetailScreen(
     var feedback by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
     var activeModal by remember(albumId, activeScope) { mutableStateOf<AlbumDetailModal?>(null) }
     val configuration = LocalConfiguration.current
-    val actionLayout = albumActionLayout(
-        configuration.screenWidthDp, configuration.fontScale,
-    )
     val heroLayout = albumHeroLayout(configuration.screenWidthDp, configuration.fontScale)
     // Menu identity, not a captured Track/URI: a rescan may update preferred location.
     var selectedTrackMenuId by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
@@ -248,18 +246,25 @@ fun AlbumDetailScreen(
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val coverSize = (maxWidth * 0.36f).coerceIn(112.dp, 144.dp)
                             @Composable fun cover() {
-                                AlbumArtView(
-                                    coverStyle = coverStyleFor(album.album.coverId.ifBlank { album.album.title }),
-                                    imageModel = album.album.coverId,
-                                    fallbackMediaUri = tracks.firstOrNull()?.filepath,
-                                    // Shared artwork owns the spatial animation when the source tile is present.
-                                    // The existing one-shot reveal remains a safe fallback for other entry routes.
-                                    modifier = Modifier.size(coverSize)
-                                        .then(if (aeroSharedAlbumAvailable(albumId, reducedMotion)) Modifier
-                                            else Modifier.aeroAlbumHeroReveal(albumHeroVisible))
-                                        .aeroSharedAlbumArtwork(albumId, eligible = true, reducedMotion = reducedMotion),
+                                AeroArtworkMat(
+                                    modifier = Modifier.size(coverSize),
                                     cornerRadius = 16.dp,
-                                )
+                                    inset = 2.dp,
+                                    emphasis = AeroArtworkEmphasis.Hero,
+                                ) {
+                                    AlbumArtView(
+                                        coverStyle = coverStyleFor(album.album.coverId.ifBlank { album.album.title }),
+                                        imageModel = album.album.coverId,
+                                        fallbackMediaUri = tracks.firstOrNull()?.filepath,
+                                        // Shared artwork owns the spatial animation when the source tile is present.
+                                        // The existing one-shot reveal remains a safe fallback for other entry routes.
+                                        modifier = Modifier.fillMaxSize()
+                                            .then(if (aeroSharedAlbumAvailable(albumId, reducedMotion)) Modifier
+                                                else Modifier.aeroAlbumHeroReveal(albumHeroVisible))
+                                            .aeroSharedAlbumArtwork(albumId, eligible = true, reducedMotion = reducedMotion),
+                                        cornerRadius = 16.dp,
+                                    )
+                                }
                             }
                             @Composable fun description() {
                                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
@@ -301,59 +306,29 @@ fun AlbumDetailScreen(
                         }
                     }
                     item(key = "actions") {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (actionLayout == AlbumActionLayout.TWO_ROWS) {
-                            AeroActionButton(
-                                "Reproducir", onClick = { playSelection() },
-                                modifier = Modifier.fillMaxWidth(), icon = Icons.Filled.PlayArrow,
-                                kind = AeroActionKind.Primary, enabled = eligibleTracks.isNotEmpty(),
-                                testTag = "album_detail_play",
+                        // UI5: a single 156x48dp intrinsic-width strip; the 44/40/40dp
+                        // surfaces are visual only and every hit target stays >=48dp.
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            AeroAlbumMicroActions(
+                                onPlay = { playSelection() },
+                                onShuffle = { playSelection(shuffle = true) },
+                                onAddToPlaylist = { activeModal = AlbumDetailModal.PLAYLIST },
+                                playEnabled = eligibleTracks.isNotEmpty(),
+                                shuffleEnabled = eligibleTracks.isNotEmpty(),
+                                addToPlaylistEnabled = playlistActionState.enabled,
                             )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
-                            ) {
-                                MichiIconAction(
-                                    Icons.Filled.Shuffle, "Reproducir álbum aleatoriamente",
-                                    onClick = { playSelection(shuffle = true) },
-                                    enabled = eligibleTracks.isNotEmpty(), testTag = "album_detail_shuffle",
-                                )
-                                MichiIconAction(
-                                    Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
-                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST },
-                                    enabled = playlistActionState.enabled,
-                                    testTag = "album_detail_add_to_playlist",
-                                )
+                            playlistActionState.unavailableMessage?.let {
+                                Text(it, modifier = Modifier.fillMaxWidth(),
+                                    color = TextSecondary, fontSize = 12.sp)
                             }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                AeroActionButton(
-                                    "Reproducir", onClick = { playSelection() },
-                                    modifier = Modifier.weight(1f), icon = Icons.Filled.PlayArrow,
-                                    kind = AeroActionKind.Primary, enabled = eligibleTracks.isNotEmpty(),
-                                    testTag = "album_detail_play",
-                                )
-                                MichiIconAction(
-                                    Icons.Filled.Shuffle, "Reproducir álbum aleatoriamente",
-                                    onClick = { playSelection(shuffle = true) },
-                                    enabled = eligibleTracks.isNotEmpty(), testTag = "album_detail_shuffle",
-                                )
-                                MichiIconAction(
-                                    Icons.AutoMirrored.Filled.PlaylistAdd, "Añadir álbum a una lista",
-                                    onClick = { activeModal = AlbumDetailModal.PLAYLIST },
-                                    enabled = playlistActionState.enabled,
-                                    testTag = "album_detail_add_to_playlist",
-                                )
+                            feedback?.let {
+                                Text(it, modifier = Modifier.fillMaxWidth(),
+                                    color = PrimaryPinkContainer, fontSize = 12.sp)
                             }
-                        }
-                        playlistActionState.unavailableMessage?.let {
-                            Text(it, color = TextSecondary, fontSize = 12.sp)
-                        }
-                        feedback?.let { Text(it, color = PrimaryPinkContainer, fontSize = 12.sp) }
                         }
                     }
                     item(key = "list_heading") {

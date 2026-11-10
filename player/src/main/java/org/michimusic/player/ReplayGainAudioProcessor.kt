@@ -12,6 +12,10 @@ import org.michimusic.core.models.Track
 @OptIn(UnstableApi::class)
 class ReplayGainAudioProcessor : BaseAudioProcessor() {
 
+    /** Render-thread ramp; shared by 16/24/32-bit and floating PCM. */
+    private val liveRamp = ReplayGainGainRamp()
+    private val pcmReceipt = ReplayGainRenderEvidence()
+
     @Volatile
     private var volume = 1f
 
@@ -52,6 +56,8 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
     val currentReplayGainVolume: Float get() = if (isBypassed) 1f else replayGainVolume
     val currentDspPreampDb: Float get() = if (isBypassed) 0f else effectiveDspPreampDb
     val isGainActive: Boolean get() = !isBypassed && mode != ReplayGainMode.OFF && replayGainVolume != 1f
+    internal fun currentRenderReceipt(): ReplayGainRenderEvidence.Receipt? = pcmReceipt.snapshot()
+    internal fun invalidateRenderEvidence() { pcmReceipt.invalidate() }
 
     /** Set by the service from the DSP state, never directly from a Composable. */
     fun setUpstreamUnityProtection(enabled: Boolean) {
@@ -82,6 +88,8 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun applyGain(song: Track?) {
+        // Invalidate the previous buffer receipt before publishing a new target.
+        pcmReceipt.invalidate()
         if (song == null || isBypassed) {
             replayGainVolume = 1f
             effectiveDspPreampDb = 0f
@@ -133,34 +141,60 @@ class ReplayGainAudioProcessor : BaseAudioProcessor() {
         }
     }
 
+    override fun onFlush() {
+        // Media3 seek/format reconfiguration is a discontinuity: no gain from
+        // the prior AudioTrack epoch may be carried into the first new buffer.
+        liveRamp.reset()
+        pcmReceipt.invalidate()
+    }
+
     override fun queueInput(inputBuffer: ByteBuffer) {
         val pos = inputBuffer.position()
         val limit = inputBuffer.limit()
         val remaining = limit - pos
         if (remaining == 0) return
 
+        val encoding = inputAudioFormat.encoding
+        val bytesPerSample = when (encoding) {
+            C.ENCODING_PCM_16BIT -> 2
+            C.ENCODING_PCM_24BIT -> 3
+            C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4
+            else -> throw IllegalStateException("Unsupported ReplayGain PCM encoding: $encoding")
+        }
+        val channels = inputAudioFormat.channelCount
+        check(channels in 1..8 && remaining % (bytesPerSample * channels) == 0) {
+            "Incomplete ReplayGain PCM frame: $remaining bytes, $channels channels"
+        }
+        val frameBytes = bytesPerSample * channels
         val buffer = replaceOutputBuffer(remaining)
-
+        val renderRevision = pcmReceipt.captureRevision()
         val activeVol = if (isBypassed) 1f else volume
-        if (activeVol == 1f) {
+        liveRamp.prepare(activeVol, inputAudioFormat.sampleRate, protectUpstreamUnity)
+        if (liveRamp.isSteadyUnity) {
+            // Byte-exact bypass for PCM, including float NaN payloads.
             buffer.put(inputBuffer.slice())
             inputBuffer.position(limit)
             buffer.flip()
+            pcmReceipt.confirm(renderRevision, remaining / frameBytes, 0, 1f)
             return
         }
 
-        when (inputAudioFormat.encoding) {
-            C.ENCODING_PCM_16BIT -> processPcm16(inputBuffer, buffer, pos, limit, activeVol)
-            C.ENCODING_PCM_24BIT -> processPcm24(inputBuffer, buffer, pos, limit, activeVol)
-            C.ENCODING_PCM_32BIT -> processPcm32(inputBuffer, buffer, pos, limit, activeVol)
-            C.ENCODING_PCM_FLOAT -> processPcmFloat(inputBuffer, buffer, pos, limit, activeVol)
-            else -> {
-                buffer.put(inputBuffer.slice())
+        // Advance ONE envelope tick per multichannel PCM frame. Do not reset
+        // the ramp on each Media3 buffer or each left/right channel. No PCM
+        // coefficients, heap allocations or locks are created in this loop.
+        for (frameStart in pos until limit step frameBytes) {
+            val frameGain = liveRamp.nextFrameGain()
+            val frameEnd = frameStart + frameBytes
+            when (encoding) {
+                C.ENCODING_PCM_16BIT -> processPcm16(inputBuffer, buffer, frameStart, frameEnd, frameGain)
+                C.ENCODING_PCM_24BIT -> processPcm24(inputBuffer, buffer, frameStart, frameEnd, frameGain)
+                C.ENCODING_PCM_32BIT -> processPcm32(inputBuffer, buffer, frameStart, frameEnd, frameGain)
+                C.ENCODING_PCM_FLOAT -> processPcmFloat(inputBuffer, buffer, frameStart, frameEnd, frameGain)
             }
         }
-
         inputBuffer.position(limit)
         buffer.flip()
+        pcmReceipt.confirm(renderRevision, remaining / frameBytes, liveRamp.framesPending, liveRamp.renderedGain)
     }
 
     private fun processPcm16(

@@ -25,12 +25,15 @@ class HomeRecentIntegrityTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    private val historyDao = mockk<org.michimusic.data.cache.AppDao>(relaxed = true)
+
     @Test
     fun whenNoRecentHistory_doesNotDisplayRecientementeEscuchadasHeader() {
         val t1 = Track(id = "t1", title = "Track in Library", artist = "Artist", duration = 120)
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
         every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t1))
+        every { mockViewModel.albums } returns MutableStateFlow(emptyList())
         every { mockViewModel.recentTracks } returns MutableStateFlow(emptyList()) // No history
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
@@ -44,7 +47,7 @@ class HomeRecentIntegrityTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         // Must display honest title "De tu biblioteca" rather than falsely claiming "Recientemente Escuchadas"
@@ -60,6 +63,7 @@ class HomeRecentIntegrityTest {
         val mockViewModel = mockk<AlbumsViewModel>(relaxed = true)
         every { mockViewModel.mediaState } returns MutableStateFlow(MediaLibraryState.READY)
         every { mockViewModel.allTracks } returns MutableStateFlow(listOf(t1))
+        every { mockViewModel.albums } returns MutableStateFlow(emptyList())
         every { mockViewModel.recentTracks } returns MutableStateFlow(listOf(t1)) // Real history
         every { mockViewModel.topTracks } returns MutableStateFlow(emptyList())
         every { mockViewModel.favoriteTracks } returns MutableStateFlow(emptyList())
@@ -73,7 +77,7 @@ class HomeRecentIntegrityTest {
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
         composeTestRule.setContent {
-            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio)
+            HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
         composeTestRule.onNodeWithTag("home_scroll_list")

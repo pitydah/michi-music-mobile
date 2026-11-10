@@ -3,6 +3,12 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertHasNoClickAction
+import org.junit.Assert.assertEquals
+import io.mockk.verify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +34,83 @@ class QueueScreenTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Test
+    fun localRowClickJumpsWithinQueueWithoutReplacement() {
+        val mockSession = mockk<PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(PlaybackSessionState())
+        val mockAudio = mockk<AudioController>(relaxed = true)
+        val tracks = listOf(Track("A", "Canción A", "Artista"), Track("B", "Canción B", "Artista"))
+        every { mockAudio.state } returns MutableStateFlow(PlayerState(queue = tracks, queueIndex = 0))
+        every { mockAudio.isReady } returns MutableStateFlow(true)
+        val mockFavs = mockk<FavoritesRepository>(relaxed = true)
+        every { mockFavs.observeFavoriteTrackIds() } returns MutableStateFlow(emptySet())
+        composeTestRule.setContent { QueueScreen(sessionManager = mockSession, controller = mockAudio, favoritesRepo = mockFavs) }
+        composeTestRule.onNodeWithTag("queue_item_1").performClick()
+        verify(exactly = 1) { mockSession.skipToQueueIndex(1) }
+        verify(exactly = 0) { mockSession.playQueue(any(), any(), any()) }
+    }
+
+    @Test
+    fun pendingRemoteOperationDisablesQueueMutationsAndShowsFeedback() {
+        val remote = PlaybackEndpoint("desktop", "Studio Desktop", EndpointType.DESKTOP_PLAYER,
+            isLocal = false, isConnected = true)
+        val mockSession = mockk<PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(PlaybackSessionState(
+            activeEndpoint = remote, isRemoteActive = true,
+            queue = listOf(Track("A", "Canción A", "Artista")),
+            lastRemoteCommand = RemoteCommandRecord(
+                endpointId = "desktop", action = "jump_queue_index", status = RemoteCommandStatus.PENDING,
+            ),
+        ))
+        val mockAudio = mockk<AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(PlayerState())
+        every { mockAudio.isReady } returns MutableStateFlow(true)
+        val mockFavs = mockk<FavoritesRepository>(relaxed = true)
+        every { mockFavs.observeFavoriteTrackIds() } returns MutableStateFlow(emptySet())
+        composeTestRule.setContent { QueueScreen(sessionManager = mockSession, controller = mockAudio, favoritesRepo = mockFavs) }
+        composeTestRule.onNodeWithText("Sincronizando cambios de cola con Studio Desktop…").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("queue_remove_0").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("queue_item_0").assertHasNoClickAction()
+        verify(exactly = 0) { mockSession.skipToQueueIndex(any()) }
+    }
+
+    @Test
+    fun remoteDuplicateDeletionIsDisabledUntilOccurrenceIdentifiersExist() {
+        val remote = PlaybackEndpoint("desktop", "Studio Desktop", EndpointType.DESKTOP_PLAYER,
+            isLocal = false, isConnected = true)
+        val mockSession = mockk<PlaybackSessionManager>(relaxed = true)
+        val repeated = Track("A", "Canción duplicada", "Artista")
+        every { mockSession.sessionState } returns MutableStateFlow(PlaybackSessionState(
+            activeEndpoint = remote, isRemoteActive = true, queue = listOf(repeated, repeated),
+        ))
+        val mockAudio = mockk<AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(PlayerState())
+        every { mockAudio.isReady } returns MutableStateFlow(true)
+        val mockFavs = mockk<FavoritesRepository>(relaxed = true)
+        every { mockFavs.observeFavoriteTrackIds() } returns MutableStateFlow(emptySet())
+        composeTestRule.setContent { QueueScreen(sessionManager = mockSession, controller = mockAudio, favoritesRepo = mockFavs) }
+        composeTestRule.onNodeWithTag("queue_remove_0").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("queue_remove_1").assertIsNotEnabled()
+    }
+
+    @Test
+    fun queuePlaylistsNavigationDoesNotInventPlaylistId() {
+        val mockSession = mockk<PlaybackSessionManager>(relaxed = true)
+        every { mockSession.sessionState } returns MutableStateFlow(PlaybackSessionState())
+        val mockAudio = mockk<AudioController>(relaxed = true)
+        every { mockAudio.state } returns MutableStateFlow(PlayerState())
+        every { mockAudio.isReady } returns MutableStateFlow(true)
+        val mockFavs = mockk<FavoritesRepository>(relaxed = true)
+        every { mockFavs.observeFavoriteTrackIds() } returns MutableStateFlow(emptySet())
+        var calls = 0
+        composeTestRule.setContent { QueueScreen(
+            onNavigateToPlaylists = { calls++ },
+            sessionManager = mockSession, controller = mockAudio, favoritesRepo = mockFavs,
+        ) }
+        composeTestRule.onNodeWithTag("queue_open_playlists").performClick()
+        assertEquals(1, calls)
+    }
 
     @Test
     fun queueScreen_whenRemoteActiveAndEmpty_doesNotFallBackToLocalQueue() {

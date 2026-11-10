@@ -68,9 +68,11 @@ fun aeroFinishSpec(finish: AeroFinish, highContrast: Boolean): AeroFinishSpec {
     if (highContrast) return AeroFinishSpec(0f, 0f, 0f, 0f)
     return when (finish) {
         AeroFinish.Plain -> AeroFinishSpec(0f, 0f, 0f, 0f)
-        AeroFinish.Satin -> AeroFinishSpec(0.020f, 0.016f, 0.045f, 0f)
-        AeroFinish.Anodized -> AeroFinishSpec(0.038f, 0.022f, 0.090f, 0f)
-        AeroFinish.Smoked -> AeroFinishSpec(0.045f, 0.012f, 0.110f, 0f)
+        // All alphas remain within the existing <= 0.12 finish-policy tests.
+        // Increased separation is optical, not an elevation or layout change.
+        AeroFinish.Satin -> AeroFinishSpec(0.025f, 0.016f, 0.055f, 0f)
+        AeroFinish.Anodized -> AeroFinishSpec(0.042f, 0.022f, 0.102f, 0f)
+        AeroFinish.Smoked -> AeroFinishSpec(0.048f, 0.012f, 0.116f, 0f)
         AeroFinish.Inset -> AeroFinishSpec(0f, 0f, 0f, 0.120f)
     }
 }

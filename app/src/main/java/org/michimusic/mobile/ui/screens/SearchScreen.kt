@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MusicNote
@@ -77,6 +78,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
+import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.screens.SearchAlbumResult
 import org.michimusic.mobile.screens.SearchArtistResult
 import org.michimusic.mobile.screens.SearchFilter
@@ -119,10 +121,19 @@ import org.michimusic.player.AudioController
 fun SearchScreen(
     sessionManager: org.michimusic.mobile.playback.PlaybackSessionManager = koinInject(),
     viewModel: SearchViewModel = koinViewModel(),
+    onNavigateToPlaylist: (String) -> Unit = {},
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
     val structuredResults by viewModel.structuredResults.collectAsStateWithLifecycle()
+    // The real playlist repository is the only authority for playlist IDs/names.
+    // Keep its Flow stable across recompositions; never invent "smart" lists in search.
+    val playlistRepository: PlaylistRepository = koinInject()
+    val playlistFlow = remember(playlistRepository) { playlistRepository.observePlaylists() }
+    val searchablePlaylists by playlistFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val playlistEntries = remember(searchablePlaylists) {
+        searchablePlaylists.map { SearchPlaylistEntry(it.id, it.name, it.trackCount) }
+    }
     // Use StateFlow.value inside click handlers. rememberUpdatedState still lags
     // until recomposition and can replay a stale queue between two emissions.
     // The ViewModel stamps each emission with its query, filter and generation.
@@ -174,6 +185,12 @@ fun SearchScreen(
         // list has already passed DOWNLOADED filtering before it is emitted.
         searchActionPermitted(query, selectedFilter.name, "TRACK", item.track.title) &&
             (selectedFilter != SearchFilter.LOSSLESS || item.track.isLossless)
+    }
+    // Playlist matching is on the current query, not a debounced music snapshot.
+    val visiblePlaylists = remember(playlistEntries, query, selectedFilter) {
+        if (selectedFilter == SearchFilter.ALL || selectedFilter == SearchFilter.PLAYLISTS)
+            rankedPlaylistSearch(playlistEntries, query)
+        else emptyList()
     }
 
     fun playQueueSafe(tracks: List<Track>, index: Int) {
@@ -334,7 +351,7 @@ fun SearchScreen(
             Spacer(Modifier.height(MichiSpacing.md))
 
             // Results State
-            if (searchError != null && !isSearching) {
+            if (selectedFilter != SearchFilter.PLAYLISTS && searchError != null && !isSearching) {
                 Box(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 24.dp), contentAlignment = Alignment.TopCenter) {
                     Column(
                         modifier = Modifier
@@ -379,7 +396,8 @@ fun SearchScreen(
                         }
                     }
                 }
-            } else if (isSearching || (query.length >= 2 && currentResults().requestGeneration < 0L)) {
+            } else if (selectedFilter != SearchFilter.PLAYLISTS &&
+                (isSearching || (query.length >= 2 && currentResults().requestGeneration < 0L))) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -390,9 +408,14 @@ fun SearchScreen(
                         strokeWidth = 2.dp,
                     )
                 }
-            } else if (query.length < 2) {
+            } else if (query.isBlank()) {
                 SearchEmptyGuidance()
-            } else if (visibleArtists.isEmpty() && visibleAlbums.isEmpty() && visibleTracks.isEmpty()) {
+            } else if (query.trim().length < 2) {
+                Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.TopCenter) {
+                    Text("Escribe al menos 2 caracteres para buscar", color = TextSecondary,
+                        style = MichiTypography.metadata, modifier = Modifier.testTag("search_minimum_query_hint"))
+                }
+            } else if (visibleArtists.isEmpty() && visibleAlbums.isEmpty() && visibleTracks.isEmpty() && visiblePlaylists.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
@@ -411,7 +434,7 @@ fun SearchScreen(
                             color = PureWhite,
                         )
                         Text(
-                            text = "Prueba buscando por título, álbum o artista",
+                            text = "Prueba con una canción, álbum, artista o playlist",
                             style = MichiTypography.metadata,
                             color = TextSecondary,
                         )
@@ -423,6 +446,22 @@ fun SearchScreen(
                     contentPadding = PaddingValues(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(MichiSpacing.lg),
                 ) {
+                    // Playlist IDs are live, stable navigation destinations.
+                    if (visiblePlaylists.isNotEmpty()) {
+                        item {
+                            Text("Playlists", style = MichiTypography.sectionTitle,
+                                modifier = Modifier.testTag("search_playlists_heading"))
+                        }
+                        items(visiblePlaylists, key = { "playlist_${it.id}" }) { playlist ->
+                            SearchPlaylistRow(playlist) {
+                                val liveQuery = viewModel.query.value
+                                val liveFilter = viewModel.selectedFilter.value.name
+                                if (playlistSearchNavigationAllowed(playlist.id, liveQuery, liveFilter, playlistEntries)) {
+                                    onNavigateToPlaylist(playlist.id)
+                                }
+                            }
+                        }
+                    }
                     // 1. Artistas
                     if (visibleArtists.isNotEmpty()) {
                         item {
@@ -550,11 +589,38 @@ fun SearchScreen(
 }
 
 @Composable
+private fun SearchPlaylistRow(playlist: SearchPlaylistEntry, onClick: () -> Unit) {
+    AeroCard(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp)
+            .testTag("search_playlist_${playlist.id}"),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null,
+                tint = PrimaryPinkContainer, modifier = Modifier.size(28.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(playlist.name, color = PureWhite, style = MichiTypography.trackTitle,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = if (playlist.trackCount == 1) "1 pista registrada"
+                        else "${playlist.trackCount} pistas registradas",
+                    style = MichiTypography.metadata, color = TextSecondary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SearchEmptyGuidance() {
     AeroEmptyEditorial(
         eyebrow = "EXPLORACIÓN PERSONAL",
         title = "Toda tu música, a una búsqueda.",
-        description = "Encuentra canciones, artistas y álbumes del teléfono y de tu biblioteca sincronizada. Empieza escribiendo arriba.",
+        description = "Encuentra canciones, artistas, álbumes y playlists de tu biblioteca. Empieza escribiendo arriba.",
         icon = Icons.Default.Search,
         modifier = Modifier.padding(top = 20.dp).testTag("search_empty_editorial"),
     )
@@ -696,10 +762,21 @@ private fun TrackSearchRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${track.artist} · ${track.album}",
+                    text = listOfNotNull(track.artist.takeIf { it.isNotBlank() },
+                        track.album.takeIf { it.isNotBlank() }).joinToString(" · "),
                     style = MichiTypography.metadata,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = listOfNotNull(
+                        source.takeIf { it.isNotBlank() },
+                        track.format.takeIf { it.isNotBlank() },
+                    ).joinToString(" · "),
+                    style = MichiTypography.metadata,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("search_track_origin_${track.id}"),
                 )
             }
 

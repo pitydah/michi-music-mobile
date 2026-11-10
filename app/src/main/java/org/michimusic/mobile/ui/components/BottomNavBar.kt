@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -26,8 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -41,9 +39,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.michimusic.mobile.ui.motion.aeroDockSelectionEmphasis
+import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.motion.aeroDockPanelOpacity
 import org.michimusic.mobile.ui.motion.aeroDockBorderOpacity
-import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.MichiShapes
@@ -65,18 +63,22 @@ data class NavTabItem(
 )
 
 /**
- * Phosphor Icons (MIT) for the four dock destinations. Geometry comes straight
+ * Phosphor Icons (MIT) for the five dock destinations. Geometry comes straight
  * from phosphoricons.com at the 256 viewport: no hand-drawn Canvas glyph remains
  * and the Wi-Fi mark identifies Devices without tracking signal strength.
  */
 val defaultNavTabs = listOf(
     NavTabItem("home", "Inicio", R.drawable.ic_dock_home),
     NavTabItem("library", "Biblioteca", R.drawable.ic_dock_library),
+    NavTabItem("playlist", "Playlists", R.drawable.ic_dock_playlists),
     NavTabItem("search", "Buscar", R.drawable.ic_dock_search),
     NavTabItem("devices", "Dispositivos", R.drawable.ic_dock_devices),
 )
 
 internal enum class DockLayout { SINGLE_ROW, TWO_BY_TWO }
+
+// Longest label ("Dispositivos") at the 8.sp floor, before Android font scaling.
+private const val MIN_DOCK_LABEL_WIDTH_DP = 48f
 
 internal fun dockLayout(screenWidthDp: Int, fontScale: Float): DockLayout =
     if (screenWidthDp <= 412 && fontScale.isFinite() && fontScale >= 1.7f) {
@@ -84,6 +86,27 @@ internal fun dockLayout(screenWidthDp: Int, fontScale: Float): DockLayout =
     } else {
         DockLayout.SINGLE_ROW
     }
+
+// Five destinations stay on one compact row whenever the shortest readable
+// label fits. The fallback is driven by available width per tab and font scale,
+// never by an arbitrary 520 dp breakpoint or merely by the fifth destination.
+internal fun dockLayoutForTabCount(screenWidthDp: Int, fontScale: Float, tabCount: Int): DockLayout {
+    if (tabCount < 5) return dockLayout(screenWidthDp, fontScale)
+    if (!fontScale.isFinite()) return DockLayout.SINGLE_ROW
+
+    // Keep the first configurable normal-size row intact even at 320 dp.
+    if (fontScale <= 1.02f) return DockLayout.SINGLE_ROW
+
+    val outer = if (screenWidthDp <= 340) 10f else 16f
+    val inner = if (screenWidthDp <= 340) 4f else 8f
+    val labelBudget = (screenWidthDp - outer * 2f - inner * 2f) / tabCount - 8f
+    val minimumReadableLabel = MIN_DOCK_LABEL_WIDTH_DP * fontScale
+    return if (labelBudget < minimumReadableLabel) {
+        DockLayout.TWO_BY_TWO // legacy name: stacked fallback for high text scales
+    } else {
+        DockLayout.SINGLE_ROW
+    }
+}
 
 @Composable
 fun BottomNavBar(
@@ -94,8 +117,10 @@ fun BottomNavBar(
     selectedRoute: String? = currentRoute,
 ) {
     val configuration = LocalConfiguration.current
-    val layout = dockLayout(configuration.screenWidthDp, configuration.fontScale)
-    val dockHeight = if (layout == DockLayout.TWO_BY_TWO) 144.dp else aeroDockHeightDp(configuration.fontScale).dp
+    val layout = dockLayoutForTabCount(configuration.screenWidthDp, configuration.fontScale, tabs.size)
+    val dockHeight = if (layout == DockLayout.TWO_BY_TWO) {
+        if (tabs.size >= 5 && configuration.fontScale >= 1.7f) 190.dp else 144.dp
+    } else aeroDockHeightDp(configuration.fontScale).dp
     val highContrast = org.michimusic.mobile.ui.theme.LocalVisualPreferences.current.highContrast
     // Native Compose equivalent of a fixed, responsive bottom glass navigation.
     // This is not a WebView: HTML/CSS cannot style the Android navigation surface.
@@ -117,7 +142,9 @@ fun BottomNavBar(
         ) {
             if (layout == DockLayout.TWO_BY_TWO) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    tabs.chunked(2).forEach { rowTabs ->
+                    // Keep five tabs on two lines rather than 2+2+1, which would
+                    // shrink the third row below the minimum accessible touch size.
+                    tabs.chunked(if (tabs.size >= 5) 3 else 2).forEach { rowTabs ->
                         Row(Modifier.fillMaxWidth().weight(1f)) {
                             rowTabs.forEach { tab ->
                                 DockTab(
@@ -181,6 +208,8 @@ private fun DockTab(
     )
     Box(
         modifier = modifier
+            // Keep the 48 dp touch target after removing the decorative accent line.
+            .heightIn(min = MichiSpacing.minTouchTarget)
             .clip(MichiShapes.md)
             .background(PrimaryPinkContainer.copy(alpha = aeroDockPanelOpacity(emphasis, highContrast)))
             .border(
@@ -207,11 +236,6 @@ private fun DockTab(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(
-                Modifier.size(width = 24.dp, height = 2.dp).clip(RoundedCornerShape(2.dp))
-                    .background(itemColor.copy(alpha = emphasis)),
-            )
-            Spacer(modifier = Modifier.height(4.dp))
             Icon(
                 painter = painterResource(tab.iconRes),
                 contentDescription = null,
@@ -222,11 +246,11 @@ private fun DockTab(
             BasicText(
                 text = tab.label,
                 modifier = Modifier.testTag("nav_label_${tab.route}"),
-                maxLines = 1,
-                softWrap = false,
+                maxLines = if (preserveFullLabelSize) 2 else 1,
+                softWrap = preserveFullLabelSize,
                 overflow = TextOverflow.Ellipsis,
                 autoSize = if (preserveFullLabelSize) null else TextAutoSize.StepBased(
-                    minFontSize = 7.sp,
+                    minFontSize = 8.sp,
                     maxFontSize = 11.sp,
                     stepSize = 0.5.sp,
                 ),

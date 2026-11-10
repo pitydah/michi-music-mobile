@@ -19,7 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.DevicesOther
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.DropdownMenu
@@ -53,7 +55,8 @@ import org.michimusic.mobile.playback.EndpointType
 import org.michimusic.mobile.ui.theme.AeroGraphite
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.AeroFinish
-import org.michimusic.mobile.ui.theme.aeroFinishSpec
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
+import org.michimusic.mobile.ui.theme.aeroResolveMaterial
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.InterFontFamily
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
@@ -101,11 +104,21 @@ fun AeroLibraryFeature(
     onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Raised,
+        requestedFinish = AeroFinish.Anodized,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val shape = RoundedCornerShape(25.dp)
     // One opt-in machined finish over the EXISTING Aero hero gradient.
     // Colorful artwork remains the focal point; no animated blur and no second border.
-    val grain = if (highContrast) null else ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    val grain = if (material.spec.grainAlpha > 0f) {
+        ImageBitmap.imageResource(R.drawable.aero_graphite_grain)
+    } else null
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth()
             .clip(shape)
@@ -116,9 +129,10 @@ fun AeroLibraryFeature(
                 ),
             )
             .aeroFinishDrawing(
-                AeroFinish.Anodized,
-                aeroFinishSpec(AeroFinish.Anodized, highContrast),
+                material.finish,
+                material.spec,
                 grain,
+                shape,
             )
             .border(if (highContrast) 1.4.dp else 0.75.dp,
                 if (highContrast) Color.White.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.20f), shape)
@@ -143,7 +157,12 @@ fun AeroLibraryFeature(
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 17.dp),
             ) {
                 val coverSize = if (compact) 100.dp else 128.dp
-                AeroArtworkMat(modifier = Modifier.size(coverSize), cornerRadius = 13.dp, inset = 3.dp) {
+                AeroArtworkMat(
+                    modifier = Modifier.size(coverSize),
+                    cornerRadius = 13.dp,
+                    inset = 3.dp,
+                    emphasis = AeroArtworkEmphasis.Featured,
+                ) {
                     AlbumArtView(
                         coverStyle = coverStyleFor(featuredTrack.coverId.ifEmpty { featuredTrack.title }),
                         imageModel = featuredTrack.coverId,
@@ -221,8 +240,16 @@ fun AeroSignalRouteStrip(
     onDestinationClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
+    val visual = LocalVisualPreferences.current
+    val highContrast = visual.highContrast
     val fontScale = LocalDensity.current.fontScale
+    val material = aeroResolveMaterial(
+        role = AeroSurfaceRole.Content,
+        requestedFinish = AeroFinish.Satin,
+        profile = visual.appearanceProfile,
+        highContrast = highContrast,
+        microtexturesEnabled = visual.microtexturesEnabled,
+    )
     val shape = RoundedCornerShape(18.dp)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val stacked = aeroM60StackSignal(maxWidth.value, fontScale)
@@ -234,9 +261,10 @@ fun AeroSignalRouteStrip(
                 .clip(shape)
                 .background(if (highContrast) Color(0xFF161D27) else Color(0xFF211A30))
                 .aeroFinishDrawing(
-                    AeroFinish.Satin,
-                    aeroFinishSpec(AeroFinish.Satin, highContrast).copy(grainAlpha = 0f),
+                    material.finish,
+                    material.spec.copy(grainAlpha = 0f),
                     null,
+                    shape,
                 )
                 .border(
                     width = if (highContrast) 1.2.dp else 0.75.dp,
@@ -428,7 +456,7 @@ fun MichiControlBadge(
 ) {
     val entries = (listOf(PlaybackEndpoint.LocalPhone) + endpoints + activeEndpoint).distinctBy { it.id }
     Box(modifier = modifier) {
-        // Keep a 48dp actionable target while drawing a lighter 40dp pill.
+        // Keep a 48dp actionable target while drawing a lighter 34dp pill.
         // One click owner prevents nested pointer/semantics handlers.
         Box(
             modifier = Modifier
@@ -439,7 +467,7 @@ fun MichiControlBadge(
                     contentDescription = "Michi Control: ${activeEndpoint.name}. Abrir reproductores disponibles"
                 }
                 .testTag("michi_control_badge")
-                .padding(vertical = 4.dp),
+                .padding(vertical = 7.dp),
             contentAlignment = Alignment.Center,
         ) {
             Surface(
@@ -448,29 +476,33 @@ fun MichiControlBadge(
                 border = androidx.compose.foundation.BorderStroke(0.65.dp, Color.White.copy(alpha = 0.16f)),
             ) {
                 Row(
-                    modifier = Modifier.heightIn(min = 40.dp)
-                        .padding(horizontal = 9.dp),
+                    modifier = Modifier.heightIn(min = 34.dp)
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(Modifier.size(5.dp).background(
+                    Box(Modifier.size(4.dp).background(
                         if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan
                         else Color(0xFF647181), CircleShape))
                     Icon(
-                        imageVector = when {
-                            activeEndpoint.isLocal -> Icons.Filled.Headphones
-                            activeEndpoint.type == EndpointType.SERVER -> Icons.Filled.Dns
-                            else -> Icons.Filled.Speaker
+                        imageVector = when (michiControlGlyph(activeEndpoint)) {
+                            MichiControlGlyph.PHONE -> Icons.Filled.PhoneAndroid
+                            MichiControlGlyph.DESKTOP -> Icons.Filled.Computer
+                            MichiControlGlyph.SERVER -> Icons.Filled.Dns
+                            MichiControlGlyph.RECEIVER -> Icons.Filled.Speaker
+                            MichiControlGlyph.ROOM,
+                            MichiControlGlyph.UNKNOWN,
+                            -> Icons.Filled.DevicesOther
                         },
                         contentDescription = null,
                         tint = if (activeEndpoint.isLocal || activeEndpoint.isConnected) TertiaryCyan else TextSecondary,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(17.dp),
                     )
                     Text(activeEndpoint.name, color = PureWhite, fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 136.dp))
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 132.dp))
                     Icon(Icons.Filled.ExpandMore, contentDescription = null,
-                        tint = TextSecondary, modifier = Modifier.size(14.dp))
+                        tint = TextSecondary, modifier = Modifier.size(13.dp))
                 }
             }
         }
@@ -479,6 +511,7 @@ fun MichiControlBadge(
             onDismissRequest = onDismiss,
             modifier = Modifier.widthIn(min = 240.dp, max = 320.dp)
                 .background(AeroGraphiteRaised)
+                .aeroMenuTopLight(LocalVisualPreferences.current.highContrast)
                 .testTag("michi_control_menu"),
         ) {
             Text("MICHI CONTROL", color = TertiaryCyan, fontSize = 11.sp,

@@ -1,22 +1,31 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import io.mockk.mockk
 import io.mockk.verify
+import java.io.ByteArrayInputStream
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,6 +38,7 @@ import org.michimusic.data.repository.PlaylistRepository
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.player.AudioController
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -37,6 +47,14 @@ class PlaylistDetailScreenTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+    @Before
+    fun clearVisualPreferences() {
+        RuntimeEnvironment.getApplication()
+            .getSharedPreferences("michi_settings", 0).edit().clear().commit()
+        File(RuntimeEnvironment.getApplication().filesDir, PLAYLIST_PRIVATE_IMAGE_DIRECTORY)
+            .deleteRecursively()
+    }
 
     // Dispatchers.Unconfined resolves the fake repo's (non-suspending) result
     // synchronously, so the ViewModel's state is settled before first composition.
@@ -313,8 +331,9 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("playlist_detail_remove_track_t2").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t2").assertIsDisplayed()
     }
 
     @Test
@@ -329,6 +348,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
 
         composeTestRule.onNodeWithTag("remove_track_dialog").assertIsDisplayed()
@@ -347,6 +367,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_cancel_button").performClick()
 
@@ -370,6 +391,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -391,6 +413,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = { backCalled = true }, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -476,6 +499,8 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag("playlist_detail_track_c"))
         composeTestRule.onNodeWithTag("playlist_detail_track_c").performClick()
 
         verify(exactly = 1) { mockAudio.playQueue(tracks, 2) }
@@ -515,6 +540,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -611,6 +637,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_delete_menu_item").performClick()
         composeTestRule.onNodeWithTag("delete_playlist_dialog_confirm_button").performClick()
 
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { backCalled }
         assertTrue(backCalled)
     }
 
@@ -660,7 +687,7 @@ class PlaylistDetailScreenTest {
 
         composeTestRule.onNodeWithTag("playlist_detail_options_button").assertIsDisplayed()
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
@@ -862,7 +889,7 @@ class PlaylistDetailScreenTest {
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
 
         // Remove track (3C) is still available.
-        composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").assertIsDisplayed()
 
         // Add-tracks selector (3B) still opens.
         composeTestRule.onNodeWithTag("playlist_detail_add_tracks_button").performClick()
@@ -926,6 +953,7 @@ class PlaylistDetailScreenTest {
         }
 
         composeTestRule.onNodeWithText("1 canción").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_a").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -1089,6 +1117,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
 
+        composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_b").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
 
@@ -1109,12 +1138,16 @@ class PlaylistDetailScreenTest {
         }
 
         // Move "c" up twice: [a, b, c] -> [a, c, b] -> [c, a, b].
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag("playlist_detail_track_c"))
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
 
         // "c" is now first, so it can no longer move up...
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag("playlist_detail_track_c"))
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").assertIsNotEnabled()
 
@@ -1148,5 +1181,145 @@ class PlaylistDetailScreenTest {
         assertEquals("c" to MoveDirection.UP, repo.moveTrackCalledWith)
         composeTestRule.onNodeWithTag("playlist_detail_track_a").assertIsDisplayed()
         composeTestRule.onNodeWithTag("playlist_detail_track_c").assertIsDisplayed()
+    }
+
+    // --- UI5-PL-05: empty state and add action ---
+
+    @Test
+    fun `empty playlist hides density toggle and offers a primary add action`() {
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Vacia", trackCount = 0),
+            deviceTracks = listOf(Track(id = "d1", title = "Discovery", artist = "New Artist")),
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_empty_state").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("playlist_detail_density_toggle").assertCountEquals(0)
+        composeTestRule.onNodeWithTag("playlist_detail_empty_add_tracks")
+            .assertExists()
+            .performSemanticsAction(SemanticsActions.OnClick)
+        composeTestRule.onNodeWithTag("add_tracks_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Discovery").assertIsDisplayed()
+    }
+
+    @Test
+    fun `non empty playlist keeps density toggle and does not show empty action`() {
+        val tracks = listOf(Track(id = "a", title = "Track A"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a"), trackCount = 1),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_density_toggle").assertIsDisplayed()
+        composeTestRule.onAllNodesWithTag("playlist_detail_empty_add_tracks").assertCountEquals(0)
+    }
+
+    // --- UI5-PL-01 / PL-02 / PL-04: unified hero and two-field editor ---
+
+    @Test
+    fun `unified hero keeps playlist visual tags with no banner`() {
+        composeTestRule.setContent {
+            PlaylistVisualHero(
+                id = "p1",
+                title = "Mix",
+                trackCount = 1,
+                coverIds = emptyList(),
+                visual = PlaylistVisualState(),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("playlist_visual_hero_p1", useUnmergedTree = true).assertExists()
+        composeTestRule.onNodeWithTag("playlist_visual_cover", useUnmergedTree = true).assertExists()
+        composeTestRule.onNodeWithTag("playlist_detail_title", useUnmergedTree = true).assertExists()
+        composeTestRule.onNodeWithTag("playlist_detail_track_count", useUnmergedTree = true).assertExists()
+        composeTestRule.onAllNodesWithTag("playlist_visual_banner", useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun `appearance editor exposes independent cover and banner fields and cancel saves nothing`() {
+        val tracks = listOf(Track(id = "a", title = "Track A"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a"), trackCount = 1),
+            tracks = tracks,
+        )
+        val prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("michi_settings", 0)
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_edit_visual").performClick()
+
+        composeTestRule.onNodeWithTag("playlist_visual_editor").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Editar apariencia de playlist").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_visual_editor_cover_preview")
+            .performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_visual_editor_banner_preview")
+            .performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_visual_editor_cover_pick")
+            .performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_visual_editor_banner_pick")
+            .performScrollTo().assertIsDisplayed()
+
+        composeTestRule.onNodeWithTag("playlist_visual_editor_cancel")
+            .performScrollTo().performClick()
+
+        composeTestRule.onAllNodesWithTag("playlist_visual_editor").assertCountEquals(0)
+        assertFalse(prefs.contains(playlistVisualKey("p1", "cover_focal_x")))
+        assertFalse(prefs.contains(playlistVisualKey("p1", "banner_scale")))
+    }
+
+    @Test
+    fun `confirming appearance editor persists scale without replacing the private image`() {
+        val context = RuntimeEnvironment.getApplication()
+        val prefs = context.getSharedPreferences("michi_settings", 0)
+        val importer = PlaylistPrivateImageImporter(context)
+        val bytes = PlaylistTestImages.png64x32
+        val imported = importer.importFromStream(
+            "p1", "banner", "image/png", bytes.size.toLong(), ByteArrayInputStream(bytes),
+        ) as PlaylistImageImportResult.Success
+        prefs.edit().putString(playlistVisualKey("p1", "banner"), imported.token).commit()
+        val tracks = listOf(Track(id = "a", title = "Track A"))
+        val viewModel = viewModelWithPlaylist(
+            Playlist(id = "p1", name = "Mix", trackIds = listOf("a"), trackCount = 1),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_options_button").performClick()
+        composeTestRule.onNodeWithTag("playlist_detail_edit_visual").performClick()
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("playlist_visual_editor_banner_adjust").assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+        composeTestRule.onNodeWithTag("playlist_visual_editor_banner_adjust")
+            .performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("playlist_visual_editor_banner_scale")
+            .performScrollTo()
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
+        composeTestRule.onNodeWithTag("playlist_visual_editor_confirm")
+            .performScrollTo()
+            .performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            prefs.getFloat(playlistVisualKey("p1", "banner_scale"), 1f) >= 1.9f
+        }
+        assertEquals(2f, prefs.getFloat(playlistVisualKey("p1", "banner_scale"), 1f), 0.001f)
+        assertEquals(imported.token, prefs.getString(playlistVisualKey("p1", "banner"), null))
+        assertTrue(requireNotNull(importer.resolve(imported.token)).isFile)
     }
 }
