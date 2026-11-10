@@ -407,9 +407,10 @@ Workflow `b17f738d7f3ca6022094235b1566b319`.
 - Parche acumulativo: SHA-256 `ed5955e19eb2305b93963013e980d670d8766b595e6639ba9851b32d569ec1fc`,
   idéntico al valor requerido.
 - Base de trabajo: `master@1cf321b007f80bbd99bdba3f8ab81d17cd664764`.
-  No se creó rama, PR, commit ni push; el árbol queda con los cambios
-  reconciliados sin publicar, según la instrucción de no publicar sin
-  autorización.
+  Integración publicada en `master@fbfe0ac4878309352b599e285f8819917c38289b`
+  tras autorización expresa; sin rama ni PR nueva, sin release.
+- Diff reconciliado: `/tmp/opencode/ui23/reconciled.diff`, 58 archivos,
+  138 hunks, SHA-256 `6a6f110d5abef1a7b3ce37a9ace6464362f19b52a717d951973a50975ba7ac04`.
 
 ### Bloqueos corregidos
 
@@ -485,6 +486,7 @@ Workflow `b17f738d7f3ca6022094235b1566b319`.
 | `lint` | PASS |
 | `assembleNormalDebug`, `assembleNormalRelease`, `assembleFdroidDebug`, `assembleFdroidRelease` | PASS |
 | `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **93 tests, 0 fallos, 8 skipped** |
+| CI exacta `42873732379` sobre `fbfe0ac` | **8/8 PASS**, incluido Quality Gate |
 
 La caché de transforms de Gradle estaba corrupta en el entorno local; se
 detuvo el daemon y se movió únicamente esa caché a `/tmp/opencode` para
@@ -495,8 +497,8 @@ Gradle ni código para ocultar el fallo.
 
 - **GO_CODE:** sí. Compila, Room 8→9 exporta y migra, y las suites unitarias y
   de composición ejecutadas pasan.
-- **GO_CI:** pendiente. No se ha hecho commit/push ni existe un SHA publicado
-  con CI exacta; no se puede reutilizar la CI de `1cf321b`.
+- **GO_CI:** sí. `master@fbfe0ac` pasó la CI exacta `42873732379` con 8/8 jobs,
+  incluido Quality Gate. No se reutilizó ninguna CI anterior.
 - **GO_VISUAL:** pendiente. Falta aprobación visual/física en dispositivo real;
   el AVD API 36 no certifica materiales, TalkBack, rotación, batería ni jank.
 - **GO_RELEASE:** NO-GO. No hay autorización de release, no se ha validado
