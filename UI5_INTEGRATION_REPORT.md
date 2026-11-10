@@ -265,12 +265,31 @@ Workflow `b17f738d7f3ca6022094235b1566b319`.
 | `:app:connectedNormalDebugAndroidTest` API 36 | **92 tests, 0 fallos, 8 skipped** |
 | Builds release locales | BLOQUEADO por metadata corrupta de transform de Gradle (`/home/cristian/.gradle/caches/8.13/transforms/6e33aecd...`); la CI debe ser la autoridad |
 
+### M4 UI5-EDITORIAL-05 — controles compactos y Home editorial
+
+- `AeroSegmentedChoice` con `treatment = Filter` conserva un objetivo táctil de
+  48 dp y dibuja un riel visual de 36 dp. `AeroFilterChip` conserva 48 dp y
+  dibuja una píldora de 34 dp. Semántica, rol, selección y testTags no cambian.
+- Playlists sustituye los dos botones grandes de orden por un único
+  `AeroFilterChip` «Ordenar: …» y un `DropdownMenu` con `Nombre` y `Más
+  canciones`. El contenedor `playlist_catalog_sort` se mantiene; las opciones
+  `playlist_sort_name` y `playlist_sort_tracks` viven dentro del menú.
+- El hero de Inicio ya se construye exclusivamente con pistas, álbumes y
+  playlists indexados reales y declara «SELECCIÓN DE TU BIBLIOTECA». La auditoría
+  no encontró una fuente fiable de última playlist reproducida ni de origen de
+  cola; no se añadió una tarjeta inteligente inventada ni se prometió
+  `Continuar` sin sesión recuperable.
+- Validación local M4: `PlaylistNoopRegressionTest`, `PlaylistDetailScreenTest`,
+  `Ui5PolishComposeTest`, suite Normal/F-Droid completa, lint, builds Normal
+  debug/F-Droid debug y API 36 instrumentation **92 tests, 0 fallidos, 8
+  skipped** (workflow `b17f738d7f3ca6022094235b1566b319`, run 0020).
+
 ### Pendiente
 
-- M4 UI5-EDITORIAL-05: controles compactos y Home editorial inteligente.
 - M5 auditoría acumulada, CI exacta del nuevo HEAD y certificación física.
-- La CI exacta de `95133dd` sigue siendo 8/8 verde. El SHA final de este
-  incremento y su CI exacta se registran en el PR #18; el PR permanece en draft.
+- La CI exacta de `95133dd`/`a837354` sigue siendo 8/8 verde. El SHA final de
+  este incremento y su CI exacta se registran en el PR #18; el PR permanece en
+  draft.
 
 ## Evidencia local
 

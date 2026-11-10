@@ -88,6 +88,7 @@ class PlaylistNoopRegressionTest {
         }
 
         composeTestRule.onNodeWithTag("playlist_catalog_sort").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_sort_trigger").assertIsDisplayed().performClick()
         composeTestRule.onNodeWithTag("playlist_sort_name").assertIsDisplayed()
         composeTestRule.onNodeWithTag("playlist_sort_tracks").assertIsDisplayed()
     }

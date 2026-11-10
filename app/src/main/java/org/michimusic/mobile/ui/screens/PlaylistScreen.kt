@@ -26,6 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -83,6 +85,7 @@ fun PlaylistScreen(
     val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
     var visualById by remember { mutableStateOf<Map<String, PlaylistVisualState>>(emptyMap()) }
     var catalogSort by remember { mutableStateOf(PlaylistCatalogSort.NAME) }
+    var showSortMenu by remember { mutableStateOf(false) }
     val visualScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.loadPlaylists() }
@@ -158,24 +161,36 @@ fun PlaylistScreen(
                     modifier = Modifier.padding(top = 8.dp).testTag("playlist_catalog_summary"),
                 )
                 Spacer(Modifier.height(7.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth().testTag("playlist_catalog_sort"),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
+                Box(modifier = Modifier.testTag("playlist_catalog_sort")) {
                     AeroFilterChip(
-                        label = "Nombre", selected = catalogSort == PlaylistCatalogSort.NAME,
-                        onClick = {
-                            catalogSort = PlaylistCatalogSort.NAME
-                            visualScope.launch { visualStore.setCatalogSort(catalogSort) }
-                        }, testTag = "playlist_sort_name",
+                        label = "Ordenar: " + if (catalogSort == PlaylistCatalogSort.NAME) "Nombre" else "Más canciones",
+                        selected = true,
+                        onClick = { showSortMenu = true },
+                        testTag = "playlist_sort_trigger",
                     )
-                    AeroFilterChip(
-                        label = "Más canciones", selected = catalogSort == PlaylistCatalogSort.TRACKS,
-                        onClick = {
-                            catalogSort = PlaylistCatalogSort.TRACKS
-                            visualScope.launch { visualStore.setCatalogSort(catalogSort) }
-                        }, testTag = "playlist_sort_tracks",
-                    )
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Nombre") },
+                            onClick = {
+                                showSortMenu = false
+                                catalogSort = PlaylistCatalogSort.NAME
+                                visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                            },
+                            modifier = Modifier.testTag("playlist_sort_name"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Más canciones") },
+                            onClick = {
+                                showSortMenu = false
+                                catalogSort = PlaylistCatalogSort.TRACKS
+                                visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                            },
+                            modifier = Modifier.testTag("playlist_sort_tracks"),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
