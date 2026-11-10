@@ -568,7 +568,8 @@ Auditoría de APIs destructivas:
 ## KILLCRITIC post-integración — identidad, playlists y seeks
 
 Base auditada: `master@9a7a16ff8b5b013ee1b7825e0609cc73033fbf70`.
-Cambios en working tree, **sin commit ni push**.
+Integración publicada en `master@8f1b29312e409948063e28a725bbd3103a24ab4e`;
+CI exacta `42908021081`: **8/8 PASS**, incluido Quality Gate.
 
 ### P0 corregido
 
@@ -608,7 +609,7 @@ Capturas parciales en `/tmp/opencode/killcritic/`: catálogo vacío, catálogo c
 - **GO_SIGNAL_TRUTH_VISUAL:** pendiente; cambio de contenedor compilado, sin captura final.
 - **GO_SEEKERS:** código y pruebas de política pasan; falta captura comparativa de los cinco estilos.
 - **GO_CODE:** sí en working tree.
-- **GO_CI:** pendiente; no hay commit/push.
+- **GO_CI:** sí. `master@8f1b293` pasó la CI exacta `42908021081` con 8/8 jobs.
 - **GO_VISUAL:** pendiente.
 - **GO_PHYSICAL:** pendiente.
 - **GO_RELEASE:** **NO-GO**.
