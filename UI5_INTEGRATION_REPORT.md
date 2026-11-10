@@ -213,7 +213,7 @@ La prueba focal de Dock se ejecutó después de corregir la altura mínima de 48
 - TalkBack real, rotación, batería, jank y temperatura siguen pendientes de un
   teléfono autorizado.
 
-## UI5-POST — M1 a M3 (parcial, M4/M5 pendientes)
+## UI5-POST — M1 a M5 (auditoría acumulada)
 
 Base congelada: `95133dd2b8788f99a6dda9b7c132c02cf949c177`.
 Plan: `MICHI_UI5_PLAN_MAESTRO_CONSOLIDADO.md` (SHA-256 no fijado en este
@@ -284,12 +284,39 @@ Workflow `b17f738d7f3ca6022094235b1566b319`.
   debug/F-Droid debug y API 36 instrumentation **92 tests, 0 fallidos, 8
   skipped** (workflow `b17f738d7f3ca6022094235b1566b319`, run 0020).
 
-### Pendiente
+### M5 — auditoría acumulada y certificación
 
-- M5 auditoría acumulada, CI exacta del nuevo HEAD y certificación física.
-- La CI exacta de `95133dd`/`a837354` sigue siendo 8/8 verde. El SHA final de
-  este incremento y su CI exacta se registran en el PR #18; el PR permanece en
-  draft.
+- SHA final del bloque: `834b954fba87eafe639fefa408ddf03c054f9b89`.
+- CI exacta `42738724425` sobre ese SHA: **8/8 PASS**, incluido Quality Gate.
+- `git diff --check master...HEAD`: limpio. Los marcadores encontrados son
+  separadores de sección y el merge histórico esperado
+  `83603eb Merge Signal Truth Mobile R12 on UI5`; no hay conflictos sin resolver.
+- Diff acumulado del PR: **171 archivos, +12.527 / −577** (150 de app, 15 de
+  player, informe, script Signal Truth, NOTICE, workflow, documento de terceros
+  y un archivo de core). Es la rama UI5 + Signal Truth completa, no solo
+  APM/FINAL-04.
+- No se añadieron Haze, AGSL ni dependencias de blur; Coil y Media3 conservan
+  sus versiones.
+- `python3 tools/ui4_acceptance.py`: **47/47 PASS**.
+- `scripts/verify_signal_truth_ui5.sh` con `ANDROID_HOME` y `JAVA_HOME` reales:
+  `BUILD SUCCESSFUL`, `PASS: UI5 + Signal Truth tested and APK built at 834b954`.
+- Validación local M4: suite Normal/F-Droid completa, lint, builds debug
+  Normal/F-Droid y API 36 instrumentation **92 tests, 0 fallidos, 8 skipped**
+  (workflow `b17f738d7f3ca6022094235b1566b319`, run 0020). Los builds release
+  locales estaban bloqueados por metadatos de transformación de Gradle
+  corruptos; los Jobs E/F de CI en runner limpio son la autoridad release.
+- `adb devices -l` no devolvió ningún dispositivo: el teléfono físico sigue
+  desconectado. AVD y CI no sustituyen la certificación física.
+
+### GO / NO-GO
+
+- **GO técnico** para el estado integrado del PR: implementación, pruebas
+  unitarias/Compose, lint, builds Normal/F-Droid, instrumentación API 36 y CI
+  exacta 8/8.
+- **NO-GO físico** para merge/release: faltan TalkBack, rotación, batería,
+  temperatura, jank, audio remoto real y capturas en el teléfono autorizado.
+- **NO-GO de release** hasta que el propietario autorice el cierre y el PR deje
+  de ser draft. No se hace merge, release, reset ni force push en este bloque.
 
 ## Evidencia local
 
@@ -315,6 +342,11 @@ La integración inicial usó el workflow gestionado
 | `DockLayoutComposeTest` + `Ui5PolishComposeTest` en AVD API 36 | PASS |
 | Matriz real-font 320/360/480 dp × 1.0/1.5/2.0 | PASS, sin elipsis ni targets <48 dp |
 | CI exacta `42700995591` sobre `08d7abc` | **8/8 PASS**, incluido Quality Gate |
+| CI exacta `42735461707` sobre `a837354` (M1–M3) | **8/8 PASS**, incluido Quality Gate |
+| CI exacta `42738724425` sobre `834b954` (M4/M5) | **8/8 PASS**, incluido Quality Gate |
+| M5 `tools/ui4_acceptance.py` | 47/47 PASS |
+| M5 `scripts/verify_signal_truth_ui5.sh` sobre `834b954` | PASS, APK construido |
+| Certificación física Android | **NO EJECUTADA**, teléfono desconectado |
 
 La compilación de AndroidTest no equivale a ejecución de toda la suite. Las
 matrices focales de Dock y UI5-POLISH-02 sí se ejecutaron en el AVD API 36. No se
@@ -354,3 +386,7 @@ pixel-perfect.
 
 El PR debe permanecer en borrador hasta que el CI del head exacto y los gates
 físicos aplicables estén resueltos.
+
+HEAD auditado: `834b954fba87eafe639fefa408ddf03c054f9b89`; CI exacta
+`42738724425` **8/8 PASS**. Cualquier commit documental posterior solo cambia
+este informe y requiere su propia CI exacta.
