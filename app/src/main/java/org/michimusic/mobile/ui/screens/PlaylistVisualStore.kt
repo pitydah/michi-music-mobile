@@ -166,9 +166,11 @@ internal class PlaylistVisualStore(
         if (id.isBlank()) {
             return@withContext PlaylistImageImportResult.Failure(PlaylistImageImportFailure.UNREADABLE)
         }
-        val imported = importer.importFromUri(id, field, uri)
-        if (imported !is PlaylistImageImportResult.Success) return@withContext imported
+        // The lock covers creation, publication and the preference commit. A concurrent
+        // prune must not see the just-published copy as an unreferenced orphan.
         synchronized(mutationLock) {
+            val imported = importer.importFromUri(id, field, uri)
+            if (imported !is PlaylistImageImportResult.Success) return@synchronized imported
             val key = playlistVisualKey(id, field)
             val old = prefs.getString(key, null)
             // One atomic persistent write. Commit runs on IO under the shared
@@ -199,24 +201,26 @@ internal class PlaylistVisualStore(
         request: PlaylistVisualEditRequest,
     ): PlaylistVisualEditResult = withContext(io) {
         require(id.isNotBlank())
-        val coverImport = when (val change = request.cover) {
-            is PlaylistVisualImageChange.Replace ->
-                importer.importFromUri(id, "cover", change.uri)
-            else -> null
-        }
-        if (coverImport is PlaylistImageImportResult.Failure) {
-            return@withContext PlaylistVisualEditResult.Rejected("cover", coverImport.reason)
-        }
-        val bannerImport = when (val change = request.banner) {
-            is PlaylistVisualImageChange.Replace ->
-                importer.importFromUri(id, "banner", change.uri)
-            else -> null
-        }
-        if (bannerImport is PlaylistImageImportResult.Failure) {
-            (coverImport as? PlaylistImageImportResult.Success)?.let { importer.delete(it.token) }
-            return@withContext PlaylistVisualEditResult.Rejected("banner", bannerImport.reason)
-        }
+        // Serialized with pruning and direct imports. This intentionally holds
+        // a global short-lived IO lock while the bounded 25 MB copies are staged.
         synchronized(mutationLock) {
+            val coverImport = when (val change = request.cover) {
+                is PlaylistVisualImageChange.Replace ->
+                    importer.importFromUri(id, "cover", change.uri)
+                else -> null
+            }
+            if (coverImport is PlaylistImageImportResult.Failure) {
+                return@synchronized PlaylistVisualEditResult.Rejected("cover", coverImport.reason)
+            }
+            val bannerImport = when (val change = request.banner) {
+                is PlaylistVisualImageChange.Replace ->
+                    importer.importFromUri(id, "banner", change.uri)
+                else -> null
+            }
+            if (bannerImport is PlaylistImageImportResult.Failure) {
+                (coverImport as? PlaylistImageImportResult.Success)?.let { importer.delete(it.token) }
+                return@synchronized PlaylistVisualEditResult.Rejected("banner", bannerImport.reason)
+            }
             val coverKey = playlistVisualKey(id, "cover")
             val bannerKey = playlistVisualKey(id, "banner")
             val oldCover = prefs.getString(coverKey, null)

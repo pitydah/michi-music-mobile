@@ -130,6 +130,14 @@ fun AlbumDetailScreen(
     val engine by audioController.state.collectAsStateWithLifecycle()
     val playing = resolvePlaybackPresentation(session, engine)
     val favorites: FavoritesRepository = koinInject()
+    val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
+    var showAlbumHideConfirm by remember(albumId, activeScope) { mutableStateOf(false) }
+    var albumHideBusy by remember(albumId, activeScope) { mutableStateOf(false) }
+    var albumHideError by remember(albumId, activeScope) { mutableStateOf<String?>(null) }
+    var albumHideSource by remember(albumId, activeScope) { mutableStateOf("") }
+    var albumHideSnapshot by remember(albumId, activeScope) {
+        mutableStateOf<List<org.michimusic.data.repository.LocalVisibilitySelection>>(emptyList())
+    }
     val favoriteIds by favorites.observeFavoriteTrackIds().collectAsStateWithLifecycle(initialValue = emptySet())
     val coroutineScope = rememberCoroutineScope()
     val allFavorite = tracks.isNotEmpty() && tracks.all { it.id in favoriteIds }
@@ -443,6 +451,14 @@ fun AlbumDetailScreen(
                     selectedTrackMenuId = null
                 },
                 onAddToPlaylist = { selectedTrackMenuId = null; trackToAddToPlaylistId = track.id },
+                onHideFromLibrary = if (track.id.startsWith("local_") || track.id.startsWith("safroot_")) ({
+                    rootAuthority.hideLocalTrack(
+                        track.id,
+                        track.filepath,
+                        org.michimusic.data.repository.libraryVisibilityFingerprint(track),
+                    )
+                }) else null,
+                onHideSuccess = { viewModel.loadMedia(forceRefresh = true) },
                 onToggleFavorite = {
                     coroutineScope.launch {
                         try { favorites.toggleFavorite(track.id) }
@@ -464,7 +480,56 @@ fun AlbumDetailScreen(
             tracks = tracks,
             orderedTracks = orderedTracks,
             onModalChange = { activeModal = it },
+            onHideAlbum = if (tracks.isNotEmpty() && tracks.all {
+                it.source == org.michimusic.core.models.TrackSource.LOCAL && it.filepath.isNotBlank()
+            }) ({
+                albumHideSnapshot = tracks.map(
+                    org.michimusic.data.repository.LocalVisibilitySelection::capture,
+                )
+                albumHideSource = rootAuthority.currentLocalVisibilitySource()
+                albumHideError = null
+                activeModal = null
+                showAlbumHideConfirm = true
+            }) else null,
         )
+        if (showAlbumHideConfirm) {
+            org.michimusic.mobile.ui.components.LibraryHideConfirmationSheet(
+                collectionLabel = "álbum",
+                trackCount = albumHideSnapshot.size,
+                busy = albumHideBusy,
+                error = albumHideError,
+                onDismiss = { if (!albumHideBusy) showAlbumHideConfirm = false },
+                onConfirm = {
+                    if (!albumHideBusy) {
+                        albumHideBusy = true
+                        coroutineScope.launch {
+                            try {
+                                when (
+                                    val result = rootAuthority.hideLocalSelection(
+                                        albumHideSnapshot,
+                                        albumHideSource,
+                                    )
+                                ) {
+                                    is org.michimusic.data.repository.LocalVisibilityBatchResult.Hidden -> {
+                                        showAlbumHideConfirm = false
+                                        viewModel.loadMedia(forceRefresh = true)
+                                        onBack()
+                                    }
+                                    is org.michimusic.data.repository.LocalVisibilityBatchResult.Rejected ->
+                                        albumHideError = result.message
+                                }
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (_: Exception) {
+                                albumHideError = "No se pudo ocultar el álbum."
+                            } finally {
+                                albumHideBusy = false
+                            }
+                        }
+                    }
+                },
+            )
+        }
         if (activeModal == AlbumDetailModal.HISTORY && album != null) {
             AlbumEnrichmentPanel(
                 localAlbumTitle = album.album.title,

@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
@@ -54,6 +55,7 @@ class PlaylistsViewModel(
     private val repo: PlaylistRepository,
     private val localMediaRepository: LocalMediaRepository,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority? = null,
 ) : ViewModel() {
 
     private val _playlists = MutableStateFlow<List<PlaylistItem>>(emptyList())
@@ -103,6 +105,13 @@ class PlaylistsViewModel(
     val isReorderingTrack: StateFlow<Boolean> = _isReorderingTrack.asStateFlow()
 
     init {
+        if (rootAuthority != null) {
+            viewModelScope.launch {
+                rootAuthority.revision.drop(1).collect {
+                    requestedDetailId.get()?.let { id -> loadPlaylistDetail(id) }
+                }
+            }
+        }
         viewModelScope.launch(ioDispatcher) {
             _isLoading.value = true
             repo.observePlaylists().collect { cachedList ->
@@ -417,6 +426,36 @@ class PlaylistsViewModel(
                 refreshPlaylistDetail(playlistId)
             } catch (e: Exception) {
                 _addTracksError.value = e.message ?: "No se pudo reordenar la canción"
+            } finally {
+                _isReorderingTrack.value = false
+            }
+        }
+    }
+
+    fun moveTrackToPosition(
+        playlistId: String,
+        trackId: String,
+        from: Int,
+        to: Int,
+        expectedVisibleIds: List<String>,
+    ) {
+        if (_isReorderingTrack.value) return
+        viewModelScope.launch(ioDispatcher) {
+            _isReorderingTrack.value = true
+            _addTracksError.value = null
+            try {
+                when (repo.moveTrackToPosition(playlistId, trackId, from, to, expectedVisibleIds)) {
+                    org.michimusic.data.repository.PlaylistReorderResult.Applied ->
+                        refreshPlaylistDetail(playlistId)
+                    org.michimusic.data.repository.PlaylistReorderResult.Unchanged -> Unit
+                    org.michimusic.data.repository.PlaylistReorderResult.Conflict ->
+                        _addTracksError.value =
+                            "La playlist cambió; vuelve a intentar mover la canción."
+                }
+            } catch (error: Exception) {
+                _addTracksError.value =
+                    error.message ?: "No se pudo guardar el orden de la playlist"
+                refreshPlaylistDetail(playlistId)
             } finally {
                 _isReorderingTrack.value = false
             }

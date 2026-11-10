@@ -299,14 +299,16 @@ fun AeroSignalRouteStrip(
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // Show actual source information. The entire cell opens Signal Truth.
                     Text(
-                        "Signal Truth",
+                        text = signalLabel,
                         color = TertiaryCyan,
                         fontFamily = InterFontFamily,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         lineHeight = 19.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )

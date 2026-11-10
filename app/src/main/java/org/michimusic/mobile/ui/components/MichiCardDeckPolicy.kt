@@ -44,6 +44,17 @@ internal fun michiCardSwipeStep(displacementPx: Float, velocityPx: Float, widthP
     return if (displacementPx < 0f) 1 else -1
 }
 
+/** Album-only Y gesture. The horizontal card policy continues to own Artists. */
+internal fun vinylCrateSwipeStep(dy: Float, vy: Float, heightPx: Float): Int {
+    if (!heightPx.isFinite() || heightPx <= 0f || !dy.isFinite() || !vy.isFinite()) return 0
+    val distance = abs(dy)
+    val matchingFling = dy != 0f && (dy > 0f) == (vy > 0f)
+    val accepted = distance >= heightPx * 0.20f ||
+        (matchingFling && distance >= heightPx * 0.06f && abs(vy) >= 1500f)
+    if (!accepted || dy == 0f) return 0
+    return if (dy < 0f) 1 else -1
+}
+
 /** Captures the only three facts allowed to authorize a completed swipe. */
 internal data class MichiCardGestureToken(
     val frontKey: String,

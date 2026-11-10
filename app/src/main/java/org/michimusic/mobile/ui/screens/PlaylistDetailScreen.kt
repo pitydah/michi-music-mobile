@@ -1,5 +1,8 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -26,9 +30,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Tune
@@ -46,12 +53,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
@@ -75,6 +88,7 @@ import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.theme.AeroFinish
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.RenamePlaylistDialog
 import org.michimusic.mobile.ui.components.aeroMenuTopLight
@@ -128,6 +142,13 @@ fun PlaylistDetailScreen(
     var trackDensity by remember { mutableStateOf(PlaylistTrackDensity.COMPACT) }
     var coverRequestId by remember { mutableStateOf<String?>(null) }
     var bannerRequestId by remember { mutableStateOf<String?>(null) }
+    // Observability, not the last tap: the row marker follows the real player/session.
+    val activePlayback = if (sessionManager != null) {
+        val session by sessionManager.sessionState.collectAsStateWithLifecycle()
+        val local by audioController.state.collectAsStateWithLifecycle()
+        org.michimusic.mobile.playback.resolvePlaybackPresentation(session, local)
+    } else null
+    val activeTrackId = activePlayback?.currentTrack?.id
     val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val requestId = coverRequestId
         coverRequestId = null
@@ -423,6 +444,35 @@ fun PlaylistDetailScreen(
                         visual = visualState,
                         modifier = Modifier.testTag("playlist_detail_visual_identity"),
                     )
+                    if (state.playlist.tracks.isNotEmpty()) {
+                        val playableQueue = state.playlist.tracks
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            AeroActionButton(
+                                label = "Reproducir",
+                                icon = Icons.Filled.PlayArrow,
+                                kind = AeroActionKind.Primary,
+                                modifier = Modifier.weight(1f).testTag("playlist_detail_play_all"),
+                                onClick = {
+                                    if (sessionManager != null) sessionManager.playQueue(playableQueue, 0)
+                                    else audioController.playQueue(playableQueue, 0)
+                                },
+                            )
+                            AeroActionButton(
+                                label = "Mezclar",
+                                icon = Icons.Filled.Shuffle,
+                                kind = AeroActionKind.Secondary,
+                                modifier = Modifier.weight(1f).testTag("playlist_detail_shuffle_all"),
+                                onClick = {
+                                    val shuffled = playableQueue.shuffled()
+                                    if (sessionManager != null) sessionManager.playQueue(shuffled, 0)
+                                    else audioController.playQueue(shuffled, 0)
+                                },
+                            )
+                        }
+                    }
                     // Gate on resolvable tracks, not the persisted trackCount: a playlist can
                     // have trackCount > 0 while every stored id has become unresolvable, in
                     // which case there is nothing to render and the empty state is correct.
@@ -456,6 +506,8 @@ fun PlaylistDetailScreen(
                         PlaylistTracksList(
                             tracks = state.playlist.tracks,
                             density = trackDensity,
+                            activeTrackId = activeTrackId,
+                            activeTrackPlaying = activePlayback?.isPlaying == true,
                             removeEnabled = !isRemovingTrack,
                             moveEnabled = !isReorderingTrack,
                             onRemoveClick = { track -> trackPendingRemoval = track },
@@ -471,6 +523,9 @@ fun PlaylistDetailScreen(
                                 }
                             },
                             onMoveUp = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.UP) },
+                            onReorder = { trackId, from, to, visibleIds ->
+                                viewModel.moveTrackToPosition(playlistId, trackId, from, to, visibleIds)
+                            },
                             onMoveDown = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.DOWN) },
                         )
                     }
@@ -595,31 +650,109 @@ fun PlaylistDetailScreen(
 private fun PlaylistTracksList(
     tracks: List<Track>,
     density: PlaylistTrackDensity,
+    activeTrackId: String?,
+    activeTrackPlaying: Boolean,
     removeEnabled: Boolean,
     moveEnabled: Boolean,
     onRemoveClick: (Track) -> Unit,
     onTrackClick: (Track) -> Unit,
     onMoveUp: (Track) -> Unit,
     onMoveDown: (Track) -> Unit,
+    onReorder: (String, Int, Int, List<String>) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val visibleIds = remember(tracks) { tracks.map { it.id } }
+    var activeId by remember(visibleIds) { mutableStateOf<String?>(null) }
+    var fromIndex by remember(visibleIds) { mutableIntStateOf(-1) }
+    var targetIndex by remember(visibleIds) { mutableIntStateOf(-1) }
+    var verticalShift by remember(visibleIds) { mutableFloatStateOf(0f) }
+    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val thresholdPx = with(LocalDensity.current) { 52.dp.toPx() }
+
+    fun resetDrag() {
+        scrollJob?.cancel()
+        scrollJob = null
+        activeId = null
+        fromIndex = -1
+        targetIndex = -1
+        verticalShift = 0f
+    }
+
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("playlist_detail_track_list"),
+        state = listState,
+        modifier = Modifier.fillMaxSize().testTag("playlist_detail_track_list"),
         verticalArrangement = Arrangement.spacedBy(playlistTrackLayout(density).gapDp.dp),
     ) {
         itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
+            val draggingThis = activeId == track.id
+            val dragModifier = if (moveEnabled && tracks.size > 1) {
+                Modifier.pointerInput(track.id, visibleIds) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            if (activeId == null) {
+                                activeId = track.id
+                                fromIndex = index
+                                targetIndex = index
+                                verticalShift = 0f
+                            }
+                        },
+                        onDrag = { change, amount ->
+                            if (activeId != track.id) return@detectDragGesturesAfterLongPress
+                            change.consume()
+                            verticalShift += amount.y
+                            val layout = listState.layoutInfo
+                            val origin = layout.visibleItemsInfo.firstOrNull { it.key == track.id }
+                            if (origin != null) {
+                                val center = origin.offset + origin.size / 2f + verticalShift
+                                val destination = layout.visibleItemsInfo.minByOrNull {
+                                    kotlin.math.abs(it.offset + it.size / 2f - center)
+                                }
+                                if (destination != null && destination.index in tracks.indices) {
+                                    targetIndex = destination.index
+                                }
+                                val direction = when {
+                                    center < layout.viewportStartOffset + thresholdPx -> -1
+                                    center > layout.viewportEndOffset - thresholdPx -> 1
+                                    else -> 0
+                                }
+                                if (direction != 0 && scrollJob?.isActive != true) {
+                                    scrollJob = scope.launch {
+                                        listState.scrollBy(direction * thresholdPx * .65f)
+                                    }
+                                }
+                            }
+                        },
+                        onDragEnd = {
+                            val origin = fromIndex
+                            val destination = targetIndex
+                            val id = activeId
+                            resetDrag()
+                            if (id == track.id && origin in tracks.indices &&
+                                destination in tracks.indices && origin != destination
+                            ) onReorder(id, origin, destination, visibleIds)
+                        },
+                        onDragCancel = { resetDrag() },
+                    )
+                }
+            } else Modifier
             PlaylistTrackRow(
                 track,
                 density = density,
+                isObservedActive = track.id == activeTrackId,
+                isObservedPlaying = track.id == activeTrackId && activeTrackPlaying,
                 removeEnabled = removeEnabled,
                 moveEnabled = moveEnabled,
                 canMoveUp = index > 0,
                 canMoveDown = index < tracks.lastIndex,
                 onRemoveClick = { onRemoveClick(track) },
-                onClick = { onTrackClick(track) },
+                onClick = { if (activeId == null) onTrackClick(track) },
                 onMoveUp = { onMoveUp(track) },
                 onMoveDown = { onMoveDown(track) },
+                dragModifier = dragModifier
+                    .graphicsLayer { translationY = if (draggingThis) verticalShift else 0f }
+                    .zIndex(if (draggingThis) 2f else 0f),
+                dropTarget = activeId != null && targetIndex == index && !draggingThis,
             )
         }
         item { Spacer(Modifier.height(24.dp)) }
@@ -630,6 +763,8 @@ private fun PlaylistTracksList(
 private fun PlaylistTrackRow(
     track: Track,
     density: PlaylistTrackDensity,
+    isObservedActive: Boolean,
+    isObservedPlaying: Boolean,
     removeEnabled: Boolean,
     moveEnabled: Boolean,
     canMoveUp: Boolean,
@@ -638,6 +773,8 @@ private fun PlaylistTrackRow(
     onClick: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    dragModifier: Modifier = Modifier,
+    dropTarget: Boolean = false,
 ) {
     var showTrackMenu by remember { mutableStateOf(false) }
     val rowLayout = playlistTrackLayout(density)
@@ -645,6 +782,9 @@ private fun PlaylistTrackRow(
     AeroCard(
         modifier = Modifier
             .fillMaxWidth()
+            .then(dragModifier)
+            .then(if (dropTarget) Modifier.border(1.dp, PrimaryPinkContainer, RoundedCornerShape(12.dp))
+                else Modifier)
             .testTag("playlist_detail_track_${track.id}"),
         finish = AeroFinish.Plain,
         onClick = onClick,
@@ -689,6 +829,20 @@ private fun PlaylistTrackRow(
                         color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+
+            if (isObservedActive) {
+                Icon(
+                    Icons.Filled.GraphicEq,
+                    contentDescription = if (isObservedPlaying) {
+                        "Sonando ahora: ${track.title}"
+                    } else {
+                        "Pista actual en pausa: ${track.title}"
+                    },
+                    tint = TertiaryCyan,
+                    modifier = Modifier.size(16.dp)
+                        .testTag("playlist_detail_track_active_${track.id}"),
+                )
             }
 
             // Secondary reorder action, tucked behind a small overflow menu so it doesn't

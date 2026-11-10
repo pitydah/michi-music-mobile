@@ -136,6 +136,7 @@ fun NowPlayingScreen(
     val controlPreviews by sessionManager.controlPreviews.collectAsStateWithLifecycle()
     val audioController: AudioController = koinInject()
     val favoritesRepo: FavoritesRepository = koinInject()
+    val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
     val coroutineScope = rememberCoroutineScope()
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsStateWithLifecycle(initialValue = emptySet())
     val playerState by audioController.state.collectAsStateWithLifecycle()
@@ -158,13 +159,16 @@ fun NowPlayingScreen(
     // synchronously, avoiding a waveform from the preceding track during recomposition.
     val visualPrefs = LocalVisualPreferences.current
     val seekerStyle = visualPrefs.seekerStyle
+    // Bars/Continuous share one PCM decode; switching the renderer never restarts analysis.
+    val wantsWaveform = seekerStyle == AeroSeekerStyle.WAVEFORM_BARS ||
+        seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS
     val remoteHost = presentation.isRemoteActive && !presentation.isStreamReceiver
     val waveformKey = listOf(
         currentTrack?.id.orEmpty(), currentTrack?.filepath.orEmpty(),
         currentTrack?.size.toString(), currentTrack?.duration.toString(),
         presentation.duration.toString(),
         currentTrack?.source.toString(), remoteHost.toString(),
-        seekerStyle.name, visualPrefs.highContrast.toString(),
+        wantsWaveform.toString(), visualPrefs.highContrast.toString(),
     ).joinToString(separator = "\u001f")
     val contextForWaveform = LocalContext.current.applicationContext
     val waveformSnapshot by produceState(
@@ -173,8 +177,6 @@ fun NowPlayingScreen(
     ) {
         value = SeekerWaveformState(waveformKey, null, settled = false)
         val track = currentTrack
-        val wantsWaveform = seekerStyle == AeroSeekerStyle.WAVEFORM_BARS ||
-            seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS
         val amplitudes = if (track != null && seekableDuration && !visualPrefs.highContrast && wantsWaveform) {
             val path = eligibleWaveformPath(
                 track.filepath,
@@ -188,7 +190,9 @@ fun NowPlayingScreen(
     }
     val waveformFresh = waveformSnapshot.key == waveformKey
     val seekerSamples = waveformSnapshot.amplitudes.takeIf { waveformFresh }
-    val seekerFallbackNotice = aeroSeekerVisibleFallback(
+    val seekerFallbackNotice = if (wantsWaveform && seekableDuration &&
+        !visualPrefs.highContrast && (!waveformFresh || !waveformSnapshot.settled)
+    ) "Preparando forma de onda" else aeroSeekerVisibleFallback(
         requested = seekerStyle,
         amplitudes = seekerSamples,
         highContrast = visualPrefs.highContrast,
@@ -628,6 +632,16 @@ fun NowPlayingScreen(
                     playerState.queueEntries.getOrNull(playerState.queueIndex)
                         ?.takeIf { it.canonicalTrackId == currentTrack.id }?.entryId
                 } else null,
+                // Only one sheet/dialog at a time. Reuse canonical editors rather than
+                // displaying a second modal over the live Signal Truth inspector.
+                onOpenEqualizer = {
+                    showSignalTruthDialog = false
+                    showEqualizerDialog = true
+                },
+                onOpenOutputRoutes = {
+                    showSignalTruthDialog = false
+                    showAudioRouteDialog = true
+                },
                 onDismiss = { showSignalTruthDialog = false },
             )
         }
@@ -649,6 +663,11 @@ fun NowPlayingScreen(
                 onAddToPlaylist = {
                     showAddToPlaylistDialog = true
                 },
+                onHideFromLibrary = if (!sessionState.isRemoteActive &&
+                    (currentTrack.id.startsWith("local_") || currentTrack.id.startsWith("safroot_"))) ({
+                    rootAuthority.hideLocalTrack(currentTrack.id, currentTrack.filepath,
+                        org.michimusic.data.repository.libraryVisibilityFingerprint(currentTrack))
+                }) else null,
                 onToggleFavorite = {
                     coroutineScope.launch {
                         favoritesRepo.toggleFavorite(currentTrack.id)

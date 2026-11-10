@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -46,4 +47,18 @@ class AeroSignalRouteStripGeometryTest {
         compose.onNodeWithTag("audio_route_button").performClick()
         compose.runOnIdle { assertEquals(1,signalClicks); assertEquals(1,outputClicks) }
     }
+    @Test fun fileFormatIsVisibleAndNeverReplacedBySignalTruthTitle() {
+        compose.setContent {
+            AeroSignalRouteStrip(
+                signalLabel = "MP3 · 44,1 kHz",
+                signalDescription = "Datos declarados del archivo",
+                destination = "Este teléfono",
+                onSignalClick = {},
+                onDestinationClick = {},
+            )
+        }
+        compose.onNodeWithText("MP3 · 44,1 kHz", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("signal_truth_button").assertExists()
+    }
+
 }

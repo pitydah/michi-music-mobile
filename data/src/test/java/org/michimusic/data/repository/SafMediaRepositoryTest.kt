@@ -26,6 +26,34 @@ import org.robolectric.annotation.Config
 class SafMediaRepositoryTest {
 
     @Test
+    fun createFolderWithoutPersistedWriteGrantNeverQueriesOrMutatesProvider() = runTest {
+        val context = mockk<Context>()
+        val resolver = mockk<ContentResolver>()
+        val trackDao = mockk<TrackDao>(relaxed = true)
+        val grant = mockk<UriPermission>()
+        val tree = Uri.parse(
+            "content://com.android.externalstorage.documents/tree/primary%3AMusic",
+        )
+        every { context.contentResolver } returns resolver
+        every { resolver.persistedUriPermissions } returns listOf(grant)
+        every { grant.uri } returns tree
+        every { grant.isReadPermission } returns true
+        every { grant.isWritePermission } returns false
+        val result = SafMediaRepository(context, trackDao).createRootSubfolder(tree, "Jazz")
+        assertEquals(MusicFolderCreationResult.PermissionDenied, result)
+        io.mockk.verify(exactly = 0) { resolver.query(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun invalidFolderNameFailsBeforeAccessingStorageProvider() = runTest {
+        val repo = SafMediaRepository(mockk(), mockk())
+        assertEquals(
+            MusicFolderCreationResult.InvalidName,
+            repo.createRootSubfolder(Uri.parse("content://example/tree/x"), "../escape"),
+        )
+    }
+
+    @Test
     fun `takePersistablePermission catches SecurityException and returns false`() {
         val context = mockk<Context>()
         val contentResolver = mockk<ContentResolver>()

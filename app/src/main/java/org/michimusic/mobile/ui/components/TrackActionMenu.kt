@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -78,7 +80,13 @@ fun TrackActionBottomSheet(
     onAddToPlaylist: () -> Unit = {},
     onToggleFavorite: () -> Unit = {},
     onViewSignalTruth: (() -> Unit)? = null,
+    onHideFromLibrary: (suspend () -> org.michimusic.data.repository.LocalVisibilityResult)? = null,
+    onHideSuccess: (() -> Unit)? = null,
 ) {
+    var confirmingHide by remember(track.id) { mutableStateOf(false) }
+    var hideBusy by remember(track.id) { mutableStateOf(false) }
+    var hideError by remember(track.id) { mutableStateOf<String?>(null) }
+    val hideScope = rememberCoroutineScope()
     org.michimusic.mobile.ui.components.premium.MichiBottomSheet(
         onDismissRequest = onDismiss,
     ) {
@@ -178,6 +186,52 @@ fun TrackActionBottomSheet(
                 )
             }
 
+            if (onHideFromLibrary != null) {
+                if (!confirmingHide) {
+                    TrackActionMenuItem(
+                        icon = Icons.Default.VisibilityOff,
+                        title = "Quitar de biblioteca",
+                        tint = TextSecondary,
+                        onClick = { confirmingHide = true },
+                    )
+                } else {
+                    Text("Quitar de biblioteca", color = PureWhite,
+                        style = MaterialTheme.typography.titleMedium)
+                    Text("La canción dejará de mostrarse en Michi. El archivo original permanecerá en tu dispositivo.",
+                        color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                    if (hideError != null) Text(hideError.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                    // 320dp and large font: controls stack instead of compressing the labels.
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !hideBusy,
+                        onClick = {
+                            hideBusy = true
+                            hideScope.launch {
+                                try {
+                                    when (val result = onHideFromLibrary()) {
+                                        org.michimusic.data.repository.LocalVisibilityResult.Hidden -> {
+                                            onHideSuccess?.invoke()
+                                            onDismiss()
+                                        }
+                                        is org.michimusic.data.repository.LocalVisibilityResult.Rejected ->
+                                            hideError = result.message
+                                        else -> hideError = "La canción ya no estaba oculta. Vuelve a Biblioteca."
+                                    }
+                                } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+                                catch (_: Exception) { hideError = "No se pudo ocultar la canción." }
+                                finally { hideBusy = false }
+                            }
+                        },
+                    ) { Text(if (hideBusy) "Guardando…" else "Quitar de Michi") }
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        enabled = !hideBusy,
+                        onClick = { confirmingHide = false; hideError = null },
+                    ) { Text("Cancelar") }
+                }
+            }
             Spacer(Modifier.height(32.dp))
         }
     }

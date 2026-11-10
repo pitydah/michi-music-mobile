@@ -399,6 +399,109 @@ Workflow `b17f738d7f3ca6022094235b1566b319`.
   certificación física y autorización explícita. El PR histórico #18 permanece
   en draft; este bloque no crea ramas ni PRs nuevas.
 
+## v2.3 — Reconciliación, LIB-ND y cierres de calidad
+
+### Fuente
+
+- Plan v2.3: SHA-256 `32ed79f6c17e4c23b4177fea4211869a8df4d8d431a2f76f86d41248f329979b`.
+- Parche acumulativo: SHA-256 `ed5955e19eb2305b93963013e980d670d8766b595e6639ba9851b32d569ec1fc`,
+  idéntico al valor requerido.
+- Base de trabajo: `master@1cf321b007f80bbd99bdba3f8ab81d17cd664764`.
+  No se creó rama, PR, commit ni push; el árbol queda con los cambios
+  reconciliados sin publicar, según la instrucción de no publicar sin
+  autorización.
+
+### Bloqueos corregidos
+
+1. **`LibraryExclusionDao.copyLegacySource()`** ya no usa
+   `@Query("INSERT ... SELECT ..."): Int`, que Room no puede verificar de forma
+   estable. Es un método `@Transaction` sobre el propio DAO: lee las filas
+   heredadas, copia solo metadatos con `hide()` (IGNORE) y devuelve el número
+   real de filas nuevas. No toca audio ni playlists.
+2. **Room 8→9** exporta `data/schemas/org.michimusic.data.cache.MichiDatabase/9.json`
+   mediante el proceso oficial de KSP. El esquema pasa de 19 a 20 entidades y la
+   única tabla nueva es `library_exclusions` con PK compuesta
+   `(sourceId, trackId)`. `MIGRATION_8_9` está registrada en `DataModule`.
+   `Migration8To9Test` conserva una playlist y una pista existentes y añade una
+   exclusión después de migrar.
+3. **Reconciliación del parche:** 52 archivos/136 fragmentos de origen; 11
+   archivos no aplicaban sobre el checkout real y se resolvieron manualmente
+   (`MusicRootAuthority`, `PlaylistsViewModel`, `SettingsScreen`,
+   `MusicRootAuthorityTest`, `PlaylistRepository`, `SafMediaRepositoryTest`,
+   `ResumableTransferTest`, `DataModule`, `LocalMediaRepository`,
+   `AlbumDetailScreen`, `ArtistDetailScreen`). No se usó `--3way` ni `--reject`.
+   El diff reconciliado contextual se generó contra `HEAD` limpio, excluyendo
+   este informe para que su hash sea estable:
+   `/tmp/opencode/ui23/reconciled.diff`, 58 archivos, 138 hunks,
+   SHA-256 `6a6f110d5abef1a7b3ce37a9ace6464362f19b52a717d951973a50975ba7ac04`.
+   `git apply --check --cached` sobre un índice limpio de `HEAD`: **PASS**.
+   Los 6 archivos adicionales sobre el parche son los generados/necesarios para
+   el esquema Room, la búsqueda, la marca de reproducción observada y sus tests.
+4. **Propagación de canciones ocultas:** `LocalMediaRepository.fetchTracksResult`
+   aplica la exclusión de la fuente activa antes de publicar la caché;
+   `PlaylistRepository.getTracksForPlaylist` no resucita una pista oculta desde el
+   fallback de `TrackDao`; `SearchViewModel` filtra también la caché sincronizada
+   de la fuente activa; `MusicRootAuthority` concentra hide/restore/batch. Ni el
+   borrado de playlist ni `clearDownloads()` eliminan audio o copias completas.
+5. **Identidades:** la exclusión usa fuente estable + huella de archivo
+   (ruta/tamaño/duración/fecha), no título/artista mutable. La migración de una
+   raíz SAF copia las exclusiones al nuevo `sourceId` antes de confirmar el
+   cambio; si falla, no se confirma la migración. Pruebas cubren fuente
+   incorrecta, huella cambiada, duplicados, lote atómico, reinicio de caché y
+   caché sincronizada.
+
+### UI/UX cerrados o reconciliados
+
+- **PL-03:** filas de playlist con densidad, drag con una única escritura al
+  soltar, marcador de pista activa basado en `resolvePlaybackPresentation`
+  (sesión/estado real, no en el último tap), menú de opciones y fallback de
+  mover arriba/abajo.
+- **HDR-01:** el Scaffold no consume el inset superior; cada uno de los cinco
+  destinos posee `statusBarsPadding()` y un `AeroPremiumBackdrop` desde y=0.
+  Prueba de propiedad de insets añadida; no se detectó doble techo ni franja
+  negra en la auditoría de código.
+- **Vinyl Crate:** `MichiVinylCrate` está conectado a la vista Tarjetas de
+  Álbumes con fundas 1:1, selección estable y acciones canónicas; CoverFlow,
+  Mosaico y Lista permanecen disponibles.
+- **Seekers:** se mantiene un único control `now_playing_seeker` y la política de
+  waveform/fallback; `WaveformVisualPolicy` y los tests de composición cubren
+  los cinco estilos sin datos sintéticos.
+- **Estados y ajustes:** se retiraron interruptores sin coordinador real
+  (escaneo al iniciar/descarga de carátulas), se añadió Canciones ocultas con
+  restauración, diagnóstico de almacenamiento y creación de subcarpetas SAF
+  solo con permiso de escritura explícito. No se simula una operación exitosa.
+
+### Validación real ejecutada
+
+| Gate | Resultado |
+|---|---|
+| `:data:testDebugUnitTest` | PASS |
+| `:player:testDebugUnitTest` | PASS |
+| `:app:testNormalDebugUnitTest` | PASS |
+| `:app:testFdroidDebugUnitTest` | PASS |
+| `:michi-link-client:testDebugUnitTest` | PASS |
+| `Migration8To9Test` (playlist + pista preservadas; tabla nueva) | PASS |
+| `LibraryVisibility*`, `MusicRootAuthorityTest`, `SafMediaRepositoryTest`, `ResumableTransferTest`, reorder policies | PASS |
+| `lint` | PASS |
+| `assembleNormalDebug`, `assembleNormalRelease`, `assembleFdroidDebug`, `assembleFdroidRelease` | PASS |
+| `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **93 tests, 0 fallos, 8 skipped** |
+
+La caché de transforms de Gradle estaba corrupta en el entorno local; se
+detuvo el daemon y se movió únicamente esa caché a `/tmp/opencode` para
+reconstruirla. No se cambió ninguna versión de dependencia, configuración
+Gradle ni código para ocultar el fallo.
+
+### Veredictos separados
+
+- **GO_CODE:** sí. Compila, Room 8→9 exporta y migra, y las suites unitarias y
+  de composición ejecutadas pasan.
+- **GO_CI:** pendiente. No se ha hecho commit/push ni existe un SHA publicado
+  con CI exacta; no se puede reutilizar la CI de `1cf321b`.
+- **GO_VISUAL:** pendiente. Falta aprobación visual/física en dispositivo real;
+  el AVD API 36 no certifica materiales, TalkBack, rotación, batería ni jank.
+- **GO_RELEASE:** NO-GO. No hay autorización de release, no se ha validado
+  hardware y el PR/entrega no debe publicarse sin revisión.
+
 ## Evidencia local
 
 La integración inicial usó el workflow gestionado

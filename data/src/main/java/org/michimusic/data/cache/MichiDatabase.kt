@@ -26,12 +26,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         SyncManifestEntity::class,
         TransferCheckpointEntity::class,
         ApprovedSyncPlanEntity::class,
+        LibraryExclusionEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
+    abstract fun libraryExclusionDao(): LibraryExclusionDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun replayGainDao(): ReplayGainDao
     abstract fun appDao(): AppDao
@@ -293,6 +295,24 @@ abstract class MichiDatabase : RoomDatabase() {
             """.trimIndent())
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_approved_sync_plans_endpointId` ON `approved_sync_plans` (`endpointId`)")
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_approved_sync_plans_executionState` ON `approved_sync_plans` (`executionState`)")
+        }
+
+        /** Only new metadata. Do not migrate or delete cached tracks, playlists or files. */
+        val MIGRATION_8_9 = Migration(8, 9) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `library_exclusions` (
+                    `sourceId` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `guardFingerprint` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `artist` TEXT NOT NULL,
+                    `album` TEXT NOT NULL,
+                    `reason` TEXT NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `schemaVersion` INTEGER NOT NULL,
+                    PRIMARY KEY(`sourceId`, `trackId`)
+                )
+            """.trimIndent())
         }
 
         /**

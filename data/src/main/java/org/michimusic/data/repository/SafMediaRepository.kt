@@ -25,6 +25,16 @@ sealed interface TreeIndexResult {
     data class Failed(val message: String) : TreeIndexResult
 }
 
+/** Creation of one user-requested subfolder only; never delete or rename media implicitly. */
+sealed interface MusicFolderCreationResult {
+    data class Created(val name: String) : MusicFolderCreationResult
+    data object InvalidName : MusicFolderCreationResult
+    data object PermissionDenied : MusicFolderCreationResult
+    data object ProviderReadOnly : MusicFolderCreationResult
+    data object AlreadyExists : MusicFolderCreationResult
+    data class Failed(val message: String) : MusicFolderCreationResult
+}
+
 class SafMediaRepository(
     private val context: Context,
     private val trackDao: TrackDao,
@@ -43,6 +53,20 @@ class SafMediaRepository(
 
     fun hasPermission(uri: Uri): Boolean = context.contentResolver.persistedUriPermissions
         .any { it.uri == uri && it.isReadPermission }
+
+    /** Read permission is independent of explicit optional write capability. */
+    fun hasWritePermission(uri: Uri): Boolean = context.contentResolver.persistedUriPermissions
+        .any { it.uri == uri && it.isReadPermission && it.isWritePermission }
+
+    /** Only called after a separate user action selecting this exact active tree. */
+    fun takePersistableWritePermission(uri: Uri): Boolean = try {
+        context.contentResolver.takePersistableUriPermission(
+            uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+        hasWritePermission(uri)
+    } catch (_: SecurityException) {
+        false
+    }
 
     /** Validates a directory before a root is persisted. It does not index or persist a grant. */
     fun prepareSelection(treeUri: Uri): String? = readableDisplayNameOrNull(treeUri)
@@ -163,6 +187,94 @@ class SafMediaRepository(
         localMediaRepository?.invalidateCache()
         onProgress(indexed.size)
         TreeIndexResult.Success(treeUri, sourceId, displayName, indexed.size)
+    }
+
+    /**
+     * Only creates ONE child inside the already-selected root. A provider's
+     * FLAG_DIR_SUPPORTS_CREATE is required, in addition to a retained READ+WRITE
+     * grant. Unknown or revoked capabilities fail closed. Never handles raw paths.
+     * No background rescan: an empty folder cannot create music by itself.
+     */
+    suspend fun createRootSubfolder(
+        treeUri: Uri,
+        rawName: String,
+    ): MusicFolderCreationResult = withContext(Dispatchers.IO) {
+        val name = normalizedMusicFolderName(rawName)
+            ?: return@withContext MusicFolderCreationResult.InvalidName
+        if (!hasPermission(treeUri) || !hasWritePermission(treeUri)) {
+            return@withContext MusicFolderCreationResult.PermissionDenied
+        }
+        val rootId = try {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } catch (_: IllegalArgumentException) {
+            return@withContext MusicFolderCreationResult.Failed("La carpeta guardada no es válida.")
+        }
+        val resolver = context.contentResolver
+        val rootDocument = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+        try {
+            val writableDirectory = resolver.query(
+                rootDocument,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_FLAGS,
+                ), null, null, null,
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use false
+                val mimeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val flagsIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS)
+                mimeIndex >= 0 && flagsIndex >= 0 && !cursor.isNull(flagsIndex) &&
+                    cursor.getString(mimeIndex) == DocumentsContract.Document.MIME_TYPE_DIR &&
+                    (cursor.getInt(flagsIndex) and DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE) != 0
+            } ?: false
+            if (!writableDirectory) return@withContext MusicFolderCreationResult.ProviderReadOnly
+
+            // Duplicate-name prevention is local to this directory. The SAF provider
+            // retains ultimate authority and might reject or rename a concurrent create.
+            val children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)
+            val names = resolver.query(
+                children,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null, null, null,
+            ) ?: return@withContext MusicFolderCreationResult.Failed(
+                "No se pudo comprobar el contenido de la carpeta. No se creó nada.",
+            )
+            val exists = names.use { cursor ->
+                val col = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                if (col < 0) return@use true // Do not create if collision cannot be ruled out.
+                var found = false
+                while (cursor.moveToNext()) {
+                    ensureActive()
+                    if (cursor.getString(col)?.equals(name, ignoreCase = true) == true) {
+                        found = true
+                        break
+                    }
+                }
+                found
+            }
+            if (exists) return@withContext MusicFolderCreationResult.AlreadyExists
+
+            ensureActive()
+            val created = DocumentsContract.createDocument(
+                resolver, rootDocument, DocumentsContract.Document.MIME_TYPE_DIR, name,
+            ) ?: return@withContext MusicFolderCreationResult.Failed(
+                "El proveedor no pudo crear la carpeta.",
+            )
+            // Some providers normalize or suffix a name. Report its actual label.
+            val actual = runCatching {
+                resolver.query(
+                    created,
+                    arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                    null, null, null,
+                )?.use { if (it.moveToFirst()) it.getString(0) else null }
+            }.getOrNull()?.takeIf { it.isNotBlank() } ?: name
+            MusicFolderCreationResult.Created(actual)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: SecurityException) {
+            MusicFolderCreationResult.PermissionDenied
+        } catch (_: Exception) {
+            MusicFolderCreationResult.Failed("El proveedor no permitió crear la carpeta.")
+        }
     }
 
     /** Removes an inactive/staged source after a confirmed replacement or rollback. */

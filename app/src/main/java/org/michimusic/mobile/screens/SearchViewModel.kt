@@ -123,7 +123,7 @@ class SearchViewModel(
                 val albums = localRepo.loadAlbums()
                 if (generation != loadGeneration.get() || !isActive) return@launch
                 localTracks = albums.flatMap { it.tracks }
-                val synced = syncedRepo.getAllSynced().first()
+                val synced = localRepo.filterHiddenSynced(syncedRepo.getAllSynced().first())
                 if (generation != loadGeneration.get() || !isActive) return@launch
                 syncedTracks = synced
             } catch (e: kotlinx.coroutines.CancellationException) {

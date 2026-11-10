@@ -42,6 +42,10 @@ val appModule = module {
     }
     viewModelOf(::AlbumsViewModel)
     viewModelOf(::SyncedTracksViewModel)
-    viewModelOf(::PlaylistsViewModel)
+    // Visibility changes refresh an already-open playlist without touching audio files.
+    viewModel {
+        PlaylistsViewModel(repo = get(), localMediaRepository = get(),
+            ioDispatcher = get(), rootAuthority = get())
+    }
     viewModelOf(::SearchViewModel)
 }

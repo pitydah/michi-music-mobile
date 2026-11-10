@@ -65,6 +65,89 @@ class MusicRootAuthority(
     /** Validates the native tree grant and returns its user-visible name. */
     suspend fun previewCustomRoot(treeUri: Uri): String? = safRepository.prepareSelection(treeUri)
 
+    /** This property never grants access; it reflects an already-retained opt-in. */
+    fun canWriteCurrentRoot(): Boolean {
+        val root = _currentRoot.value
+        if (root.isDefault) return false
+        val uri = root.treeUri?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return false
+        return safRepository.hasPermission(uri) && safRepository.hasWritePermission(uri)
+    }
+
+    /** Explicit second picker action. Never grant WRITE to a different folder. */
+    suspend fun enableWriteForSelectedRoot(selectedTree: Uri): Boolean = changeMutex.withLock {
+        val root = preferences.currentRoot()
+        if (root.isDefault || root.treeUri != selectedTree.toString() ||
+            !safRepository.hasPermission(selectedTree)
+        ) return@withLock false
+        safRepository.takePersistableWritePermission(selectedTree)
+    }
+
+    /** No implicit folder creation when choosing a library or scanning music. */
+    suspend fun createSubfolder(
+        name: String,
+        expectedRootTreeUri: String,
+    ): org.michimusic.data.repository.MusicFolderCreationResult = changeMutex.withLock {
+        val current = preferences.currentRoot()
+        if (current.isDefault) {
+            return@withLock org.michimusic.data.repository.MusicFolderCreationResult.PermissionDenied
+        }
+        if (current.treeUri != expectedRootTreeUri) {
+            return@withLock org.michimusic.data.repository.MusicFolderCreationResult.Failed(
+                "La carpeta musical cambió. Vuelve a confirmar la ubicación.",
+            )
+        }
+        val tree = current.treeUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            ?: return@withLock org.michimusic.data.repository.MusicFolderCreationResult.Failed(
+                "La carpeta musical ya no está disponible.",
+            )
+        safRepository.createRootSubfolder(tree, name)
+    }
+
+    /** Single authority for local catalog visibility; no deletion of original audio. */
+    suspend fun hideLocalTrack(
+        trackId: String,
+        expectedUri: String,
+        expectedFingerprint: String? = null,
+    ): org.michimusic.data.repository.LocalVisibilityResult = changeMutex.withLock {
+        val result = localMediaRepository.hideFromCurrentLibrary(
+            trackId,
+            expectedUri,
+            expectedFingerprint,
+        )
+        if (result == org.michimusic.data.repository.LocalVisibilityResult.Hidden) {
+            _revision.value += 1
+        }
+        result
+    }
+
+    suspend fun restoreHiddenTrack(
+        trackId: String,
+        expectedSource: String,
+    ): org.michimusic.data.repository.LocalVisibilityResult = changeMutex.withLock {
+        val result = localMediaRepository.restoreInCurrentLibrary(trackId, expectedSource)
+        if (result == org.michimusic.data.repository.LocalVisibilityResult.Restored) {
+            _revision.value += 1
+        }
+        result
+    }
+
+    fun currentLocalVisibilitySource(): String = localMediaRepository.currentVisibilitySource()
+
+    /** Shares the same mutex as SAF root changes and single-track removals. */
+    suspend fun hideLocalSelection(
+        selection: List<org.michimusic.data.repository.LocalVisibilitySelection>,
+        expectedSource: String,
+    ): org.michimusic.data.repository.LocalVisibilityBatchResult = changeMutex.withLock {
+        val result = localMediaRepository.hideSelectionFromCurrentLibrary(selection, expectedSource)
+        if (result is org.michimusic.data.repository.LocalVisibilityBatchResult.Hidden) {
+            _revision.value += 1
+        }
+        result
+    }
+
+    suspend fun hiddenTracks(): List<org.michimusic.data.cache.LibraryExclusionEntity> =
+        changeMutex.withLock { localMediaRepository.hiddenInCurrentLibrary() }
+
     fun permissionRevoked(): Boolean {
         val root = _currentRoot.value
         val uri = root.treeUri?.let { runCatching { Uri.parse(it) }.getOrNull() } ?: return false
@@ -191,6 +274,25 @@ class MusicRootAuthority(
                     root
                 } else {
                     val migrated = root.copy(sourceId = indexed.sourceId)
+                    // Keep excluded songs excluded when upgrading a legacy SAF source.
+                    // Only copy metadata; leave old rows for safe rollback/onboarding recovery.
+                    try {
+                        root.sourceId?.let { oldSource ->
+                            localMediaRepository.copyVisibilityToMigratedSource(
+                                oldSource,
+                                indexed.sourceId,
+                            )
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        return@withLock MusicRootChange(
+                            success = false,
+                            root = root,
+                            error = MusicRootError.SAVE_FAILED,
+                            message = "No se pudo preservar la lista de canciones ocultas.",
+                        )
+                    }
                     if (!preferences.saveRoot(migrated)) {
                         return@withLock MusicRootChange(
                             success = false,

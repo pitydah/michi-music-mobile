@@ -15,6 +15,9 @@ import org.michimusic.core.models.Artist
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.LibraryExclusionDao
+import org.michimusic.data.cache.LibraryExclusionEntity
 import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.cache.TrackDao
@@ -27,6 +30,7 @@ open class LocalMediaRepository(
     private val replayGainDao: ReplayGainDao? = null,
     private val importedTrackDao: TrackDao? = null,
     private val rootPreferences: MusicRootPreferences? = null,
+    private val libraryExclusionDao: LibraryExclusionDao? = null,
 ) {
 
     private data class PendingTrack(val track: Track)
@@ -116,10 +120,19 @@ open class LocalMediaRepository(
             }
             val result = queryTracksResult()
             if (result is MediaResult.Success) {
-                cachedTracks = result.data
+                // The media index is complete. User exclusions are a visibility overlay,
+                // never a DELETE from MediaStore, SAF, Room cached tracks or filesystem.
+                val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
+                val source = libraryVisibilitySource(root)
+                val excluded = libraryExclusionDao?.forSource(source)
+                    ?.associateBy { it.trackId }.orEmpty()
+                val visible = result.data.filterNot { track ->
+                    isLibraryTrackHidden(excluded[track.id], source, track)
+                }
+                cachedTracks = visible
                 cacheTime = now
-            }
-            result
+                MediaResult.Success(visible, result.coverage)
+            } else result
         }
     }
 
@@ -134,6 +147,186 @@ open class LocalMediaRepository(
     open suspend fun invalidateCache() {
         cacheMutex.withLock {
             cachedTracks = null
+        }
+    }
+
+    /** Explicit catalog command: no file system API is called by either mutation. */
+    suspend fun hideFromCurrentLibrary(
+        trackId: String,
+        expectedUri: String,
+        expectedFingerprint: String? = null,
+    ): LocalVisibilityResult {
+        val dao = libraryExclusionDao
+            ?: return LocalVisibilityResult.Rejected("El registro de exclusiones no está disponible.")
+        if (trackId.isBlank() || expectedUri.isBlank()) {
+            return LocalVisibilityResult.Rejected("Identidad inválida.")
+        }
+        val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
+        invalidateCache()
+        val tracks = fetchTracksResult()
+        val visible = (tracks as? MediaResult.Success)?.data
+            ?: return LocalVisibilityResult.Rejected(
+                "La biblioteca no está disponible. Comprueba los permisos.",
+            )
+        val track = visible.singleOrNull { it.id == trackId && it.filepath == expectedUri }
+            ?: return LocalVisibilityResult.Rejected("La canción cambió de origen o ya está oculta.")
+        if (expectedFingerprint != null &&
+            expectedFingerprint != libraryVisibilityFingerprint(track)
+        ) return LocalVisibilityResult.Rejected("El archivo cambió desde que abriste el menú.")
+        if ((rootPreferences?.currentRoot() ?: MusicRoot.Default) != root) {
+            return LocalVisibilityResult.Rejected("La biblioteca cambió durante la operación.")
+        }
+        val row = LibraryExclusionEntity(
+            sourceId = libraryVisibilitySource(root),
+            trackId = track.id,
+            guardFingerprint = libraryVisibilityFingerprint(track),
+            title = track.title,
+            artist = track.artist,
+            album = track.album,
+        )
+        return try {
+            if (dao.hide(row) == -1L) {
+                LocalVisibilityResult.Rejected("La canción ya estaba oculta.")
+            } else {
+                invalidateCache()
+                LocalVisibilityResult.Hidden
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            LocalVisibilityResult.Rejected("No se pudo guardar la exclusión.")
+        }
+    }
+
+    fun currentVisibilitySource(): String =
+        libraryVisibilitySource(rootPreferences?.currentRoot() ?: MusicRoot.Default)
+
+    /** Copy metadata before migrating a SAF source id; originals never change. */
+    suspend fun copyVisibilityToMigratedSource(oldSource: String, newSource: String) {
+        if (oldSource.isNotBlank() && oldSource != newSource) {
+            libraryExclusionDao?.copyLegacySource(oldSource, newSource)
+        }
+    }
+
+    /**
+     * Atomically hides the exact tracks of one selected album/artist snapshot.
+     * Every identity and fingerprint must still match the active source; otherwise
+     * no exclusion is written. Neither audio files nor playlist entries are changed.
+     */
+    suspend fun hideSelectionFromCurrentLibrary(
+        selection: List<LocalVisibilitySelection>,
+        expectedSource: String,
+    ): LocalVisibilityBatchResult {
+        val dao = libraryExclusionDao
+            ?: return LocalVisibilityBatchResult.Rejected(
+                "El registro de exclusiones no está disponible.",
+            )
+        if (selection.isEmpty() || selection.size > 5_000 ||
+            selection.any { it.trackId.isBlank() || it.uri.isBlank() || it.fingerprint.isBlank() } ||
+            selection.map { it.trackId }.distinct().size != selection.size
+        ) return LocalVisibilityBatchResult.Rejected(
+            "La selección contiene identidades inválidas o duplicadas.",
+        )
+        val currentSource = currentVisibilitySource()
+        if (currentSource != expectedSource) {
+            return LocalVisibilityBatchResult.Rejected(
+                "La biblioteca cambió. No se ocultó ninguna canción.",
+            )
+        }
+        invalidateCache()
+        val result = fetchTracksResult()
+        val visible = (result as? MediaResult.Success)?.data
+            ?: return LocalVisibilityBatchResult.Rejected(
+                "No se pudo leer la biblioteca; no se ocultó ninguna canción.",
+            )
+        val candidates = visible.associateBy { it.id }
+        val verified = selection.map { expected ->
+            candidates[expected.trackId]?.takeIf {
+                it.filepath == expected.uri &&
+                    libraryVisibilityFingerprint(it) == expected.fingerprint
+            }
+        }
+        if (verified.any { it == null }) {
+            return LocalVisibilityBatchResult.Rejected(
+                "El contenido de la selección cambió. Actualiza la vista e inténtalo de nuevo.",
+            )
+        }
+        if (currentVisibilitySource() != expectedSource) {
+            return LocalVisibilityBatchResult.Rejected(
+                "La biblioteca cambió durante la comprobación.",
+            )
+        }
+        val rows = verified.filterNotNull().map { track ->
+            LibraryExclusionEntity(
+                sourceId = currentSource,
+                trackId = track.id,
+                guardFingerprint = libraryVisibilityFingerprint(track),
+                title = track.title,
+                artist = track.artist,
+                album = track.album,
+            )
+        }
+        return try {
+            val inserted = dao.hideBatch(rows)
+            invalidateCache()
+            LocalVisibilityBatchResult.Hidden(inserted.size)
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            LocalVisibilityBatchResult.Rejected(
+                "No fue posible guardar toda la selección. No se modificaron archivos.",
+            )
+        }
+    }
+
+    suspend fun hiddenInCurrentLibrary(): List<LibraryExclusionEntity> =
+        libraryExclusionDao?.forSource(
+            libraryVisibilitySource(rootPreferences?.currentRoot() ?: MusicRoot.Default),
+        ).orEmpty()
+
+    suspend fun hiddenIdsInCurrentLibrary(): Set<String> =
+        hiddenInCurrentLibrary().mapTo(HashSet()) { it.trackId }
+
+    /**
+     * Search also reads the synced cache. A cached row from the active local source
+     * must obey the same source/fingerprint exclusion as the live MediaStore/SAF list.
+     */
+    suspend fun filterHiddenSynced(cached: List<CachedTrack>): List<CachedTrack> {
+        val source = currentVisibilitySource()
+        val hidden = hiddenInCurrentLibrary().associateBy { it.trackId }
+        if (hidden.isEmpty()) return cached
+        return cached.filterNot { row ->
+            row.sourceId == source &&
+                isLibraryTrackHidden(hidden[row.id], source, row.toTrack())
+        }
+    }
+
+    suspend fun restoreInCurrentLibrary(
+        trackId: String,
+        expectedSource: String,
+    ): LocalVisibilityResult {
+        val dao = libraryExclusionDao
+            ?: return LocalVisibilityResult.Rejected(
+                "El registro de exclusiones no está disponible.",
+            )
+        if (trackId.isBlank()) return LocalVisibilityResult.Rejected("Identidad inválida.")
+        val source = libraryVisibilitySource(rootPreferences?.currentRoot() ?: MusicRoot.Default)
+        if (source != expectedSource) {
+            return LocalVisibilityResult.Rejected(
+                "La biblioteca cambió. No se restauró otra fuente.",
+            )
+        }
+        return try {
+            if (dao.restore(source, trackId) == 0) {
+                LocalVisibilityResult.Rejected("La exclusión ya no existe.")
+            } else {
+                invalidateCache()
+                LocalVisibilityResult.Restored
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            LocalVisibilityResult.Rejected("No se pudo restaurar la canción.")
         }
     }
 

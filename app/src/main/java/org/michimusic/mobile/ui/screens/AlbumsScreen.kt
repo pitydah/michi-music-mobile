@@ -180,6 +180,7 @@ fun AlbumsScreen(
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
+    val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
     val favoritesRepo: FavoritesRepository = koinInject()
     val favoriteIds by favoritesRepo.observeFavoriteTrackIds().collectAsStateWithLifecycle(initialValue = emptySet())
     val coroutineScope = rememberCoroutineScope()
@@ -667,7 +668,7 @@ fun AlbumsScreen(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
                                         key(activeScope) {
-                                            MichiCardDeck(
+                                            org.michimusic.mobile.ui.components.MichiVinylCrate(
                                                 items = coverFlowAlbums,
                                                 itemKey = { it.id },
                                                 itemLabel = { it.title },
@@ -680,54 +681,14 @@ fun AlbumsScreen(
                                                 onOpenSelected = { card -> onNavigateToAlbum(card.id) },
                                                 modifier = Modifier.fillMaxWidth().weight(1f)
                                                     .testTag("album_cards_deck"),
-                                            ) { card, isFront ->
-                                                val highContrast = LocalVisualPreferences.current.highContrast
-                                                val cardShape = RoundedCornerShape(20.dp)
-                                                Column(
-                                                    modifier = Modifier.fillMaxSize().clip(cardShape)
-                                                        .background(if (highContrast) SurfaceObsidian else GlassFillLow)
-                                                        .border(
-                                                            if (highContrast) 1.8.dp else 0.75.dp,
-                                                            if (highContrast) PureWhite else GlassBorderLow,
-                                                            cardShape,
-                                                        )
-                                                        .clickable(
-                                                            enabled = isFront,
-                                                            role = Role.Button,
-                                                            onClickLabel = "Abrir álbum ${card.title}",
-                                                        ) { onNavigateToAlbum(card.id) }
-                                                        .padding(10.dp),
-                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                    verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
-                                                ) {
-                                                    AlbumArtView(
-                                                        coverStyle = coverStyleFor(card.coverUri.ifBlank { card.title }),
-                                                        imageModel = card.coverUri,
-                                                        fallbackMediaUri = card.sourceAudioUri,
-                                                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                                                        cornerRadius = 14.dp,
-                                                    )
-                                                    Text(
-                                                        card.title,
-                                                        style = MichiTypography.trackTitle,
-                                                        color = PureWhite,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                    )
-                                                    Text(
-                                                        listOfNotNull(
-                                                            card.artist,
-                                                            card.year.takeIf { it > 0 }?.toString(),
-                                                            "${card.trackCount} pistas",
-                                                        ).joinToString(" · "),
-                                                        style = MichiTypography.metadata,
-                                                        color = TextSecondary,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                    )
-                                                }
+                                            ) { card ->
+                                                AlbumArtView(
+                                                    coverStyle = coverStyleFor(card.coverUri.ifBlank { card.title }),
+                                                    imageModel = card.coverUri,
+                                                    fallbackMediaUri = card.sourceAudioUri,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    cornerRadius = 12.dp,
+                                                )
                                             }
                                         }
                                         val currentAlbum = selectedAlbumId?.let(albumByToken::get)
@@ -745,6 +706,33 @@ fun AlbumsScreen(
                                                 canonicalPlayableAlbumTracks(
                                                     currentAlbum.tracks,
                                                     scopedArtistCollection.playableTrackIds,
+                                                )
+                                            }
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                                                    .testTag("album_vinyl_editorial"),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                                            ) {
+                                                Text(
+                                                    currentAlbum.album.title,
+                                                    style = MichiTypography.sectionTitle,
+                                                    color = PureWhite,
+                                                    maxLines = if (androidx.compose.ui.platform.LocalDensity.current.fontScale >= 1.5f) 3 else 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                )
+                                                Text(
+                                                    listOfNotNull(
+                                                        currentAlbum.album.artist,
+                                                        currentAlbum.album.year.takeIf { it > 0 }?.toString(),
+                                                        "${currentAlbum.tracks.size} pistas",
+                                                    ).joinToString(" · "),
+                                                    style = MichiTypography.metadata,
+                                                    color = TextSecondary,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                                 )
                                             }
                                             CoverFlowAlbumActions(
@@ -779,10 +767,32 @@ fun AlbumsScreen(
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                     )
                                 }
-                            } else Column(
-                                modifier = Modifier.fillMaxSize().padding(bottom = 24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
+                            } else {
+                                val currentAlbum = selectedAlbumId?.let(albumByToken::get)
+                                val currentPresentation = remember(currentAlbum?.tracks) {
+                                    currentAlbum?.let { albumTrackPresentation(it.tracks) }
+                                }
+                                val playableAlbumTracks = remember(
+                                    currentAlbum?.tracks, scopedArtistCollection.playableTrackIds,
+                                ) {
+                                    currentAlbum?.let {
+                                        canonicalPlayableAlbumTracks(
+                                            it.tracks, scopedArtistCollection.playableTrackIds,
+                                        )
+                                    } ?: emptyList()
+                                }
+                                val coverFlowScrollState = rememberLazyListState()
+                                LaunchedEffect(selectedAlbumId, activeScope) {
+                                    coverFlowScrollState.scrollToItem(0)
+                                }
+                                LazyColumn(
+                                    state = coverFlowScrollState,
+                                    modifier = Modifier.fillMaxSize().testTag("coverflow_page_scroll"),
+                                    contentPadding = PaddingValues(bottom = 24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    item(key = "coverflow_stage") {
                                 Box(
                                     modifier = Modifier.fillMaxWidth().height(
                                         coverFlowStageHeightDp(
@@ -808,9 +818,9 @@ fun AlbumsScreen(
                                         modifier = Modifier.fillMaxSize(),
                                     )
                                 }
-
+                                    }
+                                    item(key = "coverflow_album_details") {
                                 Spacer(Modifier.height(8.dp))
-                                val currentAlbum = selectedAlbumId?.let(albumByToken::get)
                                 if (currentAlbum == null) {
                                     Text(
                                         "Selecciona una portada válida para ver las acciones del álbum.",
@@ -823,18 +833,6 @@ fun AlbumsScreen(
                                         coverFlowAlbums.indexOfFirst { it.id == currentIdentity },
                                         coverFlowAlbums.size,
                                     )
-                                    val currentPresentation = remember(currentAlbum.tracks) {
-                                        albumTrackPresentation(currentAlbum.tracks)
-                                    }
-                                    val playableAlbumTracks = remember(
-                                        currentAlbum.tracks,
-                                        scopedArtistCollection.playableTrackIds,
-                                    ) {
-                                        canonicalPlayableAlbumTracks(
-                                            currentAlbum.tracks,
-                                            scopedArtistCollection.playableTrackIds,
-                                        )
-                                    }
                                     Text(
                                         text = if (positionLabel != null) "$positionLabel · Toca la portada para abrir"
                                         else "Toca la portada para abrir",
@@ -898,10 +896,9 @@ fun AlbumsScreen(
                                         color = TextSecondary,
                                         modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
                                     )
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxWidth().weight(1f).padding(horizontal = 20.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
+                                }
+                                    }
+                                    if (currentPresentation != null) {
                                         itemsIndexed(
                                             currentPresentation.tracks,
                                             key = { _, presented -> presented.track.id },
@@ -922,7 +919,8 @@ fun AlbumsScreen(
                                                     )
                                                 }
                                                 Row(
-                                                    modifier = Modifier.fillMaxWidth().clip(MichiShapes.sm)
+                                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                                                        .clip(MichiShapes.sm)
                                                         .heightIn(min = 52.dp).background(GlassFillLow, MichiShapes.sm)
                                                         .clickable(enabled = available) {
                                                             val exact = playableAlbumTracks.indexOfFirst { it.id == track.id }
@@ -1326,6 +1324,11 @@ fun AlbumsScreen(
                 onAddToPlaylist = {
                     trackToAddToPlaylist = track
                 },
+                onHideFromLibrary = if (track.id.startsWith("local_") || track.id.startsWith("safroot_")) ({
+                    rootAuthority.hideLocalTrack(track.id, track.filepath,
+                        org.michimusic.data.repository.libraryVisibilityFingerprint(track))
+                }) else null,
+                onHideSuccess = { viewModel.loadMedia(forceRefresh = true) },
                 onToggleFavorite = {
                     // The write can fail; an unhandled throw here would take the screen
                     // scope down with it and the sheet would stay open with a stale heart.

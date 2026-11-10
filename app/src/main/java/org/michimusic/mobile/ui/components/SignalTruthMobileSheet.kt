@@ -1,8 +1,12 @@
 package org.michimusic.mobile.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,11 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -28,8 +35,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -46,9 +58,11 @@ import org.michimusic.mobile.playback.SignalGraphUi
 import org.michimusic.mobile.playback.SignalStageAction
 import org.michimusic.mobile.playback.SignalStageUi
 import org.michimusic.mobile.playback.SignalTruthEvidencePolicy
+import org.michimusic.mobile.playback.SignalTruthChainPresentation
 import org.michimusic.mobile.playback.SignalTruthGraphProjector
 import org.michimusic.mobile.playback.SignalTruthOwnerPolicy
 import org.michimusic.mobile.playback.SignalTruthResolver
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SecondaryPurple
@@ -58,7 +72,6 @@ import org.michimusic.player.AudioRouteStatus
 import org.michimusic.player.UsbDacInfo
 import org.michimusic.player.UsbDacManager
 
-private enum class SignalQuickPanel { MENU, MODE, HEADPHONES, REPLAY_GAIN }
 
 /** One coherent sender-side sample, never a receiver or DAC acknowledgement. */
 private data class SenderSample(val sessionId: String? = null, val packets: Long = 0L,
@@ -77,9 +90,10 @@ fun SignalTruthMobileSheet(
     isRemote: Boolean,
     streamSelectedBySession: Boolean,
     queueEntryId: String? = null,
+    onOpenEqualizer: () -> Unit,
+    onOpenOutputRoutes: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var showEqEditor by remember { mutableStateOf(false) }
     val isStream = SignalTruthEvidencePolicy.isMichiStream(isRemote, activeEndpoint, streamSelectedBySession)
     val destination = when {
         isStream -> SignalDestination.MICHI_STREAM
@@ -155,6 +169,8 @@ fun SignalTruthMobileSheet(
             rtpSenderActive = senderSample.active,
         )
     }
+    // Technical explanations are progressive disclosure, not obstacles to changing a setting.
+    var showTechnicalDetails by remember(graph.ownerKey) { mutableStateOf(false) }
     // Only one stage can be expanded. A new track/epoch drops old expansion.
     var expandedStageId by remember(graph.ownerKey) { mutableStateOf<String?>(null) }
     LaunchedEffect(graph.nodes.map { it.stableId }, graph.controls.map { it.stableId }) {
@@ -162,163 +178,225 @@ fun SignalTruthMobileSheet(
             expandedStageId = null
         }
     }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = SurfaceObsidian,
     ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.88f).navigationBarsPadding()) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.94f).navigationBarsPadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Signal Truth", color = PureWhite, style = MaterialTheme.typography.titleLarge)
                     Text(when (destination) {
-                        SignalDestination.LOCAL -> "Ruta local del teléfono"
-                        SignalDestination.MICHI_STREAM -> "Transmisión Michi Stream"
-                        SignalDestination.REMOTE_HOST -> "Reproducción en host remoto"
+                        SignalDestination.LOCAL -> "Cómo llega la música a tu salida"
+                        SignalDestination.MICHI_STREAM -> "Qué sale del teléfono hacia Michi Stream"
+                        SignalDestination.REMOTE_HOST -> "Qué sabemos del host remoto"
                     }, color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                 }
-                OutlinedButton(onClick = onDismiss) { Text("Cerrar") }
+                TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Cerrar")
+                }
             }
+            // A readable, reliable answer before the detailed signal flow.
+            SignalTruthRouteOverview(
+                destination = destination,
+                currentTrack = currentTrack,
+                routeEvidence = routeEvidence,
+                onOpenOutputRoutes = onOpenOutputRoutes,
+            )
             // Both settings and graph nodes live in one lazy scrolling surface.
             // This avoids hiding the stages on compact devices or at 200% font scale.
             SignalGraphList(graph, expandedStageId, onExpand = { stageId ->
                 expandedStageId = if (expandedStageId == stageId) null else stageId
-            }, onOpenEqualizer = { showEqEditor = true }, usbManager = usbManager,
-                routeStatus = routeStatus, destination = destination)
+            }, onOpenEqualizer = onOpenEqualizer, onOpenOutputRoutes = onOpenOutputRoutes,
+                showTechnicalDetails = showTechnicalDetails,
+                onToggleTechnicalDetails = { showTechnicalDetails = !showTechnicalDetails },
+                usbManager = usbManager, routeStatus = routeStatus,
+                destination = destination, modifier = Modifier.weight(1f))
         }
-    }
-    if (showEqEditor) {
-        EqualizerDialog(onDismiss = { showEqEditor = false })
     }
 }
 
-/** Quick settings are outside the causal signal graph, but inside the scrolling sheet. */
+/** Explain the destination without promoting requested/remembered routes to verified audio. */
 @Composable
-private fun SignalTruthQuickSettings(
+private fun SignalTruthRouteOverview(
     destination: SignalDestination,
-    ownerKey: String,
-    onOpenEqualizer: () -> Unit,
+    currentTrack: Track?,
+    routeEvidence: AudioRouteEvidence?,
+    onOpenOutputRoutes: () -> Unit,
 ) {
-    var quickPanel by remember(destination, ownerKey) { mutableStateOf<SignalQuickPanel?>(null) }
-    if (destination == SignalDestination.LOCAL) {
-        OutlinedButton(onClick = {
-            quickPanel = if (quickPanel == null) SignalQuickPanel.MENU else null
-        }, modifier = Modifier.padding(horizontal = 20.dp).heightIn(min = 48.dp)) {
-            Text("Ajustes rápidos de audio")
-        }
-        if (quickPanel != null) {
-            // Keep a single compact editor at a time; never duplicate DSP engines.
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { quickPanel = SignalQuickPanel.MODE },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    Text("Modo DSP")
-                }
-                OutlinedButton(onClick = { quickPanel = SignalQuickPanel.HEADPHONES },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    Text("Auriculares")
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onOpenEqualizer() },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    Text("Ecualizador")
-                }
-                OutlinedButton(onClick = { quickPanel = SignalQuickPanel.REPLAY_GAIN },
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                    Text("ReplayGain")
-                }
-            }
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                when (quickPanel) {
-                    SignalQuickPanel.MODE -> SignalTruthAudioModeControls()
-                    SignalQuickPanel.HEADPHONES -> SignalTruthHeadphoneControls()
-                    SignalQuickPanel.REPLAY_GAIN -> SignalTruthReplayGainControls()
-                    SignalQuickPanel.MENU, null -> Unit
+    val local = destination == SignalDestination.LOCAL
+    val headline = when (destination) {
+        SignalDestination.LOCAL -> routeEvidence?.deviceLabel?.takeIf { it.isNotBlank() }
+            ?: "Salida aún no identificada"
+        SignalDestination.MICHI_STREAM -> "Receptor Michi Stream"
+        SignalDestination.REMOTE_HOST -> "Reproducción remota"
+    }
+    val explanation = when (destination) {
+        SignalDestination.LOCAL -> if (routeEvidence?.hasCurrentEvidence == true)
+            "Ruta observada por Android; formato físico del DAC sin comprobar."
+            else "Salida pendiente de confirmar. Puedes elegir otra salida."
+        SignalDestination.MICHI_STREAM -> "El envío RTP local no confirma lo que suena en el receptor."
+        SignalDestination.REMOTE_HOST -> "Los efectos y el dispositivo del host no se miden aquí."
+    }
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF211A30),
+        border = BorderStroke(1.dp, PureWhite.copy(alpha = 0.13f)),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .testTag("signal_truth_route_overview"),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(currentTrack?.title?.takeIf { it.isNotBlank() } ?: "Pista actual",
+                color = OnSurfaceVariant, style = MaterialTheme.typography.labelMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(headline, color = PureWhite, style = MaterialTheme.typography.titleMedium,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(explanation, color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            if (local) {
+                OutlinedButton(onClick = onOpenOutputRoutes, modifier = Modifier
+                    .heightIn(min = 48.dp).testTag("signal_truth_change_output")) {
+                    Text("Cambiar salida de audio")
                 }
             }
         }
     }
 }
 
+/** One local processing-mode editor, without duplicating the controls already
+ * embedded in the actual DSP and routing stages. */
+@Composable
+private fun SignalTruthQuickSettings(destination: SignalDestination, ownerKey: String) {
+    if (destination != SignalDestination.LOCAL) return
+    var showMode by remember(destination, ownerKey) { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Modo de procesamiento", style = MaterialTheme.typography.titleSmall, color = PureWhite)
+        Text("Este ajuste modifica el motor local; no verifica el DAC físico.",
+            style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+        OutlinedButton(
+            onClick = { showMode = !showMode },
+            modifier = Modifier.heightIn(min = 48.dp).testTag("signal_truth_mode_toggle"),
+        ) { Text(if (showMode) "Ocultar modo de audio" else "Cambiar modo de audio") }
+        if (showMode) SignalTruthAudioModeControls()
+    }
+}
+
+/** A stable, scrollable signal chain. The rail is drawn only between successive
+ * stages of the same *real* edge, never between unrelated output branches. */
 @Composable
 private fun SignalGraphList(
     graph: SignalGraphUi,
     expandedStageId: String?,
     onExpand: (String) -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenOutputRoutes: () -> Unit,
+    showTechnicalDetails: Boolean,
+    onToggleTechnicalDetails: () -> Unit,
     usbManager: UsbDacManager?,
     routeStatus: AudioRouteStatus,
     destination: SignalDestination,
+    modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier = Modifier.fillMaxWidth().fillMaxHeight(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 20.dp, end = 20.dp, bottom = 24.dp)) {
-        item(key = "quick-settings") {
-            SignalTruthQuickSettings(destination, graph.ownerKey, onOpenEqualizer)
+    val sections = remember(graph.nodes) { SignalTruthChainPresentation.sections(graph.nodes) }
+    LazyColumn(
+        modifier = modifier.fillMaxWidth().testTag("signal_truth_chain"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        item(key = "path-explanation") {
+            Column(modifier = Modifier.padding(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Ruta de la señal", color = PureWhite,
+                    style = MaterialTheme.typography.titleMedium)
+                Text("De la canción a la salida. Abre cada etapa para ajustar lo disponible.",
+                    color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            }
         }
-        item(key = "evidence-explanation") {
-            Text("Toca una etapa para consultar su evidencia. Un ajuste no demuestra su aplicación.",
-                color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(vertical = 10.dp))
-        }
-        itemsIndexed(graph.nodes, key = { _, stage -> stage.stableId }) { index, stage ->
-            if (index > 0) {
-                val previous = graph.nodes[index - 1]
-                val edge = graph.edges.firstOrNull { it.toId == stage.stableId }
-                if (edge?.fromId == previous.stableId) {
-                    Spacer(Modifier.padding(start = 14.dp).width(1.dp).height(15.dp)
-                        .background(OnSurfaceVariant.copy(alpha = 0.40f)))
-                    if (previous.branchId != stage.branchId) {
-                        Text("↳ Rama ${if (stage.branchId == "rtp") "RTP" else "local"}",
-                            color = OnSurfaceVariant, style = MaterialTheme.typography.labelSmall)
-                    }
-                } else {
-                    // A real graph branch: do not draw a false physical connector
-                    // from the preceding (unrelated) device to this stage.
-                    Text("↳ Rama ${if (stage.branchId == "local") "local" else "RTP"} " +
-                        "(desde la bifurcación PCM)", color = OnSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(vertical = 8.dp))
+        if (destination == SignalDestination.LOCAL) {
+            item(key = "processing-mode-settings") {
+                Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                    SignalTruthQuickSettings(destination, graph.ownerKey)
                 }
             }
-            val expanded = stage.stableId == expandedStageId
-            SignalGraphStage(stage, expanded, onClick = { onExpand(stage.stableId) })
-            if (expanded) {
-                Column(modifier = Modifier.fillMaxWidth().padding(start = 26.dp, bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    stage.note?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
+        }
+        sections.forEach { section ->
+            if (section.branchId != "main") {
+                item(key = "branch-${section.branchId}") {
+                    Column(modifier = Modifier.padding(top = 16.dp, bottom = 12.dp)) {
+                        Text(SignalTruthChainPresentation.branchTitle(section.branchId),
+                            style = MaterialTheme.typography.titleSmall, color = TertiaryCyan)
+                        Text("Bifurcación desde el procesamiento PCM; no es una continuación física de la rama anterior.",
+                            style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
                     }
-                    Text(if (stage.freshnessMs > 0L) {
-                        "Existe registro temporal para esta etapa. No confirma flujo activo ahora."
-                    } else "Sin recibo temporal propio de esta etapa.",
-                        style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
-                    SignalStageEditor(stage.action, onOpenEqualizer, usbManager, routeStatus)
                 }
             }
-            HorizontalDivider(color = OnSurfaceVariant.copy(alpha = 0.12f))
+            itemsIndexed(section.stages, key = { _, stage -> stage.stableId }) { index, stage ->
+                SignalGraphStage(
+                    stage = stage, sequenceNumber = index + 1,
+                    expanded = expandedStageId == stage.stableId,
+                    onExpand = { onExpand(stage.stableId) },
+                    onOpenEqualizer = onOpenEqualizer,
+                    onOpenOutputRoutes = onOpenOutputRoutes,
+                    allowRouteSelection = destination == SignalDestination.LOCAL,
+                    showTechnicalDetails = showTechnicalDetails,
+                    usbManager = usbManager, routeStatus = routeStatus,
+                )
+                val next = section.stages.getOrNull(index + 1)
+                if (next != null && graph.edges.any {
+                        it.fromId == stage.stableId && it.toId == next.stableId
+                    }) {
+                    Box(modifier = Modifier.padding(start = 13.dp)
+                        .width(2.dp).height(18.dp)
+                        .background(TertiaryCyan.copy(alpha = 0.42f)))
+                } else if (next != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
         }
         if (graph.controls.isNotEmpty()) {
-            item(key = "inactive-settings-heading") {
-                Text("Ajustes disponibles (fuera de la ruta activa)",
-                    style = MaterialTheme.typography.titleSmall, color = OnSurfaceVariant,
-                    modifier = Modifier.padding(top = 20.dp, bottom = 6.dp))
-            }
-            itemsIndexed(graph.controls, key = { _, control -> control.stableId }) { _, control ->
-                val expanded = control.stableId == expandedStageId
-                SignalGraphStage(control, expanded, onClick = { onExpand(control.stableId) })
-                if (expanded) {
-                    Column(modifier = Modifier.padding(start = 26.dp, bottom = 12.dp)) {
-                        SignalStageEditor(control.action, onOpenEqualizer, usbManager, routeStatus)
-                    }
+            item(key = "settings-heading") {
+                Column(modifier = Modifier.padding(top = 22.dp, bottom = 10.dp)) {
+                    Text("Ajustes disponibles", style = MaterialTheme.typography.titleMedium,
+                        color = PureWhite)
+                    Text("No forman parte del procesamiento activo.",
+                        style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
                 }
-                HorizontalDivider(color = OnSurfaceVariant.copy(alpha = 0.12f))
+            }
+            itemsIndexed(graph.controls, key = { _, stage -> stage.stableId }) { _, stage ->
+                SignalGraphStage(
+                    stage = stage, sequenceNumber = null,
+                    expanded = expandedStageId == stage.stableId,
+                    onExpand = { onExpand(stage.stableId) },
+                    onOpenEqualizer = onOpenEqualizer,
+                    onOpenOutputRoutes = onOpenOutputRoutes,
+                    allowRouteSelection = destination == SignalDestination.LOCAL,
+                    showTechnicalDetails = showTechnicalDetails,
+                    usbManager = usbManager, routeStatus = routeStatus,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+        item(key = "technical-details-toggle") {
+            Column(modifier = Modifier.padding(top = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = onToggleTechnicalDetails,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                        .testTag("signal_truth_technical_toggle")) {
+                    Text(if (showTechnicalDetails) "Ocultar explicaciones técnicas"
+                        else "¿Qué significan estos datos?")
+                }
+                if (showTechnicalDetails) {
+                    Text("Observado: dato del motor local. Configurado: ajuste solicitado. " +
+                        "Declarado: información del archivo. Sin verificar: no hay evidencia suficiente. " +
+                        "Ninguno certifica por sí solo el reloj físico del DAC ni la reproducción remota.",
+                        color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }
@@ -328,40 +406,129 @@ private fun SignalGraphList(
 private fun SignalStageEditor(
     action: SignalStageAction,
     onOpenEqualizer: () -> Unit,
+    onOpenOutputRoutes: () -> Unit,
     usbManager: UsbDacManager?,
     routeStatus: AudioRouteStatus,
 ) {
     when (action) {
-        SignalStageAction.OPEN_EQ -> OutlinedButton(onClick = onOpenEqualizer) { Text("Editar ecualizador") }
+        SignalStageAction.OPEN_EQ -> OutlinedButton(onClick = onOpenEqualizer,
+            modifier = Modifier.heightIn(min = 48.dp)) { Text("Abrir ecualizador") }
         SignalStageAction.USB_MIXER -> if (usbManager != null) {
             UsbDacMixerControls(manager = usbManager, routeStatus = routeStatus)
         }
         SignalStageAction.REPLAY_GAIN -> SignalTruthReplayGainControls()
-        SignalStageAction.HEADPHONE_PROFILE -> SignalTruthHeadphoneControls()
+        SignalStageAction.HEADPHONE_PROFILE -> SignalTruthHeadphoneControls(
+            onOpenOutputRoutes = onOpenOutputRoutes)
         SignalStageAction.NONE -> Unit
     }
 }
 
 @Composable
-private fun SignalGraphStage(stage: SignalStageUi, expanded: Boolean, onClick: () -> Unit) {
-    val (text, hue) = when (stage.evidenceType) {
+private fun SignalEvidenceLabel(evidenceType: SignalEvidenceType) {
+    val (word, tint) = when (evidenceType) {
         SignalEvidenceType.OBSERVED -> "Observado" to TertiaryCyan
         SignalEvidenceType.DECLARED -> "Declarado" to OnSurfaceVariant
         SignalEvidenceType.CONFIGURED -> "Configurado" to SecondaryPurple
-        SignalEvidenceType.UNKNOWN -> "Desconocido" to Color(0xFFE5A93C)
+        SignalEvidenceType.UNKNOWN -> "Sin verificar" to Color(0xFFE8BB75)
     }
-    Column(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
-        .clickable(onClick = onClick)
-        .semantics { contentDescription = "${stage.label}. ${stage.summary}. Evidencia: $text. " +
-            if (expanded) "Contraer detalles" else "Expandir detalles" }
-        .padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(stage.label, color = PureWhite, style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f))
-            Text(text, color = hue, style = MaterialTheme.typography.labelSmall)
+    Box(modifier = Modifier.clip(RoundedCornerShape(50))
+        .background(tint.copy(alpha = 0.12f))
+        .padding(horizontal = 9.dp, vertical = 5.dp)) {
+        Text(word, color = tint, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+/** The active action is always visible. Expanding only reveals diagnostics and
+ * the real editor; the UI never creates a second DSP or playback authority. */
+@Composable
+private fun SignalGraphStage(
+    stage: SignalStageUi,
+    sequenceNumber: Int?,
+    expanded: Boolean,
+    onExpand: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onOpenOutputRoutes: () -> Unit,
+    allowRouteSelection: Boolean,
+    showTechnicalDetails: Boolean,
+    usbManager: UsbDacManager?,
+    routeStatus: AudioRouteStatus,
+) {
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val tint = when (stage.evidenceType) {
+        SignalEvidenceType.OBSERVED -> TertiaryCyan
+        SignalEvidenceType.DECLARED -> OnSurfaceVariant
+        SignalEvidenceType.CONFIGURED -> SecondaryPurple
+        SignalEvidenceType.UNKNOWN -> Color(0xFFE8BB75)
+    }
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(modifier = Modifier.size(28.dp)
+            .background(tint.copy(alpha = 0.14f), CircleShape), contentAlignment = Alignment.Center) {
+            Text(sequenceNumber?.toString() ?: "•", color = tint,
+                style = MaterialTheme.typography.labelMedium)
         }
-        Text(stage.summary, color = OnSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        if (expanded) Text("Ocultar detalles", color = TertiaryCyan,
-            style = MaterialTheme.typography.labelSmall)
+        Surface(
+            modifier = Modifier.weight(1f).testTag("signal_stage_${stage.stableId}"),
+            shape = RoundedCornerShape(16.dp),
+            color = if (highContrast) Color(0xFF151C27) else Color(0xFF211A30),
+            border = BorderStroke(1.dp, PureWhite.copy(alpha =
+                if (highContrast) 0.58f else if (expanded) 0.26f else 0.12f)),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Column(modifier = Modifier.fillMaxWidth()
+                    .clickable(role = Role.Button, onClick = onExpand)
+                    .semantics { contentDescription = "${stage.label}. ${stage.summary}. " +
+                        if (expanded) "Ocultar detalles" else "Consultar detalles" }
+                    .heightIn(min = 48.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(SignalTruthChainPresentation.label(stage), color = PureWhite,
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp))
+                        SignalEvidenceLabel(stage.evidenceType)
+                    }
+                    Text(SignalTruthChainPresentation.summary(stage), color = OnSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                val isRouteStage = allowRouteSelection && stage.stableId == "main:route"
+                val actionLabel = if (isRouteStage) "Cambiar salida"
+                    else SignalTruthChainPresentation.actionLabel(stage.action)
+                if (actionLabel != null) {
+                    TextButton(
+                        onClick = {
+                            if (isRouteStage) onOpenOutputRoutes()
+                            else if (stage.action == SignalStageAction.OPEN_EQ) onOpenEqualizer()
+                            else onExpand()
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .testTag("signal_action_${stage.stableId}"),
+                    ) { Text(if (expanded && !isRouteStage && stage.action != SignalStageAction.OPEN_EQ)
+                        "Cerrar ajustes" else actionLabel, color = TertiaryCyan) }
+                }
+                if (expanded) {
+                    if (showTechnicalDetails) {
+                        stage.note?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, color = OnSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text(if (stage.freshnessMs > 0L) {
+                            "Existe una observación registrada; no demuestra flujo activo ahora."
+                        } else "Esta etapa no tiene un recibo temporal propio.",
+                            color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    } else if (stage.action == SignalStageAction.NONE && !isRouteStage) {
+                        Text("Consulta la descripción de esta etapa. Activa las explicaciones técnicas " +
+                            "al final si necesitas revisar su procedencia.",
+                            color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (stage.action != SignalStageAction.NONE && stage.action != SignalStageAction.OPEN_EQ) {
+                        SignalStageEditor(stage.action, onOpenEqualizer, onOpenOutputRoutes,
+                            usbManager, routeStatus)
+                    }
+                }
+            }
+        }
     }
 }

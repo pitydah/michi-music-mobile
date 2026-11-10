@@ -32,6 +32,7 @@ internal fun AlbumDetailMenuSheets(
     tracks: List<Track>,
     orderedTracks: List<Track>,
     onModalChange: (AlbumDetailModal?) -> Unit,
+    onHideAlbum: (() -> Unit)? = null,
 ) {
     if (activeModal == AlbumDetailModal.MENU || activeModal == AlbumDetailModal.QUALITY) {
         MichiBottomSheet(onDismissRequest = { onModalChange(null) }) {
@@ -40,6 +41,7 @@ internal fun AlbumDetailMenuSheets(
                 tracks = tracks,
                 orderedTracks = orderedTracks,
                 onModalChange = onModalChange,
+                onHideAlbum = onHideAlbum,
             )
         }
     }
@@ -51,6 +53,7 @@ internal fun AlbumDetailMenuSheetContent(
     tracks: List<Track>,
     orderedTracks: List<Track>,
     onModalChange: (AlbumDetailModal?) -> Unit,
+    onHideAlbum: (() -> Unit)? = null,
 ) {
     when (activeModal) {
         AlbumDetailModal.QUALITY -> LazyColumn(
@@ -114,6 +117,12 @@ internal fun AlbumDetailMenuSheetContent(
             }
             TextButton(onClick = { onModalChange(albumModalForMenuAction(AlbumMenuAction.HISTORY)) }) {
                 Text("Cronología externa · MusicBrainz", color = PureWhite)
+            }
+            if (onHideAlbum != null) {
+                TextButton(
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("album_hide_collection_action"),
+                    onClick = onHideAlbum,
+                ) { Text("Quitar álbum de biblioteca", color = TextSecondary) }
             }
             TextButton(onClick = { onModalChange(albumModalForMenuAction(AlbumMenuAction.CLOSE)) }) {
                 Text("Cerrar", color = TextSecondary)

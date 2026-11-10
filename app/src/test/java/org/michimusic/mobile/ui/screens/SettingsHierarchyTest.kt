@@ -49,8 +49,13 @@ class SettingsHierarchyTest {
         io.mockk.coEvery { mockAppDao.getSetting("listening_history_enabled") } returns "true"
         every { mockVisualRepo.preferences } returns MutableStateFlow(VisualPreferences(reducedMotion = true))
         every { mockRootAuthority.currentRoot } returns MutableStateFlow(MusicRoot.Default)
+        every { mockRootAuthority.revision } returns MutableStateFlow(0L)
         every { mockRootAuthority.lastScan } returns MutableStateFlow(null)
         every { mockRootAuthority.permissionRevoked() } returns false
+        every { mockRootAuthority.canWriteCurrentRoot() } returns false
+        every { mockRootAuthority.currentLocalVisibilitySource() } returns
+            "mediastore:external_primary:Music"
+        io.mockk.coEvery { mockRootAuthority.hiddenTracks() } returns emptyList()
         io.mockk.coEvery { mockRootAuthority.rescan(any()) } returns
             MusicRootChange(success = true, root = MusicRoot.Default)
 

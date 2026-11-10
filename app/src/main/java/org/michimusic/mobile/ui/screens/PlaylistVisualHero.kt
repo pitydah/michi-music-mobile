@@ -68,7 +68,6 @@ import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.aeroPlaylistBannerBlurEnabled
-import org.michimusic.mobile.ui.theme.aeroPlaylistPanelOpacity
 
 /**
  * ONE continuous Aero card: full-bleed banner, a bottom-left cover, and a
@@ -86,7 +85,6 @@ internal fun PlaylistVisualHero(
     modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(18.dp)
-    val plateShape = RoundedCornerShape(14.dp)
     val coverSize = playlistHeroCoverSizeDp(
         LocalConfiguration.current.screenWidthDp.toFloat(),
     ).dp
@@ -160,7 +158,6 @@ internal fun PlaylistVisualHero(
         powerSaveMode = powerSaveMode,
         lowRamDevice = lowRamDevice,
     )
-    val plateOpacity = aeroPlaylistPanelOpacity(bannerImageBlur, highContrast)
     val fallbackBrush = Brush.linearGradient(listOf(AeroGraphite, SurfaceObsidian))
 
     Box(
@@ -246,12 +243,6 @@ internal fun PlaylistVisualHero(
             Box(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .clip(plateShape)
-                    .border(
-                        width = if (highContrast) 1.dp else 0.65.dp,
-                        color = if (highContrast) PureWhite else PureWhite.copy(alpha = 0.16f),
-                        shape = plateShape,
-                    )
                     .onSizeChanged { plateSize = it }
                     .onGloballyPositioned { plateOrigin = it.positionInRoot() }
                     .testTag("playlist_visual_tray"),
@@ -289,7 +280,14 @@ internal fun PlaylistVisualHero(
                 Box(
                     modifier = Modifier
                         .matchParentSize()
-                        .background(SurfaceObsidian.copy(alpha = plateOpacity)),
+                        .background(
+                            if (highContrast) Brush.verticalGradient(
+                                listOf(SurfaceObsidian, SurfaceObsidian),
+                            ) else Brush.verticalGradient(
+                                0f to SurfaceObsidian.copy(alpha = 0.18f),
+                                1f to SurfaceObsidian.copy(alpha = 0.74f),
+                            ),
+                        ),
                 )
                 Column(
                     modifier = Modifier

@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.flowOf
@@ -119,6 +120,7 @@ fun ArtistDetailScreen(
     val mediaLoadError by viewModel.error.collectAsStateWithLifecycle()
     val reducedMotion = LocalVisualPreferences.current.reducedMotion
     val scopeStore: LibraryScopeStore = koinInject()
+    val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
     val libraryRepo: MusicLibraryRepository = koinInject()
     val activeScope by scopeStore.activeScope.collectAsStateWithLifecycle()
     val availableLibraries by libraryRepo.observeLibraries().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -155,6 +157,13 @@ fun ArtistDetailScreen(
         hasAlbums = localAlbums.isNotEmpty(),
     )
     var playbackNotice by remember(artistCredit, activeScope) { mutableStateOf<String?>(null) }
+    var showArtistHideConfirm by remember(artistCredit, activeScope) { mutableStateOf(false) }
+    var artistHideBusy by remember(artistCredit, activeScope) { mutableStateOf(false) }
+    var artistHideError by remember(artistCredit, activeScope) { mutableStateOf<String?>(null) }
+    var artistHideSource by remember(artistCredit, activeScope) { mutableStateOf("") }
+    var artistHideSnapshot by remember(artistCredit, activeScope) {
+        mutableStateOf<List<org.michimusic.data.repository.LocalVisibilitySelection>>(emptyList())
+    }
 
     fun playEligible(selection: org.michimusic.mobile.library.ArtistQueueSelection?) {
         if (selection == null) {
@@ -611,6 +620,25 @@ fun ArtistDetailScreen(
                                     enabled = tracks.any { it.id in playableTrackIds },
                                     testTag = "artist_detail_play_all",
                                 )
+                                if (tracks.isNotEmpty() && tracks.all {
+                                    it.source == TrackSource.LOCAL && it.filepath.isNotBlank()
+                                }) {
+                                    TextButton(
+                                        modifier = Modifier.fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .testTag("artist_hide_collection_action"),
+                                        onClick = {
+                                            artistHideSnapshot = tracks.map(
+                                                org.michimusic.data.repository.LocalVisibilitySelection::capture,
+                                            )
+                                            artistHideSource = rootAuthority.currentLocalVisibilitySource()
+                                            artistHideError = null
+                                            showArtistHideConfirm = true
+                                        },
+                                    ) {
+                                        Text("Quitar artista de biblioteca", color = TextSecondary)
+                                    }
+                                }
                             }
                         }
                         itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
@@ -626,6 +654,44 @@ fun ArtistDetailScreen(
                     }
                 }
             }
+        }
+        if (showArtistHideConfirm) {
+            org.michimusic.mobile.ui.components.LibraryHideConfirmationSheet(
+                collectionLabel = "artista",
+                trackCount = artistHideSnapshot.size,
+                busy = artistHideBusy,
+                error = artistHideError,
+                onDismiss = { if (!artistHideBusy) showArtistHideConfirm = false },
+                onConfirm = {
+                    if (!artistHideBusy) {
+                        artistHideBusy = true
+                        controllerScope.launch {
+                            try {
+                                when (
+                                    val result = rootAuthority.hideLocalSelection(
+                                        artistHideSnapshot,
+                                        artistHideSource,
+                                    )
+                                ) {
+                                    is org.michimusic.data.repository.LocalVisibilityBatchResult.Hidden -> {
+                                        showArtistHideConfirm = false
+                                        viewModel.loadMedia(forceRefresh = true)
+                                        onBack()
+                                    }
+                                    is org.michimusic.data.repository.LocalVisibilityBatchResult.Rejected ->
+                                        artistHideError = result.message
+                                }
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (_: Exception) {
+                                artistHideError = "No se pudo ocultar el artista."
+                            } finally {
+                                artistHideBusy = false
+                            }
+                        }
+                    }
+                },
+            )
         }
     }
 }

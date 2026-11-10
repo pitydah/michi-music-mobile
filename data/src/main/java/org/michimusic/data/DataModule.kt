@@ -23,9 +23,11 @@ val dataModule = module {
             MichiDatabase.MIGRATION_5_6,
             MichiDatabase.MIGRATION_6_7,
             MichiDatabase.MIGRATION_7_8,
+            MichiDatabase.MIGRATION_8_9,
         ).build()
     }
     single { get<MichiDatabase>().trackDao() }
+    single { get<MichiDatabase>().libraryExclusionDao() }
     single { get<MichiDatabase>().playlistDao() }
     single { get<MichiDatabase>().replayGainDao() }
     single { get<MichiDatabase>().appDao() }
@@ -50,7 +52,8 @@ val dataModule = module {
     single { SyncedTrackRepository(get(), get()) }
     single { MusicRootPreferences(androidContext()) }
     // The local library is scoped to one root: Music/ by default or one SAF tree.
-    single { LocalMediaRepository(androidContext(), get(), get(), get()) }
+    // Exclusion DAO is metadata-only. It must be shared by all LocalMediaRepository callers.
+    single { LocalMediaRepository(androidContext(), get(), get(), get(), get()) }
     single<org.michimusic.data.repository.FavoritesRepository> {
         org.michimusic.data.repository.DefaultFavoritesRepository(get())
     }

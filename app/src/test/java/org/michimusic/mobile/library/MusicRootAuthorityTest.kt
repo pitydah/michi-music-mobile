@@ -36,6 +36,69 @@ class MusicRootAuthorityTest {
     ) = MusicRootAuthority(prefs, saf, local, audio)
 
     @Test
+    fun creatingFolderFromDefaultMusicNeverCallsTheSafProvider() = runTest {
+        val prefs = mockk<MusicRootPreferences>(relaxed = true)
+        val saf = mockk<SafMediaRepository>(relaxed = true)
+        every { prefs.currentRoot() } returns MusicRoot.Default
+        val result = authority(prefs, saf).createSubfolder("Rock", tree.toString())
+        assertEquals(
+            org.michimusic.data.repository.MusicFolderCreationResult.PermissionDenied,
+            result,
+        )
+        coVerify(exactly = 0) { saf.createRootSubfolder(any(), any()) }
+    }
+
+    @Test
+    fun writeGrantCannotBeCapturedForAnotherSelectedTree() = runTest {
+        val prefs = mockk<MusicRootPreferences>(relaxed = true)
+        val saf = mockk<SafMediaRepository>(relaxed = true)
+        every { prefs.currentRoot() } returns MusicRoot(
+            type = MusicRootType.CUSTOM_TREE,
+            treeUri = tree.toString(),
+            sourceId = customRootSourceId(tree),
+        )
+        val other = Uri.parse(
+            "content://com.android.externalstorage.documents/tree/primary%3AElsewhere",
+        )
+        assertFalse(authority(prefs, saf).enableWriteForSelectedRoot(other))
+        verify(exactly = 0) { saf.takePersistableWritePermission(any()) }
+    }
+
+    @Test
+    fun createSubfolderRejectsStaleDialogRootAfterLibrarySwitch() = runTest {
+        val prefs = mockk<MusicRootPreferences>(relaxed = true)
+        val saf = mockk<SafMediaRepository>(relaxed = true)
+        every { prefs.currentRoot() } returns MusicRoot(
+            type = MusicRootType.CUSTOM_TREE,
+            treeUri = tree.toString(),
+            sourceId = customRootSourceId(tree),
+        )
+        val old = "content://com.android.externalstorage.documents/tree/primary%3AOld"
+        val result = authority(prefs, saf).createSubfolder("Jazz", old)
+        assertTrue(result is org.michimusic.data.repository.MusicFolderCreationResult.Failed)
+        coVerify(exactly = 0) { saf.createRootSubfolder(any(), any()) }
+    }
+
+    @Test
+    fun createSubfolderPassesOnlyTheConfirmedCustomRoot() = runTest {
+        val prefs = mockk<MusicRootPreferences>(relaxed = true)
+        val saf = mockk<SafMediaRepository>(relaxed = true)
+        every { prefs.currentRoot() } returns MusicRoot(
+            type = MusicRootType.CUSTOM_TREE,
+            treeUri = tree.toString(),
+            sourceId = customRootSourceId(tree),
+        )
+        coEvery { saf.createRootSubfolder(tree, "Jazz") } returns
+            org.michimusic.data.repository.MusicFolderCreationResult.Created("Jazz")
+        val result = authority(prefs, saf).createSubfolder("Jazz", tree.toString())
+        assertEquals(
+            org.michimusic.data.repository.MusicFolderCreationResult.Created("Jazz"),
+            result,
+        )
+        coVerify(exactly = 1) { saf.createRootSubfolder(tree, "Jazz") }
+    }
+
+    @Test
     fun scanFailureLeavesThePreviousRootAndCatalogUntouched() = runTest {
         val prefs = mockk<MusicRootPreferences>(relaxed = true)
         val saf = mockk<SafMediaRepository>(relaxed = true)

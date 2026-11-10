@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -543,8 +544,9 @@ private fun PlaylistVisualPreview(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            // Mirror the final hero height so the staged focal/zoom crop is truthful.
-            .height(PLAYLIST_HERO_MIN_HEIGHT_DP.dp)
+            // The cover is displayed 1:1 by PlaylistVisualHero; banner retains hero height.
+            .then(if (label == "Portada") Modifier.aspectRatio(1f)
+                else Modifier.height(PLAYLIST_HERO_MIN_HEIGHT_DP.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(listOf(AeroGraphite, SurfaceObsidian)))
             .border(0.65.dp, PureWhite.copy(alpha = 0.14f), RoundedCornerShape(12.dp))

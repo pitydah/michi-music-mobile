@@ -41,6 +41,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
@@ -68,6 +70,7 @@ fun <T> MichiCardDeck(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
     circularArtwork: Boolean = false,
+    navigationButtons: Boolean = true,
     onOpenSelected: ((T) -> Unit)? = null,
     itemLabel: (T) -> String = itemKey,
     cardContent: @Composable (T, Boolean) -> Unit,
@@ -334,7 +337,22 @@ fun <T> MichiCardDeck(
         }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
             val compact = maxWidth < 360.dp || LocalDensity.current.fontScale >= 1.45f
-            if (maxWidth < 128.dp) {
+            if (!navigationButtons) {
+                Text(
+                    "${index + 1} / ${safeItems.size}",
+                    style = MichiTypography.metadata,
+                    color = TextSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        contentDescription = "${index + 1} de ${safeItems.size} artistas"
+                        customActions = listOf(
+                            CustomAccessibilityAction("Artista siguiente") { advance(1); true },
+                            CustomAccessibilityAction("Artista anterior") { advance(-1); true },
+                        )
+                    }.testTag("michi_card_position"),
+                )
+            } else if (maxWidth < 128.dp) {
                 // Two 48dp touch targets cannot fit beside a counter on tiny windows.
                 Column(horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxWidth(),

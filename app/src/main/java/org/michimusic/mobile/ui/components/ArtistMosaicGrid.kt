@@ -245,6 +245,7 @@ fun ArtistMosaicGrid(
             modifier = modifier.fillMaxSize().testTag("artist_cards_deck"),
             onOpenSelected = { artist -> onOpenArtist(artist.credit) },
             circularArtwork = true,
+            navigationButtons = false,
         ) { artist, isFront ->
             // Preserve Michi's round portrait, not a rectangular card frame.
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

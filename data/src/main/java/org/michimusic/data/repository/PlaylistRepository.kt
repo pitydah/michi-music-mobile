@@ -14,6 +14,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Fail-closed contract: callers never interpret a no-op as a persisted drag. */
+sealed interface PlaylistReorderResult {
+    data object Applied : PlaylistReorderResult
+    data object Unchanged : PlaylistReorderResult
+    data object Conflict : PlaylistReorderResult
+}
+
 enum class MoveDirection { UP, DOWN }
 
 open class PlaylistRepository(
@@ -114,7 +121,7 @@ open class PlaylistRepository(
         playlistDao.updateTrackIdsAndCount(id, LOCAL_SOURCE_ID, existingIds.joinToString(","), existingIds.size)
     }
 
-    open suspend fun deletePlaylist(id: String) {
+    open suspend fun deletePlaylist(id: String) = writeMutex.withLock {
         playlistDao?.deleteById(id, LOCAL_SOURCE_ID)
     }
 
@@ -142,26 +149,64 @@ open class PlaylistRepository(
     //
     // A no-op (unknown playlist, trackId not currently resolvable, or already at the
     // boundary in the visible order) is always safe and never persists anything.
+    /**
+     * Persists one drag in one DAO update. Visible indices refer to resolvable
+     * tracks; unresolved IDs retain their original absolute slots. expectedVisibleIds
+     * protects against a library refresh while the user is dragging.
+     * Current playlists intentionally contain unique track IDs only.
+     */
+    open suspend fun moveTrackToPosition(
+        id: String,
+        trackId: String,
+        fromVisibleIndex: Int,
+        toVisibleIndex: Int,
+        expectedVisibleIds: List<String>,
+    ): PlaylistReorderResult = writeMutex.withLock {
+        val dao = playlistDao ?: return@withLock PlaylistReorderResult.Conflict
+        val cached = dao.getById(id, LOCAL_SOURCE_ID) ?: return@withLock PlaylistReorderResult.Conflict
+        val raw = parseTrackIds(cached.trackIds)
+        val playlist = Playlist(
+            id = cached.id,
+            name = cached.name,
+            trackIds = raw,
+            trackCount = cached.trackCount,
+        )
+        val visible = getTracksForPlaylist(playlist).map { it.id }
+        if (visible != expectedVisibleIds || visible.toSet().size != visible.size ||
+            fromVisibleIndex !in visible.indices || toVisibleIndex !in visible.indices ||
+            visible[fromVisibleIndex] != trackId
+        ) return@withLock PlaylistReorderResult.Conflict
+        if (fromVisibleIndex == toVisibleIndex) return@withLock PlaylistReorderResult.Unchanged
+        val reordered = reorderedVisiblePlaylistIds(
+            raw,
+            visible,
+            fromVisibleIndex,
+            toVisibleIndex,
+        ) ?: return@withLock PlaylistReorderResult.Conflict
+        dao.updateTrackIds(id, LOCAL_SOURCE_ID, reordered.joinToString(","))
+        PlaylistReorderResult.Applied
+    }
+
     open suspend fun moveTrack(id: String, trackId: String, direction: MoveDirection) {
-        if (playlistDao == null) return
-        val cached = playlistDao.getAllPlaylists().find { it.id == id } ?: return
+        val dao = playlistDao ?: return
+        val cached = dao.getById(id, LOCAL_SOURCE_ID) ?: return
         val trackIds = parseTrackIds(cached.trackIds)
-        val playlist = Playlist(id = cached.id, name = cached.name, trackIds = trackIds, trackCount = cached.trackCount)
-        val visibleIds = getTracksForPlaylist(playlist).map { it.id }
-
-        val fromVisibleIndex = visibleIds.indexOf(trackId)
-        if (fromVisibleIndex < 0) return
-        val toVisibleIndex = if (direction == MoveDirection.UP) fromVisibleIndex - 1 else fromVisibleIndex + 1
-        if (toVisibleIndex !in visibleIds.indices) return
-        val neighborId = visibleIds[toVisibleIndex]
-
-        val newTrackIds = trackIds.toMutableList()
-        val i = newTrackIds.indexOf(trackId)
-        val j = newTrackIds.indexOf(neighborId)
-        newTrackIds[i] = neighborId
-        newTrackIds[j] = trackId
-
-        playlistDao.updateTrackIds(id, LOCAL_SOURCE_ID, newTrackIds.joinToString(","))
+        val visible = getTracksForPlaylist(
+            Playlist(
+                id = cached.id,
+                name = cached.name,
+                trackIds = trackIds,
+                trackCount = cached.trackCount,
+            ),
+        ).map { it.id }
+        val from = visible.indexOf(trackId)
+        if (from == -1) return
+        val to = if (direction == MoveDirection.UP) from - 1 else from + 1
+        if (to !in visible.indices) return
+        // The target method re-reads the playlist under writeMutex. Any other
+        // drag/arrow update between this snapshot and the commit becomes Conflict;
+        // it cannot overwrite the newer persisted order.
+        moveTrackToPosition(id, trackId, from, to, visible)
     }
 
     // Resolves a playlist's trackIds to their Track objects, preserving the stored order.
@@ -172,8 +217,16 @@ open class PlaylistRepository(
     open suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> {
         if (playlist.trackIds.isEmpty()) return emptyList()
         val localTracksById = localMediaRepository.loadTracks().associateBy { it.id }
+        val hidden = localMediaRepository.hiddenInCurrentLibrary().associateBy { it.trackId }
+        val activeSource = localMediaRepository.currentVisibilitySource()
         return playlist.trackIds.mapNotNull { id ->
-            localTracksById[id] ?: trackDao.getTrackById(id)?.toTrack()
+            localTracksById[id] ?: trackDao.getTrackById(id)?.let { cached ->
+                // Do not resurrect hidden SAF tracks via the raw Room cache fallback.
+                val candidate = cached.toTrack()
+                if (cached.sourceId == activeSource &&
+                    isLibraryTrackHidden(hidden[id], activeSource, candidate)
+                ) null else candidate
+            }
         }
     }
 

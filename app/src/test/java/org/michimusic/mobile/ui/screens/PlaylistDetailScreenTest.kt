@@ -48,6 +48,11 @@ class PlaylistDetailScreenTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    private fun scrollToTrack(tag: String) {
+        composeTestRule.onNodeWithTag("playlist_detail_track_list")
+            .performScrollToNode(hasTestTag(tag))
+    }
+
     @Before
     fun clearVisualPreferences() {
         RuntimeEnvironment.getApplication()
@@ -209,6 +214,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_track_list").assertIsDisplayed()
         composeTestRule.onNodeWithText("Neon Skyline").assertIsDisplayed()
         composeTestRule.onNodeWithText("Cyber Runner").assertIsDisplayed()
+        scrollToTrack("playlist_detail_track_t2")
         composeTestRule.onNodeWithText("Midnight Drive").assertIsDisplayed()
         composeTestRule.onNodeWithText("Vapor Wave").assertIsDisplayed()
     }
@@ -333,6 +339,7 @@ class PlaylistDetailScreenTest {
 
         composeTestRule.onNodeWithTag("playlist_detail_track_options_t1").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_t1").assertIsDisplayed()
+        scrollToTrack("playlist_detail_track_t2")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_t2").assertIsDisplayed()
     }
 
@@ -477,6 +484,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_b").performClick()
 
         verify(exactly = 1) { mockAudio.playQueue(tracks, 1) }
@@ -917,7 +925,8 @@ class PlaylistDetailScreenTest {
         }
 
         composeTestRule.onNodeWithText("2 canciones").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("playlist_detail_track_a").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_detail_track_a").assertExists()
+        scrollToTrack("playlist_detail_track_c")
         composeTestRule.onNodeWithTag("playlist_detail_track_c").assertIsDisplayed()
         composeTestRule.onAllNodesWithTag("playlist_detail_track_b").assertCountEquals(0)
         composeTestRule.onAllNodesWithTag("playlist_detail_empty_state").assertCountEquals(0)
@@ -979,6 +988,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockAudio)
         }
 
+        scrollToTrack("playlist_detail_track_c")
         composeTestRule.onNodeWithTag("playlist_detail_track_c").performClick()
 
         verify(exactly = 1) { mockAudio.playQueue(resolvableTracks, 1) }
@@ -1018,6 +1028,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_b").performClick()
 
@@ -1037,6 +1048,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_down_b").performClick()
 
@@ -1072,6 +1084,7 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
 
         composeTestRule.onNodeWithTag("playlist_detail_move_down_b").assertIsNotEnabled()
@@ -1091,8 +1104,10 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_b").performClick()
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_b").performClick()
 
@@ -1117,6 +1132,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_track_a").performClick()
         verify(exactly = 1) { mockAudio.playQueue(tracks, 0) }
 
+        scrollToTrack("playlist_detail_track_b")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_b").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_remove_track_b").performClick()
         composeTestRule.onNodeWithTag("remove_track_dialog_confirm_button").performClick()
@@ -1152,6 +1168,7 @@ class PlaylistDetailScreenTest {
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").assertIsNotEnabled()
 
         // ...while "a" (now second) can.
+        scrollToTrack("playlist_detail_track_a")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_a").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_a").assertIsEnabled()
     }
@@ -1175,11 +1192,14 @@ class PlaylistDetailScreenTest {
             PlaylistDetailScreen(playlistId = "p1", onBack = {}, viewModel = viewModel, audioController = mockk(relaxed = true))
         }
 
+        scrollToTrack("playlist_detail_track_c")
         composeTestRule.onNodeWithTag("playlist_detail_track_options_c").performClick()
         composeTestRule.onNodeWithTag("playlist_detail_move_up_c").performClick()
 
         assertEquals("c" to MoveDirection.UP, repo.moveTrackCalledWith)
+        scrollToTrack("playlist_detail_track_a")
         composeTestRule.onNodeWithTag("playlist_detail_track_a").assertIsDisplayed()
+        scrollToTrack("playlist_detail_track_c")
         composeTestRule.onNodeWithTag("playlist_detail_track_c").assertIsDisplayed()
     }
 

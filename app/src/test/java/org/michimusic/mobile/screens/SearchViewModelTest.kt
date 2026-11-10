@@ -39,6 +39,7 @@ class SearchViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        coEvery { localRepo.filterHiddenSynced(any()) } answers { firstArg() }
         viewModel = SearchViewModel(localRepo, syncedRepo, testDispatcher)
     }
 

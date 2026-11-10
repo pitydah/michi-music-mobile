@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.dp
+import org.michimusic.mobile.ui.seeker.waveformBarsForWidth
 import kotlin.math.PI
 import kotlin.math.sin
 import org.michimusic.mobile.ui.theme.AeroSeekerStyle
@@ -82,30 +83,57 @@ internal fun AeroSeekerTrack(
                 }
             }
             AeroSeekerStyle.WAVEFORM_BARS -> {
-                val a = amplitudes.orEmpty()
-                val cell = w / a.size.coerceAtLeast(1)
-                a.forEachIndexed { i, v ->
-                    val x = (i + 0.5f) * cell
-                    val halfHeight = (1.5.dp.toPx() + v * 9.dp.toPx()).coerceAtMost(h * 0.43f)
-                    drawLine(if (x <= playedWidth) MichiAuroraCyan else quiet,
-                        Offset(x, y - halfHeight), Offset(x, y + halfHeight),
-                        strokeWidth = (cell * 0.60f).coerceIn(1.dp.toPx(), 3.dp.toPx()), cap = StrokeCap.Round)
+                // A 320dp device must not draw all 256 bins as an unreadable hairline comb.
+                // Deterministic peak reduction uses only the decoder's actual PCM envelope.
+                val bins = waveformBarsForWidth(amplitudes.orEmpty(),
+                    (w / 4.dp.toPx()).toInt().coerceAtLeast(1))
+                if (bins.isNotEmpty()) {
+                    val cell = w / bins.size
+                    bins.forEachIndexed { index, peak ->
+                        val x = (index + 0.5f) * cell
+                        val half = (1.3.dp.toPx() + peak * 9.dp.toPx())
+                            .coerceAtMost(h * 0.43f)
+                        drawLine(if (x <= playedWidth) MichiAuroraCyan else quiet,
+                            Offset(x, y - half), Offset(x, y + half),
+                            strokeWidth = (cell * 0.58f).coerceIn(1.dp.toPx(), 2.6.dp.toPx()),
+                            cap = StrokeCap.Round)
+                    }
                 }
             }
             AeroSeekerStyle.WAVEFORM_CONTINUOUS -> {
-                val a = amplitudes.orEmpty()
-                if (a.isNotEmpty()) {
+                val samples = amplitudes.orEmpty()
+                if (samples.isNotEmpty()) {
                     val path = Path()
-                    val step = w / (a.size - 1).coerceAtLeast(1)
-                    a.forEachIndexed { i, v ->
+                    val upperContour = Path()
+                    val step = w / (samples.size - 1).coerceAtLeast(1)
+                    val peakLimit = h * 0.43f
+                    samples.forEachIndexed { i, raw ->
                         val x = i * step
-                        val dy = v * 9.dp.toPx()
-                        if (i == 0) path.moveTo(x, y - dy) else path.lineTo(x, y - dy)
+                        val dy = (raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f) *
+                            9.dp.toPx().coerceAtMost(peakLimit)
+                        if (i == 0) {
+                            path.moveTo(x, y - dy)
+                            upperContour.moveTo(x, y - dy)
+                        } else {
+                            path.lineTo(x, y - dy)
+                            upperContour.lineTo(x, y - dy)
+                        }
                     }
-                    for (i in a.lastIndex downTo 0) path.lineTo(i * step, y + a[i] * 9.dp.toPx())
+                    for (i in samples.lastIndex downTo 0) {
+                        val raw = samples[i]
+                        val dy = (raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f) *
+                            9.dp.toPx().coerceAtMost(peakLimit)
+                        path.lineTo(i * step, y + dy)
+                    }
                     path.close()
                     drawPath(path, quiet)
-                    clipRect(right = playedWidth) { drawPath(path, active) }
+                    drawPath(upperContour, Color.White.copy(alpha = 0.24f),
+                        style = Stroke(width = 0.8.dp.toPx(), cap = StrokeCap.Round))
+                    clipRect(right = playedWidth) {
+                        drawPath(path, active)
+                        drawPath(upperContour, MichiAuroraCyan,
+                            style = Stroke(width = 0.9.dp.toPx(), cap = StrokeCap.Round))
+                    }
                 }
             }
             AeroSeekerStyle.LIQUID_GLASS -> {

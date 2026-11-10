@@ -432,8 +432,9 @@ class LinkTransferManager(
         return null
     }
 
+    /** Legacy reset of transient transfer state; NEVER deletes downloaded music. */
     fun clearDownloads() {
-        musicDir.listFiles()?.forEach { it.delete() }
+        // Complete copies remain intact even when hidden from Michi's catalog.
         _downloads.value = emptyMap()
         _checkpoints.value = emptyMap()
     }

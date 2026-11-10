@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.GraphicEq
@@ -38,6 +39,8 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -565,9 +568,59 @@ fun SettingsScreen(
                         var folderBusy by remember { mutableStateOf(false) }
                         var folderProgress by remember { mutableStateOf(0) }
                         var folderMessage by remember { mutableStateOf<String?>(null) }
+                        var storageSnapshot by remember {
+                            mutableStateOf<org.michimusic.mobile.library.LibraryStorageSnapshot?>(null)
+                        }
+                        val refreshStorageSnapshot: suspend () -> Unit = {
+                            storageSnapshot = org.michimusic.mobile.library.LibraryStorageDiagnostics.read(context)
+                        }
+                        LaunchedEffect(Unit) { refreshStorageSnapshot() }
+                        var hasFolderWriteAccess by remember { mutableStateOf(false) }
+                        var showCreateFolderDialog by remember { mutableStateOf(false) }
+                        var proposedFolderName by remember { mutableStateOf("") }
+                        var createFolderTargetUri by remember { mutableStateOf<String?>(null) }
+                        var folderCreateError by remember { mutableStateOf<String?>(null) }
+                        LaunchedEffect(currentRoot, folderBusy) {
+                            hasFolderWriteAccess = musicRootAuthority.canWriteCurrentRoot()
+                        }
                         var permissionRevoked by remember { mutableStateOf(musicRootAuthority.permissionRevoked()) }
                         LaunchedEffect(currentRoot) {
                             permissionRevoked = musicRootAuthority.permissionRevoked()
+                        }
+
+                        // App Settings can revoke a SAF grant while this screen is paused.
+                        // Recheck on resume without launching a permission prompt or a scan.
+                        val libraryLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                        androidx.compose.runtime.DisposableEffect(libraryLifecycleOwner, currentRoot) {
+                            val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                                if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                                    permissionRevoked = musicRootAuthority.permissionRevoked()
+                                    hasFolderWriteAccess = musicRootAuthority.canWriteCurrentRoot()
+                                }
+                            }
+                            libraryLifecycleOwner.lifecycle.addObserver(observer)
+                            onDispose { libraryLifecycleOwner.lifecycle.removeObserver(observer) }
+                        }
+
+                        // This is NOT a library-root switch: reject any folder other than
+                        // the exact currently selected tree, and retain WRITE only on opt-in.
+                        val writePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                            androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree(),
+                        ) { uri ->
+                            if (uri != null) scope.launch {
+                                folderBusy = true
+                                try {
+                                    val allowed = musicRootAuthority.enableWriteForSelectedRoot(uri)
+                                    hasFolderWriteAccess = musicRootAuthority.canWriteCurrentRoot()
+                                    folderMessage = if (allowed) {
+                                        "Escritura autorizada para la carpeta musical actual."
+                                    } else {
+                                        "No se autorizó escritura. Selecciona exactamente la carpeta musical activa."
+                                    }
+                                } finally {
+                                    folderBusy = false
+                                }
+                            }
                         }
 
                         val treeLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -605,6 +658,96 @@ fun SettingsScreen(
                                     }
                                 }
                             }
+                        }
+
+                        if (showCreateFolderDialog) {
+                            AlertDialog(
+                                onDismissRequest = { if (!folderBusy) showCreateFolderDialog = false },
+                                title = { Text("Nueva carpeta musical") },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text("Se creará dentro de ${currentRoot.label}. No se moverá ni borrará música existente.")
+                                        OutlinedTextField(
+                                            value = proposedFolderName,
+                                            onValueChange = {
+                                                proposedFolderName = it
+                                                folderCreateError = null
+                                            },
+                                            label = { Text("Nombre de carpeta") },
+                                            singleLine = true,
+                                            isError = proposedFolderName.isNotBlank() &&
+                                                org.michimusic.data.repository.normalizedMusicFolderName(
+                                                    proposedFolderName,
+                                                ) == null,
+                                            modifier = Modifier.fillMaxWidth()
+                                                .testTag("settings_library_folder_name"),
+                                        )
+                                        folderCreateError?.let { message ->
+                                            Text(message, color = Color(0xFFFFB4AB),
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        enabled = !folderBusy && hasFolderWriteAccess &&
+                                            org.michimusic.data.repository.normalizedMusicFolderName(
+                                                proposedFolderName,
+                                            ) != null,
+                                        onClick = {
+                                            scope.launch {
+                                                folderBusy = true
+                                                try {
+                                                    val confirmedTarget = createFolderTargetUri.orEmpty()
+                                                    val result = musicRootAuthority.createSubfolder(
+                                                        proposedFolderName, confirmedTarget,
+                                                    )
+                                                    val message = when (result) {
+                                                        is org.michimusic.data.repository.MusicFolderCreationResult.Created -> {
+                                                            showCreateFolderDialog = false
+                                                            proposedFolderName = ""
+                                                            "Carpeta creada: ${result.name}. Añade música y pulsa Volver a escanear."
+                                                        }
+                                                        org.michimusic.data.repository.MusicFolderCreationResult.InvalidName ->
+                                                            "El nombre de carpeta no es válido."
+                                                        org.michimusic.data.repository.MusicFolderCreationResult.PermissionDenied ->
+                                                            "Sin permiso de escritura. Vuelve a autorizar la carpeta."
+                                                        org.michimusic.data.repository.MusicFolderCreationResult.ProviderReadOnly ->
+                                                            "El proveedor de archivos no permite crear carpetas aquí."
+                                                        org.michimusic.data.repository.MusicFolderCreationResult.AlreadyExists ->
+                                                            "Ya existe una carpeta con ese nombre."
+                                                        is org.michimusic.data.repository.MusicFolderCreationResult.Failed ->
+                                                            result.message
+                                                    }
+                                                    folderMessage = message
+                                                    folderCreateError = if (result is
+                                                        org.michimusic.data.repository.MusicFolderCreationResult.Created
+                                                    ) null else message
+                                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                                    throw cancelled
+                                                } catch (_: Exception) {
+                                                    folderCreateError = "No se pudo crear la carpeta. Comprueba el permiso."
+                                                    folderMessage = folderCreateError
+                                                } finally {
+                                                    folderBusy = false
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                            .testTag("settings_library_confirm_create_folder"),
+                                    ) { Text("Crear") }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        enabled = !folderBusy,
+                                        onClick = { showCreateFolderDialog = false },
+                                    ) { Text("Cancelar") }
+                                },
+                                containerColor = SurfaceObsidian,
+                                titleContentColor = PureWhite,
+                                textContentColor = TextSecondary,
+                                shape = RoundedCornerShape(20.dp),
+                            )
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -668,6 +811,47 @@ fun SettingsScreen(
                                         style = MaterialTheme.typography.bodySmall.copy(color = TertiaryCyan),
                                     )
                                 }
+
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    "ESPACIO UTILIZADO POR MICHI LINK",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TertiaryCyan,
+                                )
+                                Text(
+                                    storageSnapshot?.let { snapshot ->
+                                        val bytes = snapshot.syncedMusicBytes
+                                        val count = snapshot.syncedFileCount
+                                        if (bytes != null && count != null) {
+                                            "Archivos locales de Michi Link: " +
+                                                android.text.format.Formatter.formatShortFileSize(context, bytes) +
+                                                " · $count archivo(s), incluidos temporales"
+                                        } else "Archivos de Michi Link: sin comprobar"
+                                    } ?: "Archivos de Michi Link: sin comprobar",
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.testTag("settings_michi_sync_storage_used"),
+                                )
+                                Text(
+                                    storageSnapshot?.appVolumeAvailableBytes?.let { available ->
+                                        "Libre en el volumen de la app: " +
+                                            android.text.format.Formatter.formatShortFileSize(context, available)
+                                    } ?: "Espacio libre del volumen: no disponible",
+                                    color = TextMuted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.testTag("settings_michi_sync_storage_free"),
+                                )
+                                TextButton(
+                                    onClick = { scope.launch { refreshStorageSnapshot() } },
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                        .testTag("settings_michi_sync_storage_refresh"),
+                                ) { Text("Actualizar espacio") }
+                                Text(
+                                    "Estos datos corresponden al almacenamiento privado de Michi Link; " +
+                                        "no representan el tamaño ni el espacio libre de la carpeta SAF elegida.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMuted,
+                                )
 
                                 lastScan?.takeIf { it.sourceId == currentRoot.sourceId }?.let { scan ->
                                     Spacer(Modifier.height(8.dp))
@@ -742,26 +926,69 @@ fun SettingsScreen(
 
                                 Spacer(Modifier.height(12.dp))
 
-                                SettingSwitchRow(
-                                    title = "Escanear al iniciar",
-                                    subtitle = "Detectar nueva música automáticamente al abrir la app",
-                                    checked = autoScanLibrary,
-                                    onCheckedChange = {
-                                        autoScanLibrary = it
-                                        prefs.edit { putBoolean(KEY_AUTO_SCAN_LIBRARY, it) }
+                                Text("ACCESO A CARPETAS", style = MaterialTheme.typography.labelSmall,
+                                    color = TertiaryCyan)
+                                Text(
+                                    text = when {
+                                        currentRoot.isDefault ->
+                                            "Music/ se lee mediante MediaStore. Para crear carpetas, elige un árbol SAF y autoriza escritura."
+                                        hasFolderWriteAccess ->
+                                            "Lectura y escritura autorizadas. Solo se crean subcarpetas si lo solicitas."
+                                        else ->
+                                            "Solo lectura. Crear carpetas requiere una autorización adicional."
                                     },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                    modifier = Modifier.testTag("settings_library_access_status"),
                                 )
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    if (!currentRoot.isDefault && !hasFolderWriteAccess) {
+                                        TextButton(
+                                            enabled = !folderBusy,
+                                            onClick = {
+                                                val initial = currentRoot.treeUri?.let {
+                                                    runCatching { android.net.Uri.parse(it) }.getOrNull()
+                                                }
+                                                writePicker.launch(initial)
+                                            },
+                                            modifier = Modifier.heightIn(min = 48.dp)
+                                                .testTag("settings_library_grant_write"),
+                                        ) { Text("Autorizar escritura") }
+                                    }
+                                    TextButton(
+                                        enabled = !folderBusy && !currentRoot.isDefault && hasFolderWriteAccess,
+                                        onClick = {
+                                            proposedFolderName = ""
+                                            createFolderTargetUri = currentRoot.treeUri
+                                            folderCreateError = null
+                                            showCreateFolderDialog = true
+                                        },
+                                        modifier = Modifier.heightIn(min = 48.dp)
+                                            .testTag("settings_library_create_folder"),
+                                    ) {
+                                        Icon(Icons.Default.CreateNewFolder, contentDescription = null,
+                                            modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Nueva carpeta")
+                                    }
+                                }
 
                                 Spacer(Modifier.height(12.dp))
+                                org.michimusic.mobile.ui.components.HiddenSongsSection()
+                                Spacer(Modifier.height(12.dp))
 
-                                SettingSwitchRow(
-                                    title = "Descargar carátulas",
-                                    subtitle = "Obtener portadas en alta resolución si faltan",
-                                    checked = downloadArtwork,
-                                    onCheckedChange = {
-                                        downloadArtwork = it
-                                        prefs.edit { putBoolean(KEY_DOWNLOAD_ARTWORK, it) }
-                                    },
+                                Text("ESCANEO Y CARÁTULAS", style = MaterialTheme.typography.labelSmall,
+                                    color = TertiaryCyan)
+                                Text(
+                                    "El escaneo manual funciona desde «Volver a escanear». " +
+                                        "El escaneo al iniciar y la descarga automática de carátulas " +
+                                        "requieren conectar sus coordinadores; no se muestran interruptores sin efecto.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                    modifier = Modifier.testTag("settings_library_unconnected_options"),
                                 )
 
                                 Spacer(Modifier.height(12.dp))

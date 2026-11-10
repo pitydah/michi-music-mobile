@@ -682,5 +682,14 @@ class ResumableTransferTest {
         assertEquals(350L, recordedReceived)
         assertEquals("verifiedBytes must NOT be credited when stream fails", 0L, recordedVerified)
     }
+
+    @Test
+    fun clearingTransferUiStateNeverDeletesCompletedAudio() {
+        val audio = File(transferManager.musicDir, "user_copy.flac")
+        audio.writeBytes(byteArrayOf(1, 2, 3, 4, 5))
+        transferManager.clearDownloads()
+        assertTrue("A library action cannot unlink a completed music file", audio.exists())
+        assertEquals(5L, audio.length())
+    }
 }
 
