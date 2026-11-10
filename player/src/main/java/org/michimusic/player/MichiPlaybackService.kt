@@ -180,8 +180,10 @@ class MichiPlaybackService : MediaLibraryService() {
                     truthTracker.recompute()
                     if (songId != null) {
                         saveScope.launch {
-                            val track = PlayerDependencies.trackDao?.getTrackById(songId)?.toTrack()
-                                ?: controller.getRepository().loadTracks().firstOrNull { it.id == songId }
+                            val track = controller.getRepository().loadTracks()
+                                .firstOrNull { it.id == songId }
+                                ?: PlayerDependencies.trackDao?.getTracksById(songId)
+                                    ?.singleOrNull()?.toTrack()
                             // Apply track gain as soon as the lightweight DAO lookup finishes.
                             // Never wait for MediaMetadataRetriever to open/read the media file.
                             withContext(Dispatchers.Main) {

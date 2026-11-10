@@ -301,7 +301,7 @@ class PlaylistRepositoryTest {
     fun moveTrack_unresolvableIdInBetween_keepsItsAbsolutePositionUntouched() = runTest {
         val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
         val trackDao = mockk<TrackDao>()
-        coEvery { trackDao.getTrackById("X") } returns null
+        coEvery { trackDao.getTracksById("X") } returns emptyList()
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
         val created = repoWithTracks.createPlaylist("Mix", listOf("A", "X", "B"))
 
@@ -316,7 +316,7 @@ class PlaylistRepositoryTest {
     fun moveTrack_unresolvableTrackId_isSafeNoOp() = runTest {
         val localMedia = CountingLocalMediaRepository(listOf(Track(id = "A", title = "A"), Track(id = "B", title = "B")))
         val trackDao = mockk<TrackDao>()
-        coEvery { trackDao.getTrackById("X") } returns null
+        coEvery { trackDao.getTracksById("X") } returns emptyList()
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
         val created = repoWithTracks.createPlaylist("Mix", listOf("A", "X", "B"))
 
@@ -515,9 +515,9 @@ class PlaylistRepositoryTest {
     fun getTracksForPlaylist_resolvesInStoredOrder() = runTest {
         val trackDao = mockk<TrackDao>()
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, CountingLocalMediaRepository(emptyList()))
-        coEvery { trackDao.getTrackById("trackC") } returns cachedTrack("trackC", "C")
-        coEvery { trackDao.getTrackById("trackA") } returns cachedTrack("trackA", "A")
-        coEvery { trackDao.getTrackById("trackB") } returns cachedTrack("trackB", "B")
+        coEvery { trackDao.getTracksById("trackC") } returns listOf(cachedTrack("trackC", "C"))
+        coEvery { trackDao.getTracksById("trackA") } returns listOf(cachedTrack("trackA", "A"))
+        coEvery { trackDao.getTracksById("trackB") } returns listOf(cachedTrack("trackB", "B"))
 
         val playlist = Playlist(id = "p1", name = "Ordered", trackIds = listOf("trackC", "trackA", "trackB"), trackCount = 3)
         val tracks = repoWithTracks.getTracksForPlaylist(playlist)
@@ -529,8 +529,8 @@ class PlaylistRepositoryTest {
     fun getTracksForPlaylist_skipsMissingTrack() = runTest {
         val trackDao = mockk<TrackDao>()
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, CountingLocalMediaRepository(emptyList()))
-        coEvery { trackDao.getTrackById("t1") } returns cachedTrack("t1", "One")
-        coEvery { trackDao.getTrackById("ghost") } returns null
+        coEvery { trackDao.getTracksById("t1") } returns listOf(cachedTrack("t1", "One"))
+        coEvery { trackDao.getTracksById("ghost") } returns emptyList()
 
         val playlist = Playlist(id = "p1", name = "Mix", trackIds = listOf("t1", "ghost"), trackCount = 2)
         val tracks = repoWithTracks.getTracksForPlaylist(playlist)
@@ -556,7 +556,7 @@ class PlaylistRepositoryTest {
     @Test
     fun getTracksForPlaylist_resolvesRemoteTrackFromTrackDao() = runTest {
         val trackDao = mockk<TrackDao>()
-        coEvery { trackDao.getTrackById("remote_1") } returns cachedTrack("remote_1", "Synced Song")
+        coEvery { trackDao.getTracksById("remote_1") } returns listOf(cachedTrack("remote_1", "Synced Song"))
         val localMedia = CountingLocalMediaRepository(emptyList())
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
 
@@ -571,7 +571,7 @@ class PlaylistRepositoryTest {
         val trackDao = mockk<TrackDao>()
         // Only "remote_A" is expected to reach TrackDao at all: "local_C"/"local_B" resolve
         // from the local map first via the `?:` short-circuit, before trackDao is ever called.
-        coEvery { trackDao.getTrackById("remote_A") } returns cachedTrack("remote_A", "A")
+        coEvery { trackDao.getTracksById("remote_A") } returns listOf(cachedTrack("remote_A", "A"))
         val localMedia = CountingLocalMediaRepository(
             listOf(
                 Track(id = "local_C", title = "C"),
@@ -594,7 +594,7 @@ class PlaylistRepositoryTest {
     @Test
     fun getTracksForPlaylist_idMissingFromBothSources_isOmitted() = runTest {
         val trackDao = mockk<TrackDao>()
-        coEvery { trackDao.getTrackById(any()) } returns null
+        coEvery { trackDao.getTracksById(any()) } returns emptyList()
         val localMedia = CountingLocalMediaRepository(emptyList())
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
 

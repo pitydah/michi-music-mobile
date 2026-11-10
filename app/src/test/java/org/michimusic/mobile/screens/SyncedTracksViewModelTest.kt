@@ -68,7 +68,7 @@ private class FakeSyncedRepo : SyncedTrackRepository() {
     override suspend fun count() = items.size
     override suspend fun saveLibrary(tracks: List<TrackDto>, sourceId: String) {}
     override suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>, sourceId: String) {}
-    override suspend fun getById(id: String) = items.find { it.id == id }
-    override suspend fun markDownloaded(id: String) {}
-    override suspend fun markDownloadedWithPath(id: String, filepath: String) {}
+    override suspend fun getById(sourceId: String, id: String) = items.find { it.id == id }
+    override suspend fun markDownloaded(sourceId: String, id: String) {}
+    override suspend fun markDownloadedWithPath(sourceId: String, id: String, filepath: String) {}
 }

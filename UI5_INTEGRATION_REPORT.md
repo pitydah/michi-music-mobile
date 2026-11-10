@@ -504,6 +504,65 @@ Gradle ni código para ocultar el fallo.
 - **GO_RELEASE:** NO-GO. No hay autorización de release, no se ha validado
   hardware y el PR/entrega no debe publicarse sin revisión.
 
+## Auditoría correctiva P0/P1 post-integración
+
+Base auditada: `master@c9756c9a40e2593fe68f6ea9eedfcda210daae0f`.
+Los cambios de esta auditoría están en el working tree, **sin commit ni push**.
+
+### P0 — Identidad entre bibliotecas
+
+| ID | Gravedad | Archivo | Causa raíz | Corrección |
+|---|---|---|---|---|
+| ID-P0-01 | P0 | `TrackDao.kt` | `getTrackById(id)` usaba `ORDER BY sourceId LIMIT 1` y elegía una biblioteca arbitraria. | Eliminado. `getTracksById(id)` devuelve todos los propietarios; los llamadores fallan cerrado si hay más de uno. |
+| ID-P0-02 | P0 | `PlaylistRepository.kt` | `getById` caía a `getAllPlaylists().find` y `getTracksForPlaylist` resolvía IDs por el primer `cached_tracks`. | Añadido `sourceId` a `Playlist`; `getById` local no cruza fuentes; `getByIdForSource` exige la fuente exacta; la resolución devuelve `PlaylistTrackResolution` con `tracks`, `unresolvedTrackIds`, `ambiguousTrackIds` y `hiddenTrackIds`. |
+| ID-P0-03 | P0 | `PlaylistRepository.kt` | Playlists remotas y locales compartían el mismo catálogo de IDs. | El catálogo local solo publica playlists con `sourceId == LOCAL_SOURCE_ID`; las playlists remotas permanecen aisladas en Room hasta que exista una ruta source-aware. |
+| ID-P0-04 | P0 | `SyncedTrackRepository.kt`, `TrackDao.kt`, `SyncWorker.kt` | `markDownloaded`/`markDownloadedWithPath` actualizaban todas las filas con el mismo ID. | Firma y SQL exigen `sourceId`; `SyncWorker` pasa el `deviceId` real. `getById(sourceId, id)` exige la clave compuesta. |
+| ID-P0-05 | P0 | `MichiPlaybackService.kt`, `LibraryProvider.kt` | La sesión multimedia y el provider resolvían un ID sin fuente. | Prioridad a la biblioteca local activa; después `getTracksById(id).singleOrNull()`. Si hay dos propietarios, no se resuelve ninguno. |
+
+Pruebas nuevas: `PlaylistTrackIdentityTest` cubre colisión local/remota, dos servidores con el mismo ID, playlist remota que no cae a otra fuente y resolución ambigua explícita. `DaoTests` verifica que `markDownloaded` solo afecta a la fuente indicada. `PlaylistRepositoryTest` conserva las pruebas de orden, slots irresolubles y persistencia.
+
+### P0 — Protección de archivos
+
+Auditoría de APIs destructivas:
+
+- `LocalMediaRepository`, `LibraryExclusionDao`, `LibraryVisibilityPolicy`, `SafMediaRepository`, `MusicRootAuthority`, `PlaylistRepository`, `SearchViewModel`: **ninguna ruta de ocultar/restaurar/eliminar playlist toca audio**.
+- `LinkTransferManager.clearDownloads()` solo limpia estado en memoria; no borra archivos completos.
+- `LinkTransferManager`, `AirCatTransferClient`, `SyncWorker` y `ArtistArtworkStore` solo eliminan temporales, backups de transferencia o cachés de carátulas. La eliminación de un archivo descargado solo ocurre en una transferencia fallida no registrada y con restauración previa; no es una acción de biblioteca.
+- `deleteForSource` de SAF elimina el índice cacheado de esa fuente, no documentos del proveedor.
+- Las exclusiones se guardan por fuente + huella y sobreviven a reinicio/reescaneo/migración; la migración SAF copia antes de confirmar.
+
+### P1 — Propagación, Playlists y Signal Truth
+
+- Las canciones ocultas se filtran en `fetchTracksResult` antes de Albums/Artists/Home/Favorites/History/Search; `PlaylistRepository` las excluye del fallback DAO; `SearchViewModel` filtra la caché sincronizada de la fuente activa.
+- La cola/Now Playing no se interrumpe al ocultar una pista; conserva la identidad observada hasta una decisión explícita.
+- PL-03: marcador de pista activa basado en `resolvePlaybackPresentation`, drag con una escritura al soltar, alternativa accesible arriba/abajo y persistencia con `writeMutex`.
+- Signal Truth R18/R19: se auditó la cadena `Archivo → PCM → AudioTrack → ruta/dispositivo`, la separación `DECLARED/CONFIGURED/OBSERVED/UNKNOWN`, el PEQ solo con ruta de auriculares confirmada y el receipt RTP como evidencia de emisor local, nunca de recepción/DAC. No se encontró una afirmación bit-perfect/DSD. No se cambió el motor de audio.
+- HDR-01: ownership de insets verificado con `HeaderInsetOwnershipTest`; cinco destinos con `statusBarsPadding` y backdrop desde y=0.
+- Vinyl Crate, seekers y estados de Ajustes conservan Aero/Inter y los componentes canónicos.
+
+### Validación
+
+| Gate | Resultado |
+|---|---|
+| Suites data/player/Normal/F-Droid/link-client | PASS |
+| `PlaylistTrackIdentityTest`, `PlaylistRepositoryTest`, `DaoTests` | PASS |
+| Migración Room 8→9 | PASS |
+| Lint | PASS |
+| Normal/F-Droid debug + release | PASS |
+| Instrumentación AVD API 36 | 93 tests, 0 fallos, 8 skipped |
+| UI4 static acceptance | 47/47 PASS |
+
+### Veredictos
+
+- **GO_CODE:** sí para el working tree.
+- **GO_IDENTITY:** sí para las rutas actuales; la UI de playlists remotas queda deliberadamente aislada hasta disponer de una ruta source-aware.
+- **GO_LIBRARY_SAFETY:** sí en código y pruebas; la certificación física de proveedores SAF reales sigue pendiente.
+- **GO_SIGNAL_TRUTH:** sí para los contratos R18/R19 disponibles en el plan; no se certifican rutas físicas/DAC/RTP.
+- **GO_CI:** pendiente; no hay commit/push ni SHA nuevo con CI exacta.
+- **GO_VISUAL:** pendiente; faltan capturas y aprobación en dispositivo real.
+- **GO_PHYSICAL:** pendiente; el AVD API 36 no sustituye un teléfono.
+- **GO_RELEASE:** **NO-GO**.
+
 ## Evidencia local
 
 La integración inicial usó el workflow gestionado

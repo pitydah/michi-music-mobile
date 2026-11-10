@@ -32,15 +32,33 @@ open class PlaylistRepository(
 
     open suspend fun getAllPlaylists(): List<Playlist> {
         if (playlistDao == null) return emptyList()
-        val cached = playlistDao.getAllPlaylists()
+        // The local UI is source-aware only for the phone library. Remote manifest
+        // playlists stay in Room under their own sourceId until a source-aware route
+        // exists; showing them here would make playlist IDs ambiguous.
+        val cached = playlistDao.getAllPlaylists().filter { it.sourceId == LOCAL_SOURCE_ID }
         return cached.map {
-            Playlist(id = it.id, name = it.name, trackIds = parseTrackIds(it.trackIds), trackCount = it.trackCount)
+            Playlist(
+                id = it.id,
+                name = it.name,
+                trackIds = parseTrackIds(it.trackIds),
+                trackCount = it.trackCount,
+                sourceId = it.sourceId,
+            )
         }
     }
 
-    open suspend fun getById(id: String): Playlist? {
-        val cached = playlistDao?.getById(id, LOCAL_SOURCE_ID) ?: playlistDao?.getAllPlaylists()?.find { it.id == id } ?: return null
-        return Playlist(id = cached.id, name = cached.name, trackIds = parseTrackIds(cached.trackIds), trackCount = cached.trackCount)
+    /** Local playlist lookup preserved for existing callers; no cross-source fallback. */
+    open suspend fun getById(id: String): Playlist? = getByIdForSource(id, LOCAL_SOURCE_ID)
+
+    open suspend fun getByIdForSource(id: String, sourceId: String): Playlist? {
+        val cached = playlistDao?.getById(id, sourceId) ?: return null
+        return Playlist(
+            id = cached.id,
+            name = cached.name,
+            trackIds = parseTrackIds(cached.trackIds),
+            trackCount = cached.trackCount,
+            sourceId = cached.sourceId,
+        )
     }
 
     open suspend fun createPlaylist(name: String, trackIds: List<String> = emptyList()): Playlist = writeMutex.withLock {
@@ -53,18 +71,25 @@ open class PlaylistRepository(
             trackCount = cleanIds.size,
         )
         playlistDao?.insert(entity)
-        return@withLock Playlist(id = id, name = name.trim(), trackIds = cleanIds, trackCount = cleanIds.size)
+        return@withLock Playlist(
+            id = id,
+            name = name.trim(),
+            trackIds = cleanIds,
+            trackCount = cleanIds.size,
+            sourceId = LOCAL_SOURCE_ID,
+        )
     }
 
     // New Flow-based observation of playlists
     open fun observePlaylists(): Flow<List<Playlist>> {
         return playlistDao?.observeAll()?.map { cachedList ->
-            cachedList.map { CachedPlaylist ->
+            cachedList.filter { it.sourceId == LOCAL_SOURCE_ID }.map { CachedPlaylist ->
                 Playlist(
                     id = CachedPlaylist.id,
                     name = CachedPlaylist.name,
                     trackIds = parseTrackIds(CachedPlaylist.trackIds),
-                    trackCount = CachedPlaylist.trackCount
+                    trackCount = CachedPlaylist.trackCount,
+                    sourceId = CachedPlaylist.sourceId,
                 )
             }
         } ?: flowOf(emptyList())
@@ -84,7 +109,7 @@ open class PlaylistRepository(
         val incomingIds = newTrackIds.map { it.trim() }.filter { it.isNotBlank() }
         if (incomingIds.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
 
-        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: playlistDao.getAllPlaylists().find { it.id == id }
+        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID)
             ?: return@withLock PlaylistAddResult.PlaylistNotFound
 
         val existingIds = parseTrackIds(cached.trackIds)
@@ -99,7 +124,7 @@ open class PlaylistRepository(
         if (playlistDao == null) return@withLock PlaylistAddResult.Error("PlaylistDao no disponible")
         if (albumTracks.isEmpty()) return@withLock PlaylistAddResult.EmptyTracks
 
-        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: playlistDao.getAllPlaylists().find { it.id == id }
+        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID)
             ?: return@withLock PlaylistAddResult.PlaylistNotFound
 
         val existingIds = parseTrackIds(cached.trackIds)
@@ -115,7 +140,7 @@ open class PlaylistRepository(
     // New method: remove a single track from playlist
     open suspend fun removeTrackFromPlaylist(id: String, trackId: String) = writeMutex.withLock {
         if (playlistDao == null) return@withLock
-        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: playlistDao.getAllPlaylists().find { it.id == id } ?: return@withLock
+        val cached = playlistDao.getById(id, LOCAL_SOURCE_ID) ?: return@withLock
         val target = trackId.trim()
         val existingIds = parseTrackIds(cached.trackIds).filter { it != target }
         playlistDao.updateTrackIdsAndCount(id, LOCAL_SOURCE_ID, existingIds.joinToString(","), existingIds.size)
@@ -209,26 +234,76 @@ open class PlaylistRepository(
         moveTrackToPosition(id, trackId, from, to, visible)
     }
 
-    // Resolves a playlist's trackIds to their Track objects, preserving the stored order.
-    // trackIds mixes two independent ID namespaces: local device tracks (LocalMediaRepository,
-    // MediaStore-backed) and synced/remote tracks (TrackDao, cached_tracks - Michi Link only).
-    // The local library is loaded once up front rather than per id. IDs with no matching
-    // track in either source are silently skipped, not removed from the playlist.
-    open suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> {
-        if (playlist.trackIds.isEmpty()) return emptyList()
-        val localTracksById = localMediaRepository.loadTracks().associateBy { it.id }
-        val hidden = localMediaRepository.hiddenInCurrentLibrary().associateBy { it.trackId }
-        val activeSource = localMediaRepository.currentVisibilitySource()
-        return playlist.trackIds.mapNotNull { id ->
-            localTracksById[id] ?: trackDao.getTrackById(id)?.let { cached ->
-                // Do not resurrect hidden SAF tracks via the raw Room cache fallback.
-                val candidate = cached.toTrack()
-                if (cached.sourceId == activeSource &&
-                    isLibraryTrackHidden(hidden[id], activeSource, candidate)
-                ) null else candidate
+    /**
+     * Explicit result: a playlist can preserve an ID without pretending that it
+     * resolved to a playable track. `ambiguous` means the same ID exists in more
+     * than one cached library and no source was stored; such an ID is never
+     * resolved by "first row wins".
+     */
+    data class PlaylistTrackResolution(
+        val tracks: List<Track>,
+        val unresolvedTrackIds: List<String> = emptyList(),
+        val ambiguousTrackIds: List<String> = emptyList(),
+        val hiddenTrackIds: List<String> = emptyList(),
+    )
+
+    /**
+     * Resolves a playlist's trackIds without crossing library authority.
+     *
+     * - Local playlists resolve only from the active local library; if the ID is
+     *   absent locally, a single cached owner may be used for a legacy playlist.
+     * - Non-local playlists resolve only with the exact composite key.
+     * - Multiple cached owners are ambiguous and resolve to nothing.
+     * - Hidden local tracks are excluded by source + fingerprint.
+     */
+    open suspend fun resolvePlaylistTracks(playlist: Playlist): PlaylistTrackResolution {
+        if (playlist.trackIds.isEmpty()) return PlaylistTrackResolution(emptyList())
+        val sourceId = playlist.sourceId.ifBlank { LOCAL_SOURCE_ID }
+        val local = sourceId == LOCAL_SOURCE_ID
+        val localTracksById = if (local) {
+            localMediaRepository.loadTracks().associateBy { it.id }
+        } else emptyMap()
+        val hidden = if (local) {
+            localMediaRepository.hiddenInCurrentLibrary().associateBy { it.trackId }
+        } else emptyMap()
+        val activeSource = if (local) localMediaRepository.currentVisibilitySource() else sourceId
+        val tracks = mutableListOf<Track>()
+        val unresolved = mutableListOf<String>()
+        val ambiguous = mutableListOf<String>()
+        val hiddenIds = mutableListOf<String>()
+
+        for (id in playlist.trackIds) {
+            if (local) {
+                val localTrack = localTracksById[id]
+                if (localTrack != null) {
+                    if (isLibraryTrackHidden(hidden[id], activeSource, localTrack)) {
+                        hiddenIds += id
+                    } else {
+                        tracks += localTrack
+                    }
+                    continue
+                }
+                val cached = trackDao.getTracksById(id)
+                when {
+                    cached.isEmpty() -> unresolved += id
+                    cached.size == 1 -> tracks += cached.single().toTrack()
+                    else -> ambiguous += id
+                }
+            } else {
+                val cached = trackDao.getTrackBySource(sourceId, id)
+                if (cached == null) unresolved += id else tracks += cached.toTrack()
             }
         }
+        return PlaylistTrackResolution(
+            tracks = tracks,
+            unresolvedTrackIds = unresolved,
+            ambiguousTrackIds = ambiguous,
+            hiddenTrackIds = hiddenIds,
+        )
     }
+
+    open suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> =
+        resolvePlaylistTracks(playlist).tracks
 
     // Parses the stored CSV of track IDs, trimming whitespace and dropping blanks,
     // while preserving the original stored order.

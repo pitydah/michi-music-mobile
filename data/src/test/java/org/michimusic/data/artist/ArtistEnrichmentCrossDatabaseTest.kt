@@ -95,7 +95,7 @@ class ArtistEnrichmentCrossDatabaseTest {
         seedLibrary()
         seedEnrichment()
         assertEquals(1, library.trackDao().count())
-        assertEquals("Midnight Oil", library.trackDao().getTrackById("track-1")?.artist)
+        assertEquals("Midnight Oil", library.trackDao().getTracksById("track-1").singleOrNull()?.artist)
 
         enrichment.close()
         context.deleteDatabase(enrichmentName)
@@ -104,7 +104,7 @@ class ArtistEnrichmentCrossDatabaseTest {
         library = Room.databaseBuilder(context, MichiDatabase::class.java, libraryName)
             .allowMainThreadQueries().build()
         assertEquals(1, library.trackDao().count())
-        assertEquals("Diesel and Dust", library.trackDao().getTrackById("track-1")?.title)
+        assertEquals("Diesel and Dust", library.trackDao().getTracksById("track-1").singleOrNull()?.title)
         assertTrue(library.libraryDao().observeAllLibraries().first().any {
             it.libraryId == "lib_device_local" && it.isWritable
         })

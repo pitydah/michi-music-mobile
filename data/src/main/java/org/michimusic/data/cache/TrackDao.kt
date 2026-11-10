@@ -17,8 +17,9 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks ORDER BY title")
     fun getAllTracksPagingSource(): PagingSource<Int, CachedTrack>
 
-    @Query("SELECT * FROM cached_tracks WHERE id = :id ORDER BY sourceId LIMIT 1")
-    suspend fun getTrackById(id: String): CachedTrack?
+    /** All owners of an ID; callers must fail closed when more than one exists. */
+    @Query("SELECT * FROM cached_tracks WHERE id = :id ORDER BY sourceId")
+    suspend fun getTracksById(id: String): List<CachedTrack>
 
     // K16-01: a track ID is unique only inside one library. Callers that already
     // know the owner must query with both halves of the composite key.
@@ -59,9 +60,9 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE downloaded = 0")
     suspend fun getUndownloaded(): List<CachedTrack>
 
-    @Query("UPDATE cached_tracks SET downloaded = 1 WHERE id = :id")
-    suspend fun markDownloaded(id: String)
+    @Query("UPDATE cached_tracks SET downloaded = 1 WHERE sourceId = :sourceId AND id = :id")
+    suspend fun markDownloaded(sourceId: String, id: String)
 
-    @Query("UPDATE cached_tracks SET downloaded = 1, filepath = :filepath WHERE id = :id")
-    suspend fun markDownloadedWithPath(id: String, filepath: String)
+    @Query("UPDATE cached_tracks SET downloaded = 1, filepath = :filepath WHERE sourceId = :sourceId AND id = :id")
+    suspend fun markDownloadedWithPath(sourceId: String, id: String, filepath: String)
 }

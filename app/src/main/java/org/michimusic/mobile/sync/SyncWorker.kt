@@ -576,7 +576,7 @@ class SyncWorker(
                                     throw regOp.exceptionOrNull() ?: IllegalStateException("Error registrando pista en Room")
                                 }
                             }
-                            trackDao.markDownloadedWithPath(id, file.absolutePath)
+                            trackDao.markDownloadedWithPath(deviceId, id, file.absolutePath)
                         }
 
                         if (regResult.isSuccess) {

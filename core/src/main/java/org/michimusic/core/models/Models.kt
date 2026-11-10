@@ -136,4 +136,6 @@ data class Playlist(
     val name: String,
     val trackIds: List<String> = emptyList(),
     val trackCount: Int = 0,
+    /** Empty is the local library; non-empty is the exact remote/library owner. */
+    val sourceId: String = "",
 )

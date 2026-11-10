@@ -64,13 +64,24 @@ class DaoTests {
         val track = CachedTrack(id = "1", title = "A Song", downloaded = false)
         trackDao.insert(track)
         
-        trackDao.markDownloaded("1")
+        trackDao.markDownloaded("", "1")
         
-        val retrieved = trackDao.getTrackById("1")
+        val retrieved = trackDao.getTracksById("1").singleOrNull()
         assertNotNull(retrieved)
         assertEquals(true, retrieved?.downloaded)
     }
 
+
+    @Test
+    fun `TrackDao downloaded flag is scoped to the exact source`() = runBlocking {
+        trackDao.insert(CachedTrack(id = "1", title = "A Song", sourceId = "peer-a"))
+        trackDao.insert(CachedTrack(id = "1", title = "A Song", sourceId = "peer-b"))
+
+        trackDao.markDownloaded("peer-a", "1")
+
+        assertEquals(true, trackDao.getTrackBySource("peer-a", "1")?.downloaded)
+        assertEquals(false, trackDao.getTrackBySource("peer-b", "1")?.downloaded)
+    }
 
     @Test
     fun `TrackDao deletes track`() = runBlocking {
@@ -79,7 +90,7 @@ class DaoTests {
         
         trackDao.delete(track)
         
-        val retrieved = trackDao.getTrackById("1")
+        val retrieved = trackDao.getTracksById("1").singleOrNull()
         assertNull(retrieved)
     }
 

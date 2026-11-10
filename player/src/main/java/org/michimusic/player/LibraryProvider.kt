@@ -338,7 +338,8 @@ class LibraryProvider(
                 extractSongId(mediaId) != null -> {
                     extractSongId(mediaId)?.let { songId ->
                         val track = cachedTracks.firstOrNull { it.id == songId }
-                            ?: PlayerDependencies.trackDao?.getTrackById(songId)?.toTrack()
+                            ?: PlayerDependencies.trackDao?.getTracksById(songId)
+                                ?.singleOrNull()?.toTrack()
                         if (track != null) {
                             resolved.add(track.toPlayableSong())
                         }

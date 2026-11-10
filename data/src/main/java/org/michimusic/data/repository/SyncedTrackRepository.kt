@@ -107,14 +107,16 @@ open class SyncedTrackRepository(
         ).flow
     } ?: kotlinx.coroutines.flow.emptyFlow()
 
-    open suspend fun getById(id: String): CachedTrack? = trackDao?.getTrackById(id)
+    /** Exact owner lookup; a bare ID is ambiguous across paired libraries. */
+    open suspend fun getById(sourceId: String, id: String): CachedTrack? =
+        trackDao?.getTrackBySource(sourceId, id)
 
-    open suspend fun markDownloaded(id: String) {
-        trackDao?.markDownloaded(id)
+    open suspend fun markDownloaded(sourceId: String, id: String) {
+        trackDao?.markDownloaded(sourceId, id)
     }
 
-    open suspend fun markDownloadedWithPath(id: String, filepath: String) {
-        trackDao?.markDownloadedWithPath(id, filepath)
+    open suspend fun markDownloadedWithPath(sourceId: String, id: String, filepath: String) {
+        trackDao?.markDownloadedWithPath(sourceId, id, filepath)
     }
 }
 
