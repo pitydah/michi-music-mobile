@@ -191,6 +191,7 @@ al rebase sobre Signal Truth R12 `4c283f0fa613ec8a00a7b7470c23a9c3`.
 | `assembleNormalDebug`, `assembleFdroidDebug` | PASS post rebase |
 | `assembleNormalRelease`, `assembleFdroidRelease` | PASS pre rebase; el build local post rebase quedó bloqueado por `metadata.bin` corrupto en la caché de transforms de Gradle. La CI exacta del HEAD ejecuta ambos release en un runner limpio. |
 | `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **92 tests, 0 fallos, 8 skipped** (pre y post rebase) |
+| Prueba funcional manual AVD API 36 | Home, reproducción, Dock, MiniPlayer, hero/editor de playlist y Now Playing verificados; defecto de wrap `Quitar` corregido a `Cerrar` |
 
 La prueba focal de Dock se ejecutó después de corregir la altura mínima de 48 dp y volvió a pasar antes de la suite completa.
 
@@ -201,6 +202,12 @@ La prueba focal de Dock se ejecutó después de corregir la altura mínima de 48
   validación de comportamiento es JVM + instrumentación Compose en AVD API 36.
 - La ruta de rotación EXIF está implementada, pero el fixture automatizado es un
   PNG sin rotación; falta una imagen EXIF rotada real.
+- La prueba funcional en AVD API 36 confirmó Home, reproducción, Dock de una fila
+  sin raya coral, MiniPlayer, hero unificado de playlist, editor independiente de
+  portada/banner, encuadre y cancelación sin cambios. También reveló que a 360 dp
+  la etiqueta `Cerrar ajuste` hacía que `Quitar` se partiera como `Qu / itar`.
+  Se corrigió a `Cerrar` con `maxLines = 1`, conservando el objetivo de 48 dp;
+  compilación, `PlaylistDetailScreenTest`, lint y build Normal debug pasan.
 - El límite de waveform de 12 minutos y el presupuesto de 2 MiB se conservan; una
   pista fuera de esos límites muestra el fallback visible, no datos falsos.
 - TalkBack real, rotación, batería, jank y temperatura siguen pendientes de un

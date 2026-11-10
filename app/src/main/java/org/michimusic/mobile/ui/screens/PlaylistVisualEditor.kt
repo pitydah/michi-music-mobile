@@ -411,7 +411,7 @@ private fun PlaylistVisualFieldEditor(
                     modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.size(4.dp))
-                Text(if (adjusting) "Cerrar ajuste" else "Ajustar")
+                Text(if (adjusting) "Cerrar" else "Ajustar", maxLines = 1)
             }
             if (isRemoving) {
                 TextButton(
