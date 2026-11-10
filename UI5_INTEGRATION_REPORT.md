@@ -150,7 +150,18 @@ unitarias, no en certificación visual.
 
 ## UI5-FINAL-04 — Functional Repair & Precision Polish
 
-SHA inicial: `710c1cbfae271b2eb6a8dc349d67106deb054a17`.
+SHA inicial del sprint: `710c1cbfae271b2eb6a8dc349d67106deb054a17`.
+Base actual tras integrar Signal Truth Mobile R12: `83603eb`.
+SHA de implementación UI5-FINAL-04 rebasado: `1ff5156`. La base remota ya incluye
+`40f024c`, que corrige el lint heredado de Signal Truth; este informe registra la
+validación posterior al rebase. El HEAD final publicado es el que valida la CI
+exacta.
+
+La base remota avanzó durante el sprint con Signal Truth R12. El commit se
+rebasó sobre `83603eb` sin force push ni reaplicar parches; también se corrigió
+un error de lint introducido por esa base en `SignalTruthReplayGainControls.kt`
+(`StateFlow.value` leído durante composición, sustituido por
+`collectAsStateWithLifecycle`).
 
 ### Tickets
 
@@ -168,17 +179,18 @@ SHA inicial: `710c1cbfae271b2eb6a8dc349d67106deb054a17`.
 
 ### Validación UI5-FINAL-04
 
-Workflow gestionado `d080ab472a38d378cbda9fc236d6c0e9`.
+Workflow pre-rebase `d080ab472a38d378cbda9fc236d6c0e9`; workflow posterior
+al rebase sobre Signal Truth R12 `4c283f0fa613ec8a00a7b7470c23a9c3`.
 
 | Gate | Resultado |
 |---|---|
-| `:app:testNormalDebugUnitTest` completo | PASS |
-| `:app:testFdroidDebugUnitTest` completo | PASS |
+| `:app:testNormalDebugUnitTest` completo | PASS (pre y post rebase) |
+| `:app:testFdroidDebugUnitTest` completo | PASS (pre y post rebase) |
 | Nuevos tests de seeker, Dock, Michi Control, store/import/editor de playlists | PASS |
-| `lint` | PASS |
-| `assembleNormalDebug`, `assembleNormalRelease` | PASS |
-| `assembleFdroidDebug`, `assembleFdroidRelease` | PASS |
-| `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **92 tests, 0 fallos, 8 skipped** |
+| `lint` | PASS post rebase, tras corregir el lint heredado de Signal Truth |
+| `assembleNormalDebug`, `assembleFdroidDebug` | PASS post rebase |
+| `assembleNormalRelease`, `assembleFdroidRelease` | PASS pre rebase; el build local post rebase quedó bloqueado por `metadata.bin` corrupto en la caché de transforms de Gradle. La CI exacta del HEAD ejecuta ambos release en un runner limpio. |
+| `:app:connectedNormalDebugAndroidTest` en AVD API 36 | **92 tests, 0 fallos, 8 skipped** (pre y post rebase) |
 
 La prueba focal de Dock se ejecutó después de corregir la altura mínima de 48 dp y volvió a pasar antes de la suite completa.
 
