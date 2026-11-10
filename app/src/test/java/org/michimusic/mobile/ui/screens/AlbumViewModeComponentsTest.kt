@@ -32,19 +32,27 @@ class AlbumViewModeComponentsTest {
                     viewMode = mode,
                     mosaicContent = { Text("Mosaico", Modifier.testTag("mode_mosaic")) },
                     coverFlowContent = { Text("CoverFlow", Modifier.testTag("mode_coverflow")) },
+                    cardsContent = { Text("Tarjetas", Modifier.testTag("mode_cards")) },
                     listContent = { Text("Lista", Modifier.testTag("mode_list")) },
                 )
             }
         }
 
         rule.onNodeWithTag("mode_mosaic").assertIsDisplayed()
-        rule.onNodeWithContentDescription("Vista mosaico. Cambiar a CoverFlow").performClick()
+        rule.onNodeWithTag("library_view_mode_toggle").performClick()
+        rule.onNodeWithTag("album_mode_option_coverflow").performClick()
         rule.onNodeWithTag("mode_coverflow").assertIsDisplayed()
 
-        rule.onNodeWithContentDescription("Vista CoverFlow. Cambiar a lista").performClick()
+        rule.onNodeWithTag("library_view_mode_toggle").performClick()
+        rule.onNodeWithTag("album_mode_option_cards").performClick()
+        rule.onNodeWithTag("mode_cards").assertIsDisplayed()
+
+        rule.onNodeWithTag("library_view_mode_toggle").performClick()
+        rule.onNodeWithTag("album_mode_option_list").performClick()
         rule.onNodeWithTag("mode_list").assertIsDisplayed()
 
-        rule.onNodeWithContentDescription("Vista lista. Cambiar a mosaico").performClick()
+        rule.onNodeWithTag("library_view_mode_toggle").performClick()
+        rule.onNodeWithTag("album_mode_option_mosaic").performClick()
         rule.onNodeWithTag("mode_mosaic").assertIsDisplayed()
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -93,6 +94,7 @@ import org.michimusic.mobile.ui.components.aeroSegmentStacking
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
+import org.michimusic.mobile.ui.components.MichiCardDeck
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -104,6 +106,7 @@ import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassBorderLow
 import org.michimusic.mobile.ui.theme.GlassFillHigh
 import org.michimusic.mobile.ui.theme.GlassFillLow
+import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
@@ -166,6 +169,8 @@ fun AlbumsScreen(
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
     var selectedFilter by rememberSaveable { mutableStateOf(LibraryFilter.ALL) }
     var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.MOSAIC) }
+    var artistCardsMode by rememberSaveable { mutableStateOf(false) }
+    var selectedArtistCard by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
     // A library change must never inherit another scope's scroll index.
     val albumGridState = key(activeScope) { rememberLazyGridState() }
     val albumListState = key(activeScope) { rememberLazyListState() }
@@ -293,6 +298,11 @@ fun AlbumsScreen(
                             AlbumViewModeToggle(
                                 viewMode = viewMode,
                                 onViewModeChange = { viewMode = it },
+                            )
+                        } else if (selectedTab == LibraryTab.ARTISTS && scopedAlbums.isNotEmpty()) {
+                            ArtistViewModeToggle(
+                                cardsMode = artistCardsMode,
+                                onCardsModeChange = { artistCardsMode = it },
                             )
                         }
 
@@ -638,6 +648,123 @@ fun AlbumsScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         state = albumGridState,
                                     )
+                                },
+                                cardsContent = {
+                                    if (coverFlowAlbums.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().padding(20.dp)
+                                                .testTag("album_cards_identity_empty"),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                "No hay álbumes con identidad única para esta vista.",
+                                                color = TextSecondary,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            )
+                                        }
+                                    } else Column(
+                                        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        key(activeScope) {
+                                            MichiCardDeck(
+                                                items = coverFlowAlbums,
+                                                itemKey = { it.id },
+                                                itemLabel = { it.title },
+                                                selectedKey = selectedAlbumId,
+                                                onSelect = { id ->
+                                                    val selection = coverFlowSelection(id, coverFlowPresentation)
+                                                    selectedAlbumId = selection?.id
+                                                    selectedAlbumContinuityKey = selection?.continuityKey
+                                                },
+                                                onOpenSelected = { card -> onNavigateToAlbum(card.id) },
+                                                modifier = Modifier.fillMaxWidth().weight(1f)
+                                                    .testTag("album_cards_deck"),
+                                            ) { card, isFront ->
+                                                val highContrast = LocalVisualPreferences.current.highContrast
+                                                val cardShape = RoundedCornerShape(20.dp)
+                                                Column(
+                                                    modifier = Modifier.fillMaxSize().clip(cardShape)
+                                                        .background(if (highContrast) SurfaceObsidian else GlassFillLow)
+                                                        .border(
+                                                            if (highContrast) 1.8.dp else 0.75.dp,
+                                                            if (highContrast) PureWhite else GlassBorderLow,
+                                                            cardShape,
+                                                        )
+                                                        .clickable(
+                                                            enabled = isFront,
+                                                            role = Role.Button,
+                                                            onClickLabel = "Abrir álbum ${card.title}",
+                                                        ) { onNavigateToAlbum(card.id) }
+                                                        .padding(10.dp),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                                                ) {
+                                                    AlbumArtView(
+                                                        coverStyle = coverStyleFor(card.coverUri.ifBlank { card.title }),
+                                                        imageModel = card.coverUri,
+                                                        fallbackMediaUri = card.sourceAudioUri,
+                                                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                                                        cornerRadius = 14.dp,
+                                                    )
+                                                    Text(
+                                                        card.title,
+                                                        style = MichiTypography.trackTitle,
+                                                        color = PureWhite,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                    )
+                                                    Text(
+                                                        listOfNotNull(
+                                                            card.artist,
+                                                            card.year.takeIf { it > 0 }?.toString(),
+                                                            "${card.trackCount} pistas",
+                                                        ).joinToString(" · "),
+                                                        style = MichiTypography.metadata,
+                                                        color = TextSecondary,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        val currentAlbum = selectedAlbumId?.let(albumByToken::get)
+                                        if (currentAlbum == null) {
+                                            Text(
+                                                "Selecciona una tarjeta válida para ver las acciones del álbum.",
+                                                color = TextSecondary,
+                                                modifier = Modifier.padding(horizontal = 20.dp),
+                                            )
+                                        } else {
+                                            val playableAlbumTracks = remember(
+                                                currentAlbum.tracks,
+                                                scopedArtistCollection.playableTrackIds,
+                                            ) {
+                                                canonicalPlayableAlbumTracks(
+                                                    currentAlbum.tracks,
+                                                    scopedArtistCollection.playableTrackIds,
+                                                )
+                                            }
+                                            CoverFlowAlbumActions(
+                                                albumTitle = currentAlbum.album.title,
+                                                hasPlayableTracks = playableAlbumTracks.isNotEmpty(),
+                                                onPlay = {
+                                                    if (playableAlbumTracks.isNotEmpty()) {
+                                                        playQueueSafe(playableAlbumTracks, 0)
+                                                    }
+                                                },
+                                                onShuffle = {
+                                                    if (playableAlbumTracks.isNotEmpty()) {
+                                                        playQueueSafe(playableAlbumTracks.shuffled(), 0)
+                                                    }
+                                                },
+                                                onAddToPlaylist = { albumToAddToPlaylist = currentAlbum },
+                                            )
+                                        }
+                                        Spacer(Modifier.height(12.dp))
+                                    }
                                 },
                                 coverFlowContent = {
                             if (coverFlowAlbums.isEmpty()) {
@@ -1007,6 +1134,10 @@ fun AlbumsScreen(
                                     onOpenArtist = onNavigateToArtist,
                                     modifier = Modifier.fillMaxSize(),
                                     artworkStore = artworkStore,
+                                    cardsMode = artistCardsMode,
+                                    selectedArtistCredit = selectedArtistCard,
+                                    onSelectArtistCard = { selectedArtistCard = it },
+                                    libraryScopeKey = activeScope,
                                 )
                             }
                         }

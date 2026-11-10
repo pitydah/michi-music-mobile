@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -90,6 +93,10 @@ fun ArtistMosaicGrid(
     selectionStore: ArtistEnrichmentSelectionStore? = null,
     artworkStore: ArtistArtworkStore? = null,
     artworkRevision: Long = 0L,
+    cardsMode: Boolean = false,
+    selectedArtistCredit: String? = null,
+    onSelectArtistCard: (String) -> Unit = {},
+    libraryScopeKey: Any? = null,
 ) {
     val context = LocalContext.current
     val store = remember(context, selectionStore) {
@@ -97,22 +104,34 @@ fun ArtistMosaicGrid(
     }
     val minimumCellSize = artistMosaicMinCellWidthDp(LocalDensity.current.fontScale).dp
     val orderedArtists = remember(artists) { orderedArtistMosaicEntries(artists) }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = minimumCellSize),
-        modifier = modifier.fillMaxSize().testTag("artist_mosaic_grid"),
-        contentPadding = PaddingValues(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        items(items = orderedArtists, key = { it.credit }) { artist ->
+    // Only locally verified artwork may be retained. Scope and revision invalidate all hints.
+    val recentArtwork = remember(libraryId, libraryScopeKey, artworkRevision, refreshToken) {
+        MichiArtworkMemory<ArtistMosaicEntry, ArtistArtworkSelection>(24)
+    }
+    // Reconcile artist card selection using scoped credit, never an unstable list position.
+    val canonicalArtistCard = remember(orderedArtists, selectedArtistCredit) {
+        michiCardReconciledKey(orderedArtists, selectedArtistCredit) { it.credit }
+    }
+    LaunchedEffect(cardsMode, canonicalArtistCard, selectedArtistCredit) {
+        if (cardsMode && canonicalArtistCard != null && canonicalArtistCard != selectedArtistCredit) {
+            onSelectArtistCard(canonicalArtistCard)
+        }
+    }
+    // Single cache-aware tile renderer for both layouts: never fetch images over the network.
+    val renderArtist: @Composable (ArtistMosaicEntry, Modifier, Boolean) -> Unit = { artist, tileModifier, isFront ->
             val albumIds = artist.albumIds
+            // Structural domain identity prevents accidental cross-credit artwork reuse.
+            val artworkMemoryKey = artist
+            // ALL-scoped identities must be revalidated against *current* membership
+            // revisions before any photo is shown: never seed them from a previous hint.
+            val allowArtworkHint = michiArtworkHintAllowed(libraryId, artworkStore != null)
             // Every lazy item owns only its own state and Room request. On library/group
             // change, clear the previous portrait before reading the new scoped key.
             var portrait by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
                 mutableStateOf<CommonsPortrait?>(null)
             }
-            var artwork by remember(artist.credit, libraryId, albumIds, artist.profileScopes) {
-                mutableStateOf<ArtistArtworkSelection?>(null)
+            var artwork by remember(artist.credit, libraryId, albumIds, artist.profileScopes, artworkRevision) {
+                mutableStateOf<ArtistArtworkSelection?>(if (allowArtworkHint) recentArtwork[artworkMemoryKey] else null)
             }
             var aggregateRevisions by remember(
                 artworkStore, artist.credit, libraryId, artist.profileScopes,
@@ -127,7 +146,10 @@ fun ArtistMosaicGrid(
                     if (revisionFlows.isNotEmpty()) {
                         combine(revisionFlows) { revisions -> revisions.toList() }
                             .drop(1) // Initial hydration is already owned by the load effect.
-                            .collect { aggregateRevisions = it }
+                            .collect { latest ->
+                                recentArtwork.remove(artworkMemoryKey)
+                                aggregateRevisions = latest
+                            }
                     }
                 }
             }
@@ -136,7 +158,7 @@ fun ArtistMosaicGrid(
                 // A cached portrait is only a hint: clear it before reading the scoped key so
                 // a library or album-fingerprint change can never keep a stale face.
                 portrait = null
-                artwork = null
+                artwork = if (allowArtworkHint && aggregateRevisions.isEmpty()) recentArtwork[artworkMemoryKey] else null
                 try {
                     var savedProfile: org.michimusic.mobile.artist.ArtistExternalProfile? = null
                     var savedAssociationGroupKey: String? = null
@@ -183,11 +205,19 @@ fun ArtistMosaicGrid(
                             }
                         }
                     }
+                    currentCoroutineContext().ensureActive()
+                    val readyArtwork = artwork?.takeIf {
+                        it.status == ArtworkLoadStatus.READY && it.localImagePath?.isNotBlank() == true
+                    }
+                    if (allowArtworkHint && readyArtwork != null) {
+                        recentArtwork.put(artworkMemoryKey, readyArtwork)
+                    } else recentArtwork.remove(artworkMemoryKey)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
                     // A failed cache read is a missing photo, never an invented identity.
                     // Retrying lives in the enrichment surface, not under the portrait.
+                    recentArtwork.remove(artworkMemoryKey)
                     portrait = null
                     artwork = null
                 }
@@ -197,8 +227,41 @@ fun ArtistMosaicGrid(
                 portrait = portrait,
                 artwork = artwork,
                 onClick = { onOpenArtist(artist.credit) },
-                modifier = if (LocalVisualPreferences.current.reducedMotion) Modifier else Modifier.animateItem(),
+                modifier = tileModifier,
+                maxPortraitDiameter = if (cardsMode) 210.dp else 144.dp,
+                enabled = isFront,
+                showLabel = isFront,
+                showSupportingMetadata = cardsMode && isFront,
+                highlightPortrait = cardsMode && isFront,
             )
+    }
+    if (cardsMode) {
+        key(libraryScopeKey) { MichiCardDeck(
+            items = orderedArtists,
+            itemKey = { it.credit },
+            itemLabel = { artist -> artist.credit.ifBlank { "Artista desconocido" } },
+            selectedKey = canonicalArtistCard,
+            onSelect = onSelectArtistCard,
+            modifier = modifier.fillMaxSize().testTag("artist_cards_deck"),
+            onOpenSelected = { artist -> onOpenArtist(artist.credit) },
+            circularArtwork = true,
+        ) { artist, isFront ->
+            // Preserve Michi's round portrait, not a rectangular card frame.
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                renderArtist(artist, Modifier.padding(16.dp), isFront)
+            }
+        } }
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = minimumCellSize),
+            modifier = modifier.fillMaxSize().testTag("artist_mosaic_grid"),
+            contentPadding = PaddingValues(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            items(items = orderedArtists, key = { it.credit }) { artist ->
+                renderArtist(artist, if (LocalVisualPreferences.current.reducedMotion) Modifier else Modifier.animateItem(), true)
+            }
         }
     }
 }
@@ -210,6 +273,11 @@ internal fun ArtistMosaicTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     artwork: ArtistArtworkSelection? = null,
+    maxPortraitDiameter: Dp = 144.dp,
+    enabled: Boolean = true,
+    showLabel: Boolean = true,
+    showSupportingMetadata: Boolean = false,
+    highlightPortrait: Boolean = false,
 ) {
     val name = artist.credit.ifBlank { "Artista desconocido" }
     val localArtwork = artwork?.localImagePath
@@ -240,6 +308,7 @@ internal fun ArtistMosaicTile(
                 role = Role.Button,
                 interactionSource = source,
                 indication = null,
+                enabled = enabled,
                 onClick = onClick,
             )
             .semantics(mergeDescendants = true) {
@@ -253,7 +322,7 @@ internal fun ArtistMosaicTile(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            val diameter = maxWidth.coerceAtMost(144.dp)
+            val diameter = maxWidth.coerceAtMost(maxPortraitDiameter)
             Box(
                 modifier = Modifier
                     .size(diameter)
@@ -264,8 +333,12 @@ internal fun ArtistMosaicTile(
                         ),
                     )
                     .border(
-                        width = 0.9.dp,
-                        color = if (model != null) Color.White.copy(alpha = 0.23f)
+                        width = if (LocalVisualPreferences.current.highContrast) 2.dp
+                        else if (highlightPortrait) 1.4.dp else 0.9.dp,
+                        // ALL layers stay discernible when high-contrast visuals disable rotation.
+                        color = if (LocalVisualPreferences.current.highContrast) Color.White
+                        else if (highlightPortrait) PrimaryPink.copy(alpha = 0.56f)
+                        else if (model != null) Color.White.copy(alpha = 0.23f)
                         else PrimaryPink.copy(alpha = 0.37f),
                         shape = CircleShape,
                     )
@@ -309,17 +382,34 @@ internal fun ArtistMosaicTile(
                 }
             }
         }
-        Text(
-            text = name,
-            modifier = Modifier.fillMaxWidth(),
-            color = PureWhite,
-            fontFamily = InterFontFamily,
-            fontSize = 14.sp,
-            lineHeight = 19.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (showLabel) {
+            Text(
+                text = name,
+                modifier = Modifier.fillMaxWidth(),
+                color = PureWhite,
+                fontFamily = InterFontFamily,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (showSupportingMetadata) {
+                Text(
+                    text = "$albumDescription · $trackDescription",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = TextSecondary,
+                    fontFamily = InterFontFamily,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            // Preserve a baseline for rear circles without exposing ghosted artist labels.
+            Box(Modifier.fillMaxWidth().height(38.dp))
+        }
     }
 }

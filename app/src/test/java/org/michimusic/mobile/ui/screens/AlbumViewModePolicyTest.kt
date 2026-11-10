@@ -5,20 +5,23 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class AlbumViewModePolicyTest {
-    @Test fun cycleVisitsMosaicCoverFlowAndListInThatOrder() {
+    @Test fun cycleVisitsFourLibraryPresentationsInOrder() {
         val start = LibraryViewMode.MOSAIC
         val coverFlow = nextAlbumViewMode(start)
-        val list = nextAlbumViewMode(coverFlow)
+        val cards = nextAlbumViewMode(coverFlow)
+        val list = nextAlbumViewMode(cards)
         val end = nextAlbumViewMode(list)
         assertEquals(LibraryViewMode.COVERFLOW, coverFlow)
+        assertEquals(LibraryViewMode.CARDS, cards)
         assertEquals(LibraryViewMode.LIST, list)
         assertEquals(start, end)
-        assertEquals(3, LibraryViewMode.entries.size)
+        assertEquals(4, LibraryViewMode.entries.size)
     }
 
     @Test fun allLabelsIdentifyARealPresentation() {
         assertEquals("lista", albumViewModeLabel(LibraryViewMode.LIST))
         assertEquals("mosaico", albumViewModeLabel(LibraryViewMode.MOSAIC))
+        assertEquals("tarjetas", albumViewModeLabel(LibraryViewMode.CARDS))
         assertEquals("CoverFlow", albumViewModeLabel(LibraryViewMode.COVERFLOW))
         assertNotEquals(albumViewModeLabel(LibraryViewMode.MOSAIC), albumViewModeLabel(LibraryViewMode.LIST))
     }
