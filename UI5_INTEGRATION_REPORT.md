@@ -507,7 +507,8 @@ Gradle ni código para ocultar el fallo.
 ## Auditoría correctiva P0/P1 post-integración
 
 Base auditada: `master@c9756c9a40e2593fe68f6ea9eedfcda210daae0f`.
-Los cambios de esta auditoría están en el working tree, **sin commit ni push**.
+Integración publicada en `master@9857365f1e64820e9e747ce5cf11929c88230c21`;
+CI exacta `42895634245`: **8/8 PASS**, incluido Quality Gate.
 
 ### P0 — Identidad entre bibliotecas
 
@@ -558,7 +559,8 @@ Auditoría de APIs destructivas:
 - **GO_IDENTITY:** sí para las rutas actuales; la UI de playlists remotas queda deliberadamente aislada hasta disponer de una ruta source-aware.
 - **GO_LIBRARY_SAFETY:** sí en código y pruebas; la certificación física de proveedores SAF reales sigue pendiente.
 - **GO_SIGNAL_TRUTH:** sí para los contratos R18/R19 disponibles en el plan; no se certifican rutas físicas/DAC/RTP.
-- **GO_CI:** pendiente; no hay commit/push ni SHA nuevo con CI exacta.
+- **GO_CI:** sí. `master@9857365` pasó la CI exacta `42895634245` con 8/8 jobs,
+  incluido Quality Gate.
 - **GO_VISUAL:** pendiente; faltan capturas y aprobación en dispositivo real.
 - **GO_PHYSICAL:** pendiente; el AVD API 36 no sustituye un teléfono.
 - **GO_RELEASE:** **NO-GO**.
