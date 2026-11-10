@@ -565,6 +565,54 @@ Auditoría de APIs destructivas:
 - **GO_PHYSICAL:** pendiente; el AVD API 36 no sustituye un teléfono.
 - **GO_RELEASE:** **NO-GO**.
 
+## KILLCRITIC post-integración — identidad, playlists y seeks
+
+Base auditada: `master@9a7a16ff8b5b013ee1b7825e0609cc73033fbf70`.
+Cambios en working tree, **sin commit ni push**.
+
+### P0 corregido
+
+- **Playlist + exclusiones:** `resolvePlaylistTracks()` ya no usa `getTracksById()` para una playlist local. Una referencia local ausente de la biblioteca activa queda `unresolvedTrackIds`; no se recupera de una fila DAO oculta ni de otra fuente. Las pistas ocultas locales se separan en `hiddenTrackIds`.
+- **Playlist local con referencia remota:** una coincidencia única en caché remota tampoco demuestra procedencia. La referencia se conserva sin resolver; no se asigna por título, artista ni primer propietario.
+- **Sync por servidor:** `getDownloadedIds(sourceId)` y `getDownloadedTrackFingerprints(sourceId)` consultan solo el `sourceId` real. `SyncWorker` y `SyncViewModel` pasan el dispositivo correspondiente. Dos servidores con el mismo `trackId` ya no comparten el estado de descarga.
+- **DAO y sesión:** `getTracksById(id)` devuelve todos los propietarios; `LibraryProvider` y `MichiPlaybackService` solo aceptan una coincidencia única, y priorizan la biblioteca local activa. `markDownloaded` exige `sourceId`.
+- **Archivos:** las rutas de ocultar/restaurar/eliminar playlist siguen siendo metadata-only; la auditoría no encontró borrado de audio desde acciones de biblioteca.
+
+### UI/UX implementado
+
+- **PL-CAT-11:** título 28/32 sp, contador 12–13 sp, ordenación compacta no seleccionada permanentemente, tarjetas con portada 64 dp, altura mínima 92 dp, título 16 sp y padding 12 dp.
+- **PL-DETAIL-11:** eliminado el rectángulo del título y la segunda imagen localizada. El banner usa un scrim continuo de altura completa (transparente → 0.12 → 0.52) y el texto lleva sombra suave; alto contraste usa superficie sólida continua. Portada 92/104 dp, hero 220 dp, título 22/26 sp, acciones Reproducir/Mezclar con jerarquía 1f/0.55f.
+- **Filas:** densidad compacta 44 dp de portada, 10 dp vertical y 6 dp entre filas; marcador de pista activa basado en `resolvePlaybackPresentation`.
+- **ST-POPUP-07:** Signal Truth deja `ModalBottomSheet` y pasa a `Dialog` + `AeroFloatingSurface` (radio 26 dp, 82 % de altura, padding 18 dp). Conserva etapas, evidencia, una expansión y acciones R18/R19.
+- **SEEKERS:** Barras y Continuo aumentan su masa real (barras 1,8–10,2 dp; continuo 12,5 dp por perfil), mantienen reducción por picos y no inventan datos. `LIQUID_GLASS` cambia de etiqueta pública a **Aero Capsule**, conserva la clave persistida y usa rail anodizado de 9 dp, canal 4 dp y thumb 12/14 dp.
+
+### Validación
+
+| Gate | Resultado |
+|---|---|
+| Suites data/player/Normal/F-Droid/link-client | PASS |
+| `PlaylistTrackIdentityTest`, `PlaylistRepositoryTest`, `SyncedTrackRepositoryTest`, `DaoTests` | PASS |
+| `AeroSeekerStylePolicyTest`, `AeroSeekerCompositionTest`, `PlaylistDetailScreenTest`, `PlaylistNoopRegressionTest` | PASS |
+| Lint | PASS |
+| Normal/F-Droid debug + release | PASS |
+| Instrumentación AVD API 36 | 93 tests, 0 fallos, 8 skipped |
+
+Capturas parciales en `/tmp/opencode/killcritic/`: catálogo vacío, catálogo con una playlist, detalle vacío, selector de pistas y detalle poblado. La captura con banner amarillo y la del popup Signal Truth no se completaron porque el AVD se cerró durante la selección del banner; no se declaran aprobadas.
+
+### Gates
+
+- **GO_IDENTITY:** sí para las rutas actuales; playlists remotas siguen fuera de la UI local hasta una ruta source-aware.
+- **GO_LIBRARY_SAFETY:** sí en código y pruebas; falta validación física de proveedores.
+- **GO_SYNC:** sí para identidad por servidor; falta prueba con dos servidores reales y checksum/reanudación física.
+- **GO_PLAYLIST_VISUAL:** parcial; catálogo y detalle poblado revisados, falta el caso banner amarillo.
+- **GO_SIGNAL_TRUTH_VISUAL:** pendiente; cambio de contenedor compilado, sin captura final.
+- **GO_SEEKERS:** código y pruebas de política pasan; falta captura comparativa de los cinco estilos.
+- **GO_CODE:** sí en working tree.
+- **GO_CI:** pendiente; no hay commit/push.
+- **GO_VISUAL:** pendiente.
+- **GO_PHYSICAL:** pendiente.
+- **GO_RELEASE:** **NO-GO**.
+
 ## Evidencia local
 
 La integración inicial usó el workflow gestionado

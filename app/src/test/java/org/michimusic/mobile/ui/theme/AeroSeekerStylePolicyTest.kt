@@ -6,6 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AeroSeekerStylePolicyTest {
+    @Test fun capsuleLabelMigratesWithoutBreakingStoredKey() {
+        assertEquals("Aero Capsule", AeroSeekerStyle.LIQUID_GLASS.label)
+        assertEquals(AeroSeekerStyle.LIQUID_GLASS, savedAeroSeekerStyle("LIQUID_GLASS"))
+    }
+
     @Test fun exactlyFiveStylesKeepAeroOriginalAsDefault() {
         assertEquals(5, AeroSeekerStyle.entries.size)
         assertEquals(AeroSeekerStyle.ORIGINAL, savedAeroSeekerStyle(null))

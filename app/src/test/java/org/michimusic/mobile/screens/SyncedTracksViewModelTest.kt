@@ -64,7 +64,7 @@ private class FakeSyncedRepo : SyncedTrackRepository() {
 
     override fun getAllSynced() = flowOf(items)
     override fun getPagedTracks() = flowOf(androidx.paging.PagingData.empty<CachedTrack>())
-    override suspend fun getDownloadedIds() = items.filter { it.downloaded }.map { it.id }.toSet()
+    override suspend fun getDownloadedIds(sourceId: String) = items.filter { it.downloaded }.map { it.id }.toSet()
     override suspend fun count() = items.size
     override suspend fun saveLibrary(tracks: List<TrackDto>, sourceId: String) {}
     override suspend fun saveManifestPlaylists(playlists: List<ManifestPlaylist>, sourceId: String) {}

@@ -1093,7 +1093,7 @@ class SyncViewModel(
                 val currentLocalMusicBytes = maxOf(dirBytes, dbBytes)
 
 
-                val localFingerprints = trackRepository.getDownloadedTrackFingerprints()
+                val localFingerprints = trackRepository.getDownloadedTrackFingerprints(targetDeviceId)
                 val effectiveCheckpointRepo = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
                 val checkpoints = effectiveCheckpointRepo?.getCheckpointsForDevice(targetDeviceId) ?: emptyList()
                 val partials = checkpoints.filter { it.receivedBytes > 0 && it.transferState != org.michimusic.core.models.TransferStatus.COMPLETED }

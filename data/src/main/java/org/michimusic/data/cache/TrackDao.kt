@@ -42,6 +42,9 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE downloaded = 1")
     fun getDownloadedTracks(): Flow<List<CachedTrack>>
 
+    @Query("SELECT * FROM cached_tracks WHERE downloaded = 1 AND sourceId = :sourceId")
+    fun getDownloadedTracksForSource(sourceId: String): Flow<List<CachedTrack>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(tracks: List<CachedTrack>)
 

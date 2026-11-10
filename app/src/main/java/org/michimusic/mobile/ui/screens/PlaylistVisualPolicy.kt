@@ -34,7 +34,7 @@ internal fun orderedPlaylistCatalog(
 internal data class PlaylistTrackLayout(val artworkDp: Int, val verticalPaddingDp: Int, val gapDp: Int)
 
 internal fun playlistTrackLayout(density: PlaylistTrackDensity): PlaylistTrackLayout = when (density) {
-    PlaylistTrackDensity.COMPACT -> PlaylistTrackLayout(40, 7, 7)
+    PlaylistTrackDensity.COMPACT -> PlaylistTrackLayout(44, 10, 6)
     PlaylistTrackDensity.EXPANDED -> PlaylistTrackLayout(56, 12, 12)
 }
 

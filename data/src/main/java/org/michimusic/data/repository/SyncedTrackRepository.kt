@@ -74,8 +74,9 @@ open class SyncedTrackRepository(
         }
     }
 
-    open suspend fun getDownloadedIds(): Set<String> =
-        trackDao?.getDownloadedTracks()?.let { flow ->
+    /** Downloaded identity is per owner; another server may reuse the same ID. */
+    open suspend fun getDownloadedIds(sourceId: String): Set<String> =
+        trackDao?.getDownloadedTracksForSource(sourceId)?.let { flow ->
             flow.flowFirst().map { it.id }.toSet()
         } ?: emptySet()
 
@@ -84,8 +85,9 @@ open class SyncedTrackRepository(
             flow.flowFirst().sumOf { it.size }
         } ?: 0L
 
-    open suspend fun getDownloadedTrackFingerprints(): Set<String> =
-        trackDao?.getDownloadedTracks()?.let { flow ->
+    /** Fingerprints are also scoped: a global hit proves nothing about this peer. */
+    open suspend fun getDownloadedTrackFingerprints(sourceId: String): Set<String> =
+        trackDao?.getDownloadedTracksForSource(sourceId)?.let { flow ->
             val tracks = flow.flowFirst()
             val ids = tracks.map { it.id }
             val fingerprints = tracks.mapNotNull { trk ->

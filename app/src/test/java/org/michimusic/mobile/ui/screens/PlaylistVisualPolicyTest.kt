@@ -27,7 +27,7 @@ class PlaylistVisualPolicyTest {
     }
 
     @Test fun densityIsVisualOnly() {
-        assertEquals(40, playlistTrackLayout(PlaylistTrackDensity.COMPACT).artworkDp)
+        assertEquals(44, playlistTrackLayout(PlaylistTrackDensity.COMPACT).artworkDp)
         assertEquals(56, playlistTrackLayout(PlaylistTrackDensity.EXPANDED).artworkDp)
         assertTrue(playlistTrackLayout(PlaylistTrackDensity.EXPANDED).verticalPaddingDp >
             playlistTrackLayout(PlaylistTrackDensity.COMPACT).verticalPaddingDp)

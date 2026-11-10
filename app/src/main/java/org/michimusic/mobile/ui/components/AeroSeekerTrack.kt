@@ -91,8 +91,8 @@ internal fun AeroSeekerTrack(
                     val cell = w / bins.size
                     bins.forEachIndexed { index, peak ->
                         val x = (index + 0.5f) * cell
-                        val half = (1.3.dp.toPx() + peak * 9.dp.toPx())
-                            .coerceAtMost(h * 0.43f)
+                        val half = (1.8.dp.toPx() + peak * 10.2.dp.toPx())
+                            .coerceAtMost(h * 0.44f)
                         drawLine(if (x <= playedWidth) MichiAuroraCyan else quiet,
                             Offset(x, y - half), Offset(x, y + half),
                             strokeWidth = (cell * 0.58f).coerceIn(1.dp.toPx(), 2.6.dp.toPx()),
@@ -110,7 +110,7 @@ internal fun AeroSeekerTrack(
                     samples.forEachIndexed { i, raw ->
                         val x = i * step
                         val dy = (raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f) *
-                            9.dp.toPx().coerceAtMost(peakLimit)
+                            12.5.dp.toPx().coerceAtMost(peakLimit)
                         if (i == 0) {
                             path.moveTo(x, y - dy)
                             upperContour.moveTo(x, y - dy)
@@ -122,7 +122,7 @@ internal fun AeroSeekerTrack(
                     for (i in samples.lastIndex downTo 0) {
                         val raw = samples[i]
                         val dy = (raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f) *
-                            9.dp.toPx().coerceAtMost(peakLimit)
+                            12.5.dp.toPx().coerceAtMost(peakLimit)
                         path.lineTo(i * step, y + dy)
                     }
                     path.close()
@@ -137,34 +137,34 @@ internal fun AeroSeekerTrack(
                 }
             }
             AeroSeekerStyle.LIQUID_GLASS -> {
-                // Draw-only optical rail: glass casing, recessed channel and one
-                // specular line. No backdrop capture, blur, refraction or extra control.
-                val railHeight = 12.dp.toPx()
+                // Aero Capsule: one compact anodized rail, recessed channel and a
+                // precise played region. Draw-only; the parent owns gestures/thumb.
+                val railHeight = 9.dp.toPx()
                 val railTop = y - railHeight / 2f
                 val railRadius = androidx.compose.ui.geometry.CornerRadius(railHeight / 2f)
                 val inset = 2.dp.toPx()
-                val innerHeight = 5.dp.toPx()
+                val innerHeight = 4.dp.toPx()
                 val innerTop = y - innerHeight / 2f
                 val innerRadius = androidx.compose.ui.geometry.CornerRadius(innerHeight / 2f)
                 val innerWidth = (w - inset * 2f).coerceAtLeast(1f)
                 val playedInner = (playedWidth - inset).coerceIn(0f, innerWidth)
                 drawRoundRect(
-                    Color.White.copy(alpha = 0.055f),
+                    org.michimusic.mobile.ui.theme.AeroGraphite,
                     Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
                 )
                 drawRoundRect(
-                    Color.White.copy(alpha = 0.18f),
+                    Color.White.copy(alpha = 0.14f),
                     Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
-                    style = Stroke(width = 0.75.dp.toPx()),
+                    style = Stroke(width = 0.65.dp.toPx()),
                 )
                 drawRoundRect(
-                    Color.Black.copy(alpha = 0.30f),
+                    Color.Black.copy(alpha = 0.55f),
                     Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
                 )
                 drawRoundRect(
-                    Color.White.copy(alpha = 0.10f),
+                    Color.White.copy(alpha = 0.08f),
                     Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
-                    style = Stroke(width = 0.5.dp.toPx()),
+                    style = Stroke(width = 0.45.dp.toPx()),
                 )
                 if (playedInner > 0f) {
                     drawRoundRect(
@@ -176,19 +176,11 @@ internal fun AeroSeekerTrack(
                 }
                 if (w > inset * 3f) {
                     drawLine(
-                        color = Color.White.copy(alpha = 0.55f),
-                        start = Offset(inset * 1.5f, railTop + 0.9.dp.toPx()),
-                        end = Offset(w - inset * 1.5f, railTop + 0.9.dp.toPx()),
-                        strokeWidth = 0.75.dp.toPx(),
+                        color = Color.White.copy(alpha = 0.34f),
+                        start = Offset(inset * 1.5f, railTop + 0.8.dp.toPx()),
+                        end = Offset(w - inset * 1.5f, railTop + 0.8.dp.toPx()),
+                        strokeWidth = 0.55.dp.toPx(),
                         cap = StrokeCap.Round,
-                    )
-                }
-                // A small optical bead marks the playhead; it is not fake refraction.
-                if (playedInner > 0f) {
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.38f),
-                        radius = 1.4.dp.toPx(),
-                        center = Offset(playedWidth, y),
                     )
                 }
             }

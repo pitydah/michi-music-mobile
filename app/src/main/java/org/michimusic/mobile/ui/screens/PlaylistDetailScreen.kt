@@ -463,8 +463,9 @@ fun PlaylistDetailScreen(
                             AeroActionButton(
                                 label = "Mezclar",
                                 icon = Icons.Filled.Shuffle,
-                                kind = AeroActionKind.Secondary,
-                                modifier = Modifier.weight(1f).testTag("playlist_detail_shuffle_all"),
+                                kind = AeroActionKind.Quiet,
+                                modifier = Modifier.weight(0.55f)
+                                    .testTag("playlist_detail_shuffle_all"),
                                 onClick = {
                                     val shuffled = playableQueue.shuffled()
                                     if (sessionManager != null) sessionManager.playQueue(shuffled, 0)

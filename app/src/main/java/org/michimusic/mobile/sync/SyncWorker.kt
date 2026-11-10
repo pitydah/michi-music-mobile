@@ -370,7 +370,7 @@ class SyncWorker(
                 }
             }
 
-            val downloadedIds = repository.getDownloadedIds()
+            val downloadedIds = repository.getDownloadedIds(deviceId)
 
             val itemsToDownload = candidateTracks
                 .filter { track ->

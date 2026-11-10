@@ -175,7 +175,7 @@ class EndToEndSyncFlowTest {
         )
 
         coEvery { trackRepository.getDownloadedBytes() } returns 100 * oneMb
-        coEvery { trackRepository.getDownloadedTrackFingerprints() } returns emptySet()
+        coEvery { trackRepository.getDownloadedTrackFingerprints(any()) } returns emptySet()
 
         checkpointRepo = mockk(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(any()) } returns emptyList()

@@ -283,12 +283,10 @@ open class PlaylistRepository(
                     }
                     continue
                 }
-                val cached = trackDao.getTracksById(id)
-                when {
-                    cached.isEmpty() -> unresolved += id
-                    cached.size == 1 -> tracks += cached.single().toTrack()
-                    else -> ambiguous += id
-                }
+                // A local playlist has no source metadata for legacy references.
+                // A cached row, even a unique one, cannot prove that it belongs to
+                // this playlist's local owner. Preserve the ID as unresolved.
+                unresolved += id
             } else {
                 val cached = trackDao.getTrackBySource(sourceId, id)
                 if (cached == null) unresolved += id else tracks += cached.toTrack()

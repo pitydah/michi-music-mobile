@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -136,7 +137,10 @@ fun PlaylistScreen(
                     )
                     Text(
                         text = "Tus Playlists",
-                        style = MichiTypography.screenTitle,
+                        style = MichiTypography.screenTitle.copy(
+                            fontSize = 28.sp,
+                            lineHeight = 32.sp,
+                        ),
                     )
                 }
 
@@ -156,15 +160,15 @@ fun PlaylistScreen(
                 Text(
                     text = "${orderedPlaylists.size} ${if (orderedPlaylists.size == 1) "playlist" else "playlists"}" +
                         if (pinnedCount > 0) " · $pinnedCount ${if (pinnedCount == 1) "fijada" else "fijadas"}" else "",
-                    style = MichiTypography.microLabel,
+                    style = MichiTypography.metadata,
                     color = TextSecondary,
-                    modifier = Modifier.padding(top = 8.dp).testTag("playlist_catalog_summary"),
+                    modifier = Modifier.padding(top = 4.dp).testTag("playlist_catalog_summary"),
                 )
                 Spacer(Modifier.height(7.dp))
                 Box(modifier = Modifier.testTag("playlist_catalog_sort")) {
                     AeroFilterChip(
-                        label = "Ordenar: " + if (catalogSort == PlaylistCatalogSort.NAME) "Nombre" else "Más canciones",
-                        selected = true,
+                        label = (if (catalogSort == PlaylistCatalogSort.NAME) "Nombre" else "Más canciones") + "  ▾",
+                        selected = false,
                         onClick = { showSortMenu = true },
                         testTag = "playlist_sort_trigger",
                     )
@@ -256,15 +260,16 @@ fun PlaylistScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
+                                    .heightIn(min = 92.dp)
+                                    .padding(horizontal = 12.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 val isPinned = visualById[playlist.id]?.pinned == true
                                 Box(
                                     Modifier
                                         .width(3.dp)
-                                        .height(38.dp)
+                                        .height(44.dp)
                                         .clip(RoundedCornerShape(3.dp))
                                         .background(if (isPinned) PrimaryPinkContainer else Color.Transparent),
                                 )
@@ -272,23 +277,23 @@ fun PlaylistScreen(
                                     AlbumArtView(
                                         coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
                                         imageModel = visualById[playlist.id]?.coverUri,
-                                        modifier = Modifier.size(52.dp), cornerRadius = 12.dp,
+                                        modifier = Modifier.size(64.dp), cornerRadius = 11.dp,
                                     )
                                 } else {
                                     org.michimusic.mobile.ui.components.PlaylistCoverMosaic(
                                         coverIds = playlist.coverIds,
                                         coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
-                                        modifier = Modifier.size(52.dp),
-                                        size = 52.dp,
-                                        cornerRadius = 12.dp,
+                                        modifier = Modifier.size(64.dp),
+                                        size = 64.dp,
+                                        cornerRadius = 11.dp,
                                     )
                                 }
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = playlist.name,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = PureWhite,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,

@@ -515,11 +515,11 @@ class PlaylistRepositoryTest {
     fun getTracksForPlaylist_resolvesInStoredOrder() = runTest {
         val trackDao = mockk<TrackDao>()
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, CountingLocalMediaRepository(emptyList()))
-        coEvery { trackDao.getTracksById("trackC") } returns listOf(cachedTrack("trackC", "C"))
-        coEvery { trackDao.getTracksById("trackA") } returns listOf(cachedTrack("trackA", "A"))
-        coEvery { trackDao.getTracksById("trackB") } returns listOf(cachedTrack("trackB", "B"))
+        coEvery { trackDao.getTrackBySource("peer-a", "trackC") } returns cachedTrack("trackC", "C")
+        coEvery { trackDao.getTrackBySource("peer-a", "trackA") } returns cachedTrack("trackA", "A")
+        coEvery { trackDao.getTrackBySource("peer-a", "trackB") } returns cachedTrack("trackB", "B")
 
-        val playlist = Playlist(id = "p1", name = "Ordered", trackIds = listOf("trackC", "trackA", "trackB"), trackCount = 3)
+        val playlist = Playlist(id = "p1", name = "Ordered", trackIds = listOf("trackC", "trackA", "trackB"), trackCount = 3, sourceId = "peer-a")
         val tracks = repoWithTracks.getTracksForPlaylist(playlist)
 
         assertEquals(listOf("C", "A", "B"), tracks.map { it.title })
@@ -529,10 +529,10 @@ class PlaylistRepositoryTest {
     fun getTracksForPlaylist_skipsMissingTrack() = runTest {
         val trackDao = mockk<TrackDao>()
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, CountingLocalMediaRepository(emptyList()))
-        coEvery { trackDao.getTracksById("t1") } returns listOf(cachedTrack("t1", "One"))
-        coEvery { trackDao.getTracksById("ghost") } returns emptyList()
+        coEvery { trackDao.getTrackBySource("peer-a", "t1") } returns cachedTrack("t1", "One")
+        coEvery { trackDao.getTrackBySource("peer-a", "ghost") } returns null
 
-        val playlist = Playlist(id = "p1", name = "Mix", trackIds = listOf("t1", "ghost"), trackCount = 2)
+        val playlist = Playlist(id = "p1", name = "Mix", trackIds = listOf("t1", "ghost"), trackCount = 2, sourceId = "peer-a")
         val tracks = repoWithTracks.getTracksForPlaylist(playlist)
 
         assertEquals(1, tracks.size)
@@ -556,11 +556,11 @@ class PlaylistRepositoryTest {
     @Test
     fun getTracksForPlaylist_resolvesRemoteTrackFromTrackDao() = runTest {
         val trackDao = mockk<TrackDao>()
-        coEvery { trackDao.getTracksById("remote_1") } returns listOf(cachedTrack("remote_1", "Synced Song"))
+        coEvery { trackDao.getTrackBySource("peer-a", "remote_1") } returns cachedTrack("remote_1", "Synced Song")
         val localMedia = CountingLocalMediaRepository(emptyList())
         val repoWithTracks = PlaylistRepository(fakeDao, trackDao, localMedia)
 
-        val playlist = Playlist(id = "p1", name = "Mix", trackIds = listOf("remote_1"), trackCount = 1)
+        val playlist = Playlist(id = "p1", name = "Mix", trackIds = listOf("remote_1"), trackCount = 1, sourceId = "peer-a")
         val tracks = repoWithTracks.getTracksForPlaylist(playlist)
 
         assertEquals(listOf("Synced Song"), tracks.map { it.title })
@@ -569,8 +569,8 @@ class PlaylistRepositoryTest {
     @Test
     fun getTracksForPlaylist_mixedLocalAndRemote_preservesStoredOrder() = runTest {
         val trackDao = mockk<TrackDao>()
-        // Only "remote_A" is expected to reach TrackDao at all: "local_C"/"local_B" resolve
-        // from the local map first via the `?:` short-circuit, before trackDao is ever called.
+        // A legacy local playlist may contain an old remote reference. It is preserved
+        // as unresolved, never borrowed from another cached source.
         coEvery { trackDao.getTracksById("remote_A") } returns listOf(cachedTrack("remote_A", "A"))
         val localMedia = CountingLocalMediaRepository(
             listOf(
@@ -588,7 +588,7 @@ class PlaylistRepositoryTest {
         )
         val tracks = repoWithTracks.getTracksForPlaylist(playlist)
 
-        assertEquals(listOf("C", "A", "B"), tracks.map { it.title })
+        assertEquals(listOf("C", "B"), tracks.map { it.title })
     }
 
     @Test

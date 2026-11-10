@@ -6,7 +6,7 @@ enum class AeroSeekerStyle(val label: String) {
     WAVY("Aero Wavy"),
     WAVEFORM_BARS("Waveform · Barras"),
     WAVEFORM_CONTINUOUS("Waveform · Continuo"),
-    LIQUID_GLASS("Aero Liquid Glass"),
+    LIQUID_GLASS("Aero Capsule"),
 }
 
 /** Reject corrupt preferences without changing accessibility or playback state. */

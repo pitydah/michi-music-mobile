@@ -85,9 +85,22 @@ class SyncedTrackRepositoryTest {
             CachedTrack(id = "t1", title = "T1", downloaded = true, filepath = "/p1", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "", trackNumber = 0, year = 0),
             CachedTrack(id = "t2", title = "T2", downloaded = true, filepath = "/p2", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0, coverId = "", trackNumber = 0, year = 0)
         )
-        every { mockTrackDao.getDownloadedTracks() } returns flowOf(downloadedTracks)
+        every { mockTrackDao.getDownloadedTracksForSource("peer-a") } returns flowOf(downloadedTracks)
 
-        val ids = repository.getDownloadedIds()
+        val ids = repository.getDownloadedIds("peer-a")
         assertEquals(setOf("t1", "t2"), ids)
+    }
+
+    @Test
+    fun `downloadedIds are scoped to the exact server owner`() = runTest {
+        val peerA = CachedTrack(
+            id = "t1", title = "Track A", sourceId = "peer-a",
+            downloaded = true, filepath = "/a/t1.flac",
+        )
+        every { mockTrackDao.getDownloadedTracksForSource("peer-a") } returns flowOf(listOf(peerA))
+        every { mockTrackDao.getDownloadedTracksForSource("peer-b") } returns flowOf(emptyList())
+
+        assertEquals(setOf("t1"), repository.getDownloadedIds("peer-a"))
+        assertEquals(emptySet<String>(), repository.getDownloadedIds("peer-b"))
     }
 }

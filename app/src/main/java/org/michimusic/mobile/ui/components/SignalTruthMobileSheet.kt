@@ -21,14 +21,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +42,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import org.koin.compose.koinInject
@@ -62,6 +61,7 @@ import org.michimusic.mobile.playback.SignalTruthChainPresentation
 import org.michimusic.mobile.playback.SignalTruthGraphProjector
 import org.michimusic.mobile.playback.SignalTruthOwnerPolicy
 import org.michimusic.mobile.playback.SignalTruthResolver
+import org.michimusic.mobile.ui.components.premium.AeroFloatingSurface
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.OnSurfaceVariant
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -81,7 +81,6 @@ private data class SenderSample(val sessionId: String? = null, val packets: Long
  * DSP changes are delegated to the existing editor; mixer controls to UsbDacManager.
  * This is presentation, NOT a substitute for owner-bound playback evidence receipts.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignalTruthMobileSheet(
     observation: AudioSignalObservation,
@@ -178,20 +177,24 @@ fun SignalTruthMobileSheet(
             expandedStageId = null
         }
     }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = SurfaceObsidian,
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.94f).navigationBarsPadding()) {
+    Dialog(onDismissRequest = onDismiss) {
+        AeroFloatingSurface(
+            shape = RoundedCornerShape(26.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.82f)
+                .padding(4.dp)
+                .testTag("signal_truth_popup"),
+        ) {
+        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight().navigationBarsPadding()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Signal Truth", color = PureWhite, style = MaterialTheme.typography.titleLarge)
+                    Text("Signal Truth", color = PureWhite,
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 19.sp, lineHeight = 23.sp))
                     Text(when (destination) {
                         SignalDestination.LOCAL -> "Cómo llega la música a tu salida"
                         SignalDestination.MICHI_STREAM -> "Qué sale del teléfono hacia Michi Stream"
@@ -218,6 +221,7 @@ fun SignalTruthMobileSheet(
                 onToggleTechnicalDetails = { showTechnicalDetails = !showTechnicalDetails },
                 usbManager = usbManager, routeStatus = routeStatus,
                 destination = destination, modifier = Modifier.weight(1f))
+        }
         }
     }
 }
