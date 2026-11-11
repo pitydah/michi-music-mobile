@@ -1216,6 +1216,8 @@ HyperOS/lockscreen no se ejecutó en esta sesión.
 ## Michi Mobile UI5 R20.2 — integración acumulativa
 
 Base: `master@23af8a36ec85c68baf9bfa5ae3b189f789586db7`.
+Integración funcional publicada en `master@8577f707d2baecb1215b4f151eba80242ae65db7`;
+CI exacta `43073057970`: **8/8 PASS**, incluido Quality Gate.
 El parche original declaró SHA-256
 `bcaf8556d7a4010c7476ba8adc9a21041b0c137bbb9f422472eb3dea4ffdbee5`.
 La verificación coincidió, pero `git apply --check` falló en
@@ -1310,8 +1312,9 @@ modificaron `SignalTruthMobileSheet.kt`, `SignalTruthGraphProjector`,
 - **G9_VISUAL:** parcial; 320/393 dp capturados, faltan 360/412/600, fuentes
   1.3/1.5/2.0, contraste alto y gesto real de reordenación.
 - **G10_PHYSICAL:** NOT_RUN; sin teléfono conectado.
-- **GO_CODE:** PASS en working tree.
-- **GO_CI:** NOT_RUN; no hay commit ni push.
+- **GO_CODE:** PASS. Publicado en
+  `master@8577f707d2baecb1215b4f151eba80242ae65db7`.
+- **GO_CI:** PASS. La CI exacta `43073057970` pasó 8/8 jobs sobre `8577f70`.
 - **GO_RELEASE:** **NO-GO**.
 
 ### Porcentajes honestos
