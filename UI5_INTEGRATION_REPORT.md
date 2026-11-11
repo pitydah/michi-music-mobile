@@ -1415,8 +1415,9 @@ R30 integrados en este checkout; no se aplicó R30.
 ## UI5-PLAYLIST-VISUAL-REWORK
 
 Base de la intervención: `master@ef3bcae07b371fae2b7d2f020e7665061f17bb3a`.
-HEAD final de la sesión: el mismo `ef3bcae` con los cambios en working tree,
-**sin commit, push, PR ni release**.
+Integración funcional publicada en
+`master@85f5ee98648a408b23530d7660b91abc32d2ab65`; CI exacta
+`43092041849`: **8/8 PASS**, incluido Quality Gate.
 
 ### Defectos de jerarquía identificados
 
@@ -1545,9 +1546,8 @@ viewports 320/360 están cubiertas por pruebas Compose, no por captura nueva.
   banner real, fuente 1.5/2.0 y captura de reordenación en curso.
 - `GO_PLAYLIST_REORDER`: **PASS** en pruebas de código/Compose; sin captura de
   gesto real.
-- `GO_CODE`: **PASS** en working tree; no publicado.
-- `GO_CI`: **NOT_RUN** para estos cambios; la última CI verde corresponde a
-  `ef3bcae` y no incluye el rework.
+- `GO_CODE`: **PASS**; publicado en `85f5ee9`.
+- `GO_CI`: **PASS**; run `43092041849` sobre `85f5ee9`, 8/8 jobs.
 - `GO_VISUAL`: **parcial**; capturas examinadas, matriz incompleta.
 - `GO_PHYSICAL`: **NOT_RUN**.
 - `GO_RELEASE`: **NO-GO**.
