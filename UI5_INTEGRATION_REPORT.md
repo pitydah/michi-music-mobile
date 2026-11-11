@@ -851,7 +851,10 @@ ni contraste alto en esta sesión.
 ## KILLCRITIC QUALITY CLOSURE 03 — integridad, procedencia, Media3, waveforms y Playlists
 
 Base auditada: `master@b0a950d5af6235e2d3728ae7093f2c0edfe1f12d`.
-Cambios en working tree, **sin commit ni push**. No se publicó nada.
+Integración funcional publicada en `master@bba0a51ebf1040113852117ef8e7372c515e2c7a`;
+CI exacta `42942758864`: **8/8 PASS**, incluido Quality Gate.
+El APK Normal debug de ese código se instaló y lanzó en el teléfono físico
+`25010PN30G` (`26dfb91d`).
 
 ### SYNC-INTEGRITY-03
 
@@ -1037,8 +1040,11 @@ aprobados.
 - **GO_PLAYLIST_REORDER:** pendiente; no se modificó el drag-and-drop.
 - **GO_LIBRARY_HEADER:** sí con captura y pruebas de compilación.
 - **GO_SIGNAL_TRUTH_VISUAL:** pendiente de captura.
-- **GO_CODE:** sí en working tree.
-- **GO_CI:** pendiente; no hay commit ni push.
-- **GO_VISUAL:** parcial.
-- **GO_PHYSICAL:** pendiente; no hay teléfono conectado.
+- **GO_CODE:** sí. Publicado en `master@bba0a51ebf1040113852117ef8e7372c515e2c7a`.
+- **GO_CI:** sí. La CI exacta `42942758864` pasó 8/8 jobs sobre `bba0a51`.
+- **GO_VISUAL:** parcial; catálogo, detalle y banner amarillo capturados, faltan
+  Signal Truth, seekers y la matriz completa de anchos/fuentes.
+- **GO_PHYSICAL:** parcial. APK Normal debug instalado y `MainActivity` iniciada
+  en `25010PN30G` (`26dfb91d`); faltan pruebas físicas de reproducción, rutas,
+  portada en controles Android/HyperOS y accesibilidad.
 - **GO_RELEASE:** **NO-GO**.
