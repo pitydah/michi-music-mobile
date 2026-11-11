@@ -140,19 +140,12 @@ object SyncIdentityPolicy {
         track: ManifestTrack,
         evidence: LocalSyncTrackEvidence,
     ): Pair<String, String>? {
-        if (!evidence.checksumVerified) return null
-        if (track.checksum.isBlank() || evidence.checksum.isBlank()) return null
-        if (!evidence.physicallyVerified || !evidence.complete) return null
-
-        val evidenceAlgorithm = evidence.checksumAlgorithm.lowercase()
-        val manifestLooksSha256 = isSha256Hex(track.checksum)
-        val evidenceLooksSha256 = isSha256Hex(evidence.checksum)
-        val compatible = when (evidenceAlgorithm) {
-            "sha256" -> manifestLooksSha256 && evidenceLooksSha256
-            "" -> manifestLooksSha256 && evidenceLooksSha256
-            else -> track.checksum.length == evidence.checksum.length && manifestLooksSha256 && evidenceLooksSha256
-        }
-        return if (compatible) track.checksum to evidence.checksum else null
+        if (!evidence.checksumVerified || !evidence.physicallyVerified || !evidence.complete) return null
+        // A digest's shape is not its algorithm. Legacy/unknown algorithms do NOT
+        // authorize skipping; verified legacy rows must be migrated explicitly.
+        if (!evidence.checksumAlgorithm.equals("sha256", ignoreCase = true)) return null
+        if (!isSha256Hex(track.checksum) || !isSha256Hex(evidence.checksum)) return null
+        return track.checksum to evidence.checksum
     }
 
     private fun hasVerifiedHash(track: ManifestTrack, evidence: LocalSyncTrackEvidence): Boolean {

@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,6 +63,7 @@ internal fun PlaylistVisualHero(
     coverIds: List<String>,
     visual: PlaylistVisualState,
     modifier: Modifier = Modifier,
+    minHeight: Dp = PLAYLIST_HERO_MIN_HEIGHT_DP.dp,
 ) {
     val shape = RoundedCornerShape(20.dp)
     val coverSize = playlistHeroCoverSizeDp(
@@ -92,7 +94,7 @@ internal fun PlaylistVisualHero(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = PLAYLIST_HERO_MIN_HEIGHT_DP.dp)
+            .heightIn(min = minHeight)
             .clip(shape)
             .background(fallbackBrush)
             .testTag("playlist_visual_hero_$id"),

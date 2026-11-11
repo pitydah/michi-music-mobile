@@ -510,9 +510,10 @@ class PlayerController(
         for (index in from..to) enrichArtworkAt(index, tracks[index], generation)
     }
 
-    /** Called on media-item transitions so a distant jump still gets its cover. */
+    /** Refreshing a cover must not invalidate neighbours' in-flight requests.
+     * Mutations of the actual queue increment queueGeneration separately. */
     fun refreshArtwork(track: Track, index: Int) {
-        enrichArtworkAt(index, track, nextQueueGeneration())
+        enrichArtworkAt(index, track, queueGeneration.get())
     }
 
     private fun enrichArtworkAt(index: Int, track: Track, generation: Long) {

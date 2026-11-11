@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.seeker.waveformContinuousForWidth
+import org.michimusic.mobile.ui.seeker.ContinuousWaveformPresentation
+import org.michimusic.mobile.ui.seeker.WaveformMeasuredPreview
 import org.michimusic.mobile.ui.seeker.waveformRenderLevels
 import kotlin.math.PI
 import kotlin.math.roundToInt
@@ -45,6 +47,7 @@ internal fun AeroSeekerTrack(
     dragging: Boolean,
     amplitudes: List<Float>?,
     modifier: Modifier,
+    barsPreview: WaveformMeasuredPreview? = null,
 ) {
     val phase = remember { Animatable(0f) }
     LaunchedEffect(style, playing, reducedMotion, dragging) {
@@ -94,12 +97,20 @@ internal fun AeroSeekerTrack(
                     if (w >= 300.dp.toPx()) 45 else 24,
                     60,
                 )
-                val bins = waveformRenderLevels(amplitudes.orEmpty(), barCount)
+                // Null represents UNMEASURED time, not silence. Never draw a
+                // generic tiny bar in an unanalysed time window.
+                val bins: List<Float?> = barsPreview?.barsForWidth(barCount)
+                    ?: waveformRenderLevels(amplitudes.orEmpty(), barCount)
                 if (bins.isNotEmpty()) {
+                    if (barsPreview != null) drawLine(
+                        quiet.copy(alpha = 0.45f), Offset(0f, y), Offset(w, y),
+                        strokeWidth = hairline, cap = StrokeCap.Round,
+                    )
                     val cell = w / bins.size
                     val barWidth = (cell * 0.46f)
                         .coerceIn(2.5.dp.toPx(), 3.5.dp.toPx())
-                    bins.forEachIndexed { index, level ->
+                    bins.forEachIndexed { index, measured ->
+                        val level = measured ?: return@forEachIndexed
                         val x = (index + 0.5f) * cell
                         val half = (1.6.dp.toPx() + level * 19.dp.toPx())
                             .coerceAtMost(h * 0.47f)
@@ -117,50 +128,53 @@ internal fun AeroSeekerTrack(
                 val samples = amplitudes.orEmpty()
                 if (samples.size >= 2) {
                     val maxPoints = (w / 2.4.dp.toPx()).roundToInt().coerceIn(80, 180)
-                    val levels = waveformContinuousForWidth(samples, maxPoints)
+                    val levels = ContinuousWaveformPresentation.envelope(
+                        waveformContinuousForWidth(samples, maxPoints),
+                    )
                     if (levels.size >= 2) {
                         val step = w / (levels.size - 1)
-                        val peakLimit = h * 0.46f
-
-                        fun half(level: Float): Float =
-                            (1.5.dp.toPx() + level * 18.5.dp.toPx()).coerceAtMost(peakLimit)
-
-                        val upper = levels.mapIndexed { index, level ->
-                            Offset(index * step, y - half(level))
+                        // One unipolar silhouette, with a shared lower baseline.
+                        // The played part recolors the SAME path; no mirrored lobes,
+                        // center seam, synthetic peaks, or second gesture layer.
+                        val geom = ContinuousWaveformPresentation.geometry(
+                            heightPx = h, insetPx = 2.dp.toPx(), floorPx = 1.25.dp.toPx(),
+                        )
+                        val baseline = geom.baselinePx // shares the parent thumb's centre axis
+                        val contour = levels.mapIndexed { index, level ->
+                            Offset(index * step, ContinuousWaveformPresentation.contourY(level, geom))
                         }
-                        val lower = levels.mapIndexed { index, level ->
-                            Offset(index * step, y + half(level))
-                        }
-                        val upperPath = smoothThrough(upper)
-                        val lowerPath = smoothThrough(lower.asReversed())
+                        val contourPath = smoothThrough(contour)
                         val fill = Path().apply {
-                            addPath(upperPath)
-                            addPath(lowerPath)
+                            moveTo(0f, baseline)
+                            lineTo(contour.first().x, contour.first().y)
+                            for (index in 1 until contour.size) {
+                                val previous = contour[index - 1]
+                                val current = contour[index]
+                                quadraticTo(previous.x, previous.y,
+                                    (previous.x + current.x) / 2f,
+                                    (previous.y + current.y) / 2f)
+                            }
+                            lineTo(contour.last().x, contour.last().y)
+                            lineTo(w, baseline)
                             close()
                         }
-
                         drawPath(fill, quiet)
-                        drawPath(
-                            upperPath,
-                            Color.White.copy(alpha = 0.28f),
-                            style = Stroke(width = 0.9.dp.toPx(), cap = StrokeCap.Round),
-                        )
+                        drawPath(contourPath, Color.White.copy(alpha = 0.28f),
+                            style = Stroke(width = 0.9.dp.toPx(), cap = StrokeCap.Round))
                         clipRect(right = playedWidth) {
                             drawPath(fill, active)
-                            drawPath(
-                                upperPath,
-                                MichiAuroraCyan,
-                                style = Stroke(width = 1.1.dp.toPx(), cap = StrokeCap.Round),
-                            )
+                            drawPath(contourPath, MichiAuroraCyan,
+                                style = Stroke(width = 1.1.dp.toPx(), cap = StrokeCap.Round))
                         }
                         if (playedWidth > 2.dp.toPx() && playedWidth < w - 2.dp.toPx()) {
-                            drawLine(
-                                Color.White.copy(alpha = 0.55f),
-                                Offset(playedWidth, y - peakLimit),
-                                Offset(playedWidth, y + peakLimit),
-                                strokeWidth = 1.6.dp.toPx(),
-                                cap = StrokeCap.Round,
-                            )
+                            // Short cursor beneath the centre-aligned thumb; never a
+                            // full-height divider that visually cuts the waveform.
+                            val index = ((levels.lastIndex * fraction).roundToInt())
+                                .coerceIn(0, levels.lastIndex)
+                            val top = contour[index].y
+                            drawLine(Color.White.copy(alpha = 0.34f),
+                                Offset(playedWidth, top), Offset(playedWidth, baseline),
+                                strokeWidth = 1.dp.toPx(), cap = StrokeCap.Round)
                         }
                     }
                 }

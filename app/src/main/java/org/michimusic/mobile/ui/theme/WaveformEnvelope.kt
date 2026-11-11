@@ -57,6 +57,24 @@ class WaveformEnvelope(
         }
     }
 
+    /** Only bins whose complete frame window has been decoded may be published. */
+    data class CompletedPreview(val levels: List<Float>, val completedBins: Int, val totalBins: Int)
+
+    fun completedPreview(): CompletedPreview? {
+        if (invalid || decodedFrames == 0L) return null
+        if (decodedFrames.toDouble() > targetFrames.toDouble() * 1.25) return null
+        // Exclude the still-open window AND final bin until the decoder reaches EOS.
+        val finished = (decodedFrames / framesPerBin).coerceAtMost((bins - 1).toLong()).toInt()
+        if (finished == 0) return null
+        val values = List(bins) { i ->
+            if (i >= finished || counts[i] == 0) 0f else {
+                val rms = sqrt(energy[i] / counts[i]).toFloat().coerceIn(0f, 1f)
+                (0.65f * peaks[i] + 0.35f * rms).coerceIn(0f, 1f)
+            }
+        }
+        return CompletedPreview(values, finished, bins)
+    }
+
     /**
      * A waveform only exists after real PCM was processed. Never extrapolate empty
      * bins or return placeholders. A corrupt decoder chunk invalidates the result.

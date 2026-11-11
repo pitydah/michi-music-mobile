@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.Role
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.AeroSeekerStyle
+import org.michimusic.mobile.ui.seeker.WaveformMeasuredPreview
 import org.michimusic.mobile.ui.theme.resolvedAeroSeekerStyle
 import org.michimusic.mobile.ui.theme.aeroSeekerFallbackDescription
 import androidx.compose.ui.platform.testTag
@@ -342,13 +343,16 @@ fun GradientProgressBar(
     aeroStyle: AeroSeekerStyle = AeroSeekerStyle.ORIGINAL,
     waveformAmplitudes: List<Float>? = null,
     playing: Boolean = false,
+    waveformBarsPreview: WaveformMeasuredPreview? = null,
 ) {
     val fraction = seekProgressFraction(currentValue, maxValue)
     val progress = fraction ?: 0f
     val canSeek = fraction != null
     val prefs = LocalVisualPreferences.current
     val reducedMotion = prefs.reducedMotion
-    val seekerStyle = if (canSeek) resolvedAeroSeekerStyle(aeroStyle, waveformAmplitudes, prefs.highContrast)
+    val resolvedSamples = waveformAmplitudes ?: if (aeroStyle == AeroSeekerStyle.WAVEFORM_BARS)
+        waveformBarsPreview?.levels else null
+    val seekerStyle = if (canSeek) resolvedAeroSeekerStyle(aeroStyle, resolvedSamples, prefs.highContrast)
         else AeroSeekerStyle.ORIGINAL
     var isDragging by remember { mutableStateOf(false) }
     val animatedThumbSize by animateDpAsState(
@@ -424,8 +428,11 @@ fun GradientProgressBar(
             AeroSeekerTrack(
                 style = seekerStyle, progress = progress, playing = playing,
                 reducedMotion = reducedMotion, dragging = isDragging,
-                amplitudes = waveformAmplitudes,
+                amplitudes = resolvedSamples,
                 modifier = Modifier.fillMaxWidth().height(44.dp),
+                barsPreview = waveformBarsPreview.takeIf {
+                    seekerStyle == AeroSeekerStyle.WAVEFORM_BARS && waveformAmplitudes == null
+                },
             )
         }
 

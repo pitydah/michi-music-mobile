@@ -152,7 +152,7 @@ fun AeroDynamicMeshBackground(
         val w = size.width
         val h = size.height
         if (w <= 0f || h <= 0f) return@Canvas
-        val swing = sin(drift) * 0.045f
+        val swing = aeroAmbientSwing(drift)
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(upper.copy(alpha = 0.88f), upper.copy(alpha = 0f)),
@@ -180,4 +180,10 @@ fun AeroDynamicMeshBackground(
             Color(0x08000000), Color(0x30080A12), Color(0x8B080A13),
         )))
     }
+}
+
+/** Testable visual amplitude, clamped independently of playback and lifecycle. */
+internal fun aeroAmbientSwing(phase: Float, amplitude: Float = 0.065f): Float {
+    if (!phase.isFinite() || !amplitude.isFinite()) return 0f
+    return sin(phase) * amplitude.coerceIn(0f, 0.08f)
 }

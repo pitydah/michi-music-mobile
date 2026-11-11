@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.heightIn
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -205,19 +206,22 @@ fun PlaylistDetailScreen(
         availableTracks.filterNot { it.id in existingTrackIds }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(SurfaceObsidian)
             .testTag("playlist_detail_screen"),
     ) {
+        // Measure the real viewport, not the device's nominal display: tests,
+        // split-screen and small windows all need the compact chrome.
+        val compactHeight = maxHeight < 640.dp
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(horizontal = MichiSpacing.screenHorizontal),
         ) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(if (compactHeight) 8.dp else 16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -423,7 +427,7 @@ fun PlaylistDetailScreen(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (compactHeight) 8.dp else 12.dp))
 
             when (val state = uiState) {
                 PlaylistDetailUiState.Loading -> {
@@ -445,36 +449,25 @@ fun PlaylistDetailScreen(
                         coverIds = state.playlist.coverIds,
                         visual = visualState,
                         modifier = Modifier.testTag("playlist_detail_visual_identity"),
+                        minHeight = if (compactHeight) 140.dp else 220.dp,
                     )
                     if (state.playlist.tracks.isNotEmpty()) {
                         val playableQueue = state.playlist.tracks
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            AeroActionButton(
-                                label = "Reproducir",
-                                icon = Icons.Filled.PlayArrow,
-                                kind = AeroActionKind.Primary,
-                                modifier = Modifier.weight(1f).testTag("playlist_detail_play_all"),
-                                onClick = {
-                                    if (sessionManager != null) sessionManager.playQueue(playableQueue, 0)
-                                    else audioController.playQueue(playableQueue, 0)
-                                },
-                            )
-                            AeroActionButton(
-                                label = "Mezclar",
-                                icon = Icons.Filled.Shuffle,
-                                kind = AeroActionKind.Quiet,
-                                modifier = Modifier.weight(0.55f)
-                                    .testTag("playlist_detail_shuffle_all"),
-                                onClick = {
-                                    val shuffled = playableQueue.shuffled()
-                                    if (sessionManager != null) sessionManager.playQueue(shuffled, 0)
-                                    else audioController.playQueue(shuffled, 0)
-                                },
-                            )
-                        }
+                        PlaylistPrimaryActions(
+                            modifier = Modifier.fillMaxWidth().padding(
+                                top = if (compactHeight) 8.dp else 12.dp,
+                                bottom = if (compactHeight) 4.dp else 8.dp,
+                            ),
+                            onPlay = {
+                                if (sessionManager != null) sessionManager.playQueue(playableQueue, 0)
+                                else audioController.playQueue(playableQueue, 0)
+                            },
+                            onShuffle = {
+                                val shuffled = playableQueue.shuffled()
+                                if (sessionManager != null) sessionManager.playQueue(shuffled, 0)
+                                else audioController.playQueue(shuffled, 0)
+                            },
+                        )
                     }
                     // Gate on resolvable tracks, not the persisted trackCount: a playlist can
                     // have trackCount > 0 while every stored id has become unresolvable, in
@@ -490,47 +483,47 @@ fun PlaylistDetailScreen(
                             },
                         )
                     } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text("Canciones", color = PureWhite, style = MichiTypography.metadata)
-                            TextButton(
-                                onClick = {
-                                    val next = if (trackDensity == PlaylistTrackDensity.COMPACT)
-                                        PlaylistTrackDensity.EXPANDED else PlaylistTrackDensity.COMPACT
-                                    trackDensity = next
-                                    visualScope.launch { visualStore.setDensity(next) }
-                                },
-                                modifier = Modifier.heightIn(min = 48.dp).testTag("playlist_detail_density_toggle"),
-                            ) { Text(if (trackDensity == PlaylistTrackDensity.COMPACT) "Vista compacta" else "Vista ampliada") }
-                        }
-                        PlaylistTracksList(
-                            tracks = state.playlist.tracks,
+                        PlaylistCollectionHeader(
                             density = trackDensity,
-                            activeTrackId = activeTrackId,
-                            activeTrackPlaying = activePlayback?.isPlaying == true,
-                            removeEnabled = !isRemovingTrack,
-                            moveEnabled = !isReorderingTrack,
-                            onRemoveClick = { track -> trackPendingRemoval = track },
-                            onTrackClick = { track ->
-                                val tracks = state.playlist.tracks
-                                val index = tracks.indexOfFirst { it.id == track.id }
-                                if (index >= 0) {
-                                    if (sessionManager != null) {
-                                        sessionManager.playQueue(tracks, index)
-                                    } else {
-                                        audioController.playQueue(tracks, index)
-                                    }
-                                }
+                            compactHeight = compactHeight,
+                            onToggleDensity = {
+                                val next = if (trackDensity == PlaylistTrackDensity.COMPACT)
+                                    PlaylistTrackDensity.EXPANDED else PlaylistTrackDensity.COMPACT
+                                trackDensity = next
+                                visualScope.launch { visualStore.setDensity(next) }
                             },
-                            onMoveUp = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.UP) },
-                            onReorder = { trackId, from, to, visibleIds ->
-                                viewModel.moveTrackToPosition(playlistId, trackId, from, to, visibleIds)
-                            },
-                            onMoveDown = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.DOWN) },
                         )
+                        // The hero, primary actions and collection header are
+                        // fixed-height siblings. The list owns the remaining
+                        // viewport instead of being measured against the full
+                        // column and pushed below the visible area.
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            PlaylistTracksList(
+                                tracks = state.playlist.tracks,
+                                density = trackDensity,
+                                activeTrackId = activeTrackId,
+                                activeTrackPlaying = activePlayback?.isPlaying == true,
+                                removeEnabled = !isRemovingTrack,
+                                moveEnabled = !isReorderingTrack,
+                                onRemoveClick = { track -> trackPendingRemoval = track },
+                                onTrackClick = { track ->
+                                    val tracks = state.playlist.tracks
+                                    val index = tracks.indexOfFirst { it.id == track.id }
+                                    if (index >= 0) {
+                                        if (sessionManager != null) {
+                                            sessionManager.playQueue(tracks, index)
+                                        } else {
+                                            audioController.playQueue(tracks, index)
+                                        }
+                                    }
+                                },
+                                onMoveUp = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.UP) },
+                                onReorder = { trackId, from, to, visibleIds ->
+                                    viewModel.moveTrackToPosition(playlistId, trackId, from, to, visibleIds)
+                                },
+                                onMoveDown = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.DOWN) },
+                            )
+                        }
                     }
                 }
 
@@ -665,6 +658,9 @@ private fun PlaylistTracksList(
 ) {
     val listState = rememberLazyListState()
     val visibleIds = remember(tracks) { tracks.map { it.id } }
+    // Local CachedPlaylist persists distinct trackIds; this is a defensive UI key,
+    // not a fake PlaylistEntryEntity.entryId or permission to reorder duplicates.
+    val rowKeys = remember(tracks) { playlistVisualOccurrenceKeys(tracks) }
     val uniqueVisibleIds = remember(visibleIds) { visibleIds.size == visibleIds.toSet().size }
     var activeId by remember(visibleIds) { mutableStateOf<String?>(null) }
     var fromIndex by remember(visibleIds) { mutableIntStateOf(-1) }
@@ -697,7 +693,7 @@ private fun PlaylistTracksList(
         modifier = Modifier.fillMaxSize().testTag("playlist_detail_track_list"),
         verticalArrangement = Arrangement.spacedBy(playlistTrackLayout(density).gapDp.dp),
     ) {
-        itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
+        itemsIndexed(tracks, key = { index, _ -> rowKeys[index] }) { index, track ->
             val draggingThis = activeId == track.id
             val dragModifier = if (moveEnabled && tracks.size > 1 && uniqueVisibleIds) {
                 Modifier.pointerInput(track.id, visibleIds) {
@@ -799,8 +795,13 @@ private fun PlaylistTrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .then(dragModifier)
-            .then(if (dropTarget) Modifier.border(1.5.dp, PrimaryPinkContainer, RoundedCornerShape(12.dp))
-                else Modifier)
+            // A single accent priority governs playing, paused and drop target.
+            // The existing GraphicEq icon remains the non-color-only indicator.
+            .then(playlistRowOutline(
+                playlistRowEmphasis(isObservedActive, isObservedPlaying, dropTarget),
+                highContrast = LocalVisualPreferences.current.highContrast,
+            )?.let { outline -> Modifier.border(outline.widthDp.dp, outline.tint,
+                RoundedCornerShape(12.dp)) } ?: Modifier)
             .testTag("playlist_detail_track_${track.id}"),
         finish = AeroFinish.Plain,
         onClick = onClick,
@@ -826,14 +827,14 @@ private fun PlaylistTrackRow(
                     text = track.title,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = PureWhite,
-                    maxLines = 1,
+                    maxLines = if (density == PlaylistTrackDensity.EXPANDED) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = track.artist,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
-                    maxLines = 1,
+                    maxLines = if (density == PlaylistTrackDensity.EXPANDED) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (density == PlaylistTrackDensity.EXPANDED &&
@@ -842,7 +843,7 @@ private fun PlaylistTrackRow(
                         listOfNotNull(track.album.takeIf { it.isNotBlank() },
                             track.format.takeIf { it.isNotBlank() }).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

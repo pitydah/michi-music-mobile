@@ -307,10 +307,12 @@ fun AeroSignalRouteStrip(
                         fontSize = 14.sp,
                         lineHeight = 19.sp,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                        // A 50/50 cell must never clip normal bitrate/quality metadata.
+                        // Long filenames remain available in the accessible tap label.
+                        maxLines = if (stacked) 4 else 3,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().testTag("signal_strip_source_value"),
                     )
                 }
             }

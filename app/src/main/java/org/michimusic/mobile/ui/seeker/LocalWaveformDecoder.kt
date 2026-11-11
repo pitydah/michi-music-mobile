@@ -42,6 +42,8 @@ internal object LocalWaveformDecoder {
         context: Context,
         filepath: String,
         durationMs: Long,
+        // Never requested for Continuous; visual previews remain exclusive to Bars.
+        onMeasured: ((WaveformMeasuredPreview) -> Unit)? = null,
     ): List<Float>? = withContext(Dispatchers.IO) {
         val uri = when {
             filepath.startsWith("content://", ignoreCase = true) -> Uri.parse(filepath)
@@ -68,7 +70,7 @@ internal object LocalWaveformDecoder {
             // Fail closed: media may be revoked/unavailable or codecs may be unsupported.
             // Cancellation must propagate so changing track/style frees the decoder.
             val amplitudes = try {
-                decode(context, uri, durationMs)
+                decode(context, uri, durationMs, onMeasured)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -120,7 +122,10 @@ internal object LocalWaveformDecoder {
         }
     }
 
-    private suspend fun decode(context: Context, uri: Uri, durationMs: Long): List<Float>? {
+    private suspend fun decode(
+        context: Context, uri: Uri, durationMs: Long,
+        onMeasured: ((WaveformMeasuredPreview) -> Unit)?,
+    ): List<Float>? {
         val extractor = MediaExtractor()
         try {
             // Context overload respects SAF/content:// grants without copying the file.
@@ -156,6 +161,13 @@ internal object LocalWaveformDecoder {
                 var outputChannels = channels
                 var outputEncoding = AudioFormat.ENCODING_PCM_16BIT
                 val startMs = SystemClock.elapsedRealtime()
+                var lastPreviewAtMs = startMs
+                var lastPreviewBin = 0
+                var lastOutputPtsUs = -1L
+                // Only original container duration and coherent output timestamps may
+                // authorize an early x-axis. Fallback duration never authorizes one.
+                var previewSafe = onMeasured != null &&
+                    inputFormat.containsKey(MediaFormat.KEY_DURATION) && durationUs > 0L
                 while (!outputEnded) {
                     currentCoroutineContext().ensureActive()
                     if (SystemClock.elapsedRealtime() - startMs > MAX_WALL_MS) return null
@@ -190,6 +202,16 @@ internal object LocalWaveformDecoder {
                         in 0..Int.MAX_VALUE -> {
                             try {
                                 if (bufferInfo.size > 0) {
+                                    // Audio PTS at the start of this PCM output must agree
+                                    // with decoded sample time. Discontinuity => no preview.
+                                    if (previewSafe) {
+                                        val pts = bufferInfo.presentationTimeUs
+                                        val expected = decodedFrames * 1_000_000L / sampleRate
+                                        if (pts < 0L || (lastOutputPtsUs >= 0L && pts < lastOutputPtsUs) ||
+                                            kotlin.math.abs(pts - expected) > 200_000L
+                                        ) previewSafe = false
+                                        lastOutputPtsUs = pts
+                                    }
                                     if (bufferInfo.size > MAX_OUTPUT_BYTES) return null
                                     val bytesPerSample = when (outputEncoding) {
                                         AudioFormat.ENCODING_PCM_8BIT -> 1
@@ -233,6 +255,24 @@ internal object LocalWaveformDecoder {
                                         decodedFrames += consumedFrames
                                         if (decodedFrames > 40_000_000L) return null
                                         remainingFrames -= consumedFrames
+                                    }
+                                    // 4-6 UI updates/s at most; never one per PCM frame.
+                                    // A partial snapshot contains only CLOSED windows.
+                                    val nowMs = SystemClock.elapsedRealtime()
+                                    if (previewSafe && onMeasured != null &&
+                                        nowMs - lastPreviewAtMs >= 180L
+                                    ) {
+                                        envelope.completedPreview()?.let { complete ->
+                                            if (complete.completedBins > lastPreviewBin) {
+                                                currentCoroutineContext().ensureActive()
+                                                onMeasured(WaveformMeasuredPreview(
+                                                    complete.levels, complete.completedBins,
+                                                    complete.totalBins,
+                                                ))
+                                                lastPreviewBin = complete.completedBins
+                                                lastPreviewAtMs = nowMs
+                                            }
+                                        }
                                     }
                                 }
                                 outputEnded = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0

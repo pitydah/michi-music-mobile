@@ -107,6 +107,10 @@ import org.michimusic.player.AudioController
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
 import org.michimusic.mobile.ui.seeker.LocalWaveformDecoder
+import org.michimusic.mobile.ui.seeker.waveformBarsPreviewVisible
+import org.michimusic.mobile.ui.seeker.waveformLoadingDescription
+import androidx.compose.runtime.rememberUpdatedState
+import org.michimusic.mobile.ui.seeker.WaveformMeasuredPreview
 import org.michimusic.mobile.ui.seeker.eligibleWaveformPath
 import org.michimusic.mobile.ui.theme.AeroSeekerStyle
 import org.michimusic.mobile.ui.theme.aeroSeekerVisibleFallback
@@ -116,6 +120,7 @@ private data class SeekerWaveformState(
     val key: String,
     val amplitudes: List<Float>?,
     val settled: Boolean,
+    val measuredBars: WaveformMeasuredPreview? = null,
 )
 
 private fun cycleSleepTimer(current: Long): Long = when {
@@ -171,6 +176,7 @@ fun NowPlayingScreen(
         currentTrack?.source.toString(), remoteHost.toString(),
         wantsWaveform.toString(), visualPrefs.highContrast.toString(),
     ).joinToString(separator = "\u001f")
+    val currentSeekerStyle by rememberUpdatedState(seekerStyle)
     val contextForWaveform = LocalContext.current.applicationContext
     val waveformSnapshot by produceState(
         initialValue = SeekerWaveformState("", null, settled = false),
@@ -187,16 +193,31 @@ fun NowPlayingScreen(
             val durationMs = (track.duration.takeIf { it > 0 } ?: presentation.duration)
                 .takeIf { it > 0 } ?: 0L
             path?.takeIf { durationMs > 0 }?.let {
-                LocalWaveformDecoder.load(contextForWaveform, it, durationMs)
+                // Keep one decode for both visual styles. The latest style changes
+                // the presentation, not whether decoder emits real PCM receipts.
+                LocalWaveformDecoder.load(contextForWaveform, it, durationMs,
+                    onMeasured = { measured ->
+                        if (currentSeekerStyle == AeroSeekerStyle.WAVEFORM_BARS &&
+                            value.key == waveformKey && !value.settled) {
+                            value = SeekerWaveformState(waveformKey, null,
+                                settled = false, measuredBars = measured)
+                        }
+                    },
+                )
             }
         } else null
         value = SeekerWaveformState(waveformKey, amplitudes, settled = true)
     }
     val waveformFresh = waveformSnapshot.key == waveformKey
     val seekerSamples = waveformSnapshot.amplitudes.takeIf { waveformFresh }
+    val seekerMeasuredBars = waveformSnapshot.measuredBars.takeIf {
+        waveformBarsPreviewVisible(
+            seekerStyle, waveformFresh, waveformSnapshot.settled,
+        )
+    }
     val seekerFallbackNotice = if (wantsWaveform && seekableDuration &&
         !visualPrefs.highContrast && (!waveformFresh || !waveformSnapshot.settled)
-    ) "Preparando forma de onda" else aeroSeekerVisibleFallback(
+    ) waveformLoadingDescription(seekerMeasuredBars != null) else aeroSeekerVisibleFallback(
         requested = seekerStyle,
         amplitudes = seekerSamples,
         highContrast = visualPrefs.highContrast,
@@ -433,6 +454,7 @@ fun NowPlayingScreen(
                     aeroStyle = seekerStyle,
                     playing = isPlaying,
                     waveformAmplitudes = seekerSamples,
+                    waveformBarsPreview = seekerMeasuredBars,
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))

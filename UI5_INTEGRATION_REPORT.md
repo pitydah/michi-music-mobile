@@ -1212,3 +1212,114 @@ HyperOS/lockscreen no se ejecutó en esta sesión.
   Truth; falta matriz de anchos/fuentes y estados).
 - QA física: 0 % en esta sesión (sin teléfono conectado).
 - Release: **NO-GO**.
+
+## Michi Mobile UI5 R20.2 — integración acumulativa
+
+Base: `master@23af8a36ec85c68baf9bfa5ae3b189f789586db7`.
+El parche original declaró SHA-256
+`bcaf8556d7a4010c7476ba8adc9a21041b0c137bbb9f422472eb3dea4ffdbee5`.
+La verificación coincidió, pero `git apply --check` falló en
+`LocalWaveformDecoder.kt`: el hunk de 254 líneas nuevas terminaba en líneas
+añadidas sin contexto posterior. Se reconcilió **el mismo parche** añadiendo
+tres líneas de contexto final y ajustando los contadores del hunk, sin cambiar
+ninguna línea de código. SHA de la copia reconciliada:
+`d6715c33ad433b5b3c50ff53016be6d85a6bf7353c49751069b58a35d1ae3c18`.
+`git apply --check --whitespace=error` pasó; el parche se aplicó una sola vez y
+`git diff --check` quedó limpio.
+
+### Alcance aplicado
+
+35 rutas: 10 modificadas y 25 nuevas.
+
+- **Playlists:** `PlaylistPrimaryActions`, `PlaylistCollectionHeader`,
+  `PlaylistRowVisualPolicy` y `PlaylistVisualOccurrenceKeys`; CTAs adaptativos,
+  encabezado con acción de densidad, una sola prioridad de acento y keys A-B-A
+  solo de presentación.
+- **Waveform:** `WaveformMeasuredPreview`, `WaveformSeekerVisualPolicy`,
+  `ContinuousWaveformPresentation`, previews de ventanas cerradas, silueta
+  unipolar, tiempo no analizado como `null` y una sola autoridad de gestos.
+- **Signal Truth visual:** `SignalTruthVisualPanel`, `SignalTruthUiTrail` y sus
+  tests; no se editó `SignalTruthMobileSheet.kt` ni ningún archivo funcional R30.
+- **Now Playing:** metadatos completos en `AeroSignalRouteStrip`, amplitud del
+  mesh 0.065 y layout de artwork.
+- **Sync/Media3:** hash SHA-256 explícito, algoritmo desconocido fail-closed y
+  `refreshArtwork()` sin invalidar vecinos.
+
+### Correcciones obligatorias posteriores a la aplicación
+
+1. `SignalTruthUiDisclosureActions` no declaraba `settingsAvailable`, aunque
+   `SignalTruthVisualPanel` ya lo pasaba. Se añadió el parámetro y el botón queda
+   deshabilitado por defecto; `settingsAvailable=true` lo habilita.
+2. Seis tests nuevos importaban `assertExists` como extensión; es un miembro de
+   `SemanticsNodeInteraction`. Se eliminaron los imports inválidos.
+3. En un viewport de 320×470 la lista de Playlist quedaba con altura cero porque
+   el hero y la cabecera crecían. Se añadió `BoxWithConstraints` para medir el
+   viewport real, hero compacto de 140 dp, cabecera en una fila con fuente normal
+   y lista con `weight(1f)`. En alturas normales se conservan 220 dp y la
+   cabecera apilada según la política original.
+4. Se eliminaron los prints de diagnóstico temporales del test; no quedó ningún
+   cambio de test para ocultar una regresión.
+
+### Pruebas
+
+| Comprobación | Resultado |
+|---|---|
+| `git apply --check --whitespace=error` (reconciliado) | **PASS** |
+| Unit `core`, `data`, `player`, `app` Normal/F-Droid y `link-client` | **PASS** |
+| `PlaylistDetailScreenTest` completo | **PASS** |
+| Tests nuevos R20.2 de sync, playlist, waveform y Signal Truth visual | **PASS** |
+| Instrumentación focalizada R20.2 | **10 tests, 0 fallos** |
+| Instrumentación Normal API 36 completa | **103 tests, 9 skipped, 0 fallos** |
+| Lint | **PASS** |
+| Normal/F-Droid debug + release | **PASS** |
+
+### Evidencia visual real
+
+En `/tmp/opencode/r202/`:
+
+- `02-detail-compact.png`: detalle a 393 dp, CTAs horizontales y densidad compacta.
+- `03-detail-expanded.png`: vista ampliada de filas.
+- `04-waveform-bars.png`: Barras con PCM real y metadatos completos.
+- `05-waveform-continuous.png`: silueta continua unipolar.
+- `07-aero-capsule.png`: Aero Capsule anodizada.
+- `08-detail-320dp.png`: detalle a 320 dp con CTAs verticales, cabecera en una
+  fila y lista visible.
+
+La pista MP3 de prueba es una mezcla comprimida: el Continuo se ve como una
+masa relativamente plana. No se generaron picos artificiales para «mejorarlo».
+
+### Signal Truth R30
+
+`ST_UI_WIRING = BLOCKED_R30`. Los componentes visuales existen, compilan y
+tienen tests de contrato/accesibilidad, pero no se conectaron al popup. No se
+modificaron `SignalTruthMobileSheet.kt`, `SignalTruthGraphProjector`,
+`SignalTruthResolver`, la evidencia de audio ni las rutas R30.
+
+### Gates
+
+- **G0_SOURCE:** PASS. Base y SHA verificados; reconciliación documentada.
+- **G1_PLAYLISTS:** PASS de código y tests; visual parcial.
+- **G2_WAVEFORM:** PASS de código y tests; visual parcial por dinámica plana en
+  la pista comprimida.
+- **G3_SIGNAL_TRUTH:** **BLOCKED_R30**; sin wiring ni captura de popup.
+- **G4_NOWPLAYING:** PASS de código; metadatos completos capturados.
+- **G5_SYNC:** PASS de política y tests; falta prueba con dos servidores reales.
+- **G6_ARTWORK:** PASS de código; falta HyperOS/lockscreen físico.
+- **G7_COMPOSE_TESTS:** PASS.
+- **G8_BUILD:** PASS Normal/F-Droid.
+- **G9_VISUAL:** parcial; 320/393 dp capturados, faltan 360/412/600, fuentes
+  1.3/1.5/2.0, contraste alto y gesto real de reordenación.
+- **G10_PHYSICAL:** NOT_RUN; sin teléfono conectado.
+- **GO_CODE:** PASS en working tree.
+- **GO_CI:** NOT_RUN; no hay commit ni push.
+- **GO_RELEASE:** **NO-GO**.
+
+### Porcentajes honestos
+
+- Implementación R20.2: ~90 % (todo el patch integrado y compilando; R30
+  intencionalmente bloqueado).
+- Pruebas automatizadas: ~85 % (unit, lint, builds e instrumentación completos;
+  faltan métricas P50/P95 y pruebas físicas).
+- Aceptación UI/UX: ~55 % (capturas reales de Playlists, Barras, Continuo,
+  Cápsula, 320 dp y metadatos; falta matriz completa y Signal Truth).
+- Release: **NO-GO**.
