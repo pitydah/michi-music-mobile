@@ -1048,3 +1048,160 @@ aprobados.
   en `25010PN30G` (`26dfb91d`); faltan pruebas físicas de reproducción, rutas,
   portada en controles Android/HyperOS y accesibilidad.
 - **GO_RELEASE:** **NO-GO**.
+
+## Michi Mobile UI5 / Signal Truth R20.1 — corrección acumulativa
+
+Base: `master@9dc783d3bebacb6bfeb1f59cb29d19866dbef768`.
+Cambios en working tree, **sin commit ni push**. El contrato ejecutado es
+`MICHI_MOBILE_UI5_OPENCODE_MEGA_PROMPT.md`; los ejemplos del documento se
+adaptaron a las firmas reales, no se copiaron como pseudocódigo.
+
+### P0 Sync — una sola autoridad de omisión
+
+**Causa raíz:** el preflight y `SyncWorker` tomaban decisiones distintas. El
+worker omitía con `exists + size` cuando el manifiesto no publicaba checksum;
+`SyncIdentityPolicy` además permitía `REFERENCE_MATCH` con un hash local
+autogenerado. Ninguna de las dos pruebas demuestra equivalencia remota.
+
+**Corrección:**
+- `SyncIdentityPolicy` solo marca `canSkip=true` para `HASH_VERIFIED`: mismo
+  propietario y `trackId`, archivo físico completo y SHA-256 compatible igual al
+  checksum remoto.
+- `REFERENCE_MATCH` conserva la referencia lógica pero ya no omite. Un hash
+  local sin hash remoto se revalida/descarga.
+- `SyncWorker` consume `getDownloadedTrackEvidence(deviceId)` y clasifica cada
+  pista con la misma política; eliminó el filtro paralelo por tamaño.
+- Se mantienen checkpoints, reanudación y la verificación física existente.
+
+**Pruebas:** hash remoto correcto/incorrecto/ausente, hash local sin hash
+remoto, mismo tamaño sin verificación, fuente distinta, archivo desaparecido y
+dos referencias lógicas al mismo contenido. Todas PASS.
+
+### P1 Media3 artwork — identidad de cola
+
+**Causa raíz:** `enrichArtworkAt` solo comparaba `mediaId`/songId; dos
+bibliotecas pueden compartir `trackId` y la cola puede reordenarse durante la
+extracción.
+
+**Corrección:** nuevo `ArtworkOwner(sourceId, trackId, canonicalUri,
+queueGeneration, position)` y `MediaItem.belongsTo(owner)`. La generación se
+incrementa al reemplazar, insertar, mover, eliminar o limpiar la cola. La imagen
+tardía se descarta si cambió la generación, el propietario, la URI o el
+`mediaId`. `PlaybackMediaMetadata` sigue siendo la autoridad de metadatos.
+
+**Pruebas:** mismo `trackId` en otra biblioteca, URI distinta, generación stale,
+extras ausentes fail-closed y coincidencia exacta. PASS.
+
+### P1 Playlists — drag y autoscroll
+
+- Se mantiene `detectDragGesturesAfterLongPress`, la identidad por `track.id` y
+  el contrato DAO de IDs visibles únicos (`expectedVisibleIds`).
+- La fila arrastrada gana escala 1.018, sombra de 12 dp y opacidad 0.97.
+- El destino usa borde de 1.5 dp rosa; el resto no se colorea.
+- Un único `LaunchedEffect` controla el autoscroll por zona de borde y se
+  cancela al soltar, cancelar o salir de composición; ya no hay un job por
+  evento.
+- Si aparecen IDs visibles duplicados, el drag se desactiva y se conservan las
+  acciones accesibles Mover arriba/abajo.
+- El drop sigue persistiendo una sola vez y el conflicto DAO conserva el orden
+  anterior.
+
+### P1 Now Playing — hero y tipografía
+
+- `aeroArtworkSideDp` usa 94 % del ancho disponible normal y 91 % compacto,
+  con clamp a la altura libre y fail-closed para valores no finitos.
+- Título normal 25/30 sp, compacto 22/27 sp, Inter Semibold, máximo 2 líneas.
+- Artista normal 18/24 sp, compacto 16/22 sp, una línea con elipsis.
+- Favorito conserva 48 dp; no se añadió volumen ni otro control.
+- `AeroDynamicMeshBackground` se mantiene decorativo, 125 ms por fase y 850 ms
+  de transición; no se alteró su contrato de lifecycle.
+
+### P1 Waveform — cache anticipada
+
+- `LocalWaveformDecoder.load` resuelve URI/fingerprint y consulta la LRU antes
+  de adquirir el mutex de decodificación.
+- Dentro del mutex revalida el fingerprint, vuelve a consultar la caché y solo
+  decodifica en miss; tras decodificar exige un fingerprint estable para cachear.
+- Sin fingerprint (algunos SAF) se lee una vez y no se cachea una identidad no
+  revalidable.
+- Barras y Continuo comparten la misma decodificación; no se añadió preview
+  parcial porque aún no existe una representación temporal verificable.
+
+### P1 Aero Capsule
+
+- Se conserva la clave `LIQUID_GLASS` y la etiqueta pública “Aero Capsule”.
+- Rail 16 dp, canal 9 dp, inset 3 dp, radio exterior `height/2`, contorno 0.8 dp,
+  highlight 0.65 dp y relleno aurora.
+- Thumb 15 dp normal / 16 dp al arrastrar; canvas 44 dp y objetivo táctil 48 dp.
+- `GradientProgressBar` sigue siendo la única autoridad de gestos y semántica.
+- Métricas centralizadas en `AeroCapsuleMetrics` y testeadas.
+
+### P1 Signal Truth R20.1
+
+- Eliminado el botón visible «Cerrar».
+- Scrim hermano detrás de `AeroFloatingSurface` con cierre por toque exterior;
+  Back y la acción semántica “Cerrar Signal Truth” también cierran.
+- Hero compacto con icono, pista, salida humana, certeza de una línea y una
+  única CTA “Cambiar salida”.
+- El nombre crudo del dispositivo ya no se muestra como salida humana:
+  `humanOutputLabel()` mapea el tipo Android observado; `sdk_gphone64_x86_64`
+  se presenta como “Altavoz del teléfono” solo si el tipo observado es speaker.
+- Se conserva la cadena causal, la expansión única, la evidencia
+  Declarado/Configurado/Observado/Sin verificar y los ajustes autorizados.
+- R18/R19 y la autoridad de audio no se modificaron.
+
+### Evidencia visual real
+
+En `/tmp/opencode/r201/`:
+- `02-now-playing-hero.png`: hero 94 %, título 25 sp, artista 18 sp.
+- `07-capsule.png`: Aero Capsule 16/9/3 dp, thumb 15 dp, progreso real.
+- `10-waveform-bars.png`: 45–60 barras PCM reales, progreso por color.
+- `11-waveform-continuous.png`: silueta cerrada, playhead y misma pista.
+- `08-signal-truth-final.png` y `09-signal-truth-fixed.png`: popup sin «Cerrar»,
+  hero compacto, una CTA y fallback humano seguro.
+
+La matriz 320/360/480 dp, fontScale 1.5/2.0, alto contraste, TalkBack y
+HyperOS/lockscreen no se ejecutó en esta sesión.
+
+### Validación ejecutada
+
+| Comprobación | Resultado |
+|---|---|
+| Unit `:core`, `:data`, `:player`, `:app` Normal/F-Droid, `:michi-link-client` | **PASS** |
+| Tests focados de sync, artwork owner, hero, cápsula, Signal Truth, rutas | **PASS** |
+| Lint | **PASS** |
+| Normal/F-Droid debug + release | **PASS** |
+| Instrumentación Normal API 36 | **93 tests, 0 fallos** (runner mostró 8–9 skipped) |
+
+### Gates R20.1
+
+- **G0_SOURCE:** PASS. Base `9dc783d`, sin parches antiguos ni cambios ajenos.
+- **G1_SYNC:** PARCIAL. Política y worker unificados; falta servidor real doble.
+- **G2_ARTWORK:** PARCIAL. Identidad de cola testeada; falta HyperOS/lockscreen.
+- **G3_PLAYLISTS:** PARCIAL. Feedback/autoscroll implementados; falta captura de
+  drag en dispositivo.
+- **G4_NOWPLAYING:** PARCIAL. Hero y tipografía capturados a 393 dp; falta matriz.
+- **G5_WAVEFORM:** PARCIAL. Barras/Continuo capturados; faltan tiempos P50/P95,
+  SAF y FLAC reales.
+- **G6_CAPSULE:** PASS visual a 393 dp; faltan snapshots 0/1/25/50/99/100 %.
+- **G7_SIGNAL_TRUTH:** PARCIAL. Captura y etiquetas seguras; falta prueba
+  instrumentada de toque exterior real y ramas USB/Stream/remoto.
+- **G8_ANDROID:** PASS. Unit, lint, builds e instrumentación ejecutados.
+- **G9_DEVICE:** NO-GO. Sin teléfono físico conectado.
+- **G10_RELEASE:** **NO-GO**.
+- **GO_CODE:** sí en working tree.
+- **GO_CI:** no aplica; no hay commit/push.
+- **GO_VISUAL:** parcial.
+- **GO_PHYSICAL:** no ejecutado en esta sesión.
+- **GO_RELEASE:** **NO-GO**.
+
+### Porcentajes honestos
+
+- Código implementado: ~90 % del contrato (los ocho bloques tienen código real;
+  Signal Truth conserva la cadena detallada en lugar de una macro-vista totalmente
+  nueva).
+- Integración local: ~80 % (builds, lint, unit e instrumentación PASS).
+- QA visual: ~60 % (capturas reales de hero, cápsula, barras, continuo y Signal
+  Truth; falta matriz de anchos/fuentes y estados).
+- QA física: 0 % en esta sesión (sin teléfono conectado).
+- Release: **NO-GO**.

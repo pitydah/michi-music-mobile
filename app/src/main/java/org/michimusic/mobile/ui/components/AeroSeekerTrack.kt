@@ -166,49 +166,56 @@ internal fun AeroSeekerTrack(
                 }
             }
             AeroSeekerStyle.LIQUID_GLASS -> {
-                // Aero Capsule: one compact anodized rail, recessed channel and a
-                // precise played region. Draw-only; the parent owns gestures/thumb.
-                val railHeight = 9.dp.toPx()
+                // Aero Capsule: a machined pill, not a generic rail. One outer
+                // anodized body, a recessed channel and a precise played fill.
+                // Draw-only; the parent owns gestures and the thumb.
+                val railHeight = AeroCapsuleMetrics.RailHeightDp.dp.toPx()
                 val railTop = y - railHeight / 2f
                 val railRadius = androidx.compose.ui.geometry.CornerRadius(railHeight / 2f)
-                val inset = 2.dp.toPx()
-                val innerHeight = 4.dp.toPx()
+                val inset = AeroCapsuleMetrics.InsetDp.dp.toPx()
+                val innerHeight = AeroCapsuleMetrics.ChannelHeightDp.dp.toPx()
                 val innerTop = y - innerHeight / 2f
                 val innerRadius = androidx.compose.ui.geometry.CornerRadius(innerHeight / 2f)
-                val innerWidth = (w - inset * 2f).coerceAtLeast(1f)
+                val innerWidth = (w - inset * 2f).coerceAtLeast(0f)
                 val playedInner = (playedWidth - inset).coerceIn(0f, innerWidth)
                 drawRoundRect(
                     org.michimusic.mobile.ui.theme.AeroGraphite,
                     Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
                 )
                 drawRoundRect(
-                    Color.White.copy(alpha = 0.14f),
+                    Color.White.copy(alpha = 0.18f),
                     Offset(0f, railTop), Size(w, railHeight), cornerRadius = railRadius,
-                    style = Stroke(width = 0.65.dp.toPx()),
+                    style = Stroke(width = 0.8.dp.toPx()),
                 )
-                drawRoundRect(
-                    Color.Black.copy(alpha = 0.55f),
-                    Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
-                )
-                drawRoundRect(
-                    Color.White.copy(alpha = 0.08f),
-                    Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
-                    style = Stroke(width = 0.45.dp.toPx()),
-                )
-                if (playedInner > 0f) {
+                if (innerWidth > 0f) {
                     drawRoundRect(
-                        brush = active,
-                        topLeft = Offset(inset, innerTop),
-                        size = Size(playedInner, innerHeight),
-                        cornerRadius = innerRadius,
+                        Color.Black.copy(alpha = 0.48f),
+                        Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
                     )
+                    drawRoundRect(
+                        Color.White.copy(alpha = 0.08f),
+                        Offset(inset, innerTop), Size(innerWidth, innerHeight), cornerRadius = innerRadius,
+                        style = Stroke(width = 0.55.dp.toPx()),
+                    )
+                    if (playedInner > 0f) {
+                        drawRoundRect(
+                            brush = active,
+                            topLeft = Offset(inset, innerTop),
+                            size = Size(playedInner, innerHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                minOf(playedInner / 2f, innerHeight / 2f),
+                            ),
+                        )
+                    }
                 }
                 if (w > inset * 3f) {
+                    // A single specular hairline reads as an anodized lip and
+                    // never becomes a glass/blur effect.
                     drawLine(
-                        color = Color.White.copy(alpha = 0.34f),
-                        start = Offset(inset * 1.5f, railTop + 0.8.dp.toPx()),
-                        end = Offset(w - inset * 1.5f, railTop + 0.8.dp.toPx()),
-                        strokeWidth = 0.55.dp.toPx(),
+                        color = Color.White.copy(alpha = 0.26f),
+                        start = Offset(inset + 2.dp.toPx(), railTop + 2.dp.toPx()),
+                        end = Offset(w - inset - 2.dp.toPx(), railTop + 2.dp.toPx()),
+                        strokeWidth = 0.65.dp.toPx(),
                         cap = StrokeCap.Round,
                     )
                 }

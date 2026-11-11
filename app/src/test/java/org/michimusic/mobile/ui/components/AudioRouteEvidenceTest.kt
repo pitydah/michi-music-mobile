@@ -38,6 +38,21 @@ class AudioRouteEvidenceTest {
         assertFalse(audioRouteEvidence(AudioRouteStatus.Unknown("Sin datos")).hasCurrentEvidence)
     }
 
+    @Test fun buildModelCodeIsNeverPresentedAsHumanOutput() {
+        val output = audioRouteEvidence(
+            AudioRouteStatus.Confirmed(OutputDescriptor(1, "sdk_gphone64_x86_64", 2), 5),
+        )
+        assertEquals("Altavoz del teléfono", output.deviceLabel)
+        assertFalse(output.deviceLabel.contains("sdk_"))
+    }
+
+    @Test fun observedUsbHumanNameIsPreserved() {
+        val output = audioRouteEvidence(
+            AudioRouteStatus.Confirmed(OutputDescriptor(9, "Real DAC", 11), 5),
+        )
+        assertEquals("Real DAC", output.deviceLabel)
+    }
+
     @Test fun noDeviceIsNotAnInternalSpeakerClaim() {
         val output = audioRouteEvidence(AudioRouteStatus.NoDevice)
         assertFalse(output.hasCurrentEvidence)

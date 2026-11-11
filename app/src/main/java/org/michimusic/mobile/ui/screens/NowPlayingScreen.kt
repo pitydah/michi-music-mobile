@@ -324,7 +324,11 @@ fun NowPlayingScreen(
                     .padding(top = if (compactLayout) 2.dp else 6.dp, bottom = if (compactLayout) 2.dp else 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                val artSide = org.michimusic.mobile.ui.components.aeroArtworkSideDp(maxWidth.value, maxHeight.value).dp
+                val artSide = org.michimusic.mobile.ui.components.aeroArtworkSideDp(
+                    maxWidth.value,
+                    maxHeight.value,
+                    compact = compactLayout,
+                ).dp
                 // Reuse the existing Aero frame: one shadow, one opaque metal lip,
                 // one inset. Never tint or obscure the original album-art bitmap.
                 AeroArtworkMat(
@@ -359,8 +363,8 @@ fun NowPlayingScreen(
                         trackId = currentTrack?.id,
                         title = currentTrack?.title ?: "Sin reproducción activa",
                         style = MichiTypography.screenTitle.copy(
-                            fontSize = if (compactLayout) 24.sp else 29.sp,
-                            lineHeight = if (compactLayout) 29.sp else 34.sp,
+                            fontSize = if (compactLayout) 22.sp else 25.sp,
+                            lineHeight = if (compactLayout) 27.sp else 30.sp,
                             fontWeight = FontWeight.SemiBold,
                         ),
                         color = PureWhite,
@@ -400,7 +404,11 @@ fun NowPlayingScreen(
                 }
                 Text(
                     text = currentTrack?.artist ?: "Selecciona una canción",
-                    style = MichiTypography.sectionTitle.copy(fontWeight = FontWeight.Normal),
+                    style = MichiTypography.sectionTitle.copy(
+                        fontSize = if (compactLayout) 16.sp else 18.sp,
+                        lineHeight = if (compactLayout) 22.sp else 24.sp,
+                        fontWeight = FontWeight.Normal,
+                    ),
                     color = Color(0xCCFFFFFF),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

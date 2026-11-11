@@ -22,9 +22,9 @@ data class SyncIdentityMatch(
  * 2. size compatibility: the physical file has the expected byte length;
  * 3. hash verification: a trusted checksum proves the bytes are equal.
  *
- * Only a trusted hash, or a persistent managed-copy verification created by
- * this app for this exact owner/reference, allows skipping a download. A bare
- * size match is never content identity.
+ * Only a trusted remote-content hash allows skipping a download. A locally
+ * generated hash proves local integrity, not server equivalence; a managed
+ * reference or a bare size match is never enough to omit a transfer.
  */
 object SyncIdentityPolicy {
 
@@ -65,12 +65,15 @@ object SyncIdentityPolicy {
                     sizeCompatibleOrUnknown(track, it)
             }
             if (managedReference != null) {
+                // Local integrity is real, but it is not proof that the remote
+                // owner still serves the same bytes. Keep the reference and
+                // transfer/revalidate unless a remote hash matches.
                 return SyncIdentityMatch(
                     verdict = SyncIdentityVerdict.REFERENCE_MATCH,
                     matchedSourceId = managedReference.sourceId,
                     evidence = managedReference,
-                    canSkip = true,
-                    reason = "Copia gestionada y verificada previamente por Michi; archivo sin cambios",
+                    canSkip = false,
+                    reason = "Copia local íntegra sin hash remoto comparable; se revalida",
                 )
             }
 

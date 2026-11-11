@@ -43,16 +43,26 @@ internal object LocalWaveformDecoder {
         filepath: String,
         durationMs: Long,
     ): List<Float>? = withContext(Dispatchers.IO) {
+        val uri = when {
+            filepath.startsWith("content://", ignoreCase = true) -> Uri.parse(filepath)
+            filepath.startsWith("file:///", ignoreCase = true) -> Uri.parse(filepath)
+            filepath.startsWith("/") -> Uri.fromFile(File(filepath))
+            else -> return@withContext null
+        }
+        val fingerprint = assetFingerprint(context, uri, filepath)
+        // A warm hit must not wait behind another track's full decode. This is
+        // the common case when switching Bars <-> Continuous or returning to a
+        // recently played song.
+        if (fingerprint != null) {
+            synchronized(cache) { cache[fingerprint] }?.let { return@withContext it }
+        }
         gate.withLock {
             currentCoroutineContext().ensureActive()
-            val uri = when {
-                filepath.startsWith("content://", ignoreCase = true) -> Uri.parse(filepath)
-                filepath.startsWith("file:///", ignoreCase = true) -> Uri.parse(filepath)
-                filepath.startsWith("/") -> Uri.fromFile(File(filepath))
-                else -> return@withLock null
-            }
-            val fingerprint = assetFingerprint(context, uri, filepath)
             if (fingerprint != null) {
+                // The file may have changed while this request waited for the
+                // decoder. Reject stale identities and re-check the cache.
+                val fresh = assetFingerprint(context, uri, filepath)
+                if (fresh != fingerprint) return@withLock null
                 synchronized(cache) { cache[fingerprint] }?.let { return@withLock it }
             }
             // Fail closed: media may be revoked/unavailable or codecs may be unsupported.
@@ -73,6 +83,8 @@ internal object LocalWaveformDecoder {
                     )) return@withLock null
                 synchronized(cache) { cache[fingerprint] = amplitudes }
             }
+            // No fingerprint (some SAF providers): read once, never cache an
+            // identity we cannot revalidate.
             amplitudes
         }
     }

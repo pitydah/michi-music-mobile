@@ -366,7 +366,7 @@ class SyncPreflightServiceTest {
     }
 
     @Test
-    fun managedVerifiedCopyWithoutManifestChecksum_isReusedAsReferenceMatch() {
+    fun managedVerifiedCopyWithoutManifestChecksum_isNotEnoughToSkip() {
         val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
         val noChecksum = verified(trackA).single().copy(checksum = "")
 
@@ -381,7 +381,27 @@ class SyncPreflightServiceTest {
         )
 
         val item = plan.items.single()
-        assertEquals(SyncItemAction.SKIP_ALREADY_EXISTS, item.action)
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.REFERENCE_MATCH, item.identity)
+    }
+
+    @Test
+    fun locallyVerifiedHashCannotReplaceMissingRemoteChecksum() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val localOnlyHash = verified(trackA).single().copy(checksum = "a".repeat(64))
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA.copy(checksum = "")),
+            localTrackEvidence = listOf(localOnlyHash),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
         assertEquals(SyncIdentityVerdict.REFERENCE_MATCH, item.identity)
     }
 

@@ -353,8 +353,9 @@ fun GradientProgressBar(
     var isDragging by remember { mutableStateOf(false) }
     val animatedThumbSize by animateDpAsState(
         targetValue = when {
-            seekerStyle == AeroSeekerStyle.LIQUID_GLASS && isDragging -> 14.dp
-            seekerStyle == AeroSeekerStyle.LIQUID_GLASS -> 12.dp
+            seekerStyle == AeroSeekerStyle.LIQUID_GLASS && isDragging ->
+                AeroCapsuleMetrics.ThumbDraggingDp.dp
+            seekerStyle == AeroSeekerStyle.LIQUID_GLASS -> AeroCapsuleMetrics.ThumbDp.dp
             isDragging -> 18.dp
             else -> 14.dp
         },

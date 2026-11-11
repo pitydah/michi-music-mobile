@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import org.koin.java.KoinJavaComponent
 import org.michimusic.core.models.DownloadItem
+import org.michimusic.core.sync.SyncIdentityPolicy
 import org.michimusic.data.cache.PlaylistDao
 import org.michimusic.data.cache.TrackDao
 import org.michimusic.data.repository.SyncedTrackRepository
@@ -372,32 +373,18 @@ class SyncWorker(
                 }
             }
 
-            val downloadedIds = repository.getDownloadedIds(deviceId)
+            // The worker must not implement a second, weaker deduplication rule.
+            // Preflight and transfer share SyncIdentityPolicy: only a trusted
+            // remote hash can skip; local presence/size never can.
+            val localEvidence = repository.getDownloadedTrackEvidence(deviceId)
 
             val itemsToDownload = candidateTracks
                 .filter { track ->
-                    if (track.trackId !in downloadedIds) {
-                        true
-                    } else {
-                        // Track está en base de datos; verificar integridad física en disco y hash
-                        val existingFile = transferManager.getTrackFile(
-                            trackId = track.trackId,
-                            format = track.format,
-                            remoteDeviceId = deviceId,
-                            destinationLibraryId = destLibId,
-                        )
-                        val basicIntact = existingFile != null && existingFile.exists() && existingFile.length() > 0 &&
-                            (track.size <= 0L || existingFile.length() == track.size)
-                        val cs = track.checksum
-                        if (!basicIntact || existingFile == null) {
-                            true
-                        } else if (!cs.isNullOrEmpty()) {
-                            // Si se declaró checksum en el manifiesto/decisión, verificarlo
-                            !transferManager.verifyChecksum(existingFile, cs)
-                        } else {
-                            false
-                        }
-                    }
+                    !SyncIdentityPolicy.classify(
+                        deviceId,
+                        track.toCoreManifestTrack(),
+                        localEvidence,
+                    ).canSkip
                 }
                 .map { track ->
                     track.toDownloadItem().copy(
@@ -830,6 +817,22 @@ class SyncWorker(
         return ForegroundInfo(NOTIFICATION_ID, notification)
     }
 }
+
+private fun org.michimusic.link.dto.ManifestTrackDto.toCoreManifestTrack() =
+    org.michimusic.core.models.ManifestTrack(
+        trackId = trackId,
+        title = title,
+        artist = artist,
+        album = album,
+        size = size,
+        format = format,
+        duration = duration,
+        year = year,
+        genre = genre,
+        coverId = coverId,
+        checksum = checksum ?: "",
+        downloadPath = downloadPath,
+    )
 
 private fun org.michimusic.core.models.ManifestTrack.toTrackDto() = org.michimusic.core.models.TrackDto(
     id = trackId,

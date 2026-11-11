@@ -35,6 +35,7 @@ import org.michimusic.data.cache.ReplayGainDao
 import org.michimusic.data.cache.ReplayGainEntity
 import org.michimusic.data.repository.LocalMediaRepository
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "PlayerController"
 
@@ -51,6 +52,9 @@ class PlayerController(
     private val controllerJob = SupervisorJob()
     private val controllerScope = CoroutineScope(controllerJob + Dispatchers.Main.immediate)
     private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val queueGeneration = AtomicLong(0L)
+
+    private fun nextQueueGeneration(): Long = queueGeneration.incrementAndGet()
 
     private val repository = replayGainDao?.let { LocalMediaRepository(context, it) }
         ?: LocalMediaRepository(context, createNoopReplayGainDao())
@@ -469,6 +473,7 @@ class PlayerController(
     }
 
     fun playQueue(tracks: List<Track>, startIndex: Int = 0) {
+        val generation = nextQueueGeneration()
         val mediaItems = tracks.map { track ->
             MediaItem.Builder()
                 .setMediaId(track.id)
@@ -477,7 +482,7 @@ class PlayerController(
                 .build()
         }
         player.setMediaItems(mediaItems, startIndex, 0L)
-        enrichArtworkWindow(tracks, startIndex)
+        enrichArtworkWindow(tracks, startIndex, generation)
         val entries = tracks.mapIndexed { idx, t -> org.michimusic.core.models.QueueEntry(track = t, position = idx) }
         val state = PlayerState(
             currentTrack = tracks.getOrNull(startIndex),
@@ -498,27 +503,34 @@ class PlayerController(
      * The mediaId guard prevents a late cover from being applied to the next
      * song after a fast queue change.
      */
-    private fun enrichArtworkWindow(tracks: List<Track>, center: Int) {
+    private fun enrichArtworkWindow(tracks: List<Track>, center: Int, generation: Long) {
         if (tracks.isEmpty()) return
         val from = (center - 1).coerceAtLeast(0)
         val to = (center + 2).coerceAtMost(tracks.lastIndex)
-        for (index in from..to) enrichArtworkAt(index, tracks[index])
+        for (index in from..to) enrichArtworkAt(index, tracks[index], generation)
     }
 
     /** Called on media-item transitions so a distant jump still gets its cover. */
     fun refreshArtwork(track: Track, index: Int) {
-        enrichArtworkAt(index, track)
+        enrichArtworkAt(index, track, nextQueueGeneration())
     }
 
-    private fun enrichArtworkAt(index: Int, track: Track) {
+    private fun enrichArtworkAt(index: Int, track: Track, generation: Long) {
         if (track.filepath.isBlank()) return
+        val expected = ArtworkOwner(
+            sourceId = track.sourceId,
+            trackId = track.id,
+            canonicalUri = resolveUri(track).toString(),
+            queueGeneration = generation,
+            position = index,
+        )
         artworkScope.launch {
             val bytes = EmbeddedArtwork.load(context, track) ?: return@launch
             withContext(Dispatchers.Main.immediate) {
+                if (queueGeneration.get() != expected.queueGeneration) return@withContext
                 if (index !in 0 until player.mediaItemCount) return@withContext
                 val current = player.getMediaItemAt(index)
-                val currentSongId = LibraryProvider.extractSongId(current.mediaId)?.toString()
-                if (current.mediaId != track.id && currentSongId != track.id) return@withContext
+                if (!current.belongsTo(expected)) return@withContext
                 player.replaceMediaItem(
                     index,
                     current.buildUpon()
@@ -551,6 +563,7 @@ class PlayerController(
     }
 
     fun addToQueue(track: Track) {
+        val generation = nextQueueGeneration()
         val newQueue = _state.value.queue + track
         val newEntries = _state.value.queueEntries + org.michimusic.core.models.QueueEntry(track = track, position = newQueue.size - 1)
         player.addMediaItem(
@@ -560,11 +573,12 @@ class PlayerController(
                 .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build(),
         )
-        enrichArtworkAt(player.mediaItemCount - 1, track)
+        enrichArtworkAt(player.mediaItemCount - 1, track, generation)
         _state.value = _state.value.copy(queue = newQueue, queueEntries = newEntries)
     }
 
     fun playNext(track: Track) {
+        val generation = nextQueueGeneration()
         val currentQueue = _state.value.queue.toMutableList()
         val currentEntries = _state.value.queueEntries.toMutableList()
         val insertIndex = (_state.value.queueIndex + 1).coerceIn(0, currentQueue.size)
@@ -579,7 +593,7 @@ class PlayerController(
                 .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build(),
         )
-        enrichArtworkAt(insertIndex, track)
+        enrichArtworkAt(insertIndex, track, generation)
         _state.value = _state.value.copy(queue = currentQueue, queueEntries = reindexedEntries)
     }
 
@@ -587,6 +601,7 @@ class PlayerController(
         val currentQueue = _state.value.queue.toMutableList()
         val currentEntries = _state.value.queueEntries.toMutableList()
         if (fromIndex in currentQueue.indices && toIndex in currentQueue.indices && fromIndex != toIndex) {
+            nextQueueGeneration()
             val item = currentQueue.removeAt(fromIndex)
             val entry = currentEntries.removeAt(fromIndex)
             currentQueue.add(toIndex, item)
@@ -607,6 +622,7 @@ class PlayerController(
         val newQueue = _state.value.queue.toMutableList()
         val newEntries = _state.value.queueEntries.toMutableList()
         if (index in newQueue.indices) {
+            nextQueueGeneration()
             newQueue.removeAt(index)
             newEntries.removeAt(index)
             val reindexedEntries = newEntries.mapIndexed { idx, e -> e.copy(position = idx) }
@@ -616,6 +632,7 @@ class PlayerController(
     }
 
     fun clearQueue() {
+        nextQueueGeneration()
         signalTruthTracker?.onPlaybackStopped()
         player.stop()
         player.clearMediaItems()

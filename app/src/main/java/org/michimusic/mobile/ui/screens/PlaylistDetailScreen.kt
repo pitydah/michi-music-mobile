@@ -74,6 +74,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
@@ -662,22 +664,32 @@ private fun PlaylistTracksList(
     onReorder: (String, Int, Int, List<String>) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     val visibleIds = remember(tracks) { tracks.map { it.id } }
+    val uniqueVisibleIds = remember(visibleIds) { visibleIds.size == visibleIds.toSet().size }
     var activeId by remember(visibleIds) { mutableStateOf<String?>(null) }
     var fromIndex by remember(visibleIds) { mutableIntStateOf(-1) }
     var targetIndex by remember(visibleIds) { mutableIntStateOf(-1) }
     var verticalShift by remember(visibleIds) { mutableFloatStateOf(0f) }
-    var scrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var dragEdge by remember(visibleIds) { mutableIntStateOf(0) }
     val thresholdPx = with(LocalDensity.current) { 52.dp.toPx() }
+    val autoscrollStepPx = with(LocalDensity.current) { 8.dp.toPx() }
 
     fun resetDrag() {
-        scrollJob?.cancel()
-        scrollJob = null
         activeId = null
         fromIndex = -1
         targetIndex = -1
         verticalShift = 0f
+        dragEdge = 0
+    }
+
+    // One loop for the whole drag. It starts only while the finger is in an
+    // edge zone and stops on release/cancel/dispose, so no stray job survives.
+    LaunchedEffect(activeId, dragEdge, listState) {
+        if (activeId == null || dragEdge == 0) return@LaunchedEffect
+        while (isActive) {
+            listState.scrollBy(dragEdge * autoscrollStepPx)
+            delay(16)
+        }
     }
 
     LazyColumn(
@@ -687,7 +699,7 @@ private fun PlaylistTracksList(
     ) {
         itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
             val draggingThis = activeId == track.id
-            val dragModifier = if (moveEnabled && tracks.size > 1) {
+            val dragModifier = if (moveEnabled && tracks.size > 1 && uniqueVisibleIds) {
                 Modifier.pointerInput(track.id, visibleIds) {
                     detectDragGesturesAfterLongPress(
                         onDragStart = {
@@ -717,11 +729,7 @@ private fun PlaylistTracksList(
                                     center > layout.viewportEndOffset - thresholdPx -> 1
                                     else -> 0
                                 }
-                                if (direction != 0 && scrollJob?.isActive != true) {
-                                    scrollJob = scope.launch {
-                                        listState.scrollBy(direction * thresholdPx * .65f)
-                                    }
-                                }
+                                dragEdge = direction
                             }
                         },
                         onDragEnd = {
@@ -751,7 +759,14 @@ private fun PlaylistTracksList(
                 onMoveUp = { onMoveUp(track) },
                 onMoveDown = { onMoveDown(track) },
                 dragModifier = dragModifier
-                    .graphicsLayer { translationY = if (draggingThis) verticalShift else 0f }
+                    .graphicsLayer {
+                        translationY = if (draggingThis) verticalShift else 0f
+                        scaleX = if (draggingThis) 1.018f else 1f
+                        scaleY = if (draggingThis) 1.018f else 1f
+                        alpha = if (draggingThis) 0.97f else 1f
+                        shadowElevation = if (draggingThis) 12.dp.toPx() else 0f
+                        shape = RoundedCornerShape(16.dp)
+                    }
                     .zIndex(if (draggingThis) 2f else 0f),
                 dropTarget = activeId != null && targetIndex == index && !draggingThis,
             )
@@ -784,7 +799,7 @@ private fun PlaylistTrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .then(dragModifier)
-            .then(if (dropTarget) Modifier.border(1.dp, PrimaryPinkContainer, RoundedCornerShape(12.dp))
+            .then(if (dropTarget) Modifier.border(1.5.dp, PrimaryPinkContainer, RoundedCornerShape(12.dp))
                 else Modifier)
             .testTag("playlist_detail_track_${track.id}"),
         finish = AeroFinish.Plain,

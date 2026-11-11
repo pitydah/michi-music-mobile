@@ -1,6 +1,8 @@
 package org.michimusic.mobile.ui.components
 
+import android.media.AudioDeviceInfo
 import org.michimusic.player.AudioRouteStatus
+import org.michimusic.player.OutputDescriptor
 
 /**
  * Truthful UI summary: merely enumerating a USB/Bluetooth device NEVER proves that
@@ -16,23 +18,23 @@ data class AudioRouteEvidence(
 
 fun audioRouteEvidence(status: AudioRouteStatus): AudioRouteEvidence = when (status) {
     is AudioRouteStatus.Confirmed -> AudioRouteEvidence(
-        "Ruta confirmada por AudioTrack", status.device.name.ifBlank { "Dispositivo de salida" },
+        "Ruta confirmada por AudioTrack", humanOutputLabel(status.device),
         "Android confirmó esta ruta para la pista de audio. No certifica el formato físico del DAC ni bit-perfect.", true,
     )
     is AudioRouteStatus.RoutedElsewhere -> AudioRouteEvidence(
-        "Se está utilizando otra salida", status.actual.name.ifBlank { "Otra salida" },
-        "Solicitada: ${status.requested.name.ifBlank { "Salida desconocida" }}. La ruta real no coincide con la solicitada.", true,
+        "Se está utilizando otra salida", humanOutputLabel(status.actual),
+        "Solicitada: ${humanOutputLabel(status.requested)}. La ruta real no coincide con la solicitada.", true,
     )
     is AudioRouteStatus.Requested -> AudioRouteEvidence(
-        "Ruta solicitada, pendiente", status.device.name.ifBlank { "Dispositivo solicitado" },
+        "Ruta solicitada, pendiente", humanOutputLabel(status.device),
         "Todavía no hay confirmación de que AudioTrack esté enviando audio a esta salida.", false,
     )
     is AudioRouteStatus.Detected -> AudioRouteEvidence(
-        "Dispositivo detectado", status.device.name.ifBlank { "Salida disponible" },
+        "Dispositivo detectado", humanOutputLabel(status.device),
         "Estar conectado no demuestra que esta sea la ruta efectiva de reproducción.", false,
     )
     is AudioRouteStatus.LastObserved -> AudioRouteEvidence(
-        "Última ruta observada", status.device.name.ifBlank { "Salida anterior" },
+        "Última ruta observada", humanOutputLabel(status.device),
         "Información histórica: no existe una pista AudioTrack activa que confirme esta ruta ahora.", false,
     )
     is AudioRouteStatus.Failed -> AudioRouteEvidence(
@@ -46,6 +48,45 @@ fun audioRouteEvidence(status: AudioRouteStatus): AudioRouteEvidence = when (sta
         "Sin ruta confirmada", "Sin salida identificada",
         "Puedes consultar los dispositivos disponibles, pero no deben confundirse con la ruta de audio activa.", false,
     )
+}
+
+/**
+ * Human-safe label derived from the observed Android type. Build/model codes
+ * (for example `sdk_gphone64_x86_64`) are never promoted to a user-facing route
+ * name; they remain available only in technical details.
+ */
+internal fun humanOutputLabel(device: OutputDescriptor): String {
+    val typeLabel = when (device.androidType) {
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Altavoz del teléfono"
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Auricular del teléfono"
+        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Auriculares con cable"
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "Auriculares Bluetooth"
+        AudioDeviceInfo.TYPE_USB_DEVICE,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_USB_ACCESSORY -> "DAC USB"
+        AudioDeviceInfo.TYPE_HDMI,
+        AudioDeviceInfo.TYPE_HDMI_ARC,
+        AudioDeviceInfo.TYPE_HDMI_EARC -> "HDMI"
+        AudioDeviceInfo.TYPE_DOCK -> "Base de conexión"
+        else -> "Salida Android sin identificar"
+    }
+    val namedTypes = setOf(
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_USB_DEVICE,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_USB_ACCESSORY,
+    )
+    val name = device.name.trim()
+    val humanName = device.androidType in namedTypes &&
+        name.isNotEmpty() &&
+        name.length <= 48 &&
+        !name.contains('_') &&
+        !name.startsWith("sdk_", ignoreCase = true) &&
+        name.any(Char::isLetter)
+    return if (humanName) name else typeLabel
 }
 
 /** Observation identity is authoritative; selection and enumeration are not. */

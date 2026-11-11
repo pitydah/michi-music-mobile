@@ -20,8 +20,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -38,7 +42,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.contentDescription
@@ -103,9 +109,14 @@ fun SignalTruthMobileSheet(
         isRemote -> SignalDestination.REMOTE_HOST
         else -> SignalDestination.LOCAL
     }
+    val koinAvailable = remember {
+        org.koin.core.context.GlobalContext.getOrNull() != null
+    }
     // These are *sender* receipts sampled from the live ReceiverLite session,
     // NEVER proof that the remote receiver rendered PCM or that its DAC is active.
-    val streamManager = if (isStream) runCatching { koinInject<PlaybackSessionManager>() }.getOrNull() else null
+    val streamManager = if (isStream && koinAvailable) {
+        runCatching { koinInject<PlaybackSessionManager>() }.getOrNull()
+    } else null
     var senderSample by remember(isStream, activeEndpoint.id) { mutableStateOf(SenderSample()) }
     LaunchedEffect(streamManager, isStream, activeEndpoint.id) {
         if (isStream && streamManager != null) {
@@ -127,7 +138,7 @@ fun SignalTruthMobileSheet(
         }
     }
     // Do not inspect phone route or show USB controls while controlling a remote endpoint.
-    val usbManager = if (destination == SignalDestination.LOCAL) {
+    val usbManager = if (destination == SignalDestination.LOCAL && koinAvailable) {
         runCatching { koinInject<UsbDacManager>() }.getOrNull()
     } else null
     val routeStatus by (usbManager?.routeStatus?.collectAsStateWithLifecycle() ?: remember {
@@ -183,48 +194,69 @@ fun SignalTruthMobileSheet(
     }
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnClickOutside = true,
+            dismissOnBackPress = true,
+        ),
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 24.dp),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             // Content-sized by default; only a tall chain reaches the 84% cap
             // and then scrolls internally. Small screens keep the same material.
             val maxPopupHeight = maxHeight * 0.84f
-            AeroFloatingSurface(
-                shape = RoundedCornerShape(26.dp),
+            // The scrim is a sibling behind the floating surface, not a clickable
+            // parent. A full-size clickable parent would swallow every tap inside.
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 420.dp)
-                    .heightIn(max = maxPopupHeight)
-                    .testTag("signal_truth_popup"),
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
+                    )
+                    .testTag("signal_truth_dismiss_scrim"),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                contentAlignment = Alignment.Center,
             ) {
+                AeroFloatingSurface(
+                    shape = RoundedCornerShape(26.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 420.dp)
+                        .heightIn(max = maxPopupHeight)
+                        .testTag("signal_truth_popup")
+                        .semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction("Cerrar Signal Truth") {
+                                    onDismiss()
+                                    true
+                                },
+                            )
+                        },
+                ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(max = maxPopupHeight)
                 .navigationBarsPadding(),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Signal Truth", color = PureWhite,
-                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 19.sp, lineHeight = 23.sp))
-                    Text(when (destination) {
-                        SignalDestination.LOCAL -> "Cómo llega la música a tu salida"
-                        SignalDestination.MICHI_STREAM -> "Qué sale del teléfono hacia Michi Stream"
-                        SignalDestination.REMOTE_HOST -> "Qué sabemos del host remoto"
-                    }, color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                }
-                TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text("Cerrar")
-                }
+                Text("Signal Truth", color = PureWhite,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 19.sp, lineHeight = 23.sp))
+                Text(when (destination) {
+                    SignalDestination.LOCAL -> "Cómo llega la música a tu salida"
+                    SignalDestination.MICHI_STREAM -> "Qué sale del teléfono hacia Michi Stream"
+                    SignalDestination.REMOTE_HOST -> "Qué sabemos del host remoto"
+                }, color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
             // A readable, reliable answer before the detailed signal flow.
             SignalTruthRouteOverview(
@@ -244,6 +276,7 @@ fun SignalTruthMobileSheet(
         }
             }
         }
+        }
     }
 }
 
@@ -256,16 +289,20 @@ private fun SignalTruthRouteOverview(
     onOpenOutputRoutes: () -> Unit,
 ) {
     val local = destination == SignalDestination.LOCAL
+    val observed = local && routeEvidence?.hasCurrentEvidence == true
     val headline = when (destination) {
-        SignalDestination.LOCAL -> routeEvidence?.deviceLabel?.takeIf { it.isNotBlank() }
-            ?: "Salida aún no identificada"
+        // A detected/requested label is never promoted to an observed route.
+        SignalDestination.LOCAL -> if (observed) {
+            routeEvidence?.deviceLabel?.takeIf { it.isNotBlank() }
+                ?: "Salida Android sin identificar"
+        } else "Salida Android sin identificar"
         SignalDestination.MICHI_STREAM -> "Receptor Michi Stream"
-        SignalDestination.REMOTE_HOST -> "Reproducción remota"
+        SignalDestination.REMOTE_HOST -> "Host remoto"
     }
-    val explanation = when (destination) {
-        SignalDestination.LOCAL -> if (routeEvidence?.hasCurrentEvidence == true)
-            "Ruta observada por Android; formato físico del DAC sin comprobar."
-            else "Salida pendiente de confirmar. Puedes elegir otra salida."
+    val certainty = when (destination) {
+        SignalDestination.LOCAL -> if (observed)
+            "Ruta observada; el formato físico del DAC sigue sin verificar."
+        else "Pendiente de confirmar; la salida física no está verificada."
         SignalDestination.MICHI_STREAM -> "El envío RTP local no confirma lo que suena en el receptor."
         SignalDestination.REMOTE_HOST -> "Los efectos y el dispositivo del host no se miden aquí."
     }
@@ -274,20 +311,64 @@ private fun SignalTruthRouteOverview(
         color = AeroGraphite.copy(alpha = 0.62f),
         border = BorderStroke(1.dp, PureWhite.copy(alpha = 0.13f)),
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
+            .heightIn(min = 96.dp)
             .testTag("signal_truth_route_overview"),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(currentTrack?.title?.takeIf { it.isNotBlank() } ?: "Pista actual",
-                color = OnSurfaceVariant, style = MaterialTheme.typography.labelMedium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(headline, color = PureWhite, style = MaterialTheme.typography.titleMedium,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(explanation, color = OnSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(36.dp).background(
+                        TertiaryCyan.copy(alpha = 0.14f), CircleShape,
+                    ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = TertiaryCyan,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        currentTrack?.title?.takeIf { it.isNotBlank() } ?: "Pista actual",
+                        color = OnSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        headline,
+                        color = PureWhite,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        certainty,
+                        color = OnSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (local) {
-                OutlinedButton(onClick = onOpenOutputRoutes, modifier = Modifier
-                    .heightIn(min = 48.dp).testTag("signal_truth_change_output")) {
-                    Text("Cambiar salida de audio")
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    TextButton(
+                        onClick = onOpenOutputRoutes,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .testTag("signal_truth_change_output"),
+                    ) {
+                        Text("Cambiar salida")
+                    }
                 }
             }
         }
@@ -366,7 +447,9 @@ private fun SignalGraphList(
                         onExpand = { onExpand(stage.stableId) },
                         onOpenEqualizer = onOpenEqualizer,
                         onOpenOutputRoutes = onOpenOutputRoutes,
-                        allowRouteSelection = destination == SignalDestination.LOCAL,
+                        // The only “Cambiar salida” action lives in the compact
+                        // hero; stages never duplicate the global route CTA.
+                        allowRouteSelection = false,
                         showTechnicalDetails = showTechnicalDetails,
                         usbManager = usbManager, routeStatus = routeStatus,
                     )
@@ -398,7 +481,7 @@ private fun SignalGraphList(
                         onExpand = { onExpand(stage.stableId) },
                         onOpenEqualizer = onOpenEqualizer,
                         onOpenOutputRoutes = onOpenOutputRoutes,
-                        allowRouteSelection = destination == SignalDestination.LOCAL,
+                        allowRouteSelection = false,
                         showTechnicalDetails = showTechnicalDetails,
                         usbManager = usbManager, routeStatus = routeStatus,
                     )
