@@ -690,7 +690,8 @@ este informe y requiere su propia CI exacta.
 ## KILLCRITIC QUALITY CLOSURE 02 — sync, procedencia, Playlists, Signal Truth y seekers
 
 Base: `master@c542181d0068ecffed6fd8b72631b08cd732de0a` (árbol limpio).
-Todos los cambios siguientes están en el working tree, **sin commit, push, PR ni release**.
+Integrado y publicado en `master@7d1c942c9f94ea4995ee680a840f84b5a8c773ae`;
+CI exacta `42929058047`: **8/8 PASS**, incluido Quality Gate.
 
 ### SYNC-FINGERPRINT-02
 
@@ -840,8 +841,9 @@ ni contraste alto en esta sesión.
 - **GO_WAVEFORM_AUTO:** código y pruebas de política; falta captura real y prueba
   con MP3/FLAC/SAF/inaccesible/remoto.
 - **GO_AERO_CAPSULE:** geometría y política; falta captura comparativa.
-- **GO_CODE:** sí en working tree.
-- **GO_CI:** pendiente; no hay commit ni push.
+- **GO_CODE:** sí. Publicado en `master@7d1c942c9f94ea4995ee680a840f84b5a8c773ae`.
+- **GO_CI:** sí. La CI exacta `42929058047` pasó 8/8 jobs sobre `7d1c942`.
 - **GO_VISUAL:** pendiente.
-- **GO_PHYSICAL:** pendiente; el teléfono físico no está conectado.
+- **GO_PHYSICAL:** parcial. APK Normal debug instalado y `MainActivity` iniciada en
+  `25010PN30G` (`26dfb91d`); faltan pruebas físicas de reproducción, rutas y accesibilidad.
 - **GO_RELEASE:** **NO-GO**.
