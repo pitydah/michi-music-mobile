@@ -76,6 +76,7 @@ data class TrackDto(
     @SerialName("cover_id") val coverId: String = "",
     @SerialName("track_number") val trackNumber: Int = 0,
     val year: Int = 0,
+    val genre: String = "",
 )
 
 @Serializable

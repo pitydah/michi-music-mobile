@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,10 +32,19 @@ class AutoSyncScheduler(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val appContext = context.applicationContext
+    private val refreshMutex = Mutex()
 
     fun isEnabled(): Boolean =
         appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_AUTO_SYNC, false)
+
+    /** WorkManager database truth, observed only while Settings > Ecosistema is visible.
+     * An enabled preference does NOT guarantee any task was enqueued.
+     */
+    fun observeWorkTruth(): Flow<AutoSyncWorkTruth> =
+        WorkManager.getInstance(appContext).getWorkInfosByTagFlow(PERIODIC_SYNC_TAG)
+            .map { infos -> autoSyncWorkTruth(infos.map { it.state.name }) }
+            .distinctUntilChanged()
 
     /**
      * Persists the preference and immediately applies it: enabling schedules the job,
@@ -38,17 +53,19 @@ class AutoSyncScheduler(
      */
     suspend fun setEnabled(enabled: Boolean) {
         withContext(ioDispatcher) {
-            appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_AUTO_SYNC, enabled)
-                .apply()
-            refreshBlocking()
+            refreshMutex.withLock {
+                check(appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_AUTO_SYNC, enabled).commit()) {
+                    "No se pudo conservar la preferencia de sincronización automática"
+                }
+                refreshBlocking()
+            }
         }
     }
 
     /** Re-reads the preference and the pairings, then schedules or cancels. */
     suspend fun refresh() {
-        withContext(ioDispatcher) { refreshBlocking() }
+        withContext(ioDispatcher) { refreshMutex.withLock { refreshBlocking() } }
     }
 
     private suspend fun refreshBlocking() {
@@ -62,13 +79,33 @@ class AutoSyncScheduler(
             return
         }
 
-        val device = paired.first()
+        val device = paired.firstOrNull { it.effectiveServerId.isNotBlank() && it.lastUrl.isNotBlank() }
+        if (device == null) {
+            cancelAll(devices) // No usable peer: revoke stale periodic work.
+            return
+        }
         val deviceId = device.effectiveServerId
-        val baseUrl = device.lastUrl.ifEmpty { return }
+        val baseUrl = device.lastUrl
         // Never schedule a mirror without a real identity: the worker would sign
         // with an empty client id and fail every twelve hours.
-        val identity = identityAuthority.await() ?: return
-        val clientDeviceId = device.effectiveClientDeviceId.ifEmpty { identity.michiId }
+        val identity = identityAuthority.await()
+        if (identity == null || identity.michiId.isBlank()) {
+            cancelAll(devices) // No signing identity: prior jobs must not survive.
+            return
+        }
+        // Re-read only during an explicit refresh: the user may have revoked or
+        // re-paired this peer while identityAuthority.await() was suspended.
+        val currentDevices = registry.getAllDevices()
+        val refreshedDevice = currentDevices.firstOrNull { peer ->
+            samePeriodicSyncPeer(deviceId, baseUrl, peer.effectiveServerId,
+                peer.lastUrl, peer.isRevoked)
+        }
+        if (refreshedDevice == null || !isEnabled()) {
+            cancelAll(currentDevices)
+            return
+        }
+        // Use fresh registry credentials: the device may have re-paired during await.
+        val clientDeviceId = refreshedDevice.effectiveClientDeviceId.ifEmpty { identity.michiId }
         val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_IN_HOURS, TimeUnit.HOURS)
             .setInputData(
                 SyncWorker.buildInputData(
@@ -80,23 +117,37 @@ class AutoSyncScheduler(
             )
             .setConstraints(periodicSyncConstraints())
             .addTag(PERIODIC_SYNC_TAG)
+            .addTag(periodicSyncOwnerTag(deviceId))
             .build()
 
+        // An old periodic job may belong to an unpaired/revoked peer. The owner tag
+        // also upgrades legacy jobs lacking this tag by cancelling them once.
+        // No polling: WorkManager's current DB snapshot is read only on refresh.
+        // Await cancellations on the IO dispatcher before enqueuing replacements.
+        val workManager = WorkManager.getInstance(appContext)
+        workManager.getWorkInfosByTagFlow(PERIODIC_SYNC_TAG).first().forEach { work ->
+            if (shouldPrunePeriodicSync(work.tags, work.state.isFinished, deviceId)) {
+                workManager.cancelWorkById(work.id).result.get()
+            }
+        }
+        // Cancel legacy untagged jobs for other still-known paired devices.
+        devices.filter { it.effectiveServerId != deviceId }.forEach { other ->
+            workManager.cancelUniqueWork(periodicWorkName(other.effectiveServerId)).result.get()
+        }
         // UPDATE, not KEEP: a re-pairing or a token refresh changes the input data, and
         // KEEP would keep the stale credentials for up to twelve hours.
-        WorkManager.getInstance(appContext)
-            .enqueueUniquePeriodicWork(
+        workManager.enqueueUniquePeriodicWork(
                 periodicWorkName(deviceId),
                 ExistingPeriodicWorkPolicy.UPDATE,
                 request,
-            )
+            ).result.get()
     }
 
     private fun cancelAll(devices: List<org.michimusic.link.PairedDevice>) {
         val workManager = WorkManager.getInstance(appContext)
-        workManager.cancelAllWorkByTag(PERIODIC_SYNC_TAG)
+        workManager.cancelAllWorkByTag(PERIODIC_SYNC_TAG).result.get()
         // Jobs enqueued before the tag existed are only reachable by their unique name.
-        devices.forEach { workManager.cancelUniqueWork(periodicWorkName(it.effectiveServerId)) }
+        devices.forEach { workManager.cancelUniqueWork(periodicWorkName(it.effectiveServerId)).result.get() }
     }
 
     companion object {

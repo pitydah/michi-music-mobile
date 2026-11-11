@@ -21,6 +21,7 @@ fun CachedTrack.toTrack(): Track = Track(
     artist = artist,
     album = album,
     albumArtist = albumArtist,
+    genre = genre,
     duration = duration,
     size = size,
     format = format,

@@ -1,20 +1,32 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.michimusic.mobile.screens.PlaylistItem
 import org.michimusic.mobile.screens.PlaylistsViewModel
+import org.michimusic.mobile.ui.theme.MichiTheme
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
@@ -160,5 +172,60 @@ class PlaylistNoopRegressionTest {
 
         composeTestRule.onNodeWithTag("playlist_play_lofi_chill").performTouchInput { longClick() }
         composeTestRule.onNodeWithTag("playlist_menu_rename_lofi_chill").assertDoesNotExist()
+    }
+
+    @Test
+    fun spotlightAtLargeFontsKeepsTitleAndActionsSeparated() {
+        val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
+        val p1 = PlaylistItem(id = "lofi_chill", name = "Lo-Fi Chill", trackCount = 20)
+        every { mockViewModel.playlists } returns MutableStateFlow(listOf(p1))
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.isRenamingPlaylist } returns MutableStateFlow(false)
+        every { mockViewModel.isDeletingPlaylist } returns MutableStateFlow(false)
+
+        val width = mutableStateOf(320)
+        val fontScale = mutableStateOf(2f)
+        composeTestRule.setContent {
+            CompositionLocalProvider(
+                LocalDensity provides Density(
+                    LocalDensity.current.density,
+                    fontScale.value,
+                ),
+            ) {
+                MichiTheme {
+                    Box(Modifier.width(width.value.dp).height(800.dp)) {
+                        PlaylistScreen(
+                            onNavigateToPlaylist = { },
+                            viewModel = mockViewModel,
+                            audioController = mockk(relaxed = true),
+                            historyDao = historyDao,
+                        )
+                    }
+                }
+            }
+        }
+
+        for ((screenWidth, scale) in listOf(320 to 2f, 360 to 1.5f)) {
+            width.value = screenWidth
+            fontScale.value = scale
+            composeTestRule.waitForIdle()
+
+            val titleBounds = composeTestRule
+                .onNodeWithTag("playlist_spotlight_title_lofi_chill", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+            val actionsBounds = composeTestRule
+                .onNodeWithTag("playlist_spotlight_actions_lofi_chill", useUnmergedTree = true)
+                .fetchSemanticsNode()
+                .boundsInRoot
+            assertFalse(
+                "Spotlight title and actions overlap at ${screenWidth}dp/${scale}x",
+                titleBounds.overlaps(actionsBounds),
+            )
+            composeTestRule.onNodeWithTag("playlist_play_lofi_chill")
+                .assertHeightIsAtLeast(48.dp)
+            composeTestRule.onNodeWithTag("playlist_more_lofi_chill")
+                .assertHeightIsAtLeast(48.dp)
+        }
     }
 }

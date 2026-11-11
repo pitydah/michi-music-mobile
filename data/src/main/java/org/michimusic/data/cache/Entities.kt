@@ -34,6 +34,8 @@ data class CachedTrack(
     val verifiedAt: Long = 0,
     /** Lowercase algorithm of [verifiedSha256]. */
     val verifiedAlgorithm: String = "",
+    /** Original genre metadata. Never inferred when the source omits it. */
+    val genre: String = "",
 )
 
 @Entity(tableName = "cached_albums")

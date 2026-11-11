@@ -214,6 +214,16 @@ private fun TrackDto.toCachedTrackPreserving(
     artist = artist,
     album = album,
     albumArtist = old?.albumArtist ?: "",
+    // Keep the previous genre only if a legacy peer omitted it AND the track
+    // identity has not changed. A reused ID must never inherit stale tags.
+    genre = genre.ifBlank {
+        old?.takeIf { previous ->
+            sameLegacySyncTrack(
+                previous.title, previous.artist, previous.album, previous.duration,
+                title, artist, album, duration.toLong(),
+            )
+        }?.genre.orEmpty()
+    },
     duration = duration.toLong(),
     size = size,
     format = format,

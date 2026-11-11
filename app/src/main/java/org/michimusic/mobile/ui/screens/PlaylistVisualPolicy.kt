@@ -74,6 +74,22 @@ internal fun playlistFocalAlignment(focalX: Float, focalY: Float): androidx.comp
         safePlaylistBannerFocal(focalY) * 2f - 1f,
     )
 
+/** Catalog summary without operator-precedence ambiguity. */
+internal fun playlistCatalogSummary(total: Int, pinned: Int): String = buildString {
+    append(if (total == 1) "1 playlist" else "$total playlists")
+    if (pinned > 0) append(if (pinned == 1) " · 1 fijada" else " · $pinned fijadas")
+}
+
+/** The spotlight shrinks its cover before it lets text collide with actions. */
+internal fun playlistSpotlightCoverSizeDp(widthDp: Float, fontScale: Float): Float =
+    if (!widthDp.isFinite() || !fontScale.isFinite()) 88f
+    else if (widthDp < 340f || fontScale >= 1.5f) 80f else 88f
+
+/** Large text may use a third title line instead of an artificial ellipsis. */
+internal fun playlistSpotlightTitleLines(widthDp: Float, fontScale: Float): Int =
+    if (!widthDp.isFinite() || !fontScale.isFinite()) 3
+    else if (widthDp < 340f || fontScale >= 1.5f) 3 else 2
+
 /** UI5 may release only its own grants, never grants inherited from music imports. */
 internal fun playlistOwnedGrantKey(uri: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(uri.toByteArray(Charsets.UTF_8))

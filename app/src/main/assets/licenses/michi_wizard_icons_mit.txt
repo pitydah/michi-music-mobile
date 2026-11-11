@@ -1,9 +1,10 @@
-Third-party icon notices for the Michi Music Mobile First Run Wizard
+Third-party icon notices for Michi Music Mobile Wizard and Settings
 
 Fluent UI System Color Icons
 Copyright (c) 2020 Microsoft Corporation
 Source: https://github.com/microsoft/fluentui-system-icons
 License: MIT
+Settings reuses existing Wizard icons and the Fluent Color Heart vector.
 
 Phosphor Icons (waveform asset)
 Copyright (c) Phosphor Icons contributors

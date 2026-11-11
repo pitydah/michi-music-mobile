@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApprovedSyncPlanEntity::class,
         LibraryExclusionEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -326,6 +326,11 @@ abstract class MichiDatabase : RoomDatabase() {
             db.execSQL("ALTER TABLE cached_tracks ADD COLUMN verifiedAt INTEGER NOT NULL DEFAULT 0")
             db.execSQL("ALTER TABLE cached_tracks ADD COLUMN verifiedAlgorithm TEXT NOT NULL DEFAULT ''")
             db.execSQL("ALTER TABLE cached_tracks ADD COLUMN albumArtist TEXT NOT NULL DEFAULT ''")
+        }
+
+        /** UI7: genre is optional metadata; no row, owner or file is rewritten. */
+        val MIGRATION_10_11 = Migration(10, 11) { db ->
+            db.execSQL("ALTER TABLE cached_tracks ADD COLUMN genre TEXT NOT NULL DEFAULT ''")
         }
 
         /**

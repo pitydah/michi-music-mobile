@@ -63,6 +63,13 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE downloaded = 0")
     suspend fun getUndownloaded(): List<CachedTrack>
 
+    /** Cold genre evidence: active only while the Genres route is composed. */
+    @Query(
+        "SELECT sourceId,id,title,artist,album,duration,filepath,genre " +
+            "FROM cached_tracks ORDER BY sourceId,id",
+    )
+    fun observeGenreEvidenceSnapshot(): Flow<List<CachedGenreMetadata>>
+
     @Query("UPDATE cached_tracks SET downloaded = 1 WHERE sourceId = :sourceId AND id = :id")
     suspend fun markDownloaded(sourceId: String, id: String)
 

@@ -4,13 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,7 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,36 +47,50 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 /**
- * Editorial lead item for the playlist catalog. It is one real playlist, never
- * a fabricated recommendation, and it is intentionally not an enlarged AeroCard.
+ * Editorial hero for the first visible playlist. It grows with its content
+ * instead of freezing a height that clips large fonts, and it applies the same
+ * banner focal point and scale as the detail hero.
  */
 @Composable
 internal fun PlaylistCatalogSpotlight(
     playlist: PlaylistItem,
-    visual: PlaylistVisualState?,
+    visual: PlaylistVisualState,
     onOpen: () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(20.dp)
-    Box(
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(198.dp)
-            .clip(shape)
+            .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onOpen)
             .testTag("playlist_item_${playlist.id}"),
     ) {
-        if (visual?.bannerUri != null) {
+        val widthDp = maxWidth.value
+        val coverSize = playlistSpotlightCoverSizeDp(widthDp, fontScale)
+        val titleLines = playlistSpotlightTitleLines(widthDp, fontScale)
+
+        if (visual.bannerUri != null) {
+            val focalX = safePlaylistBannerFocal(visual.bannerFocalX)
+            val focalY = safePlaylistBannerFocal(visual.bannerFocalY)
             AsyncImage(
                 model = visual.bannerUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                alignment = playlistFocalAlignment(visual.bannerFocalX, visual.bannerFocalY),
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        val scale = safePlaylistScale(visual.bannerScale)
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(focalX, focalY)
+                    },
             )
             Box(
-                Modifier
-                    .fillMaxSize()
+                modifier = Modifier
+                    .matchParentSize()
                     .background(
                         Brush.verticalGradient(
                             0f to Color.Transparent,
@@ -86,86 +102,96 @@ internal fun PlaylistCatalogSpotlight(
             )
         } else {
             Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Brush.linearGradient(listOf(AeroGraphiteRaised, AeroGraphite))),
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(AeroGraphiteRaised, AeroGraphite),
+                        ),
+                    ),
             )
-            // A quiet corner glow gives the graphite surface depth without
-            // introducing glass, shaders or a second image.
             Box(
-                Modifier
-                    .fillMaxSize()
+                modifier = Modifier
+                    .matchParentSize()
                     .background(
                         Brush.radialGradient(
-                            colors = listOf(PrimaryPinkContainer.copy(alpha = 0.10f), Color.Transparent),
-                            radius = 520f,
+                            colors = listOf(
+                                PrimaryPinkContainer.copy(alpha = 0.10f),
+                                Color.Transparent,
+                            ),
                         ),
                     ),
             )
         }
 
-        Row(
+        Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            content = actions,
-        )
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, bottom = 15.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                .heightIn(min = 198.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            PlaylistCover(
-                playlist = playlist,
-                visual = visual,
-                size = 88.dp,
-                corner = 14.dp,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("playlist_spotlight_actions_${playlist.id}"),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+                content = actions,
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                if (visual?.pinned == true) {
+                PlaylistCover(
+                    playlist = playlist,
+                    visual = visual,
+                    size = coverSize.dp,
+                    corner = 14.dp,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    if (visual.pinned) {
+                        Text(
+                            text = "FIJADA",
+                            color = PrimaryPinkContainer,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp,
+                        )
+                    }
                     Text(
-                        text = "FIJADA",
-                        color = PrimaryPinkContainer,
-                        fontSize = 9.sp,
+                        text = playlist.name,
+                        color = PureWhite,
+                        fontSize = 22.sp,
+                        lineHeight = 26.sp,
                         fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.2.sp,
+                        maxLines = titleLines,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("playlist_spotlight_title_${playlist.id}"),
+                    )
+                    Text(
+                        text = trackCountLabel(playlist.trackCount),
+                        color = TextSecondary,
+                        fontSize = 12.sp,
                     )
                 }
-                Text(
-                    text = playlist.name,
-                    color = PureWhite,
-                    fontSize = 22.sp,
-                    lineHeight = 26.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = trackCountLabel(playlist.trackCount),
-                    color = TextSecondary,
-                    fontSize = 12.sp,
-                )
             }
         }
     }
 }
 
-/**
- * Secondary catalog identity. A hairline-separated musical row, not a card.
- */
+/** Light secondary collection row: identity and actions, never a full card. */
 @Composable
 internal fun PlaylistCatalogRow(
     playlist: PlaylistItem,
-    visual: PlaylistVisualState?,
+    visual: PlaylistVisualState,
     onOpen: () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     modifier: Modifier = Modifier,
@@ -204,9 +230,9 @@ internal fun PlaylistCatalogRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (visual?.pinned == true) {
+                    if (visual.pinned) {
                         Box(
-                            Modifier
+                            modifier = Modifier
                                 .size(5.dp)
                                 .clip(CircleShape)
                                 .background(PrimaryPinkContainer),
@@ -221,21 +247,18 @@ internal fun PlaylistCatalogRow(
             }
             actions()
         }
-        HorizontalDivider(
-            thickness = 0.75.dp,
-            color = AeroHairline,
-        )
+        HorizontalDivider(thickness = 0.75.dp, color = AeroHairline)
     }
 }
 
 @Composable
 private fun PlaylistCover(
     playlist: PlaylistItem,
-    visual: PlaylistVisualState?,
+    visual: PlaylistVisualState,
     size: androidx.compose.ui.unit.Dp,
     corner: androidx.compose.ui.unit.Dp,
 ) {
-    if (visual?.coverUri != null) {
+    if (visual.coverUri != null) {
         AlbumArtView(
             coverStyle = coverStyleFor(playlist.name),
             imageModel = visual.coverUri,

@@ -839,6 +839,7 @@ private fun org.michimusic.core.models.ManifestTrack.toTrackDto() = org.michimus
     title = title,
     artist = artist,
     album = album,
+    genre = genre,
     duration = duration,
     size = size,
     format = format,

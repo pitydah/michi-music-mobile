@@ -1554,3 +1554,202 @@ viewports 320/360 están cubiertas por pruebas Compose, no por captura nueva.
 
 Avance de esta intervención: código del rework ~100 % de lo planificado; pruebas
 automatizadas ~95 %; aceptación visual ~65 %; QA física 0 %.
+
+## UI5-PLAYLIST-VISUAL-POLISH
+
+Base de la intervención: `master@0e1181a666f78f01bcb503122f2e71e1867438d0`.
+Cambios en working tree, **sin commit, push, PR ni release**.
+
+### Defectos confirmados
+
+1. **Spotlight con altura fija y acciones superpuestas.** El componente usaba
+   `height(198.dp)` y colocaba Reproducir/Más opciones en un overlay TopEnd.
+   Con fontScale 1.5–2.0, título de dos líneas y «FIJADA», el contenido podía
+   crecer por debajo del overlay o quedar comprimido.
+2. **Banner sin la focalización del detalle.** El catálogo cargaba el banner con
+   `ContentScale.Crop` sin `bannerFocalX`, `bannerFocalY` ni `bannerScale`, por lo
+   que la misma playlist se encuadraba de forma distinta en catálogo y detalle.
+3. **Resumen con precedencia incorrecta.** La concatenación de `playlist` y
+   `fijada` dependía de la precedencia de `+` e `if`; una playlist fijada podía
+   mostrar solo «1 playlist».
+
+### Soluciones aplicadas
+
+- `PlaylistCatalogSpotlight` usa `BoxWithConstraints` y una `Column` con
+  `heightIn(min = 198.dp)` y `SpaceBetween`. Las acciones viven en una fila
+  superior real y el contenido editorial en una fila inferior; la altura crece
+  con el contenido y las acciones ya no tapan el título.
+- Políticas puras nuevas:
+  - `playlistSpotlightCoverSizeDp`: 80 dp en <340 dp o fontScale ≥1.5, 88 dp en
+    el resto.
+  - `playlistSpotlightTitleLines`: 3 líneas en <340 dp o fontScale ≥1.5, 2 en
+    el resto.
+  - `playlistCatalogSummary`: singular/plural y sufijo de fijadas sin ambigüedad.
+- El banner del spotlight aplica la misma semántica que el hero:
+  `playlistFocalAlignment`, `safePlaylistBannerFocal` y `safePlaylistScale`
+  mediante `alignment` y `graphicsLayer`.
+- Se conservan `playlist_item_{id}`, `playlist_play_{id}`, `playlist_more_{id}`,
+  las acciones separadas y el fallback de mosaico sin portada.
+- Se añadieron `playlist_spotlight_title_{id}` y
+  `playlist_spotlight_actions_{id}` para verificar composición y accesibilidad.
+
+### Archivos
+
+- `app/src/main/java/org/michimusic/mobile/ui/screens/PlaylistCatalogComponents.kt`
+- `app/src/main/java/org/michimusic/mobile/ui/screens/PlaylistScreen.kt`
+- `app/src/main/java/org/michimusic/mobile/ui/screens/PlaylistVisualPolicy.kt`
+- `app/src/test/java/org/michimusic/mobile/ui/screens/PlaylistVisualPolicyTest.kt`
+- `app/src/test/java/org/michimusic/mobile/ui/screens/PlaylistNoopRegressionTest.kt`
+- `UI5_INTEGRATION_REPORT.md`
+
+### Pruebas ejecutadas
+
+| Comprobación | Resultado |
+|---|---|
+| `PlaylistVisualPolicyTest` (resumen 0/1/1 fijada/2-1/5-3/10-0, cover y title lines) | **PASS** |
+| `PlaylistNoopRegressionTest` (spotlight 320 dp/2× y 360 dp/1.5×, sin intersección título/acciones, acciones ≥48 dp) | **PASS** |
+| `PlaylistDetailScreenTest`, `PlaylistHeroPolicyTest` | **PASS** |
+| Unit core/data/player/app Normal/F-Droid y link-client | **PASS** |
+| Lint | **PASS** |
+| Normal/F-Droid debug + release | **PASS** |
+| Instrumentación API 36 completa | **105 tests, 0 fallos, 9 skipped** |
+
+### Evidencia visual
+
+Se conservan e inspeccionaron las capturas del rework en
+`/tmp/opencode/playlist-rework/`: `before-catalog.png`, `after-catalog.png`,
+`after-catalog-many.png`, `after-catalog-many-pinned.png`,
+`before-detail.png`, `after-detail.png` y `after-detail-playing.png`.
+
+No se produjo una captura nueva del spotlight responsive a 320 dp/2× ni del
+banner con foco personalizado en esta pasada. La composición se verificó
+mediante los tests Compose de bounds y los tests puros de política; no se
+declara aprobación visual de esos dos escenarios.
+
+### Rendimiento y arquitectura
+
+- No se añadió ViewModel, decoder, shader, blur ni caché persistente.
+- El banner reutiliza la misma imagen de Coil; solo cambia su transformación.
+- Las decisiones de tamaño y líneas son funciones puras, sin IO ni estado
+  adicional por fila.
+- No se modificó reproducción, Room, Michi Link, AirCat, Signal Truth, Media3 ni
+  la autoridad del drag.
+
+### KILLCRITIC
+
+- Sin duplicación de spotlight en la lista secundaria: el catálogo usa
+  `first()` y `drop(1)` sobre el mismo orden autoritativo.
+- Sin segundo mecanismo de drag ni de reproducción.
+- Sin overlays de acciones sobre texto.
+- Sin nuevas tarjetas dentro del spotlight.
+- Persisten límites de evidencia visual y hardware.
+
+### Gates
+
+- **GO_PLAYLIST_CATALOG_VISUAL:** parcial. Spotlight responsive, focalización
+  coherente y acciones separadas verificadas por tests; falta captura nueva
+  320/2× y banner con foco real.
+- **GO_PLAYLIST_DETAIL:** PASS en código/tests; sin cambios funcionales en esta
+  pasada.
+- **GO_PLAYLIST_REORDER:** PASS en tests; sin gesto físico.
+- **GO_CODE:** PASS en working tree.
+- **GO_COMPILATION:** PASS.
+- **GO_CI:** **NOT_RUN** para estos cambios; la última CI verde `43092041849`
+  corresponde a `85f5ee9` y no incluye el polish.
+- **GO_VISUAL:** parcial.
+- **GO_PHYSICAL:** NOT_RUN; solo AVD.
+- **ST_UI_WIRING:** BLOCKED_R30.
+- **GO_RELEASE:** **NO-GO**.
+
+Avance de esta pasada: código ~100 % de lo planificado; pruebas ~95 %;
+aceptación visual ~70 %; QA física 0 %.
+
+## UI7 1.10.0 — Integración acumulativa
+
+Base: `master@0e1181a666f78f01bcb503122f2e71e1867438d0`.
+Integración en **working tree**, sin commit, push, PR ni release.
+
+### Alcance integrado
+
+- Parche canónico `UI7_ACUMULATIVO.patch` (76 rutas, +5802/−1605).
+- 12 hunks rechazados inicialmente; se reconciliaron manualmente sobre el
+  código UI5/UI6 y el polish de Playlists, sin reemplazar archivos a ciegas.
+- Todos los `.rej` se conservaron fuera del árbol en
+  `/tmp/opencode/ui7/rejects/`; el repositorio no contiene archivos `.rej`.
+- 25 archivos rastreados modificados (+796/−1614) más los archivos nuevos de
+  UI7 (paneles Settings, Géneros, ReplayGain y tests).
+
+### Correcciones de integración
+
+- `TrackDto` y `CachedTrack` incorporan `genre`; `MichiDatabase` pasa a versión
+  11 con `MIGRATION_10_11` aditiva (`ALTER TABLE cached_tracks ADD COLUMN
+  genre`). `DataModule` registra la migración.
+- `TrackDao.observeGenreEvidenceSnapshot()` expone evidencia de género mediante
+  un Flow frío, sin escaneos ni observadores permanentes.
+- `LocalMediaRepository` proyecta `MediaStore.Audio.Media.GENRE` en API 30+ y
+  reintenta sin esa columna cuando el proveedor la rechaza
+  (`shouldRetryGenreProjection`), sin convertir una biblioteca vacía en un
+  falso permiso denegado.
+- `SettingsScreen` pasa a dispatcher delgado: hub modular, paneles de
+  Reproducción, Procesamiento, Salidas, Biblioteca, Ecosistema, Apariencia,
+  Accesibilidad, Privacidad, Sistema y Acerca de; conserva `AUDIO_QUALITY` como
+  ruta legacy.
+- ReplayGain se comparte mediante `SettingsReplayGainGateway`, con transacción,
+  rollback y estados de incertidumbre.
+- Biblioteca incorpora `LibraryTab.GENRES` y las vistas Mosaico destacado y
+  Editorial, sin imágenes editoriales nuevas.
+- `tools/check_settings_architecture.py` valida el dispatcher y los paneles:
+  **PASS** (148 root lines, 8 domain panels).
+
+### Pruebas ejecutadas
+
+| Comprobación | Resultado |
+|---|---|
+| `:data:compileDebugKotlin` + `:app:compileNormalDebugKotlin` | **PASS** |
+| `tools/check_settings_architecture.py` | **PASS** |
+| `:data:testDebugUnitTest` + `:app:testNormalDebugUnitTest` | **PASS** |
+| `CachedTrackMapperTest`, `SettingsHierarchyTest`, migración 10→11 | **PASS** |
+| Lint | **PASS** |
+| Normal/F-Droid debug + release | **PASS** |
+| Instrumentación Android API 36 | **NOT_RUN** (sin dispositivo conectado) |
+| Capturas UI7 | **NOT_RUN** |
+
+### Archivos principales
+
+- `data/.../cache/Entities.kt`, `MichiDatabase.kt`, `TrackDao.kt`,
+  `CachedGenreMetadata.kt`
+- `data/.../repository/LocalMediaRepository.kt`,
+  `MediaStoreGenreProjectionPolicy.kt`, `SyncedTrackRepository.kt`,
+  `SyncGenreIdentityPolicy.kt`
+- `core/.../models/Models.kt`, `SyncModels.kt`
+- `app/.../ui/screens/SettingsScreen.kt`, `SettingsHubLanding.kt`,
+  `SettingsHubIndex.kt`, `SettingsIndexPolicy.kt`, `Settings*Panel.kt`,
+  `GenreLibraryPanel.kt`, `GenreEvidencePolicy.kt`, `GenreGroupingPolicy.kt`,
+  `AlbumsScreen.kt`
+- Tests de género, Settings, ReplayGain, migración y arquitectura.
+
+### KILLCRITIC
+
+- Sin shaders, blur nuevo, imágenes editoriales ni dependencias añadidas.
+- Sin IO de MediaStore en Main; el Flow de género es frío y solo vive con la
+  ruta de Géneros compuesta.
+- Sin duplicar ViewModels de Settings; los paneles son presentación y el hub
+  mantiene el estado de navegación.
+- Sin commits ni publicación.
+
+### Gates
+
+- **GO_CODE:** PASS en working tree; no publicado.
+- **GO_COMPILATION:** PASS (data/app, cuatro variantes).
+- **GO_ARCHITECTURE:** PASS.
+- **GO_UNIT_TESTS:** PASS.
+- **GO_LINT:** PASS.
+- **GO_INSTRUMENTATION:** **NOT_RUN**.
+- **GO_VISUAL:** **NOT_RUN** para UI7; faltan capturas de Géneros y Settings.
+- **GO_PHYSICAL:** **NOT_RUN**.
+- **GO_CI:** **NOT_RUN**.
+- **GO_RELEASE:** **NO-GO**.
+
+Avance de UI7: integración de código y compilación ~100 % de lo ejecutable;
+pruebas unitarias/lint/builds PASS; instrumentación, capturas y certificación
+física pendientes.

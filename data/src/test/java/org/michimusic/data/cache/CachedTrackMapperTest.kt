@@ -62,4 +62,22 @@ class CachedTrackMapperTest {
         assertEquals("safroot_42", saf.sourceId)
         assertEquals(TrackSource.LOCAL, saf.source)
     }
+
+    @Test
+    fun genreSurvivesCacheToDomainProjectionForAnyOwner() {
+        val local = CachedTrack(
+            id = "local-1",
+            title = "Local",
+            genre = "Jazz",
+        ).toTrack()
+        val remote = CachedTrack(
+            id = "remote-1",
+            title = "Remote",
+            sourceId = "peer-a",
+            genre = "Rock",
+        ).toTrack()
+
+        assertEquals("Jazz", local.genre)
+        assertEquals("Rock", remote.genre)
+    }
 }

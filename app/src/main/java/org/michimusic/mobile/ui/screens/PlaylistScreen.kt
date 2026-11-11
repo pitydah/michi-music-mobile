@@ -241,10 +241,7 @@ fun PlaylistScreen(
 
             if (playlists.isNotEmpty() && !isLoading) {
                 val pinnedCount = orderedPlaylists.count { visualById[it.id]?.pinned == true }
-                val summary = "${orderedPlaylists.size} " +
-                    if (orderedPlaylists.size == 1) "playlist" else "playlists" +
-                    if (pinnedCount > 0) " · $pinnedCount " +
-                        (if (pinnedCount == 1) "fijada" else "fijadas") else ""
+                val summary = playlistCatalogSummary(orderedPlaylists.size, pinnedCount)
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -346,7 +343,7 @@ fun PlaylistScreen(
                     item(key = "spotlight_${spotlight.id}", contentType = "spotlight") {
                         PlaylistCatalogSpotlight(
                             playlist = spotlight,
-                            visual = visualById[spotlight.id],
+                            visual = visualById[spotlight.id] ?: PlaylistVisualState(),
                             onOpen = { onNavigateToPlaylist(spotlight.id) },
                             actions = { playlistActions(spotlight) },
                         )
@@ -365,7 +362,7 @@ fun PlaylistScreen(
                         items(others, key = { "row_${it.id}" }, contentType = { "row" }) { playlist ->
                             PlaylistCatalogRow(
                                 playlist = playlist,
-                                visual = visualById[playlist.id],
+                                visual = visualById[playlist.id] ?: PlaylistVisualState(),
                                 onOpen = { onNavigateToPlaylist(playlist.id) },
                                 actions = { playlistActions(playlist) },
                             )

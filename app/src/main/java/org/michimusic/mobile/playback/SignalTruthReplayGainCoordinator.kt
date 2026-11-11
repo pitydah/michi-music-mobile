@@ -26,7 +26,10 @@ internal interface ReplayGainQuickStore {
     fun saveMode(mode: ReplayGainMode)
 }
 
-/** Testable coordinator, no Compose dependency and no direct manipulation of playback state. */
+/** Historic adapter retained for existing regression tests only.
+ * Production UI must use the serialized SettingsReplayGainGateway instead.
+ */
+@Deprecated("Legacy test compatibility only; use SettingsReplayGainGateway.shared(context) from production")
 internal class SignalTruthReplayGainCoordinator(
     private val engine: ReplayGainQuickEngine,
     private val store: ReplayGainQuickStore,

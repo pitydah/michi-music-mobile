@@ -25,6 +25,7 @@ val dataModule = module {
             MichiDatabase.MIGRATION_7_8,
             MichiDatabase.MIGRATION_8_9,
             MichiDatabase.MIGRATION_9_10,
+            MichiDatabase.MIGRATION_10_11,
         ).build()
     }
     single { get<MichiDatabase>().trackDao() }

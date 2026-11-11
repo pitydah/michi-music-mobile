@@ -69,6 +69,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.mobile.R
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -123,6 +125,7 @@ enum class LibraryTab(val displayName: String) {
     SONGS("Canciones"),
     ALBUMS("Álbumes"),
     ARTISTS("Artistas"),
+    GENRES("Géneros"),
 }
 
 enum class LibraryFilter(val displayName: String) {
@@ -170,6 +173,9 @@ fun AlbumsScreen(
     var viewMode by rememberSaveable { mutableStateOf(LibraryViewMode.MOSAIC) }
     var artistCardsMode by rememberSaveable { mutableStateOf(false) }
     var selectedArtistCard by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
+    // Keep genre exploration state while switching Biblioteca tabs, but reset it
+    // when the owning library scope changes (never bleed another owner's state).
+    val genreViewState = key(activeScope) { androidx.compose.runtime.saveable.rememberSaveableStateHolder() }
     // A library change must never inherit another scope's scroll index.
     val albumGridState = key(activeScope) { rememberLazyGridState() }
     val albumListState = key(activeScope) { rememberLazyListState() }
@@ -189,7 +195,11 @@ fun AlbumsScreen(
     // Only observe the full canonical library graph when Artistas is visible.
     // This also supports synced/registered artists when MediaStore is empty.
     var artistScopeRetry by remember { mutableIntStateOf(0) }
-    val scopedArtistCollection = if (selectedTab == LibraryTab.ARTISTS || selectedTab == LibraryTab.ALBUMS) {
+    val scopedArtistCollection = if (
+        selectedTab == LibraryTab.ARTISTS ||
+        selectedTab == LibraryTab.ALBUMS ||
+        selectedTab == LibraryTab.GENRES
+    ) {
         rememberArtistScopedCollection(
             localAlbums = albums,
             scope = activeScope,
@@ -382,15 +392,21 @@ fun AlbumsScreen(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 3.dp),
                     compact = true,
                 ) {
-                    LibraryTab.values().forEach { tab ->
-                        AeroSegmentedChoice(
-                            label = tab.displayName,
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
-                            modifier = Modifier.fillMaxWidth(),
-                            compact = true,
-                            testTag = "library_tab_${tab.name.lowercase()}",
-                        )
+                    // Four content categories form two rows on narrow screens and
+                    // large font scales. A four-item vertical stack hides the library.
+                    LibraryTab.values().toList().chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            pair.forEach { tab ->
+                                AeroSegmentedChoice(
+                                    label = tab.displayName,
+                                    selected = selectedTab == tab,
+                                    onClick = { selectedTab = tab },
+                                    modifier = Modifier.weight(1f),
+                                    compact = true,
+                                    testTag = "library_tab_${tab.name.lowercase()}",
+                                )
+                            }
+                        }
                     }
                 }
             } else {
@@ -1127,6 +1143,109 @@ fun AlbumsScreen(
                                     onSelectArtistCard = { selectedArtistCard = it },
                                     libraryScopeKey = activeScope,
                                 )
+                            }
+                        }
+                    }
+
+                    LibraryTab.GENRES -> {
+                        val scoped = scopedArtistCollection
+                        if (scoped?.errorMessage != null) {
+                            Column(Modifier.fillMaxSize().padding(20.dp)) {
+                                Text(scoped.errorMessage, color = TextSecondary)
+                                AeroActionButton("Reintentar biblioteca", onClick = { artistScopeRetry++ })
+                            }
+                        } else if (scoped == null || !scoped.ready) {
+                            Box(Modifier.fillMaxSize().testTag("genre_scope_loading"),
+                                contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = PrimaryPink)
+                            }
+                        } else if (scoped.albums.isEmpty() &&
+                            // Local MediaStore permissions cannot explain an empty remote ONE scope.
+                            // Only ALL or the canonical device library may display this panel.
+                            shouldShowGenreMediaStoreFailure(
+                                allScope = activeScope is org.michimusic.core.models.LibraryScope.All,
+                                selectedLibraryId = (activeScope as? org.michimusic.core.models.LibraryScope.One)?.libraryId,
+                                deviceLibraryId = org.michimusic.data.cache.MichiDatabase.DEFAULT_DEVICE_LIBRARY_ID,
+                            ) &&
+                            (mediaState == org.michimusic.mobile.screens.MediaLibraryState.PERMISSION_DENIED ||
+                                mediaState == org.michimusic.mobile.screens.MediaLibraryState.QUERY_ERROR)
+                        ) {
+                            Box(Modifier.fillMaxWidth().padding(20.dp)) {
+                                org.michimusic.mobile.ui.components.MediaTruthPanel(
+                                    state = mediaState,
+                                    onPermissionAvailable = { artistScopeRetry++; viewModel.loadMedia(forceRefresh = true) },
+                                    onRetry = { artistScopeRetry++; viewModel.loadMedia(forceRefresh = true) },
+                                )
+                            }
+                        } else {
+                            // Scope ownership is decisive: a different library cannot
+                            // inherit an old genre index while the new index is building.
+                            key(activeScope) {
+                                // A single cold Room flow prevents transient authorization
+                                // with an empty collision list while genre rows are loading.
+                                val genreDao: org.michimusic.data.cache.TrackDao = koinInject()
+                                val scopeOwner = (activeScope as? org.michimusic.core.models.LibraryScope.One)
+                                    ?.let { selected -> availableLibraries.firstOrNull { it.id == selected.libraryId }?.ownerId }
+                                val isAllScope = activeScope is org.michimusic.core.models.LibraryScope.All
+                                val genreLoad by androidx.compose.runtime.produceState<GenreIndexLoad>(
+                                    initialValue = GenreIndexLoad.Loading,
+                                    key1 = scoped.albums,
+                                    key2 = activeScope,
+                                    key3 = Pair(scopeOwner, artistScopeRetry),
+                                ) {
+                                    value = GenreIndexLoad.Loading
+                                    try {
+                                        genreDao.observeGenreEvidenceSnapshot()
+                                            .distinctUntilChanged()
+                                            .collectLatest { rows ->
+                                            // Hide outdated receipts while a new atomic snapshot indexes.
+                                            value = GenreIndexLoad.Loading
+                                            val index = kotlinx.coroutines.withContext(
+                                                kotlinx.coroutines.Dispatchers.Default,
+                                            ) {
+                                                val evidence = rows.map { row -> GenreOwnerEvidence(
+                                                    sourceId = row.sourceId, id = row.id,
+                                                    title = row.title, artist = row.artist,
+                                                    album = row.album, duration = row.duration,
+                                                    filepath = row.filepath, genre = row.genre,
+                                                ) }
+                                                buildGenreScopedIndex(scoped.albums.flatMap { it.tracks },
+                                                    evidence, scopeOwner, isAllScope)
+                                            }
+                                            value = GenreIndexLoad.Ready(index)
+                                        }
+                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        value = GenreIndexLoad.Failed
+                                    }
+                                }
+                                when (val current = genreLoad) {
+                                    GenreIndexLoad.Loading -> {
+                                        Box(Modifier.fillMaxSize().testTag("genres_indexing"),
+                                            contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(color = PrimaryPink)
+                                        }
+                                    }
+                                    GenreIndexLoad.Failed -> {
+                                        Column(Modifier.fillMaxSize().padding(20.dp)) {
+                                            Text("No se pudo leer el índice de géneros.", color = TextSecondary)
+                                            AeroActionButton("Reintentar géneros", onClick = { artistScopeRetry++ })
+                                        }
+                                    }
+                                    is GenreIndexLoad.Ready -> {
+                                        genreViewState.SaveableStateProvider("genre_panel") {
+                                            GenreLibraryPanel(
+                                                genres = current.index.genres,
+                                                playableTrackIds = scoped.playableTrackIds,
+                                                globallyBlockedTrackIds = current.index.blockedTrackIds,
+                                                currentTrack = currentTrack,
+                                                isPlaying = isPlaying,
+                                                onPlay = ::playQueueSafe,
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

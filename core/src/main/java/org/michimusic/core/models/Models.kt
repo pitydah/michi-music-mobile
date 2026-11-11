@@ -43,6 +43,8 @@ data class Track(
      * this value, never by the guest artist of each song.
      */
     val albumArtist: String = "",
+    /** Raw optional genre evidence; no taxonomy is inferred when metadata is absent. */
+    val genre: String = "",
 ) {
     /**
      * Normalized metadata signature fallback: "title|artist|album|duration_secs".

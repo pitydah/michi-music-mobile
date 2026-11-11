@@ -153,6 +153,7 @@ class SafMediaRepository(
                             artist = metadata.artist,
                             album = metadata.album,
                             albumArtist = metadata.albumArtist,
+                            genre = metadata.genre,
                             duration = metadata.duration,
                             size = if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L,
                             format = sourceFileExtension(childName)
@@ -321,6 +322,7 @@ class SafMediaRepository(
         val artist: String = "Unknown Artist",
         val album: String = "Unknown Album",
         val albumArtist: String = "",
+        val genre: String = "",
         val duration: Long = 0L,
     )
 
@@ -336,6 +338,7 @@ class SafMediaRepository(
                     ?.takeIf { it.isNotBlank() } ?: "Unknown Album",
                 albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
                     .orEmpty(),
+                genre = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE).orEmpty(),
                 duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
             )

@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -25,6 +26,7 @@ import org.michimusic.data.repository.MusicRoot
 import org.michimusic.mobile.ui.theme.AeroCoverFlowReflection
 import org.michimusic.mobile.ui.theme.VisualPreferences
 import org.michimusic.mobile.ui.theme.VisualPreferencesRepository
+import org.michimusic.mobile.playback.settingsReplayGainMode
 import org.michimusic.player.PlayerDependencies
 import org.michimusic.player.ReplayGainMode
 import org.robolectric.RobolectricTestRunner
@@ -41,11 +43,19 @@ class SettingsHierarchyTest {
     private val mockVisualRepo: VisualPreferencesRepository = mockk(relaxed = true)
     private val mockRootAuthority: MusicRootAuthority = mockk(relaxed = true)
     private val rgProcessor = org.michimusic.player.ReplayGainAudioProcessor()
+    private lateinit var context: android.content.Context
 
     @Before
     fun setup() {
         stopKoin()
         PlayerDependencies.replayGainProcessor = rgProcessor
+        PlayerDependencies.publishOutputAuthority("local_phone", true)
+        context = androidx.test.core.app.ApplicationProvider
+            .getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("replaygain_mode", ReplayGainMode.OFF.name)
+            .commit()
         io.mockk.coEvery { mockAppDao.getSetting("listening_history_enabled") } returns "true"
         every { mockVisualRepo.preferences } returns MutableStateFlow(VisualPreferences(reducedMotion = true))
         every { mockRootAuthority.currentRoot } returns MutableStateFlow(MusicRoot.Default)
@@ -99,7 +109,13 @@ class SettingsHierarchyTest {
         assertTrue(sections.contains("ACCESSIBILITY"))
         assertTrue(sections.contains("PRIVACY"))
         assertTrue(sections.contains("APPEARANCE"))
-        assertEquals(6, sections.size)
+        assertTrue(sections.contains("PLAYBACK"))
+        assertTrue(sections.contains("PROCESSING"))
+        assertTrue(sections.contains("AUDIO_OUTPUT"))
+        assertTrue(sections.contains("ECOSYSTEM"))
+        assertTrue(sections.contains("SYSTEM"))
+        assertTrue(sections.contains("ABOUT"))
+        assertEquals(12, sections.size)
     }
 
     @Test
@@ -145,17 +161,33 @@ class SettingsHierarchyTest {
         composeTestRule.onNodeWithTag("rg_mode_TRACK")
             .performScrollTo()
             .performClick()
-        composeTestRule.waitForIdle()
-
-        assertEquals(ReplayGainMode.TRACK, PlayerDependencies.replayGainMode)
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+                .getString("replaygain_mode", null) == ReplayGainMode.TRACK.name
+        }
+        assertEquals(
+            ReplayGainMode.TRACK,
+            settingsReplayGainMode(
+                context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+                    .getString("replaygain_mode", null),
+            ),
+        )
 
         // Scroll to and click "Desactivado" (OFF mode) via testTag
         composeTestRule.onNodeWithTag("rg_mode_OFF")
             .performScrollTo()
             .performClick()
-        composeTestRule.waitForIdle()
-
-        assertEquals(ReplayGainMode.OFF, PlayerDependencies.replayGainMode)
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+                .getString("replaygain_mode", null) == ReplayGainMode.OFF.name
+        }
+        assertEquals(
+            ReplayGainMode.OFF,
+            settingsReplayGainMode(
+                context.getSharedPreferences("michi_settings", android.content.Context.MODE_PRIVATE)
+                    .getString("replaygain_mode", null),
+            ),
+        )
     }
 
     @Test

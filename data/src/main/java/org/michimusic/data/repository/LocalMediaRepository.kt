@@ -356,36 +356,52 @@ open class LocalMediaRepository(
         // guessing from an empty cursor.
         if (!hasAudioPermission(ctx)) return MediaResult.PermissionDenied
         val primaryAudio = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val queryResult = MediaQueryDispatcher(
+        val baseColumns = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.TRACK,
+            MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.IS_RINGTONE,
+            MediaStore.Audio.Media.IS_ALARM,
+            MediaStore.Audio.Media.IS_NOTIFICATION,
+            MediaStore.Audio.Media.IS_PODCAST,
+            MediaStore.Audio.Media.IS_AUDIOBOOK,
+            MediaStore.Audio.Media.IS_RECORDING,
+            MediaStore.Audio.Media.RELATIVE_PATH,
+            MediaStore.Audio.Media.BUCKET_DISPLAY_NAME,
+        )
+        val requestsGenre = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+        val preferredColumns = if (requestsGenre) {
+            baseColumns + MediaStore.Audio.Media.GENRE
+        } else {
+            baseColumns
+        }
+        fun dispatch(columns: Array<String>) = MediaQueryDispatcher(
             ctx.contentResolver,
             primaryAudio,
         )
-            .withColumns(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.TITLE,
-                MediaStore.Audio.Media.ARTIST,
-                MediaStore.Audio.Media.ALBUM,
-                MediaStore.Audio.Media.ALBUM_ID,
-                MediaStore.Audio.Media.DURATION,
-                MediaStore.Audio.Media.TRACK,
-                MediaStore.Audio.Media.YEAR,
-                MediaStore.Audio.Media.SIZE,
-                MediaStore.Audio.Media.MIME_TYPE,
-                MediaStore.Audio.Media.DISPLAY_NAME,
-                MediaStore.Audio.Media.DATE_ADDED,
-                MediaStore.Audio.Media.IS_RINGTONE,
-                MediaStore.Audio.Media.IS_ALARM,
-                MediaStore.Audio.Media.IS_NOTIFICATION,
-                MediaStore.Audio.Media.IS_PODCAST,
-                MediaStore.Audio.Media.IS_AUDIOBOOK,
-                MediaStore.Audio.Media.IS_RECORDING,
-                MediaStore.Audio.Media.RELATIVE_PATH,
-                MediaStore.Audio.Media.BUCKET_DISPLAY_NAME,
-            )
+            .withColumns(*columns)
             .setSelection(mediaStoreMusicRootSelection(MediaStore.Audio.Media.RELATIVE_PATH))
             .addArgs(*MUSIC_ROOT_QUERY_ARGS)
             .setSortOrder(MediaStore.Audio.Media.TITLE + " ASC")
             .dispatchWithResult()
+
+        var queryResult = dispatch(preferredColumns)
+        var genreProjected = requestsGenre
+        if (shouldRetryGenreProjection(requestsGenre, queryResult)) {
+            // Some providers reject GENRE even on API 30+. Retry without it
+            // instead of presenting an empty library as a permission failure.
+            queryResult = dispatch(baseColumns)
+            genreProjected = false
+        }
 
         val cursor = when (queryResult) {
             is MediaResult.Success -> queryResult.data ?: return MediaResult.Success(emptyList())
@@ -436,6 +452,11 @@ open class LocalMediaRepository(
             val recordingCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_RECORDING)
             val relativePathCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.RELATIVE_PATH)
             val bucketCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.BUCKET_DISPLAY_NAME)
+            val genreCol = if (genreProjected) {
+                c.getColumnIndex(MediaStore.Audio.Media.GENRE)
+            } else {
+                -1
+            }
 
             while (c.moveToNext()) {
                 val id = c.getString(idCol) ?: continue
@@ -487,6 +508,7 @@ open class LocalMediaRepository(
                             format = (c.getString(mimeCol) ?: "").substringAfterLast("/"),
                             coverId = c.getString(albumIdCol) ?: "",
                             dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
+                            genre = if (genreCol >= 0) c.getString(genreCol).orEmpty() else "",
                             source = TrackSource.LOCAL,
                             sourceMimeType = c.getString(mimeCol).orEmpty(),
                             sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),

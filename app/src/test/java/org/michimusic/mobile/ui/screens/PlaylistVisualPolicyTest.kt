@@ -66,4 +66,25 @@ class PlaylistVisualPolicyTest {
             assertTrue(focal in 0f..1f)
         }
     }
+
+    @Test fun catalogSummaryKeepsPinnedCountForEveryCombination() {
+        assertEquals("0 playlists", playlistCatalogSummary(0, 0))
+        assertEquals("1 playlist", playlistCatalogSummary(1, 0))
+        assertEquals("1 playlist · 1 fijada", playlistCatalogSummary(1, 1))
+        assertEquals("2 playlists · 1 fijada", playlistCatalogSummary(2, 1))
+        assertEquals("5 playlists · 3 fijadas", playlistCatalogSummary(5, 3))
+        assertEquals("10 playlists", playlistCatalogSummary(10, 0))
+    }
+
+    @Test fun spotlightPolicyShrinksCoverAndAllowsTitleGrowthAtLargeFonts() {
+        assertEquals(80f, playlistSpotlightCoverSizeDp(320f, 2f), 0f)
+        assertEquals(80f, playlistSpotlightCoverSizeDp(360f, 1.5f), 0f)
+        assertEquals(88f, playlistSpotlightCoverSizeDp(393f, 1f), 0f)
+        assertEquals(88f, playlistSpotlightCoverSizeDp(Float.NaN, 1f), 0f)
+
+        assertEquals(3, playlistSpotlightTitleLines(320f, 2f))
+        assertEquals(3, playlistSpotlightTitleLines(360f, 1.5f))
+        assertEquals(2, playlistSpotlightTitleLines(393f, 1f))
+        assertEquals(3, playlistSpotlightTitleLines(393f, Float.NaN))
+    }
 }
