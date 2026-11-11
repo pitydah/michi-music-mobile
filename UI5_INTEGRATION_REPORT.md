@@ -1052,7 +1052,11 @@ aprobados.
 ## Michi Mobile UI5 / Signal Truth R20.1 — corrección acumulativa
 
 Base: `master@9dc783d3bebacb6bfeb1f59cb29d19866dbef768`.
-Cambios en working tree, **sin commit ni push**. El contrato ejecutado es
+Integración funcional publicada en
+`master@e8d72ab0d9fd730ee9ae88b91b318b4a3e073d35`; CI exacta
+`43004607631`: **8/8 PASS**, incluido Quality Gate. El APK Normal debug de ese
+código se instaló y lanzó en el teléfono físico `25010PN30G` (`26dfb91d`).
+El contrato ejecutado es
 `MICHI_MOBILE_UI5_OPENCODE_MEGA_PROMPT.md`; los ejemplos del documento se
 adaptaron a las firmas reales, no se copiaron como pseudocódigo.
 
@@ -1189,10 +1193,13 @@ HyperOS/lockscreen no se ejecutó en esta sesión.
 - **G8_ANDROID:** PASS. Unit, lint, builds e instrumentación ejecutados.
 - **G9_DEVICE:** NO-GO. Sin teléfono físico conectado.
 - **G10_RELEASE:** **NO-GO**.
-- **GO_CODE:** sí en working tree.
-- **GO_CI:** no aplica; no hay commit/push.
-- **GO_VISUAL:** parcial.
-- **GO_PHYSICAL:** no ejecutado en esta sesión.
+- **GO_CODE:** sí. Publicado en `master@e8d72ab0d9fd730ee9ae88b91b318b4a3e073d35`.
+- **GO_CI:** sí. La CI exacta `43004607631` pasó 8/8 jobs sobre `e8d72ab`.
+- **GO_VISUAL:** parcial; capturas reales de hero, cápsula, barras, continuo y
+  Signal Truth, sin matriz completa de anchos/fuentes ni HyperOS.
+- **GO_PHYSICAL:** parcial. APK Normal debug instalado y `MainActivity` iniciada
+  en `25010PN30G` (`26dfb91d`); no se ejecutaron pruebas físicas de audio,
+  controles, lockscreen ni HyperOS.
 - **GO_RELEASE:** **NO-GO**.
 
 ### Porcentajes honestos
