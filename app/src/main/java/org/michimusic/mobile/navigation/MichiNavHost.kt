@@ -290,7 +290,7 @@ fun MichiNavHost(
                         manifestPlaylists = wizardState.playlists,
                         serverCapabilities = wizardState.serverCapabilities,
                         serverRepresentations = wizardState.serverRepresentations,
-                        localFingerprints = wizardState.localFingerprints,
+                        localTrackEvidence = wizardState.localTrackEvidence,
                         existingPartials = wizardState.existingPartials,
                         isLoading = wizardState.isLoading,
                         errorMessage = wizardState.error,

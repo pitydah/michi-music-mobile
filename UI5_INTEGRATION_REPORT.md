@@ -686,3 +686,162 @@ físicos aplicables estén resueltos.
 HEAD auditado: `834b954fba87eafe639fefa408ddf03c054f9b89`; CI exacta
 `42738724425` **8/8 PASS**. Cualquier commit documental posterior solo cambia
 este informe y requiere su propia CI exacta.
+
+## KILLCRITIC QUALITY CLOSURE 02 — sync, procedencia, Playlists, Signal Truth y seekers
+
+Base: `master@c542181d0068ecffed6fd8b72631b08cd732de0a` (árbol limpio).
+Todos los cambios siguientes están en el working tree, **sin commit, push, PR ni release**.
+
+### SYNC-FINGERPRINT-02
+
+Causa raíz: `SyncPreflightService` recibía un `Set<String>` que mezclaba IDs con
+`título_artista_duración`; una coincidencia heurística podía producir
+`SKIP_ALREADY_EXISTS`.
+
+Solución implementada:
+
+- `SyncIdentityVerdict`: `IDENTICAL_VERIFIED`, `SAME_OWNER_REFERENCE`,
+  `POSSIBLE_DUPLICATE`, `DIFFERENT_SOURCE`, `CONTENT_MISMATCH`, `UNKNOWN`.
+- `LocalSyncTrackEvidence`: propietario, trackId, metadatos, tamaño, checksum,
+  ruta, verificación física y completitud.
+- `SyncIdentityPolicy`: solo `IDENTICAL_VERIFIED` omite la descarga. Exige
+  archivo físico, copia completa y una señal comparable (checksum coincidente o
+  tamaño coincidente). Un `trackId` de otro servidor es `DIFFERENT_SOURCE`; los
+  metadatos solos son `POSSIBLE_DUPLICATE`; ambos se descargan.
+- `SyncedTrackRepository.getDownloadedTrackEvidence(sourceId)` comprueba la
+  existencia física en `Dispatchers.IO`; no confía en la fila Room `downloaded`
+  ni calcula hashes en el hilo principal.
+- `SyncWizardScreen`, `SyncViewModel` y `MichiNavHost` consumen evidencia
+  estructurada. `SyncWorker` conserva su verificación física y de checksum antes
+  de omitir una pista.
+- Pruebas nuevas: mismo ID en otro servidor, metadatos idénticos con contenido
+  distinto, fila descargada con archivo desaparecido, checksum distinto, checksum
+  ausente con tamaño físico coincidente, tamaño físico distinto y reutilización
+  verificada. Las pruebas existentes de reanudación y almacenamiento se
+  adaptaron al contrato, sin ocultar regresiones.
+
+### TRACK-PROVENANCE-02
+
+- `Track` incorpora `sourceId` con valor por defecto, preservando serialización
+  histórica. `sourceId` identifica al propietario; `TrackSource` describe dónde
+  viven los bytes. No se colapsan.
+- `CachedTrack.toTrack()` conserva `sourceId` y clasifica: descargado → `SYNCED`;
+  raíz SAF/MediaStore (`safroot_`, `mediastore:`) → `LOCAL`; otro propietario no
+  descargado → `STREAMING`.
+- `LibraryProvider`, `MichiPlaybackService` y `SyncedTracksViewModel` conservan
+  el propietario. La reproducción remota usa el endpoint activo como `sourceId`.
+- Pruebas: SAF local, fila remota en streaming, fila sincronizada físicamente y
+  dimensiones independientes `sourceId`/`TrackSource`.
+
+### PL-EDITORIAL-02 y PL-HERO-FINAL-02
+
+- Catálogo: título 28/32 sp, contador 12–13 sp, separación título/contador 4 dp,
+  separación con contenido 16 dp; chip de orden 34 dp visible dentro de objetivo
+  de 48 dp; tarjetas de mínimo 92 dp, portada 64 dp, radio 11 dp, padding 12 dp,
+  título 16 sp semibold y contador 12 sp.
+- Gestión contextual: pulsación larga sobre la acción de reproducción abre
+  Renombrar, Fijar/Desfijar, Gestionar canciones y Eliminar. Se reutilizan los
+  diálogos y operaciones existentes; no se añadió un tercer bloque visual ni se
+  duplicó la reproducción.
+- Hero: fuera la placa y el `playlist_visual_tray`; el texto se apoya directamente
+  en un scrim vertical continuo (0 → 0.12 → 0.52) y una sombra suave. Alto
+  contraste usa una superficie continua. Radio 20 dp, altura mínima 220 dp,
+  portada 92/104 dp, padding 14 dp, etiqueta 10 sp, título 22/26 sp.
+- CTAs: Reproducir primario de 52 dp y peso 1; Mezclar `Quiet`, peso 0.55 y misma
+  altura táctil. Gestión de apariencia/renombrado/eliminación sigue en el menú
+  superior del detalle.
+- Filas compactas: portada 44 dp, padding vertical 10 dp, separación 6 dp,
+  padding horizontal 12 dp; título `bodyMedium` semibold y artista `bodySmall`.
+  El indicador activo depende de la reproducción observada.
+
+### ST-COMPACT-POPUP-02
+
+- `Dialog` + `AeroFloatingSurface`, radio 26 dp, anchura máxima 420 dp, márgenes
+  laterales 16 dp y verticales 24 dp.
+- Altura natural según contenido, con máximo 84 % del área útil; la cadena de
+  etapas pasa a una columna desplazable que solo scrollea cuando excede el alto.
+  Ya no se impone 82 % fijo.
+- Cabecera 19/23 sp, cierre con objetivo de 48 dp; resumen de ruta en superficie
+  Aero compacta; una sola etapa expandida por `stableId`; conectores sólidos solo
+  entre etapas con arista real.
+- Se conservan R18/R19, las diferencias declarado/configurado/observado/
+  confirmado/sin verificar y la autoridad de los controles.
+
+### NP-WAVE-AUTO-02 y AERO-CAPSULE-01
+
+- La clave de la envolvente incluye `sourceId`, ruta, tamaño, duración, origen y
+  host remoto. Cambiar de Barras a Continuo reutiliza la misma decodificación;
+  cambiar de pista cancela el trabajo anterior mediante `produceState`.
+- Solo se decodifica PCM local elegible, con duración válida y sin host remoto.
+  Alta contradicción usa Aero Original. Si no hay envolvente válida se muestra el
+  fallback original y un aviso discreto; nunca se inventan amplitudes.
+- Barras: líneas discretas, extremos redondeados, separación visible y reducción
+  determinista de picos; masa visible aproximada 26–28 dp.
+- Continuo: silueta cerrada con contorno superior/inferior y relleno; masa
+  aproximada 29 dp; progreso por máscara y playhead visual.
+- Aero Capsule conserva la clave persistida `LIQUID_GLASS`, etiqueta pública
+  “Aero Capsule”, rail de 9 dp, canal de 4 dp, thumb 12/14 dp y objetivo táctil
+  de 48 dp. `GradientProgressBar` sigue siendo la única autoridad de gestos,
+  semántica, testTag y seek.
+
+### Validación ejecutada
+
+| Comprobación | Resultado |
+|---|---|
+| `:core`, `:data`, `:player`, `:app` Normal/F-Droid y `:michi-link-client` unit tests | PASS |
+| `SyncPreflightServiceTest`, `SyncedTrackRepositoryTest`, `CachedTrackMapperTest`, `PlaylistTrackIdentityTest`, `PlaylistRepositoryTest` | PASS |
+| `PlaylistNoopRegressionTest` (incluye pulsación larga y renombrado) | PASS |
+| `PlaylistDetailScreenTest`, `PlaylistVisualPolicyTest`, `AeroSeekerStylePolicyTest` | PASS |
+| Lint | PASS |
+| Normal/F-Droid debug y release | PASS |
+| Instrumentación Normal API 36 | 93 tests, 0 fallos, 8 skipped |
+
+### Evidencia visual
+
+Capturas reales en `/tmp/opencode/closure02/`:
+
+- `06-playlists.png`: catálogo vacío.
+- `08-one-playlist.png`: catálogo con una colección.
+- `11-detail-populated.png`: detalle con cuatro canciones.
+- `18-detail-yellow-or-fallback.png`: banner amarillo real, sin placa ni borde
+  rectangular, con título y contador legibles sobre el scrim continuo.
+
+El AVD se desconectó al iniciar la reproducción antes de capturar el popup Signal
+Truth y los tres seekers en la pantalla real. Esas capturas **no existen** y no
+se declaran aprobadas. Tampoco se ejecutaron capturas a 320/480 dp, fuente 150/200 %
+ni contraste alto en esta sesión.
+
+### Medidas implementadas (desviaciones incluidas)
+
+| Elemento | Implementado | Objetivo | Desviación |
+|---|---|---|---|
+| Título catálogo | 28/32 sp | 27–29/31–33 | dentro |
+| Chip orden | 34 dp visible / 48 táctil | 34–38/48 | dentro |
+| Tarjeta catálogo | 92 dp, portada 64, radio 11 | 92–104/62–68/10–12 | dentro |
+| Hero | 220 dp, radio 20, portada 92/104 | 210–225/20–24/92–104 | dentro |
+| Título hero | 22/26 sp | 21–23/25–28 | dentro |
+| Filas | 64 dp efectivos, portada 44 | 64–72/40–44 | dentro |
+| Signal Truth | máx. 84 %, ancho máx. 420 | 80–84 %, 420 aprox. | dentro |
+| Barras | ~26–28 dp | 24–30 | dentro |
+| Continuo | ~29 dp | 26–32 | dentro |
+| Cápsula | rail 9/canal 4/thumb 12–14 | 7–10/3–5/12–14 | dentro |
+
+### Gates
+
+- **GO_IDENTITY:** sí para las rutas actuales; las referencias sin propietario
+  siguen sin resolverse.
+- **GO_SYNC:** sí para la política y las pruebas de colisión; falta una prueba
+  real con dos servidores, checksum y reanudación física.
+- **GO_LIBRARY_SAFETY:** sí en código y pruebas; no se encontraron borrados de
+  audio desde acciones de biblioteca.
+- **GO_PLAYLIST_VISUAL:** parcial. Catálogo, detalle poblado y banner amarillo
+  revisados; faltan 320/480 dp, fuente 150/200 %, contraste alto y banner oscuro.
+- **GO_SIGNAL_TRUTH_VISUAL:** pendiente de captura.
+- **GO_WAVEFORM_AUTO:** código y pruebas de política; falta captura real y prueba
+  con MP3/FLAC/SAF/inaccesible/remoto.
+- **GO_AERO_CAPSULE:** geometría y política; falta captura comparativa.
+- **GO_CODE:** sí en working tree.
+- **GO_CI:** pendiente; no hay commit ni push.
+- **GO_VISUAL:** pendiente.
+- **GO_PHYSICAL:** pendiente; el teléfono físico no está conectado.
+- **GO_RELEASE:** **NO-GO**.

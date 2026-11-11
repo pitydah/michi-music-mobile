@@ -62,7 +62,7 @@ data class WizardUiState(
     val availableStorageBytes: Long = 0L,
     val totalStorageBytes: Long = 0L,
     val currentLocalMusicBytes: Long = 0L,
-    val localFingerprints: Set<String> = emptySet(),
+    val localTrackEvidence: List<org.michimusic.core.models.LocalSyncTrackEvidence> = emptyList(),
     val existingPartials: Map<String, Long> = emptyMap(),
     val manifestVersion: Int = 1,
     val manifestChecksum: String = "",
@@ -1093,7 +1093,7 @@ class SyncViewModel(
                 val currentLocalMusicBytes = maxOf(dirBytes, dbBytes)
 
 
-                val localFingerprints = trackRepository.getDownloadedTrackFingerprints(targetDeviceId)
+                val localTrackEvidence = trackRepository.getDownloadedTrackEvidence(targetDeviceId)
                 val effectiveCheckpointRepo = checkpointRepository ?: org.michimusic.mobile.di.transferCheckpointRepository
                 val checkpoints = effectiveCheckpointRepo?.getCheckpointsForDevice(targetDeviceId) ?: emptyList()
                 val partials = checkpoints.filter { it.receivedBytes > 0 && it.transferState != org.michimusic.core.models.TransferStatus.COMPLETED }
@@ -1182,7 +1182,7 @@ class SyncViewModel(
                     availableStorageBytes = availableBytes,
                     totalStorageBytes = totalBytes,
                     currentLocalMusicBytes = currentLocalMusicBytes,
-                    localFingerprints = localFingerprints,
+                    localTrackEvidence = localTrackEvidence,
                     existingPartials = partials,
                     manifestVersion = manifestDto.version,
                     manifestChecksum = manifestDto.manifestId.ifEmpty { manifestDto.createdAt },

@@ -175,7 +175,7 @@ class EndToEndSyncFlowTest {
         )
 
         coEvery { trackRepository.getDownloadedBytes() } returns 100 * oneMb
-        coEvery { trackRepository.getDownloadedTrackFingerprints(any()) } returns emptySet()
+        coEvery { trackRepository.getDownloadedTrackEvidence(any()) } returns emptyList()
 
         checkpointRepo = mockk(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(any()) } returns emptyList()
@@ -249,7 +249,7 @@ class EndToEndSyncFlowTest {
             candidateTracks = catalogTracks,
             manifestPlaylists = catalogPlaylists,
             availableStorageBytes = 10_000 * oneMb,
-            localTrackFingerprints = emptySet(),
+            localTrackEvidence = emptyList(),
             existingPartials = emptyMap(),
         )
 
@@ -307,7 +307,7 @@ class EndToEndSyncFlowTest {
             candidateTracks = catalogTracks,
             manifestPlaylists = catalogPlaylists,
             availableStorageBytes = 10_000 * oneMb,
-            localTrackFingerprints = emptySet(),
+            localTrackEvidence = emptyList(),
             existingPartials = emptyMap(),
         )
 
@@ -379,7 +379,7 @@ class EndToEndSyncFlowTest {
             candidateTracks = catalogTracks,
             manifestPlaylists = catalogPlaylists,
             availableStorageBytes = 10_000 * oneMb,
-            localTrackFingerprints = emptySet(),
+            localTrackEvidence = emptyList(),
             existingPartials = emptyMap(),
         )
 

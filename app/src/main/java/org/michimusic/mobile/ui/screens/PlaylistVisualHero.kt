@@ -2,7 +2,6 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,7 +63,7 @@ internal fun PlaylistVisualHero(
     visual: PlaylistVisualState,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
     val coverSize = playlistHeroCoverSizeDp(
         LocalConfiguration.current.screenWidthDp.toFloat(),
     ).dp
@@ -169,64 +168,49 @@ internal fun PlaylistVisualHero(
                 }
             }
 
-            Box(
+            // Text sits directly on the continuous scrim. No plate, border,
+            // or secondary image edge may reveal a separate surface.
+            Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
-                    .testTag("playlist_visual_tray"),
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 9.dp),
             ) {
-                // Localized readability plate: graphite over the base image (and
-                // over the optional blur strip) keeps title/count legible. High
-                // contrast makes it fully opaque.
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 9.dp),
-                ) {
-                    Text(
-                        text = "PLAYLIST",
-                        color = PrimaryPinkContainer,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(AeroGraphite.copy(alpha = if (highContrast) 1f else 0.92f))
-                            .border(
-                                0.65.dp,
-                                PrimaryPinkContainer.copy(alpha = if (highContrast) 1f else 0.62f),
-                                RoundedCornerShape(6.dp),
-                            )
-                            .padding(horizontal = 7.dp, vertical = 3.dp),
-                    )
-                    Text(
-                        text = title,
-                        style = MichiTypography.sectionTitle.copy(
-                            fontSize = 22.sp,
-                            lineHeight = 26.sp,
-                            shadow = Shadow(
-                                color = Color.Black.copy(alpha = 0.60f),
-                                offset = Offset(0f, 1.5f),
-                                blurRadius = 5f,
-                            ),
+                Text(
+                    text = "PLAYLIST",
+                    color = PrimaryPinkContainer,
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                )
+                Text(
+                    text = title,
+                    style = MichiTypography.sectionTitle.copy(
+                        fontSize = 22.sp,
+                        lineHeight = 26.sp,
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.60f),
+                            offset = Offset(0f, 1.5f),
+                            blurRadius = 5f,
                         ),
-                        color = PureWhite,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .testTag("playlist_detail_title"),
-                    )
-                    Text(
-                        text = if (trackCount == 1) "1 canción" else "$trackCount canciones",
-                        style = MichiTypography.metadata,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("playlist_detail_track_count"),
-                    )
-                }
+                    ),
+                    color = PureWhite,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .testTag("playlist_detail_title"),
+                )
+                Text(
+                    text = if (trackCount == 1) "1 canción" else "$trackCount canciones",
+                    style = MichiTypography.metadata,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("playlist_detail_track_count"),
+                )
             }
         }
     }

@@ -2,7 +2,9 @@ package org.michimusic.core.sync
 
 import org.michimusic.core.models.DeliveryChoice
 import org.michimusic.core.models.IssueSeverity
+import org.michimusic.core.models.LocalSyncTrackEvidence
 import org.michimusic.core.models.ManifestTrack
+import org.michimusic.core.models.SyncIdentityVerdict
 import org.michimusic.core.models.SyncItemAction
 import org.michimusic.core.models.SyncItemDecision
 import org.michimusic.core.models.SyncPlan
@@ -27,7 +29,7 @@ class SyncPreflightService {
         availableStorageBytes: Long,
         candidateTracks: List<ManifestTrack>,
         manifestPlaylists: List<org.michimusic.core.models.ManifestPlaylist> = emptyList(),
-        localTrackFingerprints: Set<String> = emptySet(),
+        localTrackEvidence: List<LocalSyncTrackEvidence> = emptyList(),
         existingPartials: Map<String, Long> = emptyMap(),
         storageStatus: org.michimusic.core.models.StoragePreflightStatus = org.michimusic.core.models.StoragePreflightStatus.AVAILABLE,
         manifestVersion: Int = 1,
@@ -169,13 +171,21 @@ class SyncPreflightService {
             if (it.checksum.isNotEmpty()) it.checksum else it.trackId
         }
 
-        // 3. Classify each track into an action decision with realistic size estimation
+        // 3. Classify each track against physical, source-scoped evidence.
+        // Metadata or a bare ID never authorize SKIP_ALREADY_EXISTS.
         val decisions = dedupedTracks.map { track ->
-            val trackFingerprint = track.checksum.ifEmpty { "${track.title.trim().lowercase()}_${track.artist.trim().lowercase()}_${track.duration}" }
-            val alreadyLocal = localTrackFingerprints.contains(track.trackId) || localTrackFingerprints.contains(trackFingerprint)
+            val identity = SyncIdentityPolicy.classify(endpointId, track, localTrackEvidence)
             val estimatedFullBytes = estimateTrackDownloadBytes(track, deliveryChoice)
+            val identityReason = when (identity.verdict) {
+                SyncIdentityVerdict.IDENTICAL_VERIFIED -> "Ya existe una copia verificada de este servidor"
+                SyncIdentityVerdict.SAME_OWNER_REFERENCE -> "Referencia del mismo servidor sin archivo físico verificado"
+                SyncIdentityVerdict.POSSIBLE_DUPLICATE -> "Coincidencia de metadatos; no se omite la descarga"
+                SyncIdentityVerdict.DIFFERENT_SOURCE -> "El identificador pertenece a otra biblioteca; se descarga"
+                SyncIdentityVerdict.CONTENT_MISMATCH -> "El contenido local no coincide con el manifiesto; se descarga"
+                SyncIdentityVerdict.UNKNOWN -> null
+            }
 
-            if (alreadyLocal) {
+            if (identity.verdict == SyncIdentityVerdict.IDENTICAL_VERIFIED) {
                 SyncItemDecision(
                     trackId = track.trackId,
                     title = track.title,
@@ -184,7 +194,10 @@ class SyncPreflightService {
                     action = SyncItemAction.SKIP_ALREADY_EXISTS,
                     sourceSizeBytes = track.size,
                     estimatedDownloadBytes = 0L,
-                    reason = "Ya existe en la biblioteca local",
+                    localPath = identity.evidence?.filePath?.ifBlank { null },
+                    reason = identityReason,
+                    identity = identity.verdict,
+                    matchedSourceId = identity.matchedSourceId,
                 )
             } else {
                 val partialBytes = existingPartials[track.trackId]
@@ -199,6 +212,8 @@ class SyncPreflightService {
                         sourceSizeBytes = track.size,
                         estimatedDownloadBytes = remainingBytes,
                         reason = "Reanudando descarga (${StoragePreflightEvaluator.formatBytes(partialBytes)} existentes)",
+                        identity = identity.verdict,
+                        matchedSourceId = identity.matchedSourceId,
                     )
                 } else {
                     SyncItemDecision(
@@ -209,7 +224,9 @@ class SyncPreflightService {
                         action = SyncItemAction.DOWNLOAD,
                         sourceSizeBytes = track.size,
                         estimatedDownloadBytes = estimatedFullBytes,
-                        reason = "Nueva pista a sincronizar",
+                        reason = identityReason ?: "Nueva pista a sincronizar",
+                        identity = identity.verdict,
+                        matchedSourceId = identity.matchedSourceId,
                     )
                 }
             }

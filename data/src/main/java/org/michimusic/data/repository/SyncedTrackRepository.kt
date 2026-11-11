@@ -3,10 +3,14 @@ package org.michimusic.data.repository
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first as flowFirst
+import kotlinx.coroutines.withContext
+import org.michimusic.core.models.LocalSyncTrackEvidence
 import org.michimusic.core.models.ManifestPlaylist
 import org.michimusic.core.models.TrackDto
+import java.io.File
 import org.michimusic.data.cache.CachedPlaylist
 import org.michimusic.data.cache.LOCAL_SOURCE_ID
 import org.michimusic.data.cache.CachedTrack
@@ -85,18 +89,33 @@ open class SyncedTrackRepository(
             flow.flowFirst().sumOf { it.size }
         } ?: 0L
 
-    /** Fingerprints are also scoped: a global hit proves nothing about this peer. */
-    open suspend fun getDownloadedTrackFingerprints(sourceId: String): Set<String> =
+    /**
+     * Structured evidence for every downloaded row of [sourceId]. Physical
+     * existence is checked off the main thread; no hashing happens here.
+     */
+    open suspend fun getDownloadedTrackEvidence(sourceId: String): List<LocalSyncTrackEvidence> =
         trackDao?.getDownloadedTracksForSource(sourceId)?.let { flow ->
             val tracks = flow.flowFirst()
-            val ids = tracks.map { it.id }
-            val fingerprints = tracks.mapNotNull { trk ->
-                if (trk.title.isNotEmpty() && trk.artist.isNotEmpty()) {
-                    "${trk.title.trim().lowercase()}_${trk.artist.trim().lowercase()}_${trk.duration}"
-                } else null
+            withContext(Dispatchers.IO) {
+                tracks.map { trk ->
+                    val path = trk.filepath
+                    val file = path.takeIf { it.isNotBlank() }?.let(::File)
+                    val physicallyVerified = file?.isFile == true
+                    val physicalLength = if (physicallyVerified) file.length() else 0L
+                    LocalSyncTrackEvidence(
+                        sourceId = trk.sourceId,
+                        trackId = trk.id,
+                        title = trk.title,
+                        artist = trk.artist,
+                        duration = trk.duration,
+                        sizeBytes = if (physicallyVerified) physicalLength else trk.size,
+                        filePath = path,
+                        physicallyVerified = physicallyVerified,
+                        complete = physicallyVerified && physicalLength > 0,
+                    )
+                }
             }
-            (ids + fingerprints).toSet()
-        } ?: emptySet()
+        } ?: emptyList()
 
     open suspend fun count(): Int = trackDao?.count() ?: 0
 

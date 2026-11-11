@@ -25,6 +25,12 @@ data class Track(
     val replayGainTrack: Float = Float.NaN,
     val replayGainAlbum: Float = Float.NaN,
     val contentHash: String = "",
+    /**
+     * Library owner of this track. Empty is the local library; a non-empty
+     * value identifies the paired server or SAF root that owns the row.
+     * [source] describes where the bytes live, which is a separate dimension.
+     */
+    val sourceId: String = "",
     /** Verbatim provider MIME. Local runtime evidence; never part of Michi Link payloads. */
     @Transient val sourceMimeType: String = "",
     /** Lowercase extension from the provider display name, without a leading dot. */

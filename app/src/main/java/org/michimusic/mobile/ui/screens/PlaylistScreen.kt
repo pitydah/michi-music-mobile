@@ -1,8 +1,10 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
@@ -54,9 +57,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koin.androidx.compose.koinViewModel
+import org.michimusic.mobile.screens.PlaylistItem
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.CreatePlaylistDialog
+import org.michimusic.mobile.ui.components.DeletePlaylistDialog
+import org.michimusic.mobile.ui.components.RenamePlaylistDialog
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.theme.AeroFinish
 import org.michimusic.mobile.ui.theme.PrimaryPink
@@ -68,6 +74,7 @@ import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistScreen(
     onNavigateToPlaylist: (String) -> Unit = {},
@@ -80,7 +87,12 @@ fun PlaylistScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsStateWithLifecycle()
     val createPlaylistError by viewModel.createPlaylistError.collectAsStateWithLifecycle()
+    val isRenamingPlaylist by viewModel.isRenamingPlaylist.collectAsStateWithLifecycle()
+    val isDeletingPlaylist by viewModel.isDeletingPlaylist.collectAsStateWithLifecycle()
     var showCreateDialog by remember { mutableStateOf(false) }
+    var menuPlaylist by remember { mutableStateOf<PlaylistItem?>(null) }
+    var renameTarget by remember { mutableStateOf<PlaylistItem?>(null) }
+    var deleteTarget by remember { mutableStateOf<PlaylistItem?>(null) }
     val appContext = LocalContext.current.applicationContext
     val visualStore = remember(appContext) { PlaylistVisualStore(appContext) }
     val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
@@ -197,7 +209,7 @@ fun PlaylistScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
 
             if (isLoading) {
                 Box(
@@ -310,10 +322,14 @@ fun PlaylistScreen(
                                     }
                                 }
 
-                                MichiIconAction(
-                                    icon = Icons.Default.PlayArrow,
-                                    contentDescription = "Reproducir ${playlist.name}",
-                                    onClick = {
+                                Box {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(CircleShape)
+                                            .combinedClickable(
+                                                onLongClickLabel = "Gestionar playlist",
+                                                onClick = {
                                         if (sessionManager != null) {
                                             viewModel.playPlaylist(
                                                 playlist.id, audioController = audioController,
@@ -336,11 +352,47 @@ fun PlaylistScreen(
                                             viewModel.playPlaylist(playlist.id, audioController = audioController)
                                         }
                                     },
-                                    tint = PureWhite,
-                                    iconSize = 24.dp,
-                                    minTargetSize = MichiSpacing.minTouchTarget,
-                                    testTag = "playlist_play_${playlist.id}",
-                                )
+                                                onLongClick = { menuPlaylist = playlist },
+                                            )
+                                            .testTag("playlist_play_${playlist.id}"),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Default.PlayArrow,
+                                            contentDescription = "Reproducir ${playlist.name}. Mantén pulsado para gestionar.",
+                                            tint = PureWhite,
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    }
+                                    DropdownMenu(
+                                        expanded = menuPlaylist?.id == playlist.id,
+                                        onDismissRequest = { menuPlaylist = null },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Renombrar") },
+                                            onClick = { menuPlaylist = null; renameTarget = playlist },
+                                            modifier = Modifier.testTag("playlist_menu_rename_${playlist.id}"),
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(if (isPinned) "Desfijar" else "Fijar") },
+                                            onClick = {
+                                                menuPlaylist = null
+                                                visualScope.launch { visualStore.setPinned(playlist.id, !isPinned) }
+                                            },
+                                            modifier = Modifier.testTag("playlist_menu_pin_${playlist.id}"),
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Gestionar canciones") },
+                                            onClick = { menuPlaylist = null; onNavigateToPlaylist(playlist.id) },
+                                            modifier = Modifier.testTag("playlist_menu_manage_${playlist.id}"),
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Eliminar playlist") },
+                                            onClick = { menuPlaylist = null; deleteTarget = playlist },
+                                            modifier = Modifier.testTag("playlist_menu_delete_${playlist.id}"),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -350,6 +402,31 @@ fun PlaylistScreen(
                     }
                 }
             }
+        }
+
+        renameTarget?.let { target ->
+            RenamePlaylistDialog(
+                currentName = target.name,
+                isSaving = isRenamingPlaylist,
+                onConfirm = { newName ->
+                    viewModel.renamePlaylist(target.id, newName) { success ->
+                        if (success) renameTarget = null
+                    }
+                },
+                onDismiss = { if (!isRenamingPlaylist) renameTarget = null },
+            )
+        }
+
+        deleteTarget?.let { target ->
+            DeletePlaylistDialog(
+                isDeleting = isDeletingPlaylist,
+                onConfirm = {
+                    viewModel.deletePlaylist(target.id) { success ->
+                        if (success) deleteTarget = null
+                    }
+                },
+                onDismiss = { if (!isDeletingPlaylist) deleteTarget = null },
+            )
         }
 
         if (showCreateDialog) {

@@ -91,7 +91,7 @@ internal fun AeroSeekerTrack(
                     val cell = w / bins.size
                     bins.forEachIndexed { index, peak ->
                         val x = (index + 0.5f) * cell
-                        val half = (1.8.dp.toPx() + peak * 10.2.dp.toPx())
+                        val half = (1.8.dp.toPx() + peak * 12.2.dp.toPx())
                             .coerceAtMost(h * 0.44f)
                         drawLine(if (x <= playedWidth) MichiAuroraCyan else quiet,
                             Offset(x, y - half), Offset(x, y + half),
@@ -110,7 +110,7 @@ internal fun AeroSeekerTrack(
                     samples.forEachIndexed { i, raw ->
                         val x = i * step
                         val dy = (raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f) *
-                            12.5.dp.toPx().coerceAtMost(peakLimit)
+                            14.5.dp.toPx().coerceAtMost(peakLimit)
                         if (i == 0) {
                             path.moveTo(x, y - dy)
                             upperContour.moveTo(x, y - dy)
@@ -122,7 +122,7 @@ internal fun AeroSeekerTrack(
                     for (i in samples.lastIndex downTo 0) {
                         val raw = samples[i]
                         val dy = (raw.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f) *
-                            12.5.dp.toPx().coerceAtMost(peakLimit)
+                            14.5.dp.toPx().coerceAtMost(peakLimit)
                         path.lineTo(i * step, y + dy)
                     }
                     path.close()

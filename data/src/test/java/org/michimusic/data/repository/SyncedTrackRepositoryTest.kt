@@ -7,6 +7,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.core.models.ManifestPlaylist
@@ -102,5 +103,36 @@ class SyncedTrackRepositoryTest {
 
         assertEquals(setOf("t1"), repository.getDownloadedIds("peer-a"))
         assertEquals(emptySet<String>(), repository.getDownloadedIds("peer-b"))
+    }
+
+    @Test
+    fun `downloaded evidence verifies physical files and never trusts a stale row`() = runTest {
+        val real = java.nio.file.Files.createTempFile("michi-sync-evidence", ".flac")
+        java.nio.file.Files.write(real, ByteArray(2048))
+        try {
+            val present = CachedTrack(
+                id = "t1", title = "A", artist = "B", duration = 1000, size = 2048,
+                downloaded = true, filepath = real.toAbsolutePath().toString(), sourceId = "peer-a",
+            )
+            val missing = CachedTrack(
+                id = "t2", title = "C", artist = "D", duration = 1000, size = 4096,
+                downloaded = true, filepath = "/missing/michi-sync.flac", sourceId = "peer-a",
+            )
+            every { mockTrackDao.getDownloadedTracksForSource("peer-a") } returns
+                flowOf(listOf(present, missing))
+
+            val evidence = repository.getDownloadedTrackEvidence("peer-a")
+            val verified = evidence.first { it.trackId == "t1" }
+            assertTrue(verified.physicallyVerified)
+            assertTrue(verified.complete)
+            assertEquals(2048L, verified.sizeBytes)
+            assertEquals("peer-a", verified.sourceId)
+
+            val stale = evidence.first { it.trackId == "t2" }
+            assertFalse(stale.physicallyVerified)
+            assertFalse(stale.complete)
+        } finally {
+            java.nio.file.Files.deleteIfExists(real)
+        }
     }
 }

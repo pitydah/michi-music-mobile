@@ -468,6 +468,7 @@ class PlaybackSessionManager(
                 duration = dto.effectiveDuration,
                 coverId = dto.effectiveCoverId,
                 source = TrackSource.STREAMING,
+                sourceId = deviceId,
             )
         } else null
 
@@ -481,6 +482,7 @@ class PlaybackSessionManager(
                 duration = qt.duration,
                 filepath = if (baseUrl.isNotEmpty()) "$baseUrl/api/v1/stream/${qt.trackId}" else "",
                 source = TrackSource.STREAMING,
+                sourceId = deviceId,
             )
         } ?: emptyList()
 
@@ -1230,7 +1232,7 @@ class PlaybackSessionManager(
                     val observed = runCatching { client?.getQueue()?.getOrNull() }.getOrNull()
                     if (!stillCurrent()) return@launch
                     if (observed != null) {
-                        val tracks = observed.tracks.map { it.toDomainTrack() }
+                        val tracks = observed.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                         val observedIndex = observed.currentIndex.takeIf { it in tracks.indices } ?: -1
                         _sessionState.value = _sessionState.value.copy(
                             queue = tracks,
@@ -1326,7 +1328,7 @@ class PlaybackSessionManager(
                         var queueErr = ""
                         client.getQueue().onSuccess { qDto ->
                             if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                                val tracks = qDto.tracks.map { it.toDomainTrack() }
+                                val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                                 _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                             }
                             queueSynced = true
@@ -1377,7 +1379,7 @@ class PlaybackSessionManager(
                         val st = stRes.getOrThrow()
                         val q = qRes.getOrThrow()
                         if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                            val tracks = q.tracks.map { it.toDomainTrack() }
+                            val tracks = q.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                             val current = tracks.getOrNull(st.queueIndex)
                             _sessionState.value = _sessionState.value.copy(
                                 currentTrack = current,
@@ -1567,7 +1569,7 @@ class PlaybackSessionManager(
                     return QueuePlaybackOutcome.Failed(opId, activeEp.id, tracks.size, validIndex, opEpoch,
                         "No se pudo comprobar el estado actual de la cola remota; no se ha enviado ninguna modificación")
                 }
-                val qTracks = freshQ.tracks.map { it.toDomainTrack() }
+                val qTracks = freshQ.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                 _sessionState.value = _sessionState.value.copy(
                     currentTrack = qTracks.getOrNull(freshSt.queueIndex),
                     isPlaying = freshSt.playing,
@@ -1709,7 +1711,7 @@ class PlaybackSessionManager(
             }
 
             val isAppend = confirmedAction == RemoteQueueAction.APPEND
-            val finalTracks = if (isAppend) liveQ.tracks.map { it.toDomainTrack() } + tracks else tracks
+            val finalTracks = if (isAppend) liveQ.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) } + tracks else tracks
             val finalIndex = if (isAppend) {
                 liveSt.queueIndex.coerceIn(0, (finalTracks.size - 1).coerceAtLeast(0))
             } else validIndex
@@ -1819,7 +1821,7 @@ class PlaybackSessionManager(
                 val q = qRes.getOrNull()
 
                 if (st != null && q != null && isQueuePlaybackCurrent(opId, opEpoch, activeEp.id)) {
-                    val qTracks = q.tracks.map { it.toDomainTrack() }
+                    val qTracks = q.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                     val current = qTracks.getOrNull(st.queueIndex)
                     _sessionState.value = _sessionState.value.copy(
                         currentTrack = current,
@@ -1983,7 +1985,7 @@ class PlaybackSessionManager(
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
                         if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                             _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                         }
                         queueSynced = true
@@ -2029,7 +2031,7 @@ class PlaybackSessionManager(
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
                         if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                             _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                         }
                         queueSynced = true
@@ -2075,7 +2077,7 @@ class PlaybackSessionManager(
                     var queueErr = ""
                     client.getQueue().onSuccess { qDto ->
                         if (_sessionState.value.activeEndpoint.id == targetEndpoint.id && opEpoch == _sessionEpoch.get()) {
-                            val tracks = qDto.tracks.map { it.toDomainTrack() }
+                            val tracks = qDto.tracks.map { it.toDomainTrack(_sessionState.value.activeEndpoint.id) }
                             _sessionState.value = _sessionState.value.copy(queue = tracks, queueIndex = qDto.currentIndex)
                         }
                         queueSynced = true
@@ -2366,7 +2368,7 @@ class PlaybackSessionManager(
     fun getRtpMetrics(): org.michimusic.link.rtp.RtpMetrics = rtpAudioSender.getMetrics()
 }
 
-private fun org.michimusic.link.dto.QueueTrackDto.toDomainTrack(): Track {
+private fun org.michimusic.link.dto.QueueTrackDto.toDomainTrack(sourceId: String = ""): Track {
     return Track(
         id = trackId,
         title = title,
@@ -2375,5 +2377,6 @@ private fun org.michimusic.link.dto.QueueTrackDto.toDomainTrack(): Track {
         duration = duration,
         coverId = coverId,
         source = TrackSource.STREAMING,
+        sourceId = sourceId,
     )
 }

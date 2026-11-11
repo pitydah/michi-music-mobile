@@ -430,4 +430,11 @@ private fun org.michimusic.data.cache.CachedTrack.toTrack(): Track = Track(
     trackNumber = trackNumber,
     year = year,
     filepath = filepath,
+    source = when {
+        downloaded -> TrackSource.SYNCED
+        org.michimusic.data.cache.isLocalLibrarySource(sourceId) -> TrackSource.LOCAL
+        sourceId.isNotEmpty() -> TrackSource.STREAMING
+        else -> TrackSource.LOCAL
+    },
+    sourceId = sourceId,
 )

@@ -6,7 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.michimusic.core.models.DeliveryChoice
 import org.michimusic.core.models.DeliveryProfile
+import org.michimusic.core.models.LocalSyncTrackEvidence
 import org.michimusic.core.models.ManifestTrack
+import org.michimusic.core.models.SyncIdentityVerdict
 import org.michimusic.core.models.SyncItemAction
 import org.michimusic.core.models.SyncPreflightStatus
 import org.michimusic.core.models.SyncScope
@@ -44,6 +46,22 @@ class SyncPreflightServiceTest {
         checksum = "hash-3",
     )
 
+    private fun verified(vararg tracks: ManifestTrack, sourceId: String = "ep-1") = tracks.map {
+        LocalSyncTrackEvidence(
+            sourceId = sourceId,
+            trackId = it.trackId,
+            title = it.title,
+            artist = it.artist,
+            duration = it.duration.toLong(),
+            sizeBytes = it.size,
+            checksum = it.checksum,
+            checksumVerified = it.checksum.isNotEmpty(),
+            filePath = "/music/${it.trackId}.flac",
+            physicallyVerified = true,
+            complete = true,
+        )
+    }
+
     @Test
     fun emptySelection_blocksWithEmptyStatus() {
         val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = emptySet())
@@ -69,8 +87,8 @@ class SyncPreflightServiceTest {
             trackIds = setOf("trk-1", "trk-2", "trk-3")
         )
 
-        // trk-1 is already in local library
-        val localFingerprints = setOf("trk-1")
+        // trk-1 has a physically verified copy owned by this same server
+        val localEvidence = verified(trackA)
 
         // trk-2 has 4 MB in .part file
         val partials = mapOf("trk-2" to 4 * oneMb)
@@ -82,7 +100,7 @@ class SyncPreflightServiceTest {
             deliveryChoice = DeliveryChoice(profile = DeliveryProfile.ORIGINAL),
             availableStorageBytes = 1000 * oneMb,
             candidateTracks = listOf(trackA, trackB, trackC, trackA), // duplicates trackA
-            localTrackFingerprints = localFingerprints,
+            localTrackEvidence = localEvidence,
             existingPartials = partials,
         )
 
@@ -98,6 +116,7 @@ class SyncPreflightServiceTest {
 
         val item1 = plan.items.first { it.trackId == "trk-1" }
         assertEquals(SyncItemAction.SKIP_ALREADY_EXISTS, item1.action)
+        assertEquals(SyncIdentityVerdict.IDENTICAL_VERIFIED, item1.identity)
         assertEquals(0L, item1.estimatedDownloadBytes)
 
         val item2 = plan.items.first { it.trackId == "trk-2" }
@@ -112,7 +131,7 @@ class SyncPreflightServiceTest {
     @Test
     fun allTracksAlreadySynced_emitsWarningAndZeroDownloadBytes() {
         val selection = SyncSelection(scope = SyncScope.FULL_LIBRARY)
-        val localFingerprints = setOf("trk-1", "trk-2", "trk-3")
+        val localEvidence = verified(trackA, trackB, trackC)
 
         val plan = service.buildPlan(
             endpointId = "ep-1",
@@ -121,7 +140,7 @@ class SyncPreflightServiceTest {
             deliveryChoice = DeliveryChoice(),
             availableStorageBytes = 1000 * oneMb,
             candidateTracks = listOf(trackA, trackB, trackC),
-            localTrackFingerprints = localFingerprints,
+            localTrackEvidence = localEvidence,
         )
 
         assertEquals(3, plan.totalSelectedTracks)
@@ -243,5 +262,140 @@ class SyncPreflightServiceTest {
         val expectedTranscodedBytes = 200L * 32_000L
         assertEquals(expectedTranscodedBytes, plan.totalDownloadBytes)
         assertEquals(expectedTranscodedBytes, plan.items.first().estimatedDownloadBytes)
+    }
+
+    @Test
+    fun sameTrackIdFromAnotherServer_isDifferentSourceAndNeverSkipped() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val foreign = verified(trackA, sourceId = "ep-2").single()
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(foreign),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.DIFFERENT_SOURCE, item.identity)
+        assertEquals("ep-2", item.matchedSourceId)
+        assertEquals(1, plan.tracksToDownloadCount)
+    }
+
+    @Test
+    fun metadataOnlyMatch_isPossibleDuplicateAndNeverSkipped() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val metadataOnly = LocalSyncTrackEvidence(
+            sourceId = "ep-2",
+            trackId = "different-id",
+            title = trackA.title,
+            artist = trackA.artist,
+            duration = 0,
+            sizeBytes = 10 * oneMb,
+            filePath = "/music/other.flac",
+            physicallyVerified = true,
+            complete = true,
+        )
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(metadataOnly),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.POSSIBLE_DUPLICATE, item.identity)
+    }
+
+    @Test
+    fun downloadedRowWithMissingPhysicalFile_isNotVerifiedAndDownloadsAgain() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val missingFile = verified(trackA).single().copy(
+            physicallyVerified = false,
+            complete = false,
+        )
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(missingFile),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.SAME_OWNER_REFERENCE, item.identity)
+    }
+
+    @Test
+    fun checksumMismatch_downloadsInsteadOfSkipping() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val mismatch = verified(trackA).single().copy(checksum = "different-content")
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(mismatch),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.CONTENT_MISMATCH, item.identity)
+    }
+
+    @Test
+    fun verifiedPhysicalSizeMatch_isReusedEvenWithoutChecksum() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val noChecksum = verified(trackA).single().copy(checksum = "")
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(noChecksum),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.SKIP_ALREADY_EXISTS, item.action)
+        assertEquals(SyncIdentityVerdict.IDENTICAL_VERIFIED, item.identity)
+    }
+
+    @Test
+    fun physicalSizeMismatch_downloadsAndReportsContentMismatch() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val wrongSize = verified(trackA).single().copy(sizeBytes = 9 * oneMb)
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(wrongSize),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.CONTENT_MISMATCH, item.identity)
     }
 }

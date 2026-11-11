@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.pluralStringResource
 import org.michimusic.core.models.DeliveryProfile
 import org.michimusic.core.models.IssueSeverity
+import org.michimusic.core.models.LocalSyncTrackEvidence
 import org.michimusic.core.models.ManifestPlaylist
 import org.michimusic.core.models.ManifestTrack
 import org.michimusic.core.models.ProfileAvailability
@@ -109,7 +110,7 @@ fun SyncWizardScreen(
     manifestPlaylists: List<ManifestPlaylist> = emptyList(),
     serverCapabilities: Set<String> = emptySet(),
     serverRepresentations: List<String> = emptyList(),
-    localFingerprints: Set<String> = emptySet(),
+    localTrackEvidence: List<LocalSyncTrackEvidence> = emptyList(),
     existingPartials: Map<String, Long> = emptyMap(),
     isLoading: Boolean = false,
     errorMessage: String? = null,
@@ -153,7 +154,7 @@ fun SyncWizardScreen(
         SyncProfileNegotiator.resolveDeliveryChoice(selectedProfile, serverCapabilities, serverRepresentations)
     }
 
-    val syncPlan = remember(currentSelection, deliveryChoice, availableStorageBytes, candidateTracks, manifestPlaylists, localFingerprints, existingPartials) {
+    val syncPlan = remember(currentSelection, deliveryChoice, availableStorageBytes, candidateTracks, manifestPlaylists, localTrackEvidence, existingPartials) {
         preflightService.buildPlan(
             endpointId = endpointId,
             endpointName = endpointName,
@@ -162,7 +163,7 @@ fun SyncWizardScreen(
             availableStorageBytes = availableStorageBytes,
             candidateTracks = candidateTracks,
             manifestPlaylists = manifestPlaylists,
-            localTrackFingerprints = localFingerprints,
+            localTrackEvidence = localTrackEvidence,
             existingPartials = existingPartials,
         )
     }

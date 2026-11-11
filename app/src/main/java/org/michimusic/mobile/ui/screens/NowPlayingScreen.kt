@@ -164,7 +164,8 @@ fun NowPlayingScreen(
         seekerStyle == AeroSeekerStyle.WAVEFORM_CONTINUOUS
     val remoteHost = presentation.isRemoteActive && !presentation.isStreamReceiver
     val waveformKey = listOf(
-        currentTrack?.id.orEmpty(), currentTrack?.filepath.orEmpty(),
+        currentTrack?.id.orEmpty(), currentTrack?.sourceId.orEmpty(),
+        currentTrack?.filepath.orEmpty(),
         currentTrack?.size.toString(), currentTrack?.duration.toString(),
         presentation.duration.toString(),
         currentTrack?.source.toString(), remoteHost.toString(),
@@ -183,8 +184,11 @@ fun NowPlayingScreen(
                 streamingSource = track.source == org.michimusic.core.models.TrackSource.STREAMING,
                 remoteHost = remoteHost,
             )
-            val durationMs = track.duration.takeIf { it > 0 } ?: presentation.duration
-            path?.let { LocalWaveformDecoder.load(contextForWaveform, it, durationMs) }
+            val durationMs = (track.duration.takeIf { it > 0 } ?: presentation.duration)
+                .takeIf { it > 0 } ?: 0L
+            path?.takeIf { durationMs > 0 }?.let {
+                LocalWaveformDecoder.load(contextForWaveform, it, durationMs)
+            }
         } else null
         value = SeekerWaveformState(waveformKey, amplitudes, settled = true)
     }

@@ -42,6 +42,7 @@ class SyncedTracksViewModel(
         year = cached.year,
         filepath = cached.filepath,
         source = TrackSource.SYNCED,
+        sourceId = cached.sourceId,
     )
 
     suspend fun getPlayableTracks(): List<Track> = try {

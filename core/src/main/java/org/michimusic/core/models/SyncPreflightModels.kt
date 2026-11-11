@@ -62,6 +62,51 @@ enum class SyncItemAction {
     BLOCKED_UNSUPPORTED
 }
 
+/**
+ * Evidence class for a local copy that could satisfy a remote manifest entry.
+ * Only [IDENTICAL_VERIFIED] proves that omitting the download is safe.
+ */
+@Serializable
+enum class SyncIdentityVerdict {
+    /** Same owner and track, with a physically verified, equivalent local copy. */
+    IDENTICAL_VERIFIED,
+
+    /** Same owner and track, but integrity or physical availability is not proven. */
+    SAME_OWNER_REFERENCE,
+
+    /** Metadata coincidence only. Never sufficient to skip a download. */
+    POSSIBLE_DUPLICATE,
+
+    /** The same track ID exists under a different library owner. */
+    DIFFERENT_SOURCE,
+
+    /** Same owner and ID, but size or checksum prove the content differs. */
+    CONTENT_MISMATCH,
+
+    /** Not enough evidence to classify the local copy. */
+    UNKNOWN,
+}
+
+/**
+ * Physical and ownership evidence supplied by the local library. This is
+ * deliberately not a fingerprint string: metadata can never prove binary
+ * identity.
+ */
+@Serializable
+data class LocalSyncTrackEvidence(
+    val sourceId: String,
+    val trackId: String,
+    val title: String = "",
+    val artist: String = "",
+    val duration: Long = 0,
+    val sizeBytes: Long = 0,
+    val checksum: String = "",
+    val checksumVerified: Boolean = false,
+    val filePath: String = "",
+    val physicallyVerified: Boolean = false,
+    val complete: Boolean = false,
+)
+
 @Serializable
 data class SyncItemDecision(
     val trackId: String,
@@ -73,6 +118,8 @@ data class SyncItemDecision(
     val estimatedDownloadBytes: Long,
     val localPath: String? = null,
     val reason: String? = null,
+    val identity: SyncIdentityVerdict = SyncIdentityVerdict.UNKNOWN,
+    val matchedSourceId: String = "",
 )
 
 @Serializable
