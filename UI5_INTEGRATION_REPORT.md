@@ -1293,8 +1293,9 @@ masa relativamente plana. No se generaron picos artificiales para «mejorarlo».
 ### Auditoría correctiva R20.2 (post-integración)
 
 Base de esta pasada: `master@3205f92c5520a7312d7c8c4565b498c98711c36b`;
-HEAD funcional `8577f70`. Los cambios correctivos están en **working tree, sin
-commit ni push**.
+HEAD funcional previo `8577f70`. Las correcciones correctivas se publicaron en
+`master@60caeb9cbbce5bbd20ff06c6bde31c29b9f9df0c`; CI exacta `43081366576`:
+**8/8 PASS**, incluido Quality Gate.
 
 #### Defectos corregidos
 
@@ -1393,11 +1394,11 @@ R30 integrados en este checkout; no se aplicó R30.
 - **G9_VISUAL:** parcial; 320/393 dp capturados, faltan 360/412/600, fuentes
   1.3/1.5/2.0, contraste alto y gesto real de reordenación.
 - **G10_PHYSICAL:** NOT_RUN; sin teléfono conectado.
-- **GO_CODE:** PASS para el código funcional publicado en
-  `master@8577f707d2baecb1215b4f151eba80242ae65db7`; las correcciones
-  correctivas de esta pasada están en working tree sobre `3205f92`, sin commit.
-- **GO_CI:** PASS para `8577f70` (run `43073057970`, 8/8). Las correcciones
-  correctivas no tienen CI propia porque no se publicaron.
+- **GO_CODE:** PASS. Código funcional R20.2 en
+  `master@8577f707d2baecb1215b4f151eba80242ae65db7`; correcciones correctivas
+  publicadas en `master@60caeb9cbbce5bbd20ff06c6bde31c29b9f9df0c`.
+- **GO_CI:** PASS. `8577f70` pasó `43073057970` (8/8) y `60caeb9` pasó
+  `43081366576` (8/8), ambos con Quality Gate.
 - **GO_RELEASE:** **NO-GO**.
 
 ### Porcentajes honestos
