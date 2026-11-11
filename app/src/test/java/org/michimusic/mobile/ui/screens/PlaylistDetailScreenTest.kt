@@ -1,5 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -17,6 +19,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.Density
 import io.mockk.mockk
 import io.mockk.verify
 import java.io.ByteArrayInputStream
@@ -1296,6 +1299,109 @@ class PlaylistDetailScreenTest {
         composeTestRule.onAllNodesWithTag("playlist_visual_editor").assertCountEquals(0)
         assertFalse(prefs.contains(playlistVisualKey("p1", "cover_focal_x")))
         assertFalse(prefs.contains(playlistVisualKey("p1", "banner_scale")))
+    }
+
+    @Test
+    @Config(
+        sdk = [33],
+        application = android.app.Application::class,
+        qualifiers = "w320dp-h470dp",
+    )
+    fun `very compact viewport keeps 100 tracks reachable at 2x font`() {
+        val tracks = (1..100).map { Track(id = "t$it", title = "Track $it") }
+        val viewModel = viewModelWithPlaylist(
+            Playlist(
+                id = "p1",
+                name = "Cien canciones",
+                trackIds = tracks.map { it.id },
+                trackCount = tracks.size,
+            ),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                PlaylistDetailScreen(
+                    playlistId = "p1",
+                    onBack = {},
+                    viewModel = viewModel,
+                    audioController = mockk(relaxed = true),
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_visual_identity").assertExists()
+        composeTestRule.onNodeWithTag("playlist_detail_track_list").assertIsDisplayed()
+        scrollToTrack("playlist_detail_track_t100")
+        composeTestRule.onNodeWithText("Track 100").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(
+        sdk = [33],
+        application = android.app.Application::class,
+        qualifiers = "w360dp-h640dp",
+    )
+    fun `360 dp with 1 5x font keeps 100 tracks reachable`() {
+        val tracks = (1..100).map { Track(id = "t$it", title = "Track $it") }
+        val viewModel = viewModelWithPlaylist(
+            Playlist(
+                id = "p1",
+                name = "Fuente grande",
+                trackIds = tracks.map { it.id },
+                trackCount = tracks.size,
+            ),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.5f)) {
+                PlaylistDetailScreen(
+                    playlistId = "p1",
+                    onBack = {},
+                    viewModel = viewModel,
+                    audioController = mockk(relaxed = true),
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_list").assertIsDisplayed()
+        scrollToTrack("playlist_detail_track_t100")
+        composeTestRule.onNodeWithText("Track 100").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(
+        sdk = [33],
+        application = android.app.Application::class,
+        qualifiers = "w470dp-h320dp",
+    )
+    fun `landscape viewport keeps the track list reachable`() {
+        val tracks = (1..40).map { Track(id = "t$it", title = "Track $it") }
+        val viewModel = viewModelWithPlaylist(
+            Playlist(
+                id = "p1",
+                name = "Landscape",
+                trackIds = tracks.map { it.id },
+                trackCount = tracks.size,
+            ),
+            tracks = tracks,
+        )
+
+        composeTestRule.setContent {
+            PlaylistDetailScreen(
+                playlistId = "p1",
+                onBack = {},
+                viewModel = viewModel,
+                audioController = mockk(relaxed = true),
+            )
+        }
+
+        composeTestRule.onNodeWithTag("playlist_detail_track_list").assertIsDisplayed()
+        scrollToTrack("playlist_detail_track_t40")
+        composeTestRule.onNodeWithText("Track 40").assertIsDisplayed()
     }
 
     @Test

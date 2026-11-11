@@ -1290,39 +1290,123 @@ En `/tmp/opencode/r202/`:
 La pista MP3 de prueba es una mezcla comprimida: el Continuo se ve como una
 masa relativamente plana. No se generaron picos artificiales para «mejorarlo».
 
+### Auditoría correctiva R20.2 (post-integración)
+
+Base de esta pasada: `master@3205f92c5520a7312d7c8c4565b498c98711c36b`;
+HEAD funcional `8577f70`. Los cambios correctivos están en **working tree, sin
+commit ni push**.
+
+#### Defectos corregidos
+
+1. **Sync-SHA-256:** `SyncedTrackRepository` reutilizaba un registro con
+   `verifiedAlgorithm` vacío o desconocido asignándole `"sha256"` por fallback.
+   Ahora `recordedValid` exige `verifiedAlgorithm == "sha256"`; un registro
+   legacy se rehasha y se persiste con algoritmo explícito. Se añadieron pruebas
+   de algoritmo vacío, `md5`, archivo modificado, tamaño distinto y aislamiento
+   por `sourceId`.
+2. **Playlists en viewports extremos:** con 320×470@2× o landscape el chrome
+   fijo podía consumir toda la altura. Se añadió `veryCompact = maxHeight < 520.dp`;
+   el hero baja a 120 dp y hero/acciones/cabecera pasan a ser el primer ítem de
+   la misma `LazyColumn` (`headerContent`), con una sola autoridad de scroll. El
+   drag descuenta `headerItemCount` antes de resolver el destino.
+3. **Waveform preview:** `onMeasured` escribía snapshot Compose desde IO y podía
+   competir con el cierre `settled=true`. Ahora se entrega con
+   `withContext(Dispatchers.Main.immediate)`, comprueba cancelación y se ignora
+   si la clave de pista o el `settled` ya cambiaron. Se conserva una sola
+   decodificación para Barras/Continuo.
+4. **Artwork:** `PlayerController` validaba generación e índice, pero faltaba una
+   comprobación única de posición/propietario. Se añadió
+   `matchesArtworkRequest(owner, currentGeneration, currentIndex)` y pruebas
+   A→B→A, generación obsoleta y mismo `trackId` con otra biblioteca/URI.
+5. **Now Playing / Signal strip:** prueba responsive de 320/360/393/412/600 dp y
+   fontScale 1.0/1.3/1.5/2.0; el label común no se elide (máx. 4 líneas) y las
+   dos acciones mantienen >=48 dp de alto y ancho.
+
+#### Pruebas de esta pasada
+
+| Comprobación | Resultado |
+|---|---|
+| Unit `core`, `data`, `player`, `app` Normal/F-Droid y `link-client` | **PASS** |
+| `SyncedTrackRepositoryTest` estricto (vacío/desconocido/rehash) | **PASS** |
+| `PlaylistDetailScreenTest` 320×470@2×, 360×640@1.5×, landscape y 100 pistas | **PASS** |
+| `ArtworkOwnerTest`, `ContinuousWaveformPresentationTest`, `WaveformVisualPolicyTest` | **PASS** |
+| `AeroSeekerSingleSilhouetteTest` 0/25/50/75/100, múltiples X | **2 tests PASS** |
+| `AeroSignalStripMetadataLayoutTest` responsive | **2 tests PASS** |
+| Lint | **PASS** |
+| Normal/F-Droid debug + release | **PASS** |
+| Instrumentación Normal API 36 completa | **105 tests, 0 fallos, 10 skipped** |
+
+#### Evidencia y límites
+
+- Se conservan las capturas reales de `/tmp/opencode/r202/` (detalle 320/393,
+  Barras, Continuo, Aero Capsule).
+- La composición Continua 0/25/50/75/100 se validó por píxeles instrumentados,
+  no por cinco capturas nuevas. No se declara una matriz visual completa.
+- `P50/P95` de primera barra y decodificación completa: **NOT_MEASURED**; no hay
+  teléfono físico en esta sesión.
+- HyperOS/lockscreen, USB/Bluetooth/Stream reales y dos servidores reales:
+  **NOT_RUN / BLOCKED_HARDWARE**.
+- No se añadió un segundo decoder, worker permanente, shader ni caché
+  persistente. La decodificación y el hashing siguen fuera del hilo principal.
+
+#### KILLCRITIC
+
+- **Monolitos:** `PlaylistDetailScreen` sigue siendo un archivo grande, pero el
+  chrome se extrajo a un lambda cohesivo y la lista conserva una sola autoridad
+  de scroll; no se duplicó la lógica de drag.
+- **Duplicaciones:** no se introdujo una segunda política de sync, un segundo
+  decoder ni una segunda autoridad de gestos del seeker.
+- **Recomposición:** `produceState` sigue keyed por identidad de pista; los
+  previews solo actualizan en Barras y antes de `settled`; no hay lectura de
+  estado por frame en el decoder.
+- **IO en main:** el hashing y la decodificación permanecen en IO; la entrega de
+  previews se marshalea a Main. No se encontró `runBlocking` nuevo.
+- **Signal Truth:** los componentes visuales siguen aislados; no se alteró la
+  evidencia funcional ni se transformó `UNKNOWN`/`CONFIGURED` en `OBSERVED`.
+
 ### Signal Truth R30
 
 `ST_UI_WIRING = BLOCKED_R30`. Los componentes visuales existen, compilan y
 tienen tests de contrato/accesibilidad, pero no se conectaron al popup. No se
 modificaron `SignalTruthMobileSheet.kt`, `SignalTruthGraphProjector`,
-`SignalTruthResolver`, la evidencia de audio ni las rutas R30.
+`SignalTruthResolver`, la evidencia de audio ni las rutas R30. No hay artefactos
+R30 integrados en este checkout; no se aplicó R30.
 
 ### Gates
 
 - **G0_SOURCE:** PASS. Base y SHA verificados; reconciliación documentada.
-- **G1_PLAYLISTS:** PASS de código y tests; visual parcial.
-- **G2_WAVEFORM:** PASS de código y tests; visual parcial por dinámica plana en
-  la pista comprimida.
+- **G1_PLAYLISTS:** PASS de código y tests; visual parcial. Cubiertos
+  320×470@2×, 360×640@1.5×, landscape 470×320 y 100 pistas; faltan teclado real,
+  split-screen y nombres/portadas ausentes en captura.
+- **G2_WAVEFORM:** PASS de código y tests; validación geométrica 0/25/50/75/100
+  por píxeles. Visual parcial por dinámica plana en la pista comprimida y
+  P50/P95 **NOT_MEASURED**.
 - **G3_SIGNAL_TRUTH:** **BLOCKED_R30**; sin wiring ni captura de popup.
-- **G4_NOWPLAYING:** PASS de código; metadatos completos capturados.
-- **G5_SYNC:** PASS de política y tests; falta prueba con dos servidores reales.
-- **G6_ARTWORK:** PASS de código; falta HyperOS/lockscreen físico.
+- **G4_NOWPLAYING:** PASS de código; metadatos completos y strip responsive
+  320–600 dp/fontScale 1–2. Matriz TalkBack/contraste/horizontal parcial.
+- **G5_SYNC:** PASS estricto de SHA-256 y pruebas de algoritmo vacío/desconocido,
+  archivo modificado y dos propietarios; falta prueba con dos servidores reales.
+- **G6_ARTWORK:** PASS de código; carreras A→B→A y generación cubiertas; falta
+  HyperOS/lockscreen físico.
 - **G7_COMPOSE_TESTS:** PASS.
-- **G8_BUILD:** PASS Normal/F-Droid.
+- **G8_BUILD:** PASS Normal/F-Droid debug y release.
 - **G9_VISUAL:** parcial; 320/393 dp capturados, faltan 360/412/600, fuentes
   1.3/1.5/2.0, contraste alto y gesto real de reordenación.
 - **G10_PHYSICAL:** NOT_RUN; sin teléfono conectado.
-- **GO_CODE:** PASS. Publicado en
-  `master@8577f707d2baecb1215b4f151eba80242ae65db7`.
-- **GO_CI:** PASS. La CI exacta `43073057970` pasó 8/8 jobs sobre `8577f70`.
+- **GO_CODE:** PASS para el código funcional publicado en
+  `master@8577f707d2baecb1215b4f151eba80242ae65db7`; las correcciones
+  correctivas de esta pasada están en working tree sobre `3205f92`, sin commit.
+- **GO_CI:** PASS para `8577f70` (run `43073057970`, 8/8). Las correcciones
+  correctivas no tienen CI propia porque no se publicaron.
 - **GO_RELEASE:** **NO-GO**.
 
 ### Porcentajes honestos
 
-- Implementación R20.2: ~90 % (todo el patch integrado y compilando; R30
-  intencionalmente bloqueado).
-- Pruebas automatizadas: ~85 % (unit, lint, builds e instrumentación completos;
+- Implementación R20.2 + correctiva: ~92 % (todo el patch integrado, P0/P1
+  corregidos y compilando; R30 intencionalmente bloqueado).
+- Pruebas automatizadas: ~90 % (unit, lint, builds e instrumentación completos;
   faltan métricas P50/P95 y pruebas físicas).
-- Aceptación UI/UX: ~55 % (capturas reales de Playlists, Barras, Continuo,
+- Aceptación UI/UX: ~60 % (capturas reales de Playlists, Barras, Continuo,
   Cápsula, 320 dp y metadatos; falta matriz completa y Signal Truth).
+- QA física: 0 % en esta sesión.
 - Release: **NO-GO**.

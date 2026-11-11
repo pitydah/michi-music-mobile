@@ -116,14 +116,18 @@ open class SyncedTrackRepository(
                     var checksum = ""
                     var algorithm = ""
                     if (managedCandidate) {
+                        // Never infer a hash algorithm for a legacy row. Only a
+                        // persisted SHA-256 record can be reused; blank or
+                        // unknown algorithms are re-hashed and re-recorded.
                         val recordedValid = trk.verifiedSha256.isNotBlank() &&
+                            trk.verifiedAlgorithm.equals("sha256", ignoreCase = true) &&
                             trk.verifiedSize == physicalLength &&
                             trk.verifiedAt > 0 &&
                             file.lastModified() <= trk.verifiedAt + VERIFICATION_TIMESTAMP_TOLERANCE_MS
                         if (recordedValid) {
                             managedCopyVerified = true
                             checksum = trk.verifiedSha256
-                            algorithm = trk.verifiedAlgorithm.ifBlank { "sha256" }
+                            algorithm = "sha256"
                         } else {
                             // One-time migration of a legacy managed copy. The
                             // cost is paid once per file, never per recomposition.

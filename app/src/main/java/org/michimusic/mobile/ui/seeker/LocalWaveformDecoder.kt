@@ -265,10 +265,17 @@ internal object LocalWaveformDecoder {
                                         envelope.completedPreview()?.let { complete ->
                                             if (complete.completedBins > lastPreviewBin) {
                                                 currentCoroutineContext().ensureActive()
-                                                onMeasured(WaveformMeasuredPreview(
+                                                val preview = WaveformMeasuredPreview(
                                                     complete.levels, complete.completedBins,
                                                     complete.totalBins,
-                                                ))
+                                                )
+                                                // Preview consumers are Compose state holders.
+                                                // Deliver on Main so a slow IO chunk cannot
+                                                // publish out of order or after composition is
+                                                // gone; cancellation is checked on re-entry.
+                                                withContext(Dispatchers.Main.immediate) {
+                                                    onMeasured(preview)
+                                                }
                                                 lastPreviewBin = complete.completedBins
                                                 lastPreviewAtMs = nowMs
                                             }

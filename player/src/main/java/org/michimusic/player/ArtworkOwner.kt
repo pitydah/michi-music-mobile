@@ -30,3 +30,17 @@ internal fun MediaItem.belongsTo(owner: ArtworkOwner): Boolean {
     val itemUri = localConfiguration?.uri?.toString().orEmpty()
     return itemUri == owner.canonicalUri
 }
+
+/**
+ * Full freshness check for an asynchronous artwork request. The item must still
+ * be the same owner/track/URI, live at the captured position and belong to the
+ * current queue generation. This rejects A→B→A races where the same track
+ * returns after a mutation with a stale cover request.
+ */
+internal fun MediaItem.matchesArtworkRequest(
+    owner: ArtworkOwner,
+    currentGeneration: Long,
+    currentIndex: Int,
+): Boolean = currentGeneration == owner.queueGeneration &&
+    currentIndex == owner.position &&
+    belongsTo(owner)

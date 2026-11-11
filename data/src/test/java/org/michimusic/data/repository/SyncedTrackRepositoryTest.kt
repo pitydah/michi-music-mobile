@@ -212,4 +212,76 @@ class SyncedTrackRepositoryTest {
             java.nio.file.Files.deleteIfExists(real)
         }
     }
+
+    @Test
+    fun `blank legacy algorithm is rehashed instead of trusted`() = runTest {
+        val real = java.nio.file.Files.createTempFile("michi-verification-blank-algorithm", ".flac")
+        java.nio.file.Files.write(real, ByteArray(2048))
+        try {
+            val legacy = CachedTrack(
+                id = "t1", title = "Legacy", artist = "A", size = 2048,
+                downloaded = true, filepath = real.toAbsolutePath().toString(), sourceId = "peer-a",
+                verifiedSize = 2048,
+                verifiedSha256 = "b".repeat(64),
+                verifiedAt = System.currentTimeMillis(),
+                verifiedAlgorithm = "",
+            )
+            every { mockTrackDao.getDownloadedTracksForSource("peer-a") } returns flowOf(listOf(legacy))
+
+            val evidence = repository.getDownloadedTrackEvidence("peer-a").single()
+
+            assertTrue(evidence.managedCopyVerified)
+            assertEquals("sha256", evidence.checksumAlgorithm)
+            assertTrue(evidence.checksum != "b".repeat(64))
+            coVerify(exactly = 1) {
+                mockTrackDao.markDownloadedVerified(
+                    sourceId = "peer-a",
+                    id = "t1",
+                    filepath = real.toAbsolutePath().toString(),
+                    size = 2048L,
+                    sha256 = match { it.length == 64 && it != "b".repeat(64) },
+                    verifiedAt = any(),
+                    algorithm = "sha256",
+                )
+            }
+        } finally {
+            java.nio.file.Files.deleteIfExists(real)
+        }
+    }
+
+    @Test
+    fun `unknown legacy algorithm is rehashed instead of trusted`() = runTest {
+        val real = java.nio.file.Files.createTempFile("michi-verification-unknown-algorithm", ".flac")
+        java.nio.file.Files.write(real, ByteArray(2048))
+        try {
+            val legacy = CachedTrack(
+                id = "t1", title = "Legacy", artist = "A", size = 2048,
+                downloaded = true, filepath = real.toAbsolutePath().toString(), sourceId = "peer-a",
+                verifiedSize = 2048,
+                verifiedSha256 = "b".repeat(64),
+                verifiedAt = System.currentTimeMillis(),
+                verifiedAlgorithm = "md5",
+            )
+            every { mockTrackDao.getDownloadedTracksForSource("peer-a") } returns flowOf(listOf(legacy))
+
+            val evidence = repository.getDownloadedTrackEvidence("peer-a").single()
+
+            assertTrue(evidence.managedCopyVerified)
+            assertEquals("sha256", evidence.checksumAlgorithm)
+            assertTrue(evidence.checksum != "b".repeat(64))
+            coVerify(exactly = 1) {
+                mockTrackDao.markDownloadedVerified(
+                    sourceId = "peer-a",
+                    id = "t1",
+                    filepath = real.toAbsolutePath().toString(),
+                    size = 2048L,
+                    sha256 = match { it.length == 64 && it != "b".repeat(64) },
+                    verifiedAt = any(),
+                    algorithm = "sha256",
+                )
+            }
+        } finally {
+            java.nio.file.Files.deleteIfExists(real)
+        }
+    }
 }

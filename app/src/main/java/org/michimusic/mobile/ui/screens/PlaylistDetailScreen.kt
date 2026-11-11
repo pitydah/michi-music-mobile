@@ -215,6 +215,11 @@ fun PlaylistDetailScreen(
         // Measure the real viewport, not the device's nominal display: tests,
         // split-screen and small windows all need the compact chrome.
         val compactHeight = maxHeight < 640.dp
+        // Below this height the fixed chrome can consume the whole viewport
+        // (landscape, split-screen, IME or a 2x font). The chrome then becomes
+        // the first item of the single list so it can scroll away while the
+        // tracks remain reachable.
+        val veryCompact = maxHeight < 520.dp
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -442,64 +447,69 @@ fun PlaylistDetailScreen(
                 }
 
                 is PlaylistDetailUiState.Found -> {
-                    PlaylistVisualHero(
-                        id = playlistId,
-                        title = state.playlist.name,
-                        trackCount = state.playlist.tracks.size,
-                        coverIds = state.playlist.coverIds,
-                        visual = visualState,
-                        modifier = Modifier.testTag("playlist_detail_visual_identity"),
-                        minHeight = if (compactHeight) 140.dp else 220.dp,
-                    )
-                    if (state.playlist.tracks.isNotEmpty()) {
-                        val playableQueue = state.playlist.tracks
-                        PlaylistPrimaryActions(
-                            modifier = Modifier.fillMaxWidth().padding(
-                                top = if (compactHeight) 8.dp else 12.dp,
-                                bottom = if (compactHeight) 4.dp else 8.dp,
-                            ),
-                            onPlay = {
-                                if (sessionManager != null) sessionManager.playQueue(playableQueue, 0)
-                                else audioController.playQueue(playableQueue, 0)
-                            },
-                            onShuffle = {
-                                val shuffled = playableQueue.shuffled()
-                                if (sessionManager != null) sessionManager.playQueue(shuffled, 0)
-                                else audioController.playQueue(shuffled, 0)
+                    val playableQueue = state.playlist.tracks
+                    val hasTracks = playableQueue.isNotEmpty()
+                    val detailChrome: @Composable () -> Unit = {
+                        PlaylistVisualHero(
+                            id = playlistId,
+                            title = state.playlist.name,
+                            trackCount = playableQueue.size,
+                            coverIds = state.playlist.coverIds,
+                            visual = visualState,
+                            modifier = Modifier.testTag("playlist_detail_visual_identity"),
+                            minHeight = when {
+                                veryCompact -> 120.dp
+                                compactHeight -> 140.dp
+                                else -> 220.dp
                             },
                         )
+                        if (hasTracks) {
+                            PlaylistPrimaryActions(
+                                modifier = Modifier.fillMaxWidth().padding(
+                                    top = if (compactHeight) 8.dp else 12.dp,
+                                    bottom = if (compactHeight) 4.dp else 8.dp,
+                                ),
+                                onPlay = {
+                                    if (sessionManager != null) sessionManager.playQueue(playableQueue, 0)
+                                    else audioController.playQueue(playableQueue, 0)
+                                },
+                                onShuffle = {
+                                    val shuffled = playableQueue.shuffled()
+                                    if (sessionManager != null) sessionManager.playQueue(shuffled, 0)
+                                    else audioController.playQueue(shuffled, 0)
+                                },
+                            )
+                            PlaylistCollectionHeader(
+                                density = trackDensity,
+                                compactHeight = compactHeight || veryCompact,
+                                onToggleDensity = {
+                                    val next = if (trackDensity == PlaylistTrackDensity.COMPACT)
+                                        PlaylistTrackDensity.EXPANDED else PlaylistTrackDensity.COMPACT
+                                    trackDensity = next
+                                    visualScope.launch { visualStore.setDensity(next) }
+                                },
+                            )
+                        } else {
+                            // The empty state sits close to the hero, hides density and play
+                            // affordances, and keeps one obvious primary action.
+                            EmptyPlaylistState(
+                                onAddTracks = {
+                                    viewModel.loadAvailableTracks()
+                                    showAddTracksDialog = true
+                                },
+                            )
+                        }
                     }
-                    // Gate on resolvable tracks, not the persisted trackCount: a playlist can
-                    // have trackCount > 0 while every stored id has become unresolvable, in
-                    // which case there is nothing to render and the empty state is correct.
-                    if (state.playlist.tracks.isEmpty()) {
-                        // The empty state sits close to the hero, hides density and play
-                        // affordances, and keeps one obvious primary action. The top "+"
-                        // remains a complementary shortcut.
-                        EmptyPlaylistState(
-                            onAddTracks = {
-                                viewModel.loadAvailableTracks()
-                                showAddTracksDialog = true
-                            },
-                        )
-                    } else {
-                        PlaylistCollectionHeader(
-                            density = trackDensity,
-                            compactHeight = compactHeight,
-                            onToggleDensity = {
-                                val next = if (trackDensity == PlaylistTrackDensity.COMPACT)
-                                    PlaylistTrackDensity.EXPANDED else PlaylistTrackDensity.COMPACT
-                                trackDensity = next
-                                visualScope.launch { visualStore.setDensity(next) }
-                            },
-                        )
-                        // The hero, primary actions and collection header are
-                        // fixed-height siblings. The list owns the remaining
-                        // viewport instead of being measured against the full
-                        // column and pushed below the visible area.
+
+                    if (!hasTracks) {
+                        detailChrome()
+                    } else if (veryCompact) {
+                        // One scroll authority: the chrome scrolls away as the
+                        // first list item, so even landscape + 2x font keeps the
+                        // tracks and their controls reachable.
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                             PlaylistTracksList(
-                                tracks = state.playlist.tracks,
+                                tracks = playableQueue,
                                 density = trackDensity,
                                 activeTrackId = activeTrackId,
                                 activeTrackPlaying = activePlayback?.isPlaying == true,
@@ -507,13 +517,45 @@ fun PlaylistDetailScreen(
                                 moveEnabled = !isReorderingTrack,
                                 onRemoveClick = { track -> trackPendingRemoval = track },
                                 onTrackClick = { track ->
-                                    val tracks = state.playlist.tracks
-                                    val index = tracks.indexOfFirst { it.id == track.id }
+                                    val index = playableQueue.indexOfFirst { it.id == track.id }
                                     if (index >= 0) {
                                         if (sessionManager != null) {
-                                            sessionManager.playQueue(tracks, index)
+                                            sessionManager.playQueue(playableQueue, index)
                                         } else {
-                                            audioController.playQueue(tracks, index)
+                                            audioController.playQueue(playableQueue, index)
+                                        }
+                                    }
+                                },
+                                onMoveUp = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.UP) },
+                                onReorder = { trackId, from, to, visibleIds ->
+                                    viewModel.moveTrackToPosition(playlistId, trackId, from, to, visibleIds)
+                                },
+                                onMoveDown = { track -> viewModel.moveTrack(playlistId, track.id, MoveDirection.DOWN) },
+                                headerContent = detailChrome,
+                            )
+                        }
+                    } else {
+                        detailChrome()
+                        // The hero, primary actions and collection header are
+                        // fixed-height siblings. The list owns the remaining
+                        // viewport instead of being measured against the full
+                        // column and pushed below the visible area.
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            PlaylistTracksList(
+                                tracks = playableQueue,
+                                density = trackDensity,
+                                activeTrackId = activeTrackId,
+                                activeTrackPlaying = activePlayback?.isPlaying == true,
+                                removeEnabled = !isRemovingTrack,
+                                moveEnabled = !isReorderingTrack,
+                                onRemoveClick = { track -> trackPendingRemoval = track },
+                                onTrackClick = { track ->
+                                    val index = playableQueue.indexOfFirst { it.id == track.id }
+                                    if (index >= 0) {
+                                        if (sessionManager != null) {
+                                            sessionManager.playQueue(playableQueue, index)
+                                        } else {
+                                            audioController.playQueue(playableQueue, index)
                                         }
                                     }
                                 },
@@ -655,7 +697,9 @@ private fun PlaylistTracksList(
     onMoveUp: (Track) -> Unit,
     onMoveDown: (Track) -> Unit,
     onReorder: (String, Int, Int, List<String>) -> Unit,
+    headerContent: (@Composable () -> Unit)? = null,
 ) {
+    val headerItemCount = if (headerContent != null) 1 else 0
     val listState = rememberLazyListState()
     val visibleIds = remember(tracks) { tracks.map { it.id } }
     // Local CachedPlaylist persists distinct trackIds; this is a defensive UI key,
@@ -693,6 +737,11 @@ private fun PlaylistTracksList(
         modifier = Modifier.fillMaxSize().testTag("playlist_detail_track_list"),
         verticalArrangement = Arrangement.spacedBy(playlistTrackLayout(density).gapDp.dp),
     ) {
+        if (headerContent != null) {
+            item(key = "playlist_detail_chrome") {
+                headerContent()
+            }
+        }
         itemsIndexed(tracks, key = { index, _ -> rowKeys[index] }) { index, track ->
             val draggingThis = activeId == track.id
             val dragModifier = if (moveEnabled && tracks.size > 1 && uniqueVisibleIds) {
@@ -714,11 +763,14 @@ private fun PlaylistTracksList(
                             val origin = layout.visibleItemsInfo.firstOrNull { it.key == track.id }
                             if (origin != null) {
                                 val center = origin.offset + origin.size / 2f + verticalShift
-                                val destination = layout.visibleItemsInfo.minByOrNull {
-                                    kotlin.math.abs(it.offset + it.size / 2f - center)
-                                }
-                                if (destination != null && destination.index in tracks.indices) {
-                                    targetIndex = destination.index
+                                val destination = layout.visibleItemsInfo
+                                    .filter { it.key != "playlist_detail_chrome" }
+                                    .minByOrNull {
+                                        kotlin.math.abs(it.offset + it.size / 2f - center)
+                                    }
+                                val destinationIndex = destination?.index?.minus(headerItemCount)
+                                if (destinationIndex != null && destinationIndex in tracks.indices) {
+                                    targetIndex = destinationIndex
                                 }
                                 val direction = when {
                                     center < layout.viewportStartOffset + thresholdPx -> -1

@@ -528,10 +528,11 @@ class PlayerController(
         artworkScope.launch {
             val bytes = EmbeddedArtwork.load(context, track) ?: return@launch
             withContext(Dispatchers.Main.immediate) {
-                if (queueGeneration.get() != expected.queueGeneration) return@withContext
                 if (index !in 0 until player.mediaItemCount) return@withContext
                 val current = player.getMediaItemAt(index)
-                if (!current.belongsTo(expected)) return@withContext
+                if (!current.matchesArtworkRequest(expected, queueGeneration.get(), index)) {
+                    return@withContext
+                }
                 player.replaceMediaItem(
                     index,
                     current.buildUpon()

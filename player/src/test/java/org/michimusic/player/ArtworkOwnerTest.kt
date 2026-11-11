@@ -71,7 +71,22 @@ class ArtworkOwnerTest {
         val current = ArtworkOwner("peer-a", "t1", "file:///music/one.flac", 8L, 2)
         val stale = current.copy(queueGeneration = 7L)
 
-        assertTrue(current.queueGeneration != stale.queueGeneration)
-        assertTrue(item(track).belongsTo(current))
+        assertTrue(item(track).matchesArtworkRequest(current, 8L, 2))
+        assertFalse(item(track).matchesArtworkRequest(stale, 8L, 2))
+        assertFalse(item(track).matchesArtworkRequest(current, 7L, 2))
+        assertFalse(item(track).matchesArtworkRequest(current, 8L, 1))
+    }
+
+    @Test
+    fun sequenceAReturnsWithNewGenerationAndRejectsTheOldRequest() {
+        val trackB = track.copy(id = "t2", filepath = "/music/two.flac")
+        val ownerA = ArtworkOwner("peer-a", "t1", "file:///music/one.flac", 1L, 0)
+        val ownerB = ArtworkOwner("peer-a", "t2", "file:///music/two.flac", 2L, 1)
+        val ownerAAgain = ArtworkOwner("peer-a", "t1", "file:///music/one.flac", 3L, 0)
+
+        assertFalse(item(track).matchesArtworkRequest(ownerA, 3L, 0))
+        assertTrue(item(trackB, uri = "file:///music/two.flac").matchesArtworkRequest(ownerB, 2L, 1))
+        assertTrue(item(track).matchesArtworkRequest(ownerAAgain, 3L, 0))
+        assertFalse(item(track).matchesArtworkRequest(ownerB, 2L, 1))
     }
 }
