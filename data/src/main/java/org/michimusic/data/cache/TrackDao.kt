@@ -66,6 +66,23 @@ interface TrackDao {
     @Query("UPDATE cached_tracks SET downloaded = 1 WHERE sourceId = :sourceId AND id = :id")
     suspend fun markDownloaded(sourceId: String, id: String)
 
-    @Query("UPDATE cached_tracks SET downloaded = 1, filepath = :filepath WHERE sourceId = :sourceId AND id = :id")
+    // A path alone is not verification: clear any previous proof when a caller
+    // only records location.
+    @Query("UPDATE cached_tracks SET downloaded = 1, filepath = :filepath, verifiedSize = 0, verifiedSha256 = '', verifiedAt = 0, verifiedAlgorithm = '' WHERE sourceId = :sourceId AND id = :id")
     suspend fun markDownloadedWithPath(sourceId: String, id: String, filepath: String)
+
+    @Query(
+        "UPDATE cached_tracks SET downloaded = 1, filepath = :filepath, verifiedSize = :size, " +
+            "verifiedSha256 = :sha256, verifiedAt = :verifiedAt, verifiedAlgorithm = :algorithm " +
+            "WHERE sourceId = :sourceId AND id = :id",
+    )
+    suspend fun markDownloadedVerified(
+        sourceId: String,
+        id: String,
+        filepath: String,
+        size: Long,
+        sha256: String,
+        verifiedAt: Long,
+        algorithm: String,
+    )
 }

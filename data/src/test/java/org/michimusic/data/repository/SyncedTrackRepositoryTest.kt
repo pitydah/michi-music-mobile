@@ -131,6 +131,83 @@ class SyncedTrackRepositoryTest {
             val stale = evidence.first { it.trackId == "t2" }
             assertFalse(stale.physicallyVerified)
             assertFalse(stale.complete)
+
+            // Legacy managed rows are hashed once and persisted; the evidence
+            // then exposes a verifiable checksum instead of only a size.
+            assertTrue(verified.managedCopyVerified)
+            assertTrue(verified.checksumVerified)
+            assertEquals(64, verified.checksum.length)
+            assertEquals("sha256", verified.checksumAlgorithm)
+            coVerify(exactly = 1) {
+                mockTrackDao.markDownloadedVerified(
+                    sourceId = "peer-a",
+                    id = "t1",
+                    filepath = real.toAbsolutePath().toString(),
+                    size = 2048L,
+                    sha256 = match { it.length == 64 },
+                    verifiedAt = any(),
+                    algorithm = "sha256",
+                )
+            }
+        } finally {
+            java.nio.file.Files.deleteIfExists(real)
+        }
+    }
+
+    @Test
+    fun `SAF local row is never treated as a managed sync copy`() = runTest {
+        val real = java.nio.file.Files.createTempFile("michi-saf-local", ".flac")
+        java.nio.file.Files.write(real, ByteArray(1024))
+        try {
+            val saf = CachedTrack(
+                id = "saf_1", title = "Local SAF", artist = "A", size = 1024,
+                downloaded = true, filepath = real.toAbsolutePath().toString(),
+                sourceId = "safroot_tree-1",
+            )
+            every { mockTrackDao.getDownloadedTracksForSource("safroot_tree-1") } returns flowOf(listOf(saf))
+
+            val evidence = repository.getDownloadedTrackEvidence("safroot_tree-1").single()
+
+            assertTrue(evidence.physicallyVerified)
+            assertFalse(evidence.managedCopyVerified)
+            assertEquals("", evidence.checksum)
+            assertEquals("safroot_tree-1", evidence.sourceId)
+        } finally {
+            java.nio.file.Files.deleteIfExists(real)
+        }
+    }
+
+    @Test
+    fun `changed managed file invalidates its stored verification before reuse`() = runTest {
+        val real = java.nio.file.Files.createTempFile("michi-verification-change", ".flac")
+        java.nio.file.Files.write(real, ByteArray(2048))
+        try {
+            val changed = CachedTrack(
+                id = "t1", title = "Changed", artist = "A", size = 2048,
+                downloaded = true, filepath = real.toAbsolutePath().toString(), sourceId = "peer-a",
+                verifiedSize = 1024,
+                verifiedSha256 = "b".repeat(64),
+                verifiedAt = System.currentTimeMillis(),
+                verifiedAlgorithm = "sha256",
+            )
+            every { mockTrackDao.getDownloadedTracksForSource("peer-a") } returns flowOf(listOf(changed))
+
+            val evidence = repository.getDownloadedTrackEvidence("peer-a").single()
+
+            assertTrue(evidence.managedCopyVerified)
+            assertEquals(2048L, evidence.sizeBytes)
+            assertTrue(evidence.checksum != "b".repeat(64))
+            coVerify(exactly = 1) {
+                mockTrackDao.markDownloadedVerified(
+                    sourceId = "peer-a",
+                    id = "t1",
+                    filepath = real.toAbsolutePath().toString(),
+                    size = 2048L,
+                    sha256 = match { it.length == 64 && it != "b".repeat(64) },
+                    verifiedAt = any(),
+                    algorithm = "sha256",
+                )
+            }
         } finally {
             java.nio.file.Files.deleteIfExists(real)
         }

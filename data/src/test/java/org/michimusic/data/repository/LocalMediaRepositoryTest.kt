@@ -80,6 +80,70 @@ class LocalMediaRepositoryTest {
     }
 
     @Test
+    fun mediaStoreCompilationStaysOneAlbumDespiteGuestArtists() = runTest(testDispatcher) {
+        val repo = TestableLocalMediaRepository(
+            tracks = listOf(
+                Track(
+                    id = "c1", title = "Guest One", artist = "Guest A",
+                    album = "Now That's Music", albumId = "77",
+                    albumArtist = "Various Artists",
+                ),
+                Track(
+                    id = "c2", title = "Guest Two", artist = "Guest B",
+                    album = "Now That's Music", albumId = "77",
+                    albumArtist = "Various Artists",
+                ),
+            ),
+        )
+
+        val albums = repo.loadAlbums()
+
+        assertEquals(1, albums.size)
+        assertEquals(2, albums.single().tracks.size)
+        assertEquals("Various Artists", albums.single().album.artist)
+        assertTrue(albums.single().album.id.contains("mediastore_77"))
+    }
+
+    @Test
+    fun sameAlbumTitleWithDifferentMediaStoreIdsStaysSeparate() = runTest(testDispatcher) {
+        val repo = TestableLocalMediaRepository(
+            tracks = listOf(
+                Track(
+                    id = "d1", title = "One", artist = "Artist", album = "Greatest Hits",
+                    albumId = "1", albumArtist = "Artist One",
+                ),
+                Track(
+                    id = "d2", title = "Two", artist = "Artist", album = "Greatest Hits",
+                    albumId = "2", albumArtist = "Artist Two",
+                ),
+            ),
+        )
+
+        assertEquals(2, repo.loadAlbums().size)
+    }
+
+    @Test
+    fun tagBasedCompilationUsesAlbumArtistInsteadOfTrackArtist() = runTest(testDispatcher) {
+        val repo = TestableLocalMediaRepository(
+            tracks = listOf(
+                Track(
+                    id = "e1", title = "One", artist = "Guest A",
+                    album = "Mixtape", albumArtist = "Various Artists",
+                ),
+                Track(
+                    id = "e2", title = "Two", artist = "Guest B",
+                    album = "Mixtape", albumArtist = "Various Artists",
+                ),
+            ),
+        )
+
+        val albums = repo.loadAlbums()
+
+        assertEquals(1, albums.size)
+        assertEquals("Various Artists", albums.single().album.artist)
+    }
+
+    @Test
     fun sourceFileExtension_isNormalizedFromDisplayName() {
         assertEquals("mp3", sourceFileExtension("Song.Final.MP3"))
         assertEquals("flac", sourceFileExtension("track.flac"))

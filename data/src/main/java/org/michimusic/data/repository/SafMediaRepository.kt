@@ -152,12 +152,16 @@ class SafMediaRepository(
                             title = title,
                             artist = metadata.artist,
                             album = metadata.album,
+                            albumArtist = metadata.albumArtist,
                             duration = metadata.duration,
                             size = if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L,
                             format = sourceFileExtension(childName)
                                 .ifBlank { mime.substringAfterLast('/') },
                             filepath = documentUri.toString(),
-                            downloaded = true,
+                            // `downloaded` means an app-managed sync copy. A SAF
+                            // document is indexed directly from an authorized
+                            // tree, not downloaded by Michi Sync.
+                            downloaded = false,
                             sourceId = sourceId,
                         ),
                     )
@@ -316,6 +320,7 @@ class SafMediaRepository(
         val title: String = "",
         val artist: String = "Unknown Artist",
         val album: String = "Unknown Album",
+        val albumArtist: String = "",
         val duration: Long = 0L,
     )
 
@@ -329,6 +334,8 @@ class SafMediaRepository(
                     ?.takeIf { it.isNotBlank() } ?: "Unknown Artist",
                 album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
                     ?.takeIf { it.isNotBlank() } ?: "Unknown Album",
+                albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
+                    .orEmpty(),
                 duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
             )

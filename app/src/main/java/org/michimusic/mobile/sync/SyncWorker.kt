@@ -21,6 +21,8 @@ import org.michimusic.mobile.di.playlistDao
 import org.michimusic.link.LinkClient
 import org.michimusic.link.LinkTransferManager
 import org.michimusic.link.errors.LinkException
+import java.io.File
+import java.security.MessageDigest
 
 class SyncWorker(
     context: Context,
@@ -537,6 +539,13 @@ class SyncWorker(
                             if (!file.exists() || file.length() == 0L) {
                                 error("Archivo descargado no existe o está vacío: ${file.absolutePath}")
                             }
+                            val manifestChecksum = manifestTrackMap[id]?.checksum
+                            val manifestHasSha256 = manifestChecksum?.let(::isSha256Hex) == true
+                            val computedSha256 = if (manifestHasSha256) null else sha256OfFile(file)
+                            val verifiedSha256 = manifestChecksum
+                                ?.takeIf { isSha256Hex(it) }
+                                ?: computedSha256
+
                             manifestTrackMap[id]?.let { meta ->
                                 // Integrity check: Reject if an existing track identity has conflicting content hash
                                 val metaChecksum = meta.checksum
@@ -555,7 +564,7 @@ class SyncWorker(
                                     artist = meta.artist,
                                     album = meta.album,
                                     durationMs = meta.duration.toLong(),
-                                    contentHash = meta.checksum?.ifEmpty { null },
+                                    contentHash = meta.checksum?.ifEmpty { null } ?: computedSha256,
                                 )
                                 val location = org.michimusic.core.models.TrackLocation(
                                     id = "loc_synced_${meta.trackId}",
@@ -576,7 +585,19 @@ class SyncWorker(
                                     throw regOp.exceptionOrNull() ?: IllegalStateException("Error registrando pista en Room")
                                 }
                             }
-                            trackDao.markDownloadedWithPath(deviceId, id, file.absolutePath)
+                            if (verifiedSha256 != null) {
+                                trackDao.markDownloadedVerified(
+                                    sourceId = deviceId,
+                                    id = id,
+                                    filepath = file.absolutePath,
+                                    size = file.length(),
+                                    sha256 = verifiedSha256,
+                                    verifiedAt = System.currentTimeMillis(),
+                                    algorithm = "sha256",
+                                )
+                            } else {
+                                trackDao.markDownloadedWithPath(deviceId, id, file.absolutePath)
+                            }
                         }
 
                         if (regResult.isSuccess) {
@@ -821,3 +842,20 @@ private fun org.michimusic.core.models.ManifestTrack.toTrackDto() = org.michimus
     coverId = coverId,
     year = year,
 )
+
+private fun isSha256Hex(value: String): Boolean =
+    value.length == 64 && value.all { char -> char in '0'..'9' || char.lowercaseChar() in 'a'..'f' }
+
+/** One-time hash used to persist a verifiable managed-copy record. */
+private fun sha256OfFile(file: File): String? = runCatching {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            if (read > 0) digest.update(buffer, 0, read)
+        }
+    }
+    digest.digest().joinToString("") { "%02x".format(it) }
+}.getOrNull()

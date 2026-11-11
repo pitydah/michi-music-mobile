@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.media.AudioDeviceInfo
 import org.michimusic.core.models.Track
 import org.michimusic.data.cache.ReplayGainDao
@@ -39,7 +40,7 @@ private const val TAG = "PlayerController"
 
 @OptIn(UnstableApi::class)
 class PlayerController(
-    context: Context,
+    private val context: Context,
     audioProcessors: List<AudioProcessor> = emptyList(),
     replayGainDao: ReplayGainDao? = null,
     private val audioEffects: MichiAudioEffects? = null,
@@ -49,6 +50,7 @@ class PlayerController(
 
     private val controllerJob = SupervisorJob()
     private val controllerScope = CoroutineScope(controllerJob + Dispatchers.Main.immediate)
+    private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val repository = replayGainDao?.let { LocalMediaRepository(context, it) }
         ?: LocalMediaRepository(context, createNoopReplayGainDao())
@@ -471,15 +473,11 @@ class PlayerController(
             MediaItem.Builder()
                 .setMediaId(track.id)
                 .setUri(resolveUri(track))
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build()
-                )
+                .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build()
         }
         player.setMediaItems(mediaItems, startIndex, 0L)
+        enrichArtworkWindow(tracks, startIndex)
         val entries = tracks.mapIndexed { idx, t -> org.michimusic.core.models.QueueEntry(track = t, position = idx) }
         val state = PlayerState(
             currentTrack = tracks.getOrNull(startIndex),
@@ -493,6 +491,42 @@ class PlayerController(
         _state.value = state
         player.prepare()
         player.play()
+    }
+
+    /**
+     * Enriches local/SAF/synced items with embedded artwork off the main thread.
+     * The mediaId guard prevents a late cover from being applied to the next
+     * song after a fast queue change.
+     */
+    private fun enrichArtworkWindow(tracks: List<Track>, center: Int) {
+        if (tracks.isEmpty()) return
+        val from = (center - 1).coerceAtLeast(0)
+        val to = (center + 2).coerceAtMost(tracks.lastIndex)
+        for (index in from..to) enrichArtworkAt(index, tracks[index])
+    }
+
+    /** Called on media-item transitions so a distant jump still gets its cover. */
+    fun refreshArtwork(track: Track, index: Int) {
+        enrichArtworkAt(index, track)
+    }
+
+    private fun enrichArtworkAt(index: Int, track: Track) {
+        if (track.filepath.isBlank()) return
+        artworkScope.launch {
+            val bytes = EmbeddedArtwork.load(context, track) ?: return@launch
+            withContext(Dispatchers.Main.immediate) {
+                if (index !in 0 until player.mediaItemCount) return@withContext
+                val current = player.getMediaItemAt(index)
+                val currentSongId = LibraryProvider.extractSongId(current.mediaId)?.toString()
+                if (current.mediaId != track.id && currentSongId != track.id) return@withContext
+                player.replaceMediaItem(
+                    index,
+                    current.buildUpon()
+                        .setMediaMetadata(PlaybackMediaMetadata.build(track, bytes))
+                        .build(),
+                )
+            }
+        }
     }
 
     fun play() {
@@ -523,14 +557,10 @@ class PlayerController(
             MediaItem.Builder()
                 .setMediaId(track.id)
                 .setUri(resolveUri(track))
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build()
-                )
+                .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build(),
         )
+        enrichArtworkAt(player.mediaItemCount - 1, track)
         _state.value = _state.value.copy(queue = newQueue, queueEntries = newEntries)
     }
 
@@ -546,14 +576,10 @@ class PlayerController(
             MediaItem.Builder()
                 .setMediaId(track.id)
                 .setUri(resolveUri(track))
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build()
-                )
+                .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build(),
         )
+        enrichArtworkAt(insertIndex, track)
         _state.value = _state.value.copy(queue = currentQueue, queueEntries = reindexedEntries)
     }
 

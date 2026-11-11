@@ -64,15 +64,30 @@ enum class SyncItemAction {
 
 /**
  * Evidence class for a local copy that could satisfy a remote manifest entry.
- * Only [IDENTICAL_VERIFIED] proves that omitting the download is safe.
+ * Only [HASH_VERIFIED], or a persistent managed-copy [REFERENCE_MATCH],
+ * proves that omitting the download is safe.
  */
 @Serializable
 enum class SyncIdentityVerdict {
-    /** Same owner and track, with a physically verified, equivalent local copy. */
-    IDENTICAL_VERIFIED,
+    /**
+     * Same owner and logical reference, and a trusted checksum proves the local
+     * bytes equal the manifest content. The only verdict that skips on content
+     * identity alone.
+     */
+    HASH_VERIFIED,
 
-    /** Same owner and track, but integrity or physical availability is not proven. */
-    SAME_OWNER_REFERENCE,
+    /**
+     * Same owner and logical reference, with a persistent app-verified managed
+     * copy that is still physically present and unchanged. It preserves the
+     * reference without claiming a fresh content comparison.
+     */
+    REFERENCE_MATCH,
+
+    /**
+     * Same owner and logical reference, and the local file has the expected
+     * size, but no trusted content hash proves equivalence. Never skips.
+     */
+    SIZE_COMPATIBLE,
 
     /** Metadata coincidence only. Never sufficient to skip a download. */
     POSSIBLE_DUPLICATE,
@@ -85,6 +100,12 @@ enum class SyncIdentityVerdict {
 
     /** Not enough evidence to classify the local copy. */
     UNKNOWN,
+
+    /** Legacy value kept so previously persisted plans still decode. */
+    IDENTICAL_VERIFIED,
+
+    /** Legacy value kept so previously persisted plans still decode. */
+    SAME_OWNER_REFERENCE,
 }
 
 /**
@@ -101,7 +122,15 @@ data class LocalSyncTrackEvidence(
     val duration: Long = 0,
     val sizeBytes: Long = 0,
     val checksum: String = "",
+    /** The checksum was computed or verified by this app for this exact file. */
     val checksumVerified: Boolean = false,
+    /** Algorithm of [checksum], lowercase (for example `sha256`). */
+    val checksumAlgorithm: String = "",
+    /**
+     * A persistent managed-copy record proves this app created and verified the
+     * file, and the physical file still matches that record.
+     */
+    val managedCopyVerified: Boolean = false,
     val filePath: String = "",
     val physicallyVerified: Boolean = false,
     val complete: Boolean = false,

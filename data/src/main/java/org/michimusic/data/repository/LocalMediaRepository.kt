@@ -91,16 +91,32 @@ open class LocalMediaRepository(
         }
 
     internal fun groupAlbums(tracks: List<Track>): List<LocalAlbum> {
-        val grouped = tracks.groupBy { it.album to it.artist }
-        return grouped.map { (albumArtist, albumTracks) ->
-            val (albumName, artistName) = albumArtist
+        // MediaStore's album ID is the authoritative disc identity, so a
+        // compilation stays one album even when every song has a guest artist.
+        // Tag-based libraries group by album title + album artist; the track
+        // artist is only a last-resort fallback when no album credit exists.
+        val grouped = tracks.groupBy { track ->
+            if (track.albumId.isNotBlank()) {
+                "mediastore:${track.albumId}"
+            } else {
+                val albumArtist = track.albumArtist.ifBlank { track.artist }
+                "tags:${track.album.trim().lowercase()}|${albumArtist.trim().lowercase()}"
+            }
+        }
+        return grouped.map { (_, albumTracks) ->
             val first = albumTracks.first()
-            val albumId = "${albumName.lowercase().replace(" ", "_")}_${artistName.lowercase().replace(" ", "_")}"
+            val albumName = first.album.ifEmpty { "Unknown Album" }
+            val artistName = first.albumArtist.ifBlank { first.artist }.ifEmpty { "Unknown" }
+            val albumId = if (first.albumId.isNotBlank()) {
+                "mediastore_${first.albumId}"
+            } else {
+                "${albumName.lowercase().replace(" ", "_")}_${artistName.lowercase().replace(" ", "_")}"
+            }
             LocalAlbum(
                 album = Album(
                     id = "album_$albumId",
-                    title = albumName.ifEmpty { "Unknown Album" },
-                    artist = artistName.ifEmpty { "Unknown" },
+                    title = albumName,
+                    artist = artistName,
                     year = first.year,
                     trackCount = albumTracks.size,
                     coverId = first.coverId,
@@ -378,6 +394,26 @@ open class LocalMediaRepository(
         }
 
         val pendingTracks = mutableListOf<PendingTrack>()
+        // Album-level credit lives in the albums table, not in each song row.
+        // It is the stable grouping key for compilations with guest artists.
+        val albumArtistById = mutableMapOf<String, String>()
+        runCatching {
+            ctx.contentResolver.query(
+                MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Albums._ID, MediaStore.Audio.Albums.ARTIST),
+                null,
+                null,
+                null,
+            )?.use { albums ->
+                val idCol = albums.getColumnIndexOrThrow(MediaStore.Audio.Albums._ID)
+                val artistCol = albums.getColumnIndexOrThrow(MediaStore.Audio.Albums.ARTIST)
+                while (albums.moveToNext()) {
+                    val id = albums.getString(idCol) ?: continue
+                    val artist = albums.getString(artistCol).orEmpty()
+                    if (artist.isNotBlank()) albumArtistById[id] = artist
+                }
+            }
+        }
 
         cursor.use { c ->
             val idCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
@@ -433,6 +469,7 @@ open class LocalMediaRepository(
                     primaryAudio,
                     id.toLong()
                 ).toString()
+                val albumId = c.getString(albumIdCol) ?: ""
                 pendingTracks.add(
                     PendingTrack(
                         track = Track(
@@ -440,7 +477,8 @@ open class LocalMediaRepository(
                             title = title ?: "Unknown",
                             artist = artist ?: "Unknown",
                             album = album ?: "Unknown",
-                            albumId = c.getString(albumIdCol) ?: "",
+                            albumId = albumId,
+                            albumArtist = albumArtistById[albumId].orEmpty(),
                             duration = duration.coerceAtLeast(0),
                             filepath = contentUri,
                             trackNumber = c.getInt(trackCol).coerceAtLeast(0),

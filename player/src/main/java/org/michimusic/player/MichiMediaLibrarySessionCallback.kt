@@ -102,10 +102,11 @@ class MichiMediaLibrarySessionCallback(
                     return@launch
                 }
                 val resolved = libraryProvider.resolveForPlayback(items)
+                val safeIndex = saved.startIndex.coerceIn(0, resolved.lastIndex.coerceAtLeast(0))
                 future.set(
                     MediaSession.MediaItemsWithStartPosition(
                         resolved,
-                        saved.startIndex.coerceIn(0, resolved.lastIndex.coerceAtLeast(0)),
+                        safeIndex,
                         saved.positionMs,
                     )
                 )

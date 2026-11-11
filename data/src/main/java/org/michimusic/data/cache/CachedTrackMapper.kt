@@ -20,6 +20,7 @@ fun CachedTrack.toTrack(): Track = Track(
     title = title,
     artist = artist,
     album = album,
+    albumArtist = albumArtist,
     duration = duration,
     size = size,
     format = format,
@@ -31,9 +32,10 @@ fun CachedTrack.toTrack(): Track = Track(
     year = year,
     filepath = filepath,
     source = when {
-        downloaded -> TrackSource.SYNCED
-        // A non-empty owner does not make a SAF or MediaStore file remote.
+        // Owner scope wins over the legacy `downloaded` flag: historical SAF
+        // rows were stored with downloaded=true and must stay local.
         isLocalLibrarySource(sourceId) -> TrackSource.LOCAL
+        downloaded -> TrackSource.SYNCED
         sourceId.isNotEmpty() -> TrackSource.STREAMING
         else -> TrackSource.LOCAL
     },

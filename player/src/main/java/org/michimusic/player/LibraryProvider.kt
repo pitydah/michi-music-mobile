@@ -107,6 +107,19 @@ class LibraryProvider(
         isLoaded = true
     }
 
+    /**
+     * Adds embedded artwork to one resolved MediaItem. Safe to call from an IO
+     * coroutine; returns the original item when the file has no picture.
+     */
+    suspend fun withEmbeddedArtwork(item: MediaItem): MediaItem {
+        val songId = extractSongId(item.mediaId)?.toString() ?: return item
+        val track = cachedTracks.firstOrNull { it.id == songId } ?: return item
+        val bytes = EmbeddedArtwork.load(context, track) ?: return item
+        return item.buildUpon()
+            .setMediaMetadata(PlaybackMediaMetadata.build(track, bytes))
+            .build()
+    }
+
     fun getRootChildren(): List<MediaItem> = listOf(
         MediaItem.Builder()
             .setMediaId(ALBUMS)
@@ -402,15 +415,7 @@ class LibraryProvider(
         return MediaItem.Builder()
             .setMediaId(mediaId)
             .setUri(uri)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setArtist(artist)
-                    .setAlbumTitle(album)
-                    .setTrackNumber(trackNumber)
-                    .setArtworkUri(coverUri(coverId))
-                    .build()
-            )
+            .setMediaMetadata(PlaybackMediaMetadata.build(this))
             .build()
     }
 }
@@ -420,6 +425,7 @@ private fun org.michimusic.data.cache.CachedTrack.toTrack(): Track = Track(
     title = title,
     artist = artist,
     album = album,
+    albumArtist = albumArtist,
     duration = duration,
     size = size,
     format = format,
@@ -431,8 +437,8 @@ private fun org.michimusic.data.cache.CachedTrack.toTrack(): Track = Track(
     year = year,
     filepath = filepath,
     source = when {
-        downloaded -> TrackSource.SYNCED
         org.michimusic.data.cache.isLocalLibrarySource(sourceId) -> TrackSource.LOCAL
+        downloaded -> TrackSource.SYNCED
         sourceId.isNotEmpty() -> TrackSource.STREAMING
         else -> TrackSource.LOCAL
     },

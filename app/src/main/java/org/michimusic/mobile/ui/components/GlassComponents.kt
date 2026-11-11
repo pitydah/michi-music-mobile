@@ -424,7 +424,7 @@ fun GradientProgressBar(
                 style = seekerStyle, progress = progress, playing = playing,
                 reducedMotion = reducedMotion, dragging = isDragging,
                 amplitudes = waveformAmplitudes,
-                modifier = Modifier.fillMaxWidth().height(32.dp),
+                modifier = Modifier.fillMaxWidth().height(44.dp),
             )
         }
 

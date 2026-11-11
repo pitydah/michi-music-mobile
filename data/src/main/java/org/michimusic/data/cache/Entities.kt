@@ -16,6 +16,7 @@ data class CachedTrack(
     val duration: Long = 0,
     val size: Long = 0,
     val format: String = "",
+    val albumArtist: String = "",
     val bitrate: Int = 0,
     val sampleRate: Int = 0,
     val channels: Int = 0,
@@ -25,6 +26,14 @@ data class CachedTrack(
     val filepath: String = "",
     val downloaded: Boolean = false,
     val sourceId: String = "",
+    /** Size recorded when this app verified the managed copy. 0 = unverified. */
+    val verifiedSize: Long = 0,
+    /** SHA-256 computed or verified by this app for [filepath]. Empty = unverified. */
+    val verifiedSha256: String = "",
+    /** Wall-clock time of the verification; invalidates copies modified afterwards. */
+    val verifiedAt: Long = 0,
+    /** Lowercase algorithm of [verifiedSha256]. */
+    val verifiedAlgorithm: String = "",
 )
 
 @Entity(tableName = "cached_albums")

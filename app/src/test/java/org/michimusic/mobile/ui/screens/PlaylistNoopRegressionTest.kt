@@ -118,7 +118,30 @@ class PlaylistNoopRegressionTest {
     }
 
     @Test
-    fun longPressPlayActionOpensContextualManagementWithoutLosingPlayback() {
+    fun moreOptionsActionOpensContextualManagementWithoutPlaying() {
+        val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
+        val p1 = PlaylistItem(id = "lofi_chill", name = "Lo-Fi Chill", trackCount = 20)
+        every { mockViewModel.playlists } returns MutableStateFlow(listOf(p1))
+        every { mockViewModel.isLoading } returns MutableStateFlow(false)
+        every { mockViewModel.isRenamingPlaylist } returns MutableStateFlow(false)
+        every { mockViewModel.isDeletingPlaylist } returns MutableStateFlow(false)
+
+        composeTestRule.setContent {
+            PlaylistScreen(
+                onNavigateToPlaylist = { },
+                viewModel = mockViewModel,
+                audioController = mockk(relaxed = true),
+                historyDao = historyDao,
+            )
+        }
+
+        composeTestRule.onNodeWithTag("playlist_more_lofi_chill").performClick()
+        composeTestRule.onNodeWithTag("playlist_menu_rename_lofi_chill").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("rename_playlist_dialog").assertIsDisplayed()
+    }
+
+    @Test
+    fun longPressOnPlayDoesNotOpenManagement() {
         val mockViewModel = mockk<PlaylistsViewModel>(relaxed = true)
         val p1 = PlaylistItem(id = "lofi_chill", name = "Lo-Fi Chill", trackCount = 20)
         every { mockViewModel.playlists } returns MutableStateFlow(listOf(p1))
@@ -136,7 +159,6 @@ class PlaylistNoopRegressionTest {
         }
 
         composeTestRule.onNodeWithTag("playlist_play_lofi_chill").performTouchInput { longClick() }
-        composeTestRule.onNodeWithTag("playlist_menu_rename_lofi_chill").assertIsDisplayed().performClick()
-        composeTestRule.onNodeWithTag("rename_playlist_dialog").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("playlist_menu_rename_lofi_chill").assertDoesNotExist()
     }
 }

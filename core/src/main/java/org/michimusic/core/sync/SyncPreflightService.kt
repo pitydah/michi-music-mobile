@@ -166,26 +166,19 @@ class SyncPreflightService {
             )
         }
 
-        // 2. Deduplicate tracks by trackId or checksum
-        val dedupedTracks = filteredTracks.distinctBy {
-            if (it.checksum.isNotEmpty()) it.checksum else it.trackId
-        }
+        // 2. Deduplicate by logical reference only. Two album/playlist entries
+        // may legitimately reuse the same audio content under different track
+        // IDs; dropping one by checksum would lose a real reference.
+        val dedupedTracks = filteredTracks.distinctBy { it.trackId }
 
         // 3. Classify each track against physical, source-scoped evidence.
         // Metadata or a bare ID never authorize SKIP_ALREADY_EXISTS.
         val decisions = dedupedTracks.map { track ->
             val identity = SyncIdentityPolicy.classify(endpointId, track, localTrackEvidence)
             val estimatedFullBytes = estimateTrackDownloadBytes(track, deliveryChoice)
-            val identityReason = when (identity.verdict) {
-                SyncIdentityVerdict.IDENTICAL_VERIFIED -> "Ya existe una copia verificada de este servidor"
-                SyncIdentityVerdict.SAME_OWNER_REFERENCE -> "Referencia del mismo servidor sin archivo físico verificado"
-                SyncIdentityVerdict.POSSIBLE_DUPLICATE -> "Coincidencia de metadatos; no se omite la descarga"
-                SyncIdentityVerdict.DIFFERENT_SOURCE -> "El identificador pertenece a otra biblioteca; se descarga"
-                SyncIdentityVerdict.CONTENT_MISMATCH -> "El contenido local no coincide con el manifiesto; se descarga"
-                SyncIdentityVerdict.UNKNOWN -> null
-            }
+            val identityReason = identity.reason.ifBlank { null }
 
-            if (identity.verdict == SyncIdentityVerdict.IDENTICAL_VERIFIED) {
+            if (identity.canSkip) {
                 SyncItemDecision(
                     trackId = track.trackId,
                     title = track.title,

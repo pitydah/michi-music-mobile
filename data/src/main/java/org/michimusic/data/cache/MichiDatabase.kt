@@ -28,7 +28,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApprovedSyncPlanEntity::class,
         LibraryExclusionEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -313,6 +313,19 @@ abstract class MichiDatabase : RoomDatabase() {
                     PRIMARY KEY(`sourceId`, `trackId`)
                 )
             """.trimIndent())
+        }
+
+        /**
+         * CLOSURE 03: persistent managed-copy verification. Adding nullable
+         * metadata columns never moves or deletes a cached row or a music file.
+         * Rows keep `0`/empty until this app verifies the physical file again.
+         */
+        val MIGRATION_9_10 = Migration(9, 10) { db ->
+            db.execSQL("ALTER TABLE cached_tracks ADD COLUMN verifiedSize INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE cached_tracks ADD COLUMN verifiedSha256 TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE cached_tracks ADD COLUMN verifiedAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE cached_tracks ADD COLUMN verifiedAlgorithm TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE cached_tracks ADD COLUMN albumArtist TEXT NOT NULL DEFAULT ''")
         }
 
         /**

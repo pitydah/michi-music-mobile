@@ -847,3 +847,198 @@ ni contraste alto en esta sesión.
 - **GO_PHYSICAL:** parcial. APK Normal debug instalado y `MainActivity` iniciada en
   `25010PN30G` (`26dfb91d`); faltan pruebas físicas de reproducción, rutas y accesibilidad.
 - **GO_RELEASE:** **NO-GO**.
+
+## KILLCRITIC QUALITY CLOSURE 03 — integridad, procedencia, Media3, waveforms y Playlists
+
+Base auditada: `master@b0a950d5af6235e2d3728ae7093f2c0edfe1f12d`.
+Cambios en working tree, **sin commit ni push**. No se publicó nada.
+
+### SYNC-INTEGRITY-03
+
+**Causa raíz:** `SyncIdentityPolicy.isVerified()` trataba `archivo físico + tamaño
+coincidente` como identidad suficiente. `SIZE_COMPATIBLE` se confundía con
+`HASH_VERIFIED`; además el preflight deduplicaba referencias por checksum antes
+que por identidad lógica.
+
+**Solución:**
+- Estados separados: `REFERENCE_MATCH`, `SIZE_COMPATIBLE`, `HASH_VERIFIED`,
+  `CONTENT_MISMATCH`, `POSSIBLE_DUPLICATE`, `DIFFERENT_SOURCE`, `UNKNOWN`.
+- `SyncIdentityMatch.canSkip` es la única autorización de `SKIP_ALREADY_EXISTS`.
+  Solo `HASH_VERIFIED` o una copia gestionada persistente (`REFERENCE_MATCH`)
+  pueden omitir. `SIZE_COMPATIBLE` siempre descarga.
+- Los checksums solo se comparan cuando ambos son SHA-256 compatibles; un
+  checksum con semántica incompatible no se presenta como verificado.
+- Deduplicación por `trackId` lógico, nunca por checksum: dos referencias de
+  álbum/playlist al mismo audio se conservan.
+- Room 9 → 10 añade `verifiedSize`, `verifiedSha256`, `verifiedAt`,
+  `verifiedAlgorithm` a `cached_tracks`; la migración es no destructiva.
+- `SyncedTrackRepository.getDownloadedTrackEvidence()` comprueba archivo,
+  tamaño, huella persistente y antigüedad; hashea una sola vez en IO las copias
+  heredadas y persiste el resultado.
+- `SyncWorker` guarda el SHA-256 verificado tras la transferencia y limpia la
+  verificación si solo registra una ruta.
+
+**Pruebas:** mismo tamaño con contenido distinto, checksum válido/incorrecto/
+ausente/incompatible, archivo desaparecido, copia gestionada reutilizable,
+reanudación, dos servidores con el mismo `trackId` y dos referencias al mismo
+contenido.
+
+### SAF-PROVENANCE-03
+
+**Causa raíz:** `SafMediaRepository` guardaba `downloaded = true` para documentos
+SAF y `CachedTrack.toTrack()` evaluaba `downloaded` antes que la raíz local.
+
+**Solución:**
+- SAF se indexa con `downloaded = false`; no es una copia gestionada por Sync.
+- El mapper prioriza `isLocalLibrarySource(sourceId)` sobre `downloaded`, por lo
+  que las filas históricas SAF tampoco se reclasifican como `SYNCED`.
+- Se conservan las tres dimensiones: propietario (`sourceId`), bytes
+  (`TrackSource`) y ruta (`filepath`). Un SAF sigue siendo local aunque su
+  archivo esté disponible.
+- `Track.albumArtist` y `CachedTrack.albumArtist` preservan la autoría de álbum.
+
+**Pruebas:** SAF con `downloaded=true` histórico, MediaStore local, sincronizada
+física, remota no descargada y evidencia SAF que no se hashea como copia Sync.
+
+### META-SESSION-03 / META-ART-04
+
+**Causa raíz:** cada ruta de reproducción construía `MediaMetadata` con título y
+artista; la carátula nunca llegaba a la sesión. Además, un `coverId` numérico se
+convertía siempre en URI de álbum de MediaStore, incluso para SAF o servidores.
+
+**Solución:**
+- Nueva autoridad `PlaybackMediaMetadata` usada por `PlayerController`,
+  `AudioController`, `LibraryProvider` y las rutas de cola.
+- La URI numérica de MediaStore solo se construye para la biblioteca local del
+  dispositivo; SAF y bibliotecas remotas no pueden tomar prestada una portada
+  local.
+- `EmbeddedArtwork` extrae la imagen incrustada fuera del hilo principal, la
+  reduce a 512 px y la recomprime como JPEG ≤ 256 KB para cruzar Binder con
+  seguridad. Caché acotada por identidad de archivo; sin red.
+- `PlayerController` enriquece la ventana actual±1 y refresca la carátula al
+  cambiar de pista; una portada tardía se descarta si el `mediaId` ya cambió.
+- `MediaMetadata` incluye título, artista, álbum, album artist, track number,
+  año, duración, tipo de medio, artwork y extras de identidad/propietario.
+- `LocalMediaRepository` agrupa por `ALBUM_ID` de MediaStore o por
+  álbum + album artist; no parte recopilatorios por el artista invitado de cada
+  canción. La tabla de álbumes aporta el crédito de álbum.
+
+**Pruebas:** URI de portada local, SAF/sincronizada sin portada prestada,
+`artworkData` con prioridad, agrupación de recopilación por `ALBUM_ID`,
+álbumes homónimos con IDs distintos y SAF con `ALBUMARTIST`.
+
+### NP-WAVE-DYNAMICS-03
+
+**Causa raíz:** la envolvente real se dibujaba con amplitudes absolutas. En
+masterizaciones comprimidas la variación era mínima y Barras/Continuo compartían
+una masa visual casi plana.
+
+**Solución:**
+- `waveformRenderLevels()` aplica una ventana robusta p10–p90 y una curva de
+  contraste suave solo de representación; el silencio sigue siendo silencio y no
+  se inventan picos.
+- Barras: 45–60 barras según ancho, 2.5–3.5 dp de ancho, 38–42 dp de altura,
+  extremos redondeados, progreso por color de segmento.
+- Continuo: 80–180 puntos, silueta cerrada con suavizado cuadrático que conserva
+  transitorios, 40 dp de altura, máscara de progreso y playhead fino.
+- Ambos comparten una única decodificación PCM; cambiar Barras ↔ Continuo no
+  vuelve a decodificar. Ahora Playing 44 dp de canvas y mantiene el objetivo
+  táctil de 48 dp.
+- Aero Capsule conserva `LIQUID_GLASS`, rail 9 dp, canal 4 dp, thumb 12/14 dp y
+  la única autoridad de gestos en `GradientProgressBar`.
+
+**Pruebas:** masterización comprimida, silencio, transitorio aislado, geometrías
+distintas, valores no finitos y política de fallback.
+
+### PL-EDITORIAL-03 / PL-DETAIL-03
+
+- El catálogo ya no depende de mantener pulsado Play. Reproducir y **Más
+  opciones** son acciones separadas, visibles y con objetivos de 48 dp. El menú
+  conserva Renombrar, Fijar/Desfijar, Gestionar canciones y Eliminar.
+- Se mantienen las medidas de CLOSURE 02: título 28/32 sp, tarjetas de 92 dp,
+  portada 64 dp, hero de 220 dp, portada 92/104 dp, título 22/26 sp, filas
+  compactas de 44 dp y CTAs Reproducir/Mezclar con jerarquía 1f/0.55f.
+- La pulsación larga sobre Play ya no abre administración.
+
+### UI5-LIB-HEADER-03
+
+- Eliminado el botón «+» y `library_add_playlist_button` de Biblioteca.
+- Eliminados el estado, el diálogo y los imports de creación de playlist.
+- Canciones, Álbumes, Artistas, filtros, menús de canción y «Añadir a playlist»
+  siguen funcionando. El texto vacío ahora remite a la sección Playlists.
+
+### ST-VISUAL-03
+
+- Se conserva el popup Aero de CLOSURE 02: `Dialog` + `AeroFloatingSurface`,
+  radio 26 dp, ancho máximo 420 dp, altura natural con máximo 84 %, scroll
+  interno, una etapa expandida por `stableId` y conectores sólidos solo con
+  causalidad real.
+- No se modificó la evidencia R18/R19 ni se declaró verificación física del DAC.
+- **No hay captura nueva de Signal Truth en CLOSURE 03.**
+
+### Medidas implementadas
+
+| Elemento | Implementado | Objetivo | Estado |
+|---|---|---|---|
+| Sync skip | solo hash o copia gestionada persistente | sin evidencia insuficiente | dentro |
+| Room | versión 10, migración aditiva | no destructiva | dentro |
+| Barras | 45–60, 2.5–3.5 dp, 38–42 dp | 45–60, 2.5–3.5, 38–44 | dentro |
+| Continuo | 40 dp, 80–180 puntos | 38–44 dp | dentro |
+| Canvas seeker | 44 dp / táctil 48 dp | ≥48 táctil | dentro |
+| Cápsula | rail 9, canal 4, thumb 12/14 | 7–10/3–5/12–14 | dentro |
+| Playlist card | 92 dp, portada 64, menú 48 | 92–104/62–68/48 | dentro |
+| Library header | sin «+» | sin acceso duplicado | dentro |
+| Media art | URI local o embedded ≤256 KB | identificable y seguro | dentro |
+
+### Validación ejecutada
+
+| Comprobación | Resultado |
+|---|---|
+| Unit `:core`, `:data`, `:player`, `:app` Normal/F-Droid, `:michi-link-client` | **PASS** |
+| `SyncPreflightServiceTest`, `SyncedTrackRepositoryTest`, `Migration9To10Test`, `CachedTrackMapperTest` | **PASS** |
+| `LocalMediaRepositoryTest`, `PlaybackMediaMetadataTest`, `MichiMediaLibrarySessionCallbackTest` | **PASS** |
+| `WaveformVisualPolicyTest`, `PlaylistNoopRegressionTest`, `PlaylistDetailScreenTest` | **PASS** |
+| Lint | **PASS** |
+| Normal/F-Droid debug + release | **PASS** |
+| Instrumentación AVD API 36 | **93 tests, 0 fallos, 8 skipped** |
+
+### Evidencia visual real
+
+En `/tmp/opencode/closure03/`:
+- `01-library-header.png`: Biblioteca sin «+».
+- `02-playlists-empty.png`: estado vacío editorial.
+- `03-playlists-one.png`: una colección, Play y Más opciones separados.
+- `04-playlist-menu.png`: menú contextual visible.
+- `05-detail-empty.png`, `07-detail-populated.png`: detalle y filas compactas.
+- `09-detail-yellow.png`: banner amarillo sin placa ni rectángulo; título y
+  contador legibles sobre el scrim continuo.
+
+No existen capturas de Signal Truth, Waveform Barras, Waveform Continuo ni Aero
+Capsule: el AVD se cerró dos veces al iniciar la reproducción. No se declaran
+aprobados.
+
+### Gates
+
+- **GO_SYNC_INTEGRITY:** sí en política, migración y pruebas; falta una prueba
+  real con dos servidores y checksums de extremo a extremo.
+- **GO_TRACK_PROVENANCE:** sí en código y pruebas; falta validación física SAF.
+- **GO_MEDIA3_ARTWORK:** código y pruebas de resolución; falta captura en
+  Android/HyperOS.
+- **GO_ANDROID_MEDIA_CONTROLS:** pendiente de dispositivo.
+- **GO_METADATA:** sí para agrupación/álbum artist; falta matriz real de tags
+  MP3/FLAC/M4A/OGG/WAV.
+- **GO_ARTWORK_IDENTITY:** parcial; falta comprobar portadas embebidas reales.
+- **GO_WAVEFORM_VISUAL:** código y pruebas; sin captura comparativa.
+- **GO_WAVEFORM_AUTO:** código y pruebas; sin captura real MP3/FLAC/SAF.
+- **GO_PLAYLIST_CATALOG_VISUAL:** parcial; una colección y menú capturados,
+  falta muchas colecciones y matriz de anchos.
+- **GO_PLAYLIST_DETAIL:** parcial; banner amarillo y filas capturados, faltan
+  banner oscuro, textura, título largo y fuente 200 %.
+- **GO_PLAYLIST_REORDER:** pendiente; no se modificó el drag-and-drop.
+- **GO_LIBRARY_HEADER:** sí con captura y pruebas de compilación.
+- **GO_SIGNAL_TRUTH_VISUAL:** pendiente de captura.
+- **GO_CODE:** sí en working tree.
+- **GO_CI:** pendiente; no hay commit ni push.
+- **GO_VISUAL:** parcial.
+- **GO_PHYSICAL:** pendiente; no hay teléfono conectado.
+- **GO_RELEASE:** **NO-GO**.

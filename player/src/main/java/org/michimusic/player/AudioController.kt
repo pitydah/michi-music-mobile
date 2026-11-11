@@ -358,12 +358,7 @@ class AudioController(
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
                 .setUri(track.filepath)
-                .setMediaMetadata(
-                    androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build()
-                )
+                .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build()
         }
         mediaController?.setMediaItems(mediaItems, startIndex, 0L)
@@ -505,12 +500,7 @@ class AudioController(
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
                 .setUri(track.filepath)
-                .setMediaMetadata(
-                    androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build()
-                )
+                .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build(),
         )
         _state.value = _state.value.copy(queue = newQueue, queueEntries = newEntries)
@@ -543,12 +533,7 @@ class AudioController(
             MediaItem.Builder()
                 .setMediaId(LibraryProvider.buildSongId(track.id))
                 .setUri(track.filepath)
-                .setMediaMetadata(
-                    androidx.media3.common.MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build()
-                )
+                .setMediaMetadata(PlaybackMediaMetadata.build(track))
                 .build(),
         )
         _state.value = _state.value.copy(queue = currentQueue, queueEntries = reindexedEntries)

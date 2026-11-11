@@ -19,13 +19,17 @@ class SyncPreflightServiceTest {
     private val service = SyncPreflightService()
     private val oneMb = 1024L * 1024L
 
+    private val sha1 = "1".repeat(64)
+    private val sha2 = "2".repeat(64)
+    private val sha3 = "3".repeat(64)
+
     private val trackA = ManifestTrack(
         trackId = "trk-1",
         title = "Track One",
         artist = "Artist A",
         album = "Album Alpha",
         size = 10 * oneMb,
-        checksum = "hash-1",
+        checksum = sha1,
     )
 
     private val trackB = ManifestTrack(
@@ -34,7 +38,7 @@ class SyncPreflightServiceTest {
         artist = "Artist B",
         album = "Album Beta",
         size = 12 * oneMb,
-        checksum = "hash-2",
+        checksum = sha2,
     )
 
     private val trackC = ManifestTrack(
@@ -43,7 +47,7 @@ class SyncPreflightServiceTest {
         artist = "Artist C",
         album = "Album Gamma",
         size = 15 * oneMb,
-        checksum = "hash-3",
+        checksum = sha3,
     )
 
     private fun verified(vararg tracks: ManifestTrack, sourceId: String = "ep-1") = tracks.map {
@@ -56,6 +60,8 @@ class SyncPreflightServiceTest {
             sizeBytes = it.size,
             checksum = it.checksum,
             checksumVerified = it.checksum.isNotEmpty(),
+            checksumAlgorithm = "sha256",
+            managedCopyVerified = true,
             filePath = "/music/${it.trackId}.flac",
             physicallyVerified = true,
             complete = true,
@@ -116,7 +122,7 @@ class SyncPreflightServiceTest {
 
         val item1 = plan.items.first { it.trackId == "trk-1" }
         assertEquals(SyncItemAction.SKIP_ALREADY_EXISTS, item1.action)
-        assertEquals(SyncIdentityVerdict.IDENTICAL_VERIFIED, item1.identity)
+        assertEquals(SyncIdentityVerdict.HASH_VERIFIED, item1.identity)
         assertEquals(0L, item1.estimatedDownloadBytes)
 
         val item2 = plan.items.first { it.trackId == "trk-2" }
@@ -336,13 +342,13 @@ class SyncPreflightServiceTest {
 
         val item = plan.items.single()
         assertEquals(SyncItemAction.DOWNLOAD, item.action)
-        assertEquals(SyncIdentityVerdict.SAME_OWNER_REFERENCE, item.identity)
+        assertEquals(SyncIdentityVerdict.REFERENCE_MATCH, item.identity)
     }
 
     @Test
     fun checksumMismatch_downloadsInsteadOfSkipping() {
         val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
-        val mismatch = verified(trackA).single().copy(checksum = "different-content")
+        val mismatch = verified(trackA).single().copy(checksum = "9".repeat(64))
 
         val plan = service.buildPlan(
             endpointId = "ep-1",
@@ -360,7 +366,7 @@ class SyncPreflightServiceTest {
     }
 
     @Test
-    fun verifiedPhysicalSizeMatch_isReusedEvenWithoutChecksum() {
+    fun managedVerifiedCopyWithoutManifestChecksum_isReusedAsReferenceMatch() {
         val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
         val noChecksum = verified(trackA).single().copy(checksum = "")
 
@@ -370,13 +376,84 @@ class SyncPreflightServiceTest {
             selection = selection,
             deliveryChoice = DeliveryChoice(),
             availableStorageBytes = 1000 * oneMb,
-            candidateTracks = listOf(trackA),
+            candidateTracks = listOf(trackA.copy(checksum = "")),
             localTrackEvidence = listOf(noChecksum),
         )
 
         val item = plan.items.single()
         assertEquals(SyncItemAction.SKIP_ALREADY_EXISTS, item.action)
-        assertEquals(SyncIdentityVerdict.IDENTICAL_VERIFIED, item.identity)
+        assertEquals(SyncIdentityVerdict.REFERENCE_MATCH, item.identity)
+    }
+
+    @Test
+    fun sameSizeWithoutManagedVerification_isOnlySizeCompatibleAndDownloads() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val sizeOnly = verified(trackA).single().copy(
+            checksum = "",
+            checksumVerified = false,
+            checksumAlgorithm = "",
+            managedCopyVerified = false,
+        )
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(sizeOnly),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertEquals(SyncIdentityVerdict.SIZE_COMPATIBLE, item.identity)
+    }
+
+    @Test
+    fun checksumWithIncompatibleSemantics_isNotTreatedAsVerified() {
+        val selection = SyncSelection(scope = SyncScope.TRACKS, trackIds = setOf("trk-1"))
+        val foreignChecksum = verified(trackA).single().copy(
+            checksum = "d41d8cd98f00b204e9800998ecf8427e",
+            checksumVerified = true,
+            checksumAlgorithm = "md5",
+            managedCopyVerified = false,
+        )
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA),
+            localTrackEvidence = listOf(foreignChecksum),
+        )
+
+        val item = plan.items.single()
+        assertEquals(SyncItemAction.DOWNLOAD, item.action)
+        assertTrue(
+            item.identity == SyncIdentityVerdict.SIZE_COMPATIBLE ||
+                item.identity == SyncIdentityVerdict.REFERENCE_MATCH,
+        )
+    }
+
+    @Test
+    fun sameContentUnderTwoLogicalReferences_keepsBothReferences() {
+        val selection = SyncSelection(scope = SyncScope.FULL_LIBRARY)
+        val alias = trackA.copy(trackId = "trk-alias", title = "Track One (Edit)")
+
+        val plan = service.buildPlan(
+            endpointId = "ep-1",
+            endpointName = "Micro Server A",
+            selection = selection,
+            deliveryChoice = DeliveryChoice(),
+            availableStorageBytes = 1000 * oneMb,
+            candidateTracks = listOf(trackA, alias),
+        )
+
+        assertEquals(2, plan.totalSelectedTracks)
+        assertEquals(setOf("trk-1", "trk-alias"), plan.items.map { it.trackId }.toSet())
     }
 
     @Test

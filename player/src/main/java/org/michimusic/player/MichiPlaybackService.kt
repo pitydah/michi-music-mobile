@@ -190,7 +190,10 @@ class MichiPlaybackService : MediaLibraryService() {
                                 if (transitionEpoch.isCurrent(generation) &&
                                     exoPlayer.currentMediaItem?.mediaId == mediaItem?.mediaId) {
                                     replayGainProcessor.onSongChanged(track)
-                                    if (track != null) truthTracker.onTrackFileMetadata(track, null)
+                                    if (track != null) {
+                                        truthTracker.onTrackFileMetadata(track, null)
+                                        controller.refreshArtwork(track, exoPlayer.currentMediaItemIndex)
+                                    }
                                     truthTracker.recompute()
                                 }
                             }

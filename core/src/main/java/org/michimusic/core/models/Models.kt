@@ -37,6 +37,12 @@ data class Track(
     @Transient val sourceFileExtension: String = "",
     /** True only when [trackNumber] came from MediaStore.Audio.AudioColumns.TRACK. */
     @Transient val trackNumberFromMediaStore: Boolean = false,
+    /**
+     * Album-level credit (ID3 TPE2 / Vorbis ALBUMARTIST / MediaStore album
+     * artist). Distinct from the per-track [artist]; compilations must group by
+     * this value, never by the guest artist of each song.
+     */
+    val albumArtist: String = "",
 ) {
     /**
      * Normalized metadata signature fallback: "title|artist|album|duration_secs".

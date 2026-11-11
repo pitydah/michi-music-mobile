@@ -1,10 +1,8 @@
 package org.michimusic.mobile.ui.screens
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,13 +19,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import org.michimusic.mobile.ui.components.AeroPremiumBackdrop
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.DropdownMenu
@@ -74,7 +72,6 @@ import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistScreen(
     onNavigateToPlaylist: (String) -> Unit = {},
@@ -322,48 +319,51 @@ fun PlaylistScreen(
                                     }
                                 }
 
-                                Box {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(CircleShape)
-                                            .combinedClickable(
-                                                onLongClickLabel = "Gestionar playlist",
-                                                onClick = {
-                                        if (sessionManager != null) {
-                                            viewModel.playPlaylist(
-                                                playlist.id, audioController = audioController,
-                                                sessionManager = sessionManager,
-                                                onResult = { result ->
-                                                    if (result is org.michimusic.mobile.screens.PlayPlaylistResult.Success) {
-                                                        visualScope.launch {
-                                                            // Privacy is authoritative. A queue acceptance is
-                                                            // evidence of a command, NOT that a song was heard.
-                                                            val allowed = runCatching {
-                                                                historyDao.getSetting("listening_history_enabled") != "false"
-                                                            }.getOrDefault(false)
-                                                            if (!allowed) launchHistoryStore.clear()
-                                                            else launchHistoryStore.recordAccepted(playlist.id, result.trackCount)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    MichiIconAction(
+                                        icon = Icons.Default.PlayArrow,
+                                        contentDescription = "Reproducir ${playlist.name}",
+                                        onClick = {
+                                            if (sessionManager != null) {
+                                                viewModel.playPlaylist(
+                                                    playlist.id, audioController = audioController,
+                                                    sessionManager = sessionManager,
+                                                    onResult = { result ->
+                                                        if (result is org.michimusic.mobile.screens.PlayPlaylistResult.Success) {
+                                                            visualScope.launch {
+                                                                // Privacy is authoritative. A queue acceptance is
+                                                                // evidence of a command, NOT that a song was heard.
+                                                                val allowed = runCatching {
+                                                                    historyDao.getSetting("listening_history_enabled") != "false"
+                                                                }.getOrDefault(false)
+                                                                if (!allowed) launchHistoryStore.clear()
+                                                                else launchHistoryStore.recordAccepted(playlist.id, result.trackCount)
+                                                            }
                                                         }
-                                                    }
-                                                },
-                                            )
-                                        } else {
-                                            viewModel.playPlaylist(playlist.id, audioController = audioController)
-                                        }
-                                    },
-                                                onLongClick = { menuPlaylist = playlist },
-                                            )
-                                            .testTag("playlist_play_${playlist.id}"),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Icon(
-                                            Icons.Default.PlayArrow,
-                                            contentDescription = "Reproducir ${playlist.name}. Mantén pulsado para gestionar.",
-                                            tint = PureWhite,
-                                            modifier = Modifier.size(24.dp),
+                                                    },
+                                                )
+                                            } else {
+                                                viewModel.playPlaylist(playlist.id, audioController = audioController)
+                                            }
+                                        },
+                                        tint = PureWhite,
+                                        iconSize = 22.dp,
+                                        minTargetSize = MichiSpacing.minTouchTarget,
+                                        testTag = "playlist_play_${playlist.id}",
+                                    )
+                                    Box {
+                                        MichiIconAction(
+                                            icon = Icons.Default.MoreVert,
+                                            contentDescription = "Más opciones de ${playlist.name}",
+                                            onClick = { menuPlaylist = playlist },
+                                            tint = TextSecondary,
+                                            iconSize = 20.dp,
+                                            minTargetSize = MichiSpacing.minTouchTarget,
+                                            testTag = "playlist_more_${playlist.id}",
                                         )
-                                    }
                                     DropdownMenu(
                                         expanded = menuPlaylist?.id == playlist.id,
                                         onDismissRequest = { menuPlaylist = null },
@@ -396,6 +396,7 @@ fun PlaylistScreen(
                             }
                         }
                     }
+                }
 
                     item {
                         Spacer(Modifier.height(24.dp))

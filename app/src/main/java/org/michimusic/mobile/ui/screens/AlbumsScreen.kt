@@ -78,7 +78,6 @@ import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.AlbumMosaicGrid
-import org.michimusic.mobile.ui.components.CreatePlaylistDialog
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.TrackActionBottomSheet
@@ -176,7 +175,7 @@ fun AlbumsScreen(
     val albumListState = key(activeScope) { rememberLazyListState() }
     var selectedAlbumId by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
     var selectedAlbumContinuityKey by rememberSaveable(activeScope) { mutableStateOf<String?>(null) }
-    var showCreatePlaylist by remember { mutableStateOf(false) }
+
     var albumToAddToPlaylist by remember { mutableStateOf<org.michimusic.data.repository.LocalMediaRepository.LocalAlbum?>(null) }
     var selectedTrackForMenu by remember { mutableStateOf<Track?>(null) }
     var trackToAddToPlaylist by remember { mutableStateOf<Track?>(null) }
@@ -307,17 +306,8 @@ fun AlbumsScreen(
                             )
                         }
 
-                        // UI5: Playlists is now a dock destination. Keep the existing
-                        // + shortcut to create a playlist without duplicating "Listas".
-                        MichiIconAction(
-                            icon = Icons.Filled.Add,
-                            contentDescription = "Nueva Playlist",
-                            onClick = { showCreatePlaylist = true },
-                            tint = PureWhite,
-                            iconSize = 24.dp,
-                            minTargetSize = MichiSpacing.minTouchTarget,
-                            testTag = "library_add_playlist_button",
-                        )
+                        // Playlist creation belongs to the Playlists destination.
+                        // The library header keeps only browsing controls.
                     }
                 },
             )
@@ -1144,23 +1134,6 @@ fun AlbumsScreen(
             }
         }
 
-        if (showCreatePlaylist) {
-            val isCreatingPlaylist by viewModel.isCreatingPlaylist.collectAsStateWithLifecycle()
-            val createPlaylistError by viewModel.createPlaylistError.collectAsStateWithLifecycle()
-            CreatePlaylistDialog(
-                isCreating = isCreatingPlaylist,
-                errorMessage = createPlaylistError,
-                onCreate = { name ->
-                    viewModel.createPlaylist(name) { result ->
-                        if (result is org.michimusic.mobile.screens.CreatePlaylistResult.Success) {
-                            showCreatePlaylist = false
-                        }
-                    }
-                },
-                onDismiss = { showCreatePlaylist = false },
-            )
-        }
-
         albumToAddToPlaylist?.let { targetAlbum ->
             val tracksToAdd = remember(targetAlbum.tracks, scopedArtistCollection?.playableTrackIds) {
                 canonicalPlayableAlbumTracks(
@@ -1233,7 +1206,7 @@ fun AlbumsScreen(
                             }
                         } else if (playlists.isEmpty()) {
                             Text(
-                                text = "No tienes playlists creadas. Pulsa el botón '+' arriba para crear una.",
+                                text = "Todavía no tienes playlists. Puedes crear una desde la sección Playlists.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = TextMuted,
                                 modifier = Modifier.padding(vertical = 12.dp),
