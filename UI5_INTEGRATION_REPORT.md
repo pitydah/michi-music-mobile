@@ -1411,3 +1411,146 @@ R30 integrados en este checkout; no se aplicó R30.
   Cápsula, 320 dp y metadatos; falta matriz completa y Signal Truth).
 - QA física: 0 % en esta sesión.
 - Release: **NO-GO**.
+
+## UI5-PLAYLIST-VISUAL-REWORK
+
+Base de la intervención: `master@ef3bcae07b371fae2b7d2f020e7665061f17bb3a`.
+HEAD final de la sesión: el mismo `ef3bcae` con los cambios en working tree,
+**sin commit, push, PR ni release**.
+
+### Defectos de jerarquía identificados
+
+1. El catálogo trataba todas las playlists como `AeroCard` del mismo peso. Una
+   sola playlist dejaba una tarjeta aislada sobre un vacío grande; con varias,
+   la pantalla parecía una lista administrativa de tarjetas idénticas.
+2. El detalle conservaba un hero de 220 dp con portada de 104 dp, dos CTAs casi
+   equivalentes y una `AeroCard` por canción. La composición no separaba
+   claramente banner, identidad y funciones musicales, y el listado repetía el
+   patrón de tarjetas.
+
+### Contrato implementado
+
+**Catálogo**
+- Encabezado: «COLECCIONES» 10–11 sp, «Tus Playlists» 28/34 sp, contador y
+  ordenación en una sola fila secundaria, creación con objetivo de 48 dp.
+- `PlaylistCatalogSpotlight`: 198 dp, radio 20 dp, banner real si existe o
+  gradiente Aero con mosaico real; portada 88 dp, título 22/26 sp, contador
+  12 sp y etiqueta FIJADA. Play y overflow separados, sin reproducción al tocar
+  el hero.
+- Selección: primera playlist del orden autoritativo (fijadas primero); nunca se
+  duplica en la lista inferior.
+- «Otras playlists»: filas de mínimo 80 dp, portada 54 dp, título 16/20 sp,
+  contador 12 sp, punto de fijada y divisor `AeroHairline`; sin `AeroCard`.
+- Una sola playlist muestra únicamente el spotlight; cero playlists conserva el
+  estado vacío editorial.
+
+**Detalle**
+- Hero de 240 dp, portada 114 dp (104 dp por debajo de 340 dp), título 23/27 sp,
+  scrim continuo más profundo y modos compactos de 140/120 dp.
+- Reproducir/Mezclar a 52 dp con distribución 60/40 y apilado adaptativo.
+- Filas sin tarjeta: fondo transparente, indicador lateral cyan de 2 dp solo en
+  la pista observada, borde exclusivo para DROP_TARGET, `HorizontalDivider`
+  hairline de 0.75 dp y altura compacta/ampliada existente.
+- Se conservan drag, autoscroll, `headerItemCount`, menú Mover arriba/abajo/
+  Quitar, todos los testTags y la autoridad de reproducción.
+
+### Archivos modificados
+
+- `app/.../ui/screens/PlaylistScreen.kt`
+- `app/.../ui/screens/PlaylistCatalogComponents.kt` (nuevo)
+- `app/.../ui/screens/PlaylistDetailScreen.kt`
+- `app/.../ui/screens/PlaylistPrimaryActions.kt`
+- `app/.../ui/screens/PlaylistVisualHero.kt`
+- `app/.../ui/screens/PlaylistVisualPolicy.kt`
+- `app/src/test/.../PlaylistHeroPolicyTest.kt`
+
+### Pruebas ejecutadas
+
+| Comprobación | Resultado |
+|---|---|
+| `PlaylistHeroPolicyTest` actualizado a hero 240 dp y portadas 104/114 | PASS |
+| `PlaylistDetailScreenTest`, `PlaylistNoopRegressionTest`, `PlaylistVisualPolicyTest` | PASS |
+| Unit `core`, `data`, `player`, `app` Normal/F-Droid y `link-client` | PASS |
+| Lint | PASS |
+| Normal/F-Droid debug + release | PASS |
+| Instrumentación Normal API 36 | **105 tests, 0 fallos, 10 skipped** |
+
+La instrumentación incluye viewports 320×470@2×, 360×640@1.5×, landscape,
+100 pistas, filas ligeras, artwork A→B→A, silueta Continua 0/25/50/75/100 % y
+Signal strip 320–600 dp/fontScale 1–2.
+
+### Evidencia visual real
+
+Directorio `/tmp/opencode/playlist-rework/`:
+
+- `before-catalog.png`: catálogo previo con una `AeroCard` de 92 dp.
+- `after-catalog.png`: spotlight de 198 dp con portada 88 dp y acciones
+  separadas; una sola playlist no genera sección secundaria.
+- `after-catalog-many.png`: cinco playlists; spotlight y cuatro filas ligeras
+  con hairlines.
+- `after-catalog-many-pinned.png`: spotlight real de «play 1» con portada,
+  etiqueta FIJADA y lista secundaria.
+- `before-detail.png`: hero 220/104, CTAs y cuatro tarjetas de canción.
+- `after-detail.png`: hero 240/114, CTAs 60/40 y lista ligera.
+- `after-detail-playing.png`: fila activa con indicador cyan, `GraphicEq`,
+  fondo sutil y pausa visible en el mini player.
+
+La captura de 320 dp no se completó porque el AVD perdió los datos de la app al
+cambiar `wm size`; se restauraron `wm size reset` y `wm density reset`. Las
+viewports 320/360 están cubiertas por pruebas Compose, no por captura nueva.
+
+### Diferencias visuales verificables
+
+- El catálogo ya no es una pila de tarjetas iguales: hay un protagonista
+  editorial y una lista secundaria liviana.
+- El detalle separa banner/identidad, acciones musicales y filas; la lista ya no
+  parece una columna de tarjetas.
+- La pista activa se reconoce por indicador cyan, icono y tipografía, no por
+  colorear toda la fila.
+- La jerarquía se mantiene con fuente grande gracias al chrome dentro de la
+  única `LazyColumn` en alturas <520 dp.
+
+### Regresiones y riesgos
+
+- No se detectaron regresiones funcionales en las suites ejecutadas.
+- No se modificaron Michi Link, AirCat, Signal Truth, UI6/UI7, waveform ni el
+  motor de audio.
+- R30 sigue sin integrar: `ST_UI_WIRING = BLOCKED_R30`.
+- Faltan capturas de 320/360/412/600 dp y fontScale 1.3/1.5/2.0; las pruebas
+  cubren parte de la matriz, no la aprobación visual completa.
+- Sin teléfono físico: `G10_PHYSICAL = NOT_RUN`.
+- No se midieron P50/P95 de renderizado ni de decodificación.
+
+### Auditoría KILLCRITIC
+
+- `PlaylistScreen` extrae spotlight/fila a `PlaylistCatalogComponents`; no se
+  añadió un ViewModel ni una segunda fuente de datos.
+- Una sola `LazyColumn` en el catálogo y una sola autoridad de scroll en la
+  lista de detalle; el chrome veryCompact se desplaza como primer item.
+- No hay IO nuevo en Main, ni decodificación de portadas propia: se reutiliza
+  `AlbumArtView`/Coil.
+- No se añadieron shaders, blur, animaciones infinitas ni dependencias.
+- El drag conserva una única implementación y ajusta índices por
+  `headerItemCount`.
+- Quedan monolitos preexistentes en `PlaylistDetailScreen` y `PlaylistScreen`,
+  acotados por la extracción del catálogo; no se refactorizó el resto para no
+  ampliar el alcance.
+
+### Gates
+
+- `GO_PLAYLIST_CATALOG_VISUAL`: **parcial**. Antes/después con 1 y 5 playlists,
+  spotlight fijado y filas secundarias examinados; falta matriz completa de
+  anchos/fuentes y banner real del spotlight.
+- `GO_PLAYLIST_DETAIL`: **parcial**. Hero, CTAs y filas comparados; faltan
+  banner real, fuente 1.5/2.0 y captura de reordenación en curso.
+- `GO_PLAYLIST_REORDER`: **PASS** en pruebas de código/Compose; sin captura de
+  gesto real.
+- `GO_CODE`: **PASS** en working tree; no publicado.
+- `GO_CI`: **NOT_RUN** para estos cambios; la última CI verde corresponde a
+  `ef3bcae` y no incluye el rework.
+- `GO_VISUAL`: **parcial**; capturas examinadas, matriz incompleta.
+- `GO_PHYSICAL`: **NOT_RUN**.
+- `GO_RELEASE`: **NO-GO**.
+
+Avance de esta intervención: código del rework ~100 % de lo planificado; pruebas
+automatizadas ~95 %; aceptación visual ~65 %; QA física 0 %.

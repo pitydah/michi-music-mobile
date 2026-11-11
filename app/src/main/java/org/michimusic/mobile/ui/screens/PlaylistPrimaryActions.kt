@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -34,7 +35,7 @@ internal fun PlaylistPrimaryActions(
             label = "Reproducir", icon = Icons.Filled.PlayArrow,
             kind = AeroActionKind.Primary,
             onClick = onPlay,
-            modifier = child.testTag("playlist_detail_play_all"),
+            modifier = child.heightIn(min = 52.dp).testTag("playlist_detail_play_all"),
         )
     }
     val shuffle: @Composable (Modifier) -> Unit = { child ->
@@ -42,7 +43,7 @@ internal fun PlaylistPrimaryActions(
             label = "Mezclar", icon = Icons.Filled.Shuffle,
             kind = AeroActionKind.Quiet,
             onClick = onShuffle,
-            modifier = child.testTag("playlist_detail_shuffle_all"),
+            modifier = child.heightIn(min = 52.dp).testTag("playlist_detail_shuffle_all"),
         )
     }
     if (stacked) {
@@ -53,8 +54,8 @@ internal fun PlaylistPrimaryActions(
     } else {
         Row(modifier = modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            play(Modifier.weight(1f))
-            shuffle(Modifier.weight(0.55f))
+            play(Modifier.weight(0.6f))
+            shuffle(Modifier.weight(0.4f))
         }
     }
 }

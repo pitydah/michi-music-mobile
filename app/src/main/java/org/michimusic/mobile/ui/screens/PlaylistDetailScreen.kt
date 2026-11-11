@@ -67,6 +67,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
@@ -89,8 +90,9 @@ import org.michimusic.mobile.ui.components.DeletePlaylistDialog
 import org.michimusic.mobile.ui.components.GlassCard
 import org.michimusic.mobile.ui.components.AeroActionButton
 import org.michimusic.mobile.ui.components.AeroActionKind
-import org.michimusic.mobile.ui.components.AeroCard
-import org.michimusic.mobile.ui.theme.AeroFinish
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.HorizontalDivider
+import org.michimusic.mobile.ui.theme.AeroHairline
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.components.RemoveTrackFromPlaylistDialog
 import org.michimusic.mobile.ui.components.RenamePlaylistDialog
@@ -842,21 +844,35 @@ private fun PlaylistTrackRow(
 ) {
     var showTrackMenu by remember { mutableStateOf(false) }
     val rowLayout = playlistTrackLayout(density)
+    val emphasis = playlistRowEmphasis(isObservedActive, isObservedPlaying, dropTarget)
+    val dropOutline = if (emphasis == PlaylistRowEmphasis.DROP_TARGET) {
+        playlistRowOutline(emphasis, highContrast = LocalVisualPreferences.current.highContrast)
+    } else null
 
-    AeroCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .then(dragModifier)
-            // A single accent priority governs playing, paused and drop target.
-            // The existing GraphicEq icon remains the non-color-only indicator.
-            .then(playlistRowOutline(
-                playlistRowEmphasis(isObservedActive, isObservedPlaying, dropTarget),
-                highContrast = LocalVisualPreferences.current.highContrast,
-            )?.let { outline -> Modifier.border(outline.widthDp.dp, outline.tint,
-                RoundedCornerShape(12.dp)) } ?: Modifier)
+            .then(
+                dropOutline?.let { outline ->
+                    Modifier.border(
+                        outline.widthDp.dp,
+                        outline.tint,
+                        RoundedCornerShape(12.dp),
+                    )
+                } ?: Modifier,
+            )
+            // Only the active row gets a faint surface; the list remains a
+            // musical list, not a stack of independent cards.
+            .background(
+                if (emphasis != PlaylistRowEmphasis.NONE) {
+                    AeroGraphite.copy(alpha = 0.52f)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .clickable(onClick = onClick)
             .testTag("playlist_detail_track_${track.id}"),
-        finish = AeroFinish.Plain,
-        onClick = onClick,
     ) {
         Row(
             modifier = Modifier
@@ -865,6 +881,17 @@ private fun PlaylistTrackRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (isObservedActive) {
+                Box(
+                    Modifier
+                        .width(2.dp)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(
+                            TertiaryCyan.copy(alpha = if (isObservedPlaying) 1f else 0.55f),
+                        ),
+                )
+            }
             AlbumArtView(
                 coverStyle = coverStyleFor(track.coverId.ifEmpty { track.title }),
                 imageModel = track.coverId,
@@ -975,6 +1002,7 @@ private fun PlaylistTrackRow(
                 }
             }
         }
+        HorizontalDivider(thickness = 0.75.dp, color = AeroHairline)
     }
 }
 

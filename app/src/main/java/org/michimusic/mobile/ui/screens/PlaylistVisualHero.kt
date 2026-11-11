@@ -66,9 +66,14 @@ internal fun PlaylistVisualHero(
     minHeight: Dp = PLAYLIST_HERO_MIN_HEIGHT_DP.dp,
 ) {
     val shape = RoundedCornerShape(20.dp)
-    val coverSize = playlistHeroCoverSizeDp(
-        LocalConfiguration.current.screenWidthDp.toFloat(),
-    ).dp
+    val compactHero = minHeight < 200.dp
+    val coverSize = if (compactHero) {
+        (minHeight.value * 0.54f).dp.coerceIn(64.dp, 84.dp)
+    } else {
+        playlistHeroCoverSizeDp(
+            LocalConfiguration.current.screenWidthDp.toFloat(),
+        ).dp
+    }
     val bannerPainter = rememberAsyncImagePainter(
         model = visual.bannerUri,
         contentScale = ContentScale.Crop,
@@ -122,9 +127,9 @@ internal fun PlaylistVisualHero(
                 1f to SurfaceObsidian,
             ) else Brush.verticalGradient(
                 0f to Color.Transparent,
-                0.52f to Color.Transparent,
-                0.76f to SurfaceObsidian.copy(alpha = 0.12f),
-                1f to SurfaceObsidian.copy(alpha = 0.52f),
+                0.50f to Color.Transparent,
+                0.74f to SurfaceObsidian.copy(alpha = 0.14f),
+                1f to SurfaceObsidian.copy(alpha = 0.62f),
             )
             Box(modifier = Modifier.matchParentSize().background(scrim))
         }
@@ -189,10 +194,10 @@ internal fun PlaylistVisualHero(
                 Text(
                     text = title,
                     style = MichiTypography.sectionTitle.copy(
-                        fontSize = 22.sp,
-                        lineHeight = 26.sp,
+                        fontSize = if (compactHero) 19.sp else 23.sp,
+                        lineHeight = if (compactHero) 23.sp else 27.sp,
                         shadow = Shadow(
-                            color = Color.Black.copy(alpha = 0.60f),
+                            color = Color.Black.copy(alpha = 0.62f),
                             offset = Offset(0f, 1.5f),
                             blurRadius = 5f,
                         ),

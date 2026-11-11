@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -117,6 +118,80 @@ fun PlaylistScreen(
 
     val launchHistoryStore = remember(appContext) { PlaylistLaunchHistoryStore(appContext) }
 
+    val playlistActions: @Composable RowScope.(PlaylistItem) -> Unit = { playlist ->
+        val isPinned = visualById[playlist.id]?.pinned == true
+        MichiIconAction(
+            icon = Icons.Default.PlayArrow,
+            contentDescription = "Reproducir ${playlist.name}",
+            onClick = {
+                if (sessionManager != null) {
+                    viewModel.playPlaylist(
+                        playlist.id, audioController = audioController,
+                        sessionManager = sessionManager,
+                        onResult = { result ->
+                            if (result is org.michimusic.mobile.screens.PlayPlaylistResult.Success) {
+                                visualScope.launch {
+                                    // Privacy is authoritative. A queue acceptance is
+                                    // evidence of a command, NOT that a song was heard.
+                                    val allowed = runCatching {
+                                        historyDao.getSetting("listening_history_enabled") != "false"
+                                    }.getOrDefault(false)
+                                    if (!allowed) launchHistoryStore.clear()
+                                    else launchHistoryStore.recordAccepted(playlist.id, result.trackCount)
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    viewModel.playPlaylist(playlist.id, audioController = audioController)
+                }
+            },
+            tint = PureWhite,
+            iconSize = 22.dp,
+            minTargetSize = MichiSpacing.minTouchTarget,
+            testTag = "playlist_play_${playlist.id}",
+        )
+        Box {
+            MichiIconAction(
+                icon = Icons.Default.MoreVert,
+                contentDescription = "Más opciones de ${playlist.name}",
+                onClick = { menuPlaylist = playlist },
+                tint = TextSecondary,
+                iconSize = 20.dp,
+                minTargetSize = MichiSpacing.minTouchTarget,
+                testTag = "playlist_more_${playlist.id}",
+            )
+            DropdownMenu(
+                expanded = menuPlaylist?.id == playlist.id,
+                onDismissRequest = { menuPlaylist = null },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Renombrar") },
+                    onClick = { menuPlaylist = null; renameTarget = playlist },
+                    modifier = Modifier.testTag("playlist_menu_rename_${playlist.id}"),
+                )
+                DropdownMenuItem(
+                    text = { Text(if (isPinned) "Desfijar" else "Fijar") },
+                    onClick = {
+                        menuPlaylist = null
+                        visualScope.launch { visualStore.setPinned(playlist.id, !isPinned) }
+                    },
+                    modifier = Modifier.testTag("playlist_menu_pin_${playlist.id}"),
+                )
+                DropdownMenuItem(
+                    text = { Text("Gestionar canciones") },
+                    onClick = { menuPlaylist = null; onNavigateToPlaylist(playlist.id) },
+                    modifier = Modifier.testTag("playlist_menu_manage_${playlist.id}"),
+                )
+                DropdownMenuItem(
+                    text = { Text("Eliminar playlist") },
+                    onClick = { menuPlaylist = null; deleteTarget = playlist },
+                    modifier = Modifier.testTag("playlist_menu_delete_${playlist.id}"),
+                )
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -148,7 +223,7 @@ fun PlaylistScreen(
                         text = "Tus Playlists",
                         style = MichiTypography.screenTitle.copy(
                             fontSize = 28.sp,
-                            lineHeight = 32.sp,
+                            lineHeight = 34.sp,
                         ),
                     )
                 }
@@ -166,43 +241,51 @@ fun PlaylistScreen(
 
             if (playlists.isNotEmpty() && !isLoading) {
                 val pinnedCount = orderedPlaylists.count { visualById[it.id]?.pinned == true }
-                Text(
-                    text = "${orderedPlaylists.size} ${if (orderedPlaylists.size == 1) "playlist" else "playlists"}" +
-                        if (pinnedCount > 0) " · $pinnedCount ${if (pinnedCount == 1) "fijada" else "fijadas"}" else "",
-                    style = MichiTypography.metadata,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp).testTag("playlist_catalog_summary"),
-                )
-                Spacer(Modifier.height(7.dp))
-                Box(modifier = Modifier.testTag("playlist_catalog_sort")) {
-                    AeroFilterChip(
-                        label = (if (catalogSort == PlaylistCatalogSort.NAME) "Nombre" else "Más canciones") + "  ▾",
-                        selected = false,
-                        onClick = { showSortMenu = true },
-                        testTag = "playlist_sort_trigger",
+                val summary = "${orderedPlaylists.size} " +
+                    if (orderedPlaylists.size == 1) "playlist" else "playlists" +
+                    if (pinnedCount > 0) " · $pinnedCount " +
+                        (if (pinnedCount == 1) "fijada" else "fijadas") else ""
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = summary,
+                        style = MichiTypography.metadata,
+                        color = TextSecondary,
+                        modifier = Modifier.testTag("playlist_catalog_summary"),
                     )
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Nombre") },
-                            onClick = {
-                                showSortMenu = false
-                                catalogSort = PlaylistCatalogSort.NAME
-                                visualScope.launch { visualStore.setCatalogSort(catalogSort) }
-                            },
-                            modifier = Modifier.testTag("playlist_sort_name"),
+                    Box(modifier = Modifier.testTag("playlist_catalog_sort")) {
+                        AeroFilterChip(
+                            label = (if (catalogSort == PlaylistCatalogSort.NAME) "Nombre" else "Más canciones") + "  ▾",
+                            selected = false,
+                            onClick = { showSortMenu = true },
+                            testTag = "playlist_sort_trigger",
                         )
-                        DropdownMenuItem(
-                            text = { Text("Más canciones") },
-                            onClick = {
-                                showSortMenu = false
-                                catalogSort = PlaylistCatalogSort.TRACKS
-                                visualScope.launch { visualStore.setCatalogSort(catalogSort) }
-                            },
-                            modifier = Modifier.testTag("playlist_sort_tracks"),
-                        )
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Nombre") },
+                                onClick = {
+                                    showSortMenu = false
+                                    catalogSort = PlaylistCatalogSort.NAME
+                                    visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                                },
+                                modifier = Modifier.testTag("playlist_sort_name"),
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Más canciones") },
+                                onClick = {
+                                    showSortMenu = false
+                                    catalogSort = PlaylistCatalogSort.TRACKS
+                                    visualScope.launch { visualStore.setCatalogSort(catalogSort) }
+                                },
+                                modifier = Modifier.testTag("playlist_sort_tracks"),
+                            )
+                        }
                     }
                 }
             }
@@ -254,151 +337,41 @@ fun PlaylistScreen(
                     }
                 }
             } else {
+                val spotlight = orderedPlaylists.first()
+                val others = orderedPlaylists.drop(1)
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize().testTag("playlist_catalog_list"),
+                    verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    items(orderedPlaylists, key = { it.id }) { playlist ->
-                        AeroCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("playlist_item_${playlist.id}"),
-                            finish = if (visualById[playlist.id]?.pinned == true) AeroFinish.Satin else AeroFinish.Plain,
-                            onClick = { onNavigateToPlaylist(playlist.id) },
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 92.dp)
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                val isPinned = visualById[playlist.id]?.pinned == true
-                                Box(
-                                    Modifier
-                                        .width(3.dp)
-                                        .height(44.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(if (isPinned) PrimaryPinkContainer else Color.Transparent),
-                                )
-                                if (visualById[playlist.id]?.coverUri != null) {
-                                    AlbumArtView(
-                                        coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
-                                        imageModel = visualById[playlist.id]?.coverUri,
-                                        modifier = Modifier.size(64.dp), cornerRadius = 11.dp,
-                                    )
-                                } else {
-                                    org.michimusic.mobile.ui.components.PlaylistCoverMosaic(
-                                        coverIds = playlist.coverIds,
-                                        coverStyle = org.michimusic.mobile.ui.components.coverStyleFor(playlist.name),
-                                        modifier = Modifier.size(64.dp),
-                                        size = 64.dp,
-                                        cornerRadius = 11.dp,
-                                    )
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = playlist.name,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = PureWhite,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = if (playlist.trackCount == 1) "1 canción" else "${playlist.trackCount} canciones",
-                                        fontSize = 12.sp,
-                                        color = TextSecondary,
-                                    )
-                                    if (visualById[playlist.id]?.pinned == true) {
-                                        Text("Fijada", color = PrimaryPinkContainer,
-                                            style = MichiTypography.microLabel,
-                                            modifier = Modifier.testTag("playlist_pinned_${playlist.id}"))
-                                    }
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    MichiIconAction(
-                                        icon = Icons.Default.PlayArrow,
-                                        contentDescription = "Reproducir ${playlist.name}",
-                                        onClick = {
-                                            if (sessionManager != null) {
-                                                viewModel.playPlaylist(
-                                                    playlist.id, audioController = audioController,
-                                                    sessionManager = sessionManager,
-                                                    onResult = { result ->
-                                                        if (result is org.michimusic.mobile.screens.PlayPlaylistResult.Success) {
-                                                            visualScope.launch {
-                                                                // Privacy is authoritative. A queue acceptance is
-                                                                // evidence of a command, NOT that a song was heard.
-                                                                val allowed = runCatching {
-                                                                    historyDao.getSetting("listening_history_enabled") != "false"
-                                                                }.getOrDefault(false)
-                                                                if (!allowed) launchHistoryStore.clear()
-                                                                else launchHistoryStore.recordAccepted(playlist.id, result.trackCount)
-                                                            }
-                                                        }
-                                                    },
-                                                )
-                                            } else {
-                                                viewModel.playPlaylist(playlist.id, audioController = audioController)
-                                            }
-                                        },
-                                        tint = PureWhite,
-                                        iconSize = 22.dp,
-                                        minTargetSize = MichiSpacing.minTouchTarget,
-                                        testTag = "playlist_play_${playlist.id}",
-                                    )
-                                    Box {
-                                        MichiIconAction(
-                                            icon = Icons.Default.MoreVert,
-                                            contentDescription = "Más opciones de ${playlist.name}",
-                                            onClick = { menuPlaylist = playlist },
-                                            tint = TextSecondary,
-                                            iconSize = 20.dp,
-                                            minTargetSize = MichiSpacing.minTouchTarget,
-                                            testTag = "playlist_more_${playlist.id}",
-                                        )
-                                    DropdownMenu(
-                                        expanded = menuPlaylist?.id == playlist.id,
-                                        onDismissRequest = { menuPlaylist = null },
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Renombrar") },
-                                            onClick = { menuPlaylist = null; renameTarget = playlist },
-                                            modifier = Modifier.testTag("playlist_menu_rename_${playlist.id}"),
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text(if (isPinned) "Desfijar" else "Fijar") },
-                                            onClick = {
-                                                menuPlaylist = null
-                                                visualScope.launch { visualStore.setPinned(playlist.id, !isPinned) }
-                                            },
-                                            modifier = Modifier.testTag("playlist_menu_pin_${playlist.id}"),
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Gestionar canciones") },
-                                            onClick = { menuPlaylist = null; onNavigateToPlaylist(playlist.id) },
-                                            modifier = Modifier.testTag("playlist_menu_manage_${playlist.id}"),
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Eliminar playlist") },
-                                            onClick = { menuPlaylist = null; deleteTarget = playlist },
-                                            modifier = Modifier.testTag("playlist_menu_delete_${playlist.id}"),
-                                        )
-                                    }
-                                }
-                            }
+                    item(key = "spotlight_${spotlight.id}", contentType = "spotlight") {
+                        PlaylistCatalogSpotlight(
+                            playlist = spotlight,
+                            visual = visualById[spotlight.id],
+                            onOpen = { onNavigateToPlaylist(spotlight.id) },
+                            actions = { playlistActions(spotlight) },
+                        )
+                    }
+                    if (others.isNotEmpty()) {
+                        item(key = "others_header", contentType = "header") {
+                            Text(
+                                text = "Otras playlists",
+                                color = PureWhite,
+                                fontSize = 18.sp,
+                                lineHeight = 22.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(top = 22.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(others, key = { "row_${it.id}" }, contentType = { "row" }) { playlist ->
+                            PlaylistCatalogRow(
+                                playlist = playlist,
+                                visual = visualById[playlist.id],
+                                onOpen = { onNavigateToPlaylist(playlist.id) },
+                                actions = { playlistActions(playlist) },
+                            )
                         }
                     }
-                }
-
-                    item {
+                    item(key = "catalog_bottom") {
                         Spacer(Modifier.height(24.dp))
                     }
                 }
