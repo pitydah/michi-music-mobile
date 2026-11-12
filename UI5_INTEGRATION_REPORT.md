@@ -1756,3 +1756,70 @@ CI exacta `43125499171`: **8/8 PASS**, incluido Quality Gate.
 Avance de UI7: integración de código y compilación ~100 % de lo ejecutable;
 pruebas unitarias/lint/builds PASS; instrumentación, capturas y certificación
 física pendientes.
+
+## UI7 — Cierre correctivo
+
+Base: `master@7220b7a562ff05eeba24058597f9b5e2b5da2782`.
+Cambios en working tree, **sin commit, push, PR ni release**.
+
+### Correcciones
+
+- **Scroll por destino en Settings:** `SettingsScreen` usa un
+  `SaveableStateHolder` y un `rememberScrollState()` dentro de
+  `SaveableStateProvider(currentSection.name)`. Cambiar de sección ya no
+  comparte la posición de scroll.
+- **Géneros fuera de AlbumsScreen:** nuevo `GenreLibraryViewModel` y
+  `GenreLibraryRepository` (paquete `screens`) que poseen la colección del flow
+  Room, la construcción del índice fuera del hilo principal y la cancelación.
+  `AlbumsScreen` solo entrega el snapshot autorizado de pistas y consume estado;
+  `DisposableEffect` llama a `clear()` al salir de la pestaña para cerrar el
+  observer.
+- **AutoSync por eventos:** `SyncViewModel` llama a
+  `schedulePeriodicSyncIfEnabled()` tras guardar un emparejamiento y tras
+  `forgetDevice`, sin sondeos periódicos nuevos.
+- **Persistencia de género:** tres pruebas nuevas en
+  `SyncedTrackRepositoryTest`: género de un peer, ID reutilizado sin heredar
+  género previo y peer legacy del mismo propietario que conserva el género.
+- **CI:** el workflow ejecuta `tools/check_settings_architecture.py` en Lint y
+  añade `Migration10To11Test` al job de Room.
+- **AndroidTest:** se corrigieron los imports inválidos de aserción y el testTag
+  de `SettingsSeekerPreview`; ya están publicados en `00682c7` y `52027fb`.
+
+### Validación ejecutada
+
+| Comprobación | Resultado |
+|---|---|
+| `tools/check_settings_architecture.py` | **PASS** (160 root lines, 8 domain panels) |
+| `:app:compileNormalDebugKotlin` tras el cambio de lifecycle | **PASS** |
+| `:data:testDebugUnitTest :app:testNormalDebugUnitTest` tras el cambio | **PASS** |
+| `SyncedTrackRepositoryTest`, `SettingsHierarchyTest`, `CachedTrackMapperTest` | **PASS** |
+| Lint y cuatro builds Normal/F-Droid debug+release | **PASS antes del último cambio de `GenreLibraryViewModel.clear()`/`DisposableEffect`; no se repitieron después** |
+| Instrumentación API 36 | **NOT_RUN** (sin dispositivo conectado) |
+| Capturas UI7 | **NOT_RUN** |
+
+No se declara PASS de lint/build sobre el árbol final porque el último cambio de
+lifecycle solo se verificó con compilación y tests unitarios.
+
+### Gates
+
+- **GO_CODE:** PASS en working tree; no publicado.
+- **GO_COMPILATION:** PASS.
+- **GO_ARCHITECTURE:** PASS.
+- **GO_UNIT:** PASS.
+- **GO_LINT:** parcial (último PASS antes del cambio de lifecycle).
+- **GO_BUILD:** parcial (ídem).
+- **GO_INSTRUMENTATION:** NOT_RUN.
+- **GO_CI:** NOT_RUN para estos cambios correctivos.
+- **GO_VISUAL:** NOT_RUN.
+- **GO_PHYSICAL:** NOT_RUN.
+- **GO_RELEASE:** **NO-GO**.
+
+### KILLCRITIC
+
+- No se añadió un ViewModel nuevo sin propósito: `GenreLibraryViewModel` posee el
+  IO y el observer Room, y se cancela al abandonar Géneros.
+- No hay segunda autoridad de reproducción, ni escaneo adicional, ni worker
+  residente.
+- El scroll de Settings es por destino; no se comparte estado entre secciones.
+- Persisten límites de evidencia: sin dispositivo no hay instrumentación ni
+  capturas; sin CI no hay certificación del SHA final.

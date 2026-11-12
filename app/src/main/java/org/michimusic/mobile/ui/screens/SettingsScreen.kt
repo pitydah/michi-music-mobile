@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +55,7 @@ fun SettingsScreen(
 ) {
     var currentSection by rememberSaveable { mutableStateOf(initialSection) }
     var showEqualizerDialog by rememberSaveable { mutableStateOf(false) }
+    val sectionStateHolder = rememberSaveableStateHolder()
 
     BackHandler {
         if (currentSection == SettingsSection.ROOT) onNavigateBack()
@@ -108,13 +110,18 @@ fun SettingsScreen(
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
+                    .weight(1f),
             ) {
-                when (currentSection) {
+                sectionStateHolder.SaveableStateProvider(currentSection.name) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        when (currentSection) {
                     SettingsSection.ROOT -> SettingsHubLanding(
                         onOpen = { currentSection = it },
                     )
@@ -139,7 +146,9 @@ fun SettingsScreen(
                         onNavigateToDevices = onNavigateToDevices,
                         onboardingSnapshot = onboardingSnapshot,
                     )
-                    SettingsSection.ABOUT -> SettingsAboutPanel()
+                            SettingsSection.ABOUT -> SettingsAboutPanel()
+                        }
+                    }
                 }
             }
         }

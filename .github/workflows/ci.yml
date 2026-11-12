@@ -31,6 +31,8 @@ jobs:
         run: chmod +x gradlew
       - name: Run Lint
         run: ./gradlew lint
+      - name: Check modular Settings architecture
+        run: python3 tools/check_settings_architecture.py
 
   unit-tests-normal:
     name: "Job B — Unit Tests (Normal)"
@@ -95,7 +97,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Verify Room Migrations and Schemas
-        run: ./gradlew :data:testDebugUnitTest --tests "org.michimusic.data.cache.Migration3To4Test"
+        run: ./gradlew :data:testDebugUnitTest --tests "org.michimusic.data.cache.Migration3To4Test" --tests "org.michimusic.data.cache.Migration10To11Test"
 
   build-normal:
     name: "Job E — Build Normal"

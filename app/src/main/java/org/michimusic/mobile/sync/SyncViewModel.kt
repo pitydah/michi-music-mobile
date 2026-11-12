@@ -601,6 +601,7 @@ class SyncViewModel(
                         pairedClientDeviceId = assignedClientId,
                     )
                     registry.saveDevice(device)
+                    schedulePeriodicSyncIfEnabled()
                     
                     client.deviceToken = effectiveToken
                     client.clientDeviceId = assignedClientId
@@ -689,6 +690,7 @@ class SyncViewModel(
                         pairedClientDeviceId = assignedClientId,
                     )
                     registry.saveDevice(device)
+                    schedulePeriodicSyncIfEnabled()
                     
                     client.deviceToken = effectiveToken
                     client.clientDeviceId = assignedClientId
@@ -779,6 +781,7 @@ class SyncViewModel(
                         pairedClientDeviceId = assignedClientId,
                     )
                     registry.saveDevice(device)
+                    schedulePeriodicSyncIfEnabled()
                     
                     client.deviceToken = effectiveToken
                     client.clientDeviceId = assignedClientId
@@ -821,6 +824,7 @@ class SyncViewModel(
 
     fun forgetDevice(deviceId: String) {
         registry.removeDevice(deviceId)
+        schedulePeriodicSyncIfEnabled()
         connectionManager.disconnect(deviceId)
         
         // If we are currently disconnected from everything else, we can stop discovery or clear state
@@ -1564,6 +1568,7 @@ class SyncViewModel(
                         pairedClientDeviceId = assignedClientId,
                     )
                     registry.saveDevice(device)
+                    schedulePeriodicSyncIfEnabled()
                     client.deviceToken = confirmResp.token
                     client.clientDeviceId = assignedClientId
                     client.pairedClientDeviceId = assignedClientId

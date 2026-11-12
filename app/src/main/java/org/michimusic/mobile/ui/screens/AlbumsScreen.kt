@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -77,6 +78,7 @@ import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.FavoritesRepository
 import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.screens.GenreLibraryViewModel
 import org.michimusic.mobile.ui.components.AddToPlaylistDialog
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.AlbumMosaicGrid
@@ -143,6 +145,7 @@ fun AlbumsScreen(
     onNavigateToAlbum: (String) -> Unit = {},
 ) {
     val viewModel: AlbumsViewModel = koinViewModel()
+    val genreLibraryViewModel: GenreLibraryViewModel = koinViewModel()
     val context = androidx.compose.ui.platform.LocalContext.current
     val allTracks by viewModel.allTracks.collectAsStateWithLifecycle()
     val albums by viewModel.albums.collectAsStateWithLifecycle()
@@ -1183,42 +1186,19 @@ fun AlbumsScreen(
                             key(activeScope) {
                                 // A single cold Room flow prevents transient authorization
                                 // with an empty collision list while genre rows are loading.
-                                val genreDao: org.michimusic.data.cache.TrackDao = koinInject()
                                 val scopeOwner = (activeScope as? org.michimusic.core.models.LibraryScope.One)
                                     ?.let { selected -> availableLibraries.firstOrNull { it.id == selected.libraryId }?.ownerId }
                                 val isAllScope = activeScope is org.michimusic.core.models.LibraryScope.All
-                                val genreLoad by androidx.compose.runtime.produceState<GenreIndexLoad>(
-                                    initialValue = GenreIndexLoad.Loading,
-                                    key1 = scoped.albums,
-                                    key2 = activeScope,
-                                    key3 = Pair(scopeOwner, artistScopeRetry),
-                                ) {
-                                    value = GenreIndexLoad.Loading
-                                    try {
-                                        genreDao.observeGenreEvidenceSnapshot()
-                                            .distinctUntilChanged()
-                                            .collectLatest { rows ->
-                                            // Hide outdated receipts while a new atomic snapshot indexes.
-                                            value = GenreIndexLoad.Loading
-                                            val index = kotlinx.coroutines.withContext(
-                                                kotlinx.coroutines.Dispatchers.Default,
-                                            ) {
-                                                val evidence = rows.map { row -> GenreOwnerEvidence(
-                                                    sourceId = row.sourceId, id = row.id,
-                                                    title = row.title, artist = row.artist,
-                                                    album = row.album, duration = row.duration,
-                                                    filepath = row.filepath, genre = row.genre,
-                                                ) }
-                                                buildGenreScopedIndex(scoped.albums.flatMap { it.tracks },
-                                                    evidence, scopeOwner, isAllScope)
-                                            }
-                                            value = GenreIndexLoad.Ready(index)
-                                        }
-                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                        throw cancelled
-                                    } catch (_: Exception) {
-                                        value = GenreIndexLoad.Failed
-                                    }
+                                DisposableEffect(Unit) {
+                                    onDispose { genreLibraryViewModel.clear() }
+                                }
+                                val genreLoad by genreLibraryViewModel.state.collectAsStateWithLifecycle()
+                                LaunchedEffect(scoped.albums, activeScope, scopeOwner, artistScopeRetry) {
+                                    genreLibraryViewModel.load(
+                                        tracks = scoped.albums.flatMap { it.tracks },
+                                        scopeOwnerId = scopeOwner,
+                                        isAllScope = isAllScope,
+                                    )
                                 }
                                 when (val current = genreLoad) {
                                     GenreIndexLoad.Loading -> {

@@ -284,4 +284,91 @@ class SyncedTrackRepositoryTest {
             java.nio.file.Files.deleteIfExists(real)
         }
     }
+
+    @Test
+    fun `saveLibrary persists peer genre without losing the managed copy`() = runTest {
+        every { mockTrackDao.getTracksForSource("peer-a") } returns flowOf(emptyList())
+
+        repository.saveLibrary(
+            listOf(TrackDto(id = "t1", title = "Song", artist = "A", album = "B", genre = "Jazz")),
+            sourceId = "peer-a",
+        )
+
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                rows.single().id == "t1" && rows.single().genre == "Jazz" &&
+                    rows.single().sourceId == "peer-a"
+            })
+        }
+    }
+
+    @Test
+    fun `reused id does not inherit a previous peer genre`() = runTest {
+        every { mockTrackDao.getTracksForSource("peer-a") } returns flowOf(listOf(
+            CachedTrack(
+                id = "t1", title = "Old title", artist = "A", album = "B",
+                duration = 100, genre = "Jazz", sourceId = "peer-a",
+            ),
+        ))
+
+        repository.saveLibrary(
+            listOf(TrackDto(id = "t1", title = "New title", artist = "A", album = "B", duration = 100, genre = "")),
+            sourceId = "peer-a",
+        )
+
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                rows.single().id == "t1" && rows.single().genre == ""
+            })
+        }
+    }
+
+    @Test
+    fun `legacy same-owner metadata keeps its genre when the peer omits it`() = runTest {
+        every { mockTrackDao.getTracksForSource("peer-a") } returns flowOf(listOf(
+            CachedTrack(
+                id = "t1", title = "Same", artist = "A", album = "B",
+                duration = 100, genre = "Jazz", sourceId = "peer-a",
+            ),
+        ))
+
+        repository.saveLibrary(
+            listOf(TrackDto(id = "t1", title = "Same", artist = "A", album = "B", duration = 100, genre = "")),
+            sourceId = "peer-a",
+        )
+
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                rows.single().id == "t1" && rows.single().genre == "Jazz"
+            })
+        }
+    }
+
+    @Test
+    fun `same track id across two servers keeps independent genres`() = runTest {
+        every { mockTrackDao.getTracksForSource("peer-a") } returns flowOf(emptyList())
+        every { mockTrackDao.getTracksForSource("peer-b") } returns flowOf(emptyList())
+
+        repository.saveLibrary(
+            listOf(TrackDto(id = "shared", title = "Peer A song", genre = "Jazz")),
+            sourceId = "peer-a",
+        )
+        repository.saveLibrary(
+            listOf(TrackDto(id = "shared", title = "Peer B song", genre = "Rock")),
+            sourceId = "peer-b",
+        )
+
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                rows.single().id == "shared" && rows.single().sourceId == "peer-a" &&
+                    rows.single().genre == "Jazz"
+            })
+        }
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                rows.single().id == "shared" && rows.single().sourceId == "peer-b" &&
+                    rows.single().genre == "Rock"
+            })
+        }
+    }
 }

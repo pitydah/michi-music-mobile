@@ -10,6 +10,7 @@ import org.michimusic.link.linkModule
 import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.remote.RemoteViewModel
 import org.michimusic.mobile.screens.AlbumsViewModel
+import org.michimusic.mobile.screens.GenreLibraryViewModel
 import org.michimusic.mobile.screens.PlaylistsViewModel
 import org.michimusic.mobile.screens.SearchViewModel
 import org.michimusic.mobile.screens.SyncedTracksViewModel
@@ -41,6 +42,7 @@ val appModule = module {
         )
     }
     viewModelOf(::AlbumsViewModel)
+    viewModelOf(::GenreLibraryViewModel)
     viewModelOf(::SyncedTracksViewModel)
     // Visibility changes refresh an already-open playlist without touching audio files.
     viewModel {
