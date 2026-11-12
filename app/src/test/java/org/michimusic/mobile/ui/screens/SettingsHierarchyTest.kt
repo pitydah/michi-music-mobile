@@ -1,6 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -156,6 +157,15 @@ class SettingsHierarchyTest {
             }
         }
         composeTestRule.waitForIdle()
+
+        // The panel enables the selector after its gateway snapshot arrives.
+        // Wait for that public state instead of racing the click in F-Droid.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("rg_mode_TRACK").assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
 
         // Scroll to and click "Pista" (TRACK mode) via testTag
         composeTestRule.onNodeWithTag("rg_mode_TRACK")
