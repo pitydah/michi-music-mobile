@@ -1835,3 +1835,56 @@ lifecycle solo se verificó con compilación y tests unitarios.
 - Flake documentado: `PlaylistsViewModelTest.moveTrack_validOperation_callsRepositoryExactlyOnce` falló en Job B y pasó al rerun; no se modificó la aserción.
 - M4-M7 pendientes: identidad de copias/checksums al reutilizar `trackId`, AutoSync fuera de `viewModelScope`, guardias/cobertura, certificación visual y cierre.
 - Gates: `GO_PLAYLIST_ACTION_ROW` código PASS, instrumentado/visual NOT_RUN; `GO_SETTINGS_ICON_MATRIX` código PASS, visual/TalkBack NOT_RUN; `GO_GENRE_SCOPE_ISOLATION` unit PASS, instrumentación NOT_RUN; `GO_CI` PASS (rerun); `GO_VISUAL`/`GO_PHYSICAL`/`GO_SYNC_COPY_IDENTITY`/`GO_AUTOSYNC_LIFECYCLE` pendientes; `GO_RELEASE` **NO-GO**.
+
+### Cierre M4-M6 (UI7 correctivo, publicado)
+
+- **M4 identidad de copias:** `SyncedTrackRepository.toCachedTrackPreserving` solo conserva `albumArtist`, `genre`, `filepath`, `downloaded` y `verifiedSha256/size/at/algorithm` cuando `sameLegacySyncTrack` demuestra continuidad. Un `trackId` reutilizado limpia la asociación y los recibos; **ningún archivo físico se borra**.
+- **M4 AutoSync:** `AutoSyncScheduler` posee `CoroutineScope(SupervisorJob() + ioDispatcher)` y expone `requestRefresh()`; `SyncViewModel.schedulePeriodicSyncIfEnabled()` ya no depende de `viewModelScope`. Sin polling, servicios ni workers nuevos.
+- **M5 guardia:** `tools/check_settings_architecture.py` ahora también protege Géneros (sin Room/indexación pesada en `AlbumsScreen`, ViewModel acotado con generación/clear) y Playlists (una sola fila, pesos normal/compacto, etiquetas y política). Sigue siendo el único gate, no una segunda infraestructura.
+- **M5 cobertura Settings:** `SettingsHierarchyTest` añade Back desde Sistema conservando scroll y filtro de búsqueda.
+- **M5 cobertura Géneros:** `GenreLibraryViewModelTest` añade cambio rápido de propietario (solo publica la última generación), error Room con reintento y `clear()` que descarta evidencia tardía.
+- **M6 Playlists:** capturas normal y extrema. A 320 dp/font 2.0 se detectó truncamiento real de «Mezclar»; se corrigió con pesos compactos 0.56/0.44, sin glifos decorativos en ese modo y conservando etiquetas/descripciones completas. Captura final `playlist-320dp-font-2.0-weights.png` y normal `playlist-detail-normal-final.png`.
+- **M6 Settings:** matriz de 10 destinos en una sola familia Material, ficha 44 dp uniforme y emblema oficial solo para Acerca de Michi; capturas `settings-hub-final*.png`.
+- **M6 Géneros:** mosaico (`genres-mosaic.png`) y editorial (`genres-editorial.png`) sin imágenes generadas, contadores reales y NowPlayingBar sobre la barra inferior; estado vacío verificado con biblioteca sin pistas (`genres-empty.png`, «No hay géneros disponibles»).
+
+| Comprobación | Resultado |
+|---|---|
+| `:data:testDebugUnitTest :app:testNormalDebugUnitTest :app:testFdroidDebugUnitTest` | **PASS** |
+| `:app:lintNormalDebug :app:assembleNormalDebug :app:assembleFdroidDebug` | **PASS** |
+| `:data:testDebugUnitTest --tests SyncedTrackRepositoryTest` | **PASS** |
+| `:app:testNormalDebugUnitTest --tests SyncViewModelTest` | **PASS** |
+| `:app:testNormalDebugUnitTest --tests SettingsHierarchyTest` | **PASS** |
+| `:app:testNormalDebugUnitTest --tests GenreLibraryViewModelTest` | **PASS** (4/4, incluido cambio rápido de ámbito, error Room y clear tardío) |
+| `tools/check_settings_architecture.py` | **PASS** |
+| `PlaylistPrimaryActionsComposeTest` en Medium_Phone API 36 | **PASS** (4/4) |
+| CI `43145329119` sobre `7ad99bd` | **8/8 PASS** en el primer intento, incluido Quality Gate |
+| TalkBack formal y estado de error de Géneros | **NOT_RUN** |
+| Certificación en dispositivo físico | **NOT_RUN** |
+
+Gates de este bloque:
+
+- `GO_SYNC_COPY_IDENTITY`: **PASS** unitario.
+- `GO_AUTOSYNC_LIFECYCLE`: **PASS** unitario.
+- `GO_ARCHITECTURE`: **PASS**.
+- `GO_UNIT`: **PASS** Normal/F-Droid.
+- `GO_LINT`: **PASS**.
+- `GO_BUILD`: **PASS** Debug Normal/F-Droid.
+- `GO_INSTRUMENTATION`: **PASS** del contrato Playlists en emulador API 36 y en Job G de CI; cobertura global fuera del alcance de M1–M6.
+- `GO_VISUAL`: **PARCIAL**; capturas normal/extrema, matriz Settings y estados lleno/vacío de Géneros disponibles; TalkBack formal, estado de error y dispositivo físico pendientes.
+- `GO_CI`: **PASS** (`43145329119`, 8/8).
+- `GO_RELEASE`: **NO-GO**.
+
+### Cierre M7 (UI7 correctivo)
+
+- Commit funcional `7ad99bd` — `fix(ui,sync): close UI7 identity, actions and guards` (13 archivos, +430/−63).
+- CI `43145329119` sobre `7ad99bd`: **8/8 PASS**, incluidos Lint, Unit Normal/F-Droid, Build Normal/F-Droid, Room, Instrumentación API 36 y Quality Gate.
+- CI documental previa `43141486844` sobre `b0029df`: **8/8 PASS** confirmada al iniciar este cierre.
+- El informe documental de M4–M7 se publica en un commit posterior; su CI se registra en el mensaje de cierre.
+- `GO_PLAYLIST_ACTION_ROW`: **PASS** (código, instrumentación y capturas normal/extrema).
+- `GO_SETTINGS_ICON_MATRIX`: **PASS** de código y matriz visual; TalkBack formal **NOT_RUN**.
+- `GO_GENRE_SCOPE_ISOLATION`: **PASS** unitario; instrumentación específica de cambio de ámbito **NOT_RUN**.
+- `GO_SYNC_COPY_IDENTITY`: **PASS** unitario.
+- `GO_AUTOSYNC_LIFECYCLE`: **PASS** unitario.
+- `GO_CI`: **PASS**.
+- `GO_VISUAL`: **PARCIAL**; faltan TalkBack formal, estado de error de Géneros y certificación en dispositivo físico.
+- `GO_RELEASE`: **NO-GO** hasta completar la certificación visual/física y la autorización de release.
