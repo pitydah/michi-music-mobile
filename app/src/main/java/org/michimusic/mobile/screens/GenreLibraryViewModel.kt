@@ -62,9 +62,11 @@ class GenreLibraryViewModel(trackDao: TrackDao) : ViewModel() {
     private val _state = MutableStateFlow<GenreIndexLoad>(GenreIndexLoad.Loading)
     val state: StateFlow<GenreIndexLoad> = _state.asStateFlow()
     private var loadJob: Job? = null
+    private var generation = 0L
 
     /** Stops the Room observer when the Genres destination leaves composition. */
     fun clear() {
+        generation++
         loadJob?.cancel()
         loadJob = null
         _state.value = GenreIndexLoad.Loading
@@ -75,6 +77,8 @@ class GenreLibraryViewModel(trackDao: TrackDao) : ViewModel() {
         scopeOwnerId: String?,
         isAllScope: Boolean,
     ) {
+        val requestGeneration = ++generation
+        val requestScope = scopeOwnerId ?: if (isAllScope) "ALL" else "LOCAL"
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _state.value = GenreIndexLoad.Loading
@@ -84,12 +88,17 @@ class GenreLibraryViewModel(trackDao: TrackDao) : ViewModel() {
                     .collectLatest { rows ->
                         _state.value = GenreIndexLoad.Loading
                         val index = repository.buildIndex(tracks, rows, scopeOwnerId, isAllScope)
-                        _state.value = GenreIndexLoad.Ready(index)
+                        if (requestGeneration != generation) return@collectLatest
+                        _state.value = GenreIndexLoad.Ready(
+                            index = index,
+                            scopeKey = requestScope,
+                            generation = requestGeneration,
+                        )
                     }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                _state.value = GenreIndexLoad.Failed
+                if (requestGeneration == generation) _state.value = GenreIndexLoad.Failed
             }
         }
     }

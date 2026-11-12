@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -68,6 +69,8 @@ class GenreLibraryViewModelTest {
             viewModel.state.first { it is GenreIndexLoad.Ready }
         } as GenreIndexLoad.Ready
         assertTrue(ready.index.genres.any { it.title == "Jazz" })
+        assertEquals("ALL", ready.scopeKey)
+        assertTrue(ready.generation > 0L)
 
         viewModel.clear()
         assertTrue(viewModel.state.value is GenreIndexLoad.Loading)

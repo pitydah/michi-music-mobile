@@ -44,7 +44,7 @@ class PlaylistPrimaryActionsComposeTest {
         }
     }
 
-    @Test fun narrowAndLargeFontLayoutStacksActionsWithoutOverlap() {
+    @Test fun narrowAndLargeFontLayoutKeepsActionsInOneRow() {
         val compactConfig = Configuration().apply {
             screenWidthDp = 320
             fontScale = 2f
@@ -60,16 +60,23 @@ class PlaylistPrimaryActionsComposeTest {
             .fetchSemanticsNode().boundsInRoot
         val shuffleBounds = rule.onNodeWithTag("playlist_detail_shuffle_all")
             .fetchSemanticsNode().boundsInRoot
-        assertTrue("Primary and secondary actions must stack at 320dp / font 2x",
-            playBounds.bottom <= shuffleBounds.top)
+        assertTrue(
+            "Primary and secondary actions must share one row at 320dp / font 2x",
+            kotlin.math.abs(playBounds.top - shuffleBounds.top) <= 1f,
+        )
+        assertTrue(
+            "The secondary action must start after the primary action",
+            playBounds.right <= shuffleBounds.left,
+        )
+        assertTrue("Primary action must keep a 48dp target", playBounds.height >= 48f)
+        assertTrue("Secondary action must keep a 48dp target", shuffleBounds.height >= 48f)
     }
 
-    @Test fun responsivePolicyMatchesTheCanonicalAeroHero() {
-        // Reuse the existing tested aeroHeroActionsVertical policy, not a new breakpoint.
-        assertTrue(org.michimusic.mobile.ui.components.aeroHeroActionsVertical(320, 2f))
-        assertTrue(org.michimusic.mobile.ui.components.aeroHeroActionsVertical(360, 1.3f))
-        org.junit.Assert.assertFalse(
-            org.michimusic.mobile.ui.components.aeroHeroActionsVertical(412, 1f),
-        )
+    @Test fun responsivePolicyUsesCompactSingleRowForExtremeLayouts() {
+        assertTrue(playlistPrimaryActionsCompact(320f, 2f))
+        org.junit.Assert.assertFalse(playlistPrimaryActionsCompact(360f, 1.3f))
+        org.junit.Assert.assertFalse(playlistPrimaryActionsCompact(393f, 1f))
+        org.junit.Assert.assertFalse(playlistPrimaryActionsCompact(412f, 1f))
+        assertTrue(playlistPrimaryActionsCompact(600f, 2f))
     }
 }

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Security
@@ -121,7 +122,8 @@ internal fun SettingsHubIndex(
                         else -> entry.summary
                     }
                     val icon: ImageVector = when (entry.section) {
-                        SettingsSection.PLAYBACK, SettingsSection.AUDIO_OUTPUT -> Icons.Default.Headphones
+                        SettingsSection.PLAYBACK -> Icons.Default.PlayArrow
+                        SettingsSection.AUDIO_OUTPUT -> Icons.Default.Headphones
                         SettingsSection.PROCESSING -> Icons.Default.GraphicEq
                         SettingsSection.LIBRARY_STORAGE -> Icons.Default.Storage
                         SettingsSection.ECOSYSTEM -> Icons.Default.Tune
@@ -132,7 +134,7 @@ internal fun SettingsHubIndex(
                         else -> Icons.Default.Info
                     }
                     val wizardIcon: Int? = when (entry.section) {
-                        SettingsSection.PLAYBACK -> R.drawable.wizard_fluent_headphones
+                        SettingsSection.PLAYBACK -> null
                         SettingsSection.PROCESSING -> R.drawable.wizard_audio_waveform
                         SettingsSection.AUDIO_OUTPUT -> R.drawable.wizard_fluent_headphones
                         SettingsSection.LIBRARY_STORAGE -> R.drawable.wizard_fluent_library

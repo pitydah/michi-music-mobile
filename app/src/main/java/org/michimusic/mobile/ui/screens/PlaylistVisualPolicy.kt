@@ -90,6 +90,11 @@ internal fun playlistSpotlightTitleLines(widthDp: Float, fontScale: Float): Int 
     if (!widthDp.isFinite() || !fontScale.isFinite()) 3
     else if (widthDp < 340f || fontScale >= 1.5f) 3 else 2
 
+/** Playlist actions stay in one row; extreme layouts only reduce the height. */
+internal fun playlistPrimaryActionsCompact(widthDp: Float, fontScale: Float): Boolean =
+    !widthDp.isFinite() || !fontScale.isFinite() ||
+        widthDp < 360f || fontScale >= 1.6f
+
 /** UI5 may release only its own grants, never grants inherited from music imports. */
 internal fun playlistOwnedGrantKey(uri: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(uri.toByteArray(Charsets.UTF_8))

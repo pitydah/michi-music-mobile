@@ -24,7 +24,13 @@ data class GenreScopedIndex(
 /** Never publish the Genres panel before the owner-collision snapshot is complete. */
 sealed interface GenreIndexLoad {
     data object Loading : GenreIndexLoad
-    data class Ready(val index: GenreScopedIndex) : GenreIndexLoad
+    data class Ready(
+        val index: GenreScopedIndex,
+        /** Stable owner/scope key that produced this index. */
+        val scopeKey: String = "",
+        /** Monotonic generation used to reject late results. */
+        val generation: Long = 0L,
+    ) : GenreIndexLoad
     data object Failed : GenreIndexLoad
 }
 
