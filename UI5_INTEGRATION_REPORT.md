@@ -1667,7 +1667,9 @@ aceptación visual ~70 %; QA física 0 %.
 ## UI7 1.10.0 — Integración acumulativa
 
 Base: `master@0e1181a666f78f01bcb503122f2e71e1867438d0`.
-Integración en **working tree**, sin commit, push, PR ni release.
+Integración publicada en `master@52027fb60ca1775427308d27939e2a10d0ca14f5`.
+Commits funcionales: `3e553d4`, `00682c7`, `52027fb`.
+CI exacta `43125499171`: **8/8 PASS**, incluido Quality Gate.
 
 ### Alcance integrado
 
@@ -1676,8 +1678,9 @@ Integración en **working tree**, sin commit, push, PR ni release.
   código UI5/UI6 y el polish de Playlists, sin reemplazar archivos a ciegas.
 - Todos los `.rej` se conservaron fuera del árbol en
   `/tmp/opencode/ui7/rejects/`; el repositorio no contiene archivos `.rej`.
-- 25 archivos rastreados modificados (+796/−1614) más los archivos nuevos de
-  UI7 (paneles Settings, Géneros, ReplayGain y tests).
+- Commit funcional `3e553d4` con 80 archivos (+7617/−1614), seguido de
+  `00682c7` (−6) y `52027fb` (−2) para corregir imports y testTags de
+  androidTest. Incluye paneles Settings, Géneros, ReplayGain y pruebas.
 
 ### Correcciones de integración
 
@@ -1711,7 +1714,7 @@ Integración en **working tree**, sin commit, push, PR ni release.
 | `CachedTrackMapperTest`, `SettingsHierarchyTest`, migración 10→11 | **PASS** |
 | Lint | **PASS** |
 | Normal/F-Droid debug + release | **PASS** |
-| Instrumentación Android API 36 | **NOT_RUN** (sin dispositivo conectado) |
+| Instrumentación Android API 36 | **PASS** en CI Job G (`43125499171`): 117 tests ejecutados, sin fallos reportados |
 | Capturas UI7 | **NOT_RUN** |
 
 ### Archivos principales
@@ -1739,15 +1742,15 @@ Integración en **working tree**, sin commit, push, PR ni release.
 
 ### Gates
 
-- **GO_CODE:** PASS en working tree; no publicado.
+- **GO_CODE:** PASS; publicado en `3e553d4`, `00682c7` y `52027fb`.
 - **GO_COMPILATION:** PASS (data/app, cuatro variantes).
 - **GO_ARCHITECTURE:** PASS.
 - **GO_UNIT_TESTS:** PASS.
 - **GO_LINT:** PASS.
-- **GO_INSTRUMENTATION:** **NOT_RUN**.
+- **GO_INSTRUMENTATION:** **PASS** vía CI `43125499171` (Job G, API 36).
 - **GO_VISUAL:** **NOT_RUN** para UI7; faltan capturas de Géneros y Settings.
 - **GO_PHYSICAL:** **NOT_RUN**.
-- **GO_CI:** **NOT_RUN**.
+- **GO_CI:** **PASS**; run `43125499171` 8/8 sobre `52027fb`.
 - **GO_RELEASE:** **NO-GO**.
 
 Avance de UI7: integración de código y compilación ~100 % de lo ejecutable;
