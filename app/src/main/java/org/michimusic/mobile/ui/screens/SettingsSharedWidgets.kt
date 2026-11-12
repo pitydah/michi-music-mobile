@@ -56,12 +56,13 @@ import org.michimusic.mobile.ui.theme.MichiSpacing
 /** Shared Aero layout primitives; no domain state, I/O, or persistence. */
 @Composable
 internal fun SettingsCategoryNavCard(
-    icon: ImageVector,
+    icon: ImageVector?,
     title: String,
     subtitle: String,
     accent: Color,
     onClick: () -> Unit,
     iconRes: Int? = null,
+    plainIcon: Boolean = false,
     testTag: String? = null,
 ) {
     // Editorial index rows, not another set of identically filled glass cards.
@@ -69,7 +70,7 @@ internal fun SettingsCategoryNavCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 80.dp)
+                .heightIn(min = 64.dp)
                 .clip(MichiShapes.sm)
                 .clickable(role = Role.Button, onClick = onClick)
                 .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
@@ -77,22 +78,39 @@ internal fun SettingsCategoryNavCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            // One optical frame for every destination: canonical illustrations
-            // and tinted vectors share the same 44 dp tile and baseline.
-            Box(
-                modifier = Modifier.size(44.dp).clip(MichiShapes.sm)
-                    .background(accent.copy(alpha = 0.11f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (iconRes != null) {
-                    androidx.compose.foundation.Image(
-                        painter = androidx.compose.ui.res.painterResource(iconRes),
-                        contentDescription = null,
-                        modifier = Modifier.size(34.dp),
-                    )
-                } else {
-                    Icon(icon, contentDescription = null, tint = accent,
-                        modifier = Modifier.size(23.dp))
+            if (plainIcon) {
+                // Fluent artwork must keep its own alpha and colors: no tile,
+                // tint, gradient, shadow or extra square behind it.
+                Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    if (iconRes != null) {
+                        androidx.compose.foundation.Image(
+                            painter = androidx.compose.ui.res.painterResource(iconRes),
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        )
+                    } else if (icon != null) {
+                        Icon(icon, contentDescription = null, tint = accent,
+                            modifier = Modifier.size(26.dp))
+                    }
+                }
+            } else {
+                // Secondary panel rows keep the established framed treatment.
+                Box(
+                    modifier = Modifier.size(44.dp).clip(MichiShapes.sm)
+                        .background(accent.copy(alpha = 0.11f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (iconRes != null) {
+                        androidx.compose.foundation.Image(
+                            painter = androidx.compose.ui.res.painterResource(iconRes),
+                            contentDescription = null,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    } else if (icon != null) {
+                        Icon(icon, contentDescription = null, tint = accent,
+                            modifier = Modifier.size(23.dp))
+                    }
                 }
             }
             Column(modifier = Modifier.weight(1f)) {

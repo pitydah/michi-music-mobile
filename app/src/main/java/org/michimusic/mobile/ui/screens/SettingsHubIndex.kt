@@ -9,18 +9,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccessibilityNew
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -33,7 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -121,23 +110,17 @@ internal fun SettingsHubIndex(
                         SettingsSection.ECOSYSTEM -> syncSummary
                         else -> entry.summary
                     }
-                    val icon: ImageVector = when (entry.section) {
-                        SettingsSection.PLAYBACK -> Icons.Default.PlayArrow
-                        SettingsSection.AUDIO_OUTPUT -> Icons.Default.Headphones
-                        SettingsSection.PROCESSING -> Icons.Default.GraphicEq
-                        SettingsSection.LIBRARY_STORAGE -> Icons.Default.Storage
-                        SettingsSection.ECOSYSTEM -> Icons.Default.Devices
-                        SettingsSection.APPEARANCE -> Icons.Default.Palette
-                        SettingsSection.ACCESSIBILITY -> Icons.Default.AccessibilityNew
-                        SettingsSection.PRIVACY -> Icons.Default.Security
-                        SettingsSection.SYSTEM -> Icons.Default.Settings
-                        else -> Icons.Default.Info
-                    }
-                    val wizardIcon: Int? = when (entry.section) {
-                        // Only the protected Michi emblem stays as artwork; every
-                        // other destination uses one coherent Material family.
-                        SettingsSection.ABOUT -> R.drawable.wizard_brand_official
-                        else -> null
+                    val artwork: Int = when (entry.section) {
+                        SettingsSection.PLAYBACK -> R.drawable.settings_reproduccion
+                        SettingsSection.PROCESSING -> R.drawable.settings_procesamiento_eq
+                        SettingsSection.AUDIO_OUTPUT -> R.drawable.settings_salidas_audio
+                        SettingsSection.LIBRARY_STORAGE -> R.drawable.settings_biblioteca
+                        SettingsSection.ECOSYSTEM -> R.drawable.settings_ecosistema
+                        SettingsSection.APPEARANCE -> R.drawable.settings_apariencia
+                        SettingsSection.ACCESSIBILITY -> R.drawable.settings_accesibilidad
+                        SettingsSection.PRIVACY -> R.drawable.settings_privacidad
+                        SettingsSection.SYSTEM -> R.drawable.settings_diagnostico
+                        else -> R.drawable.wizard_brand_official
                     }
                     val accent = when (entry.section) {
                         SettingsSection.ECOSYSTEM, SettingsSection.PRIVACY, SettingsSection.ABOUT -> SecondaryPurple
@@ -145,7 +128,7 @@ internal fun SettingsHubIndex(
                         else -> PrimaryPink
                     }
                     SettingsCategoryNavCard(
-                        icon = icon, iconRes = wizardIcon,
+                        icon = null, iconRes = artwork, plainIcon = true,
                         title = entry.title, subtitle = info, accent = accent,
                         onClick = { onOpen(entry.section) },
                         testTag = "settings_route_${entry.section.name.lowercase()}",

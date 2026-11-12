@@ -1888,3 +1888,25 @@ Gates de este bloque:
 - `GO_CI`: **PASS**.
 - `GO_VISUAL`: **PARCIAL**; faltan TalkBack formal, estado de error de Géneros y certificación en dispositivo físico.
 - `GO_RELEASE`: **NO-GO** hasta completar la certificación visual/física y la autorización de release.
+
+### Integración iconográfica Fluent en Settings (post-UI7, sin publicar)
+
+- Se importaron los 10 PNG aprobados en `app/src/main/res/drawable-nodpi/`: `settings_reproduccion.png`, `settings_procesamiento_eq.png`, `settings_salidas_audio.png`, `settings_biblioteca.png`, `settings_ecosistema.png`, `settings_apariencia.png`, `settings_accesibilidad.png`, `settings_privacidad.png`, `settings_diagnostico.png` y `settings_donar.png`. Son 160x160 RGBA centrados, sin recorte, con fidelidad RGB/alfa verificada frente a los originales.
+- `SettingsHubIndex.kt` mapea cada uno de los diez destinos a su PNG Fluent; `SettingsCategoryNavCard` usa `plainIcon` con `Box` 40 dp + `Image` 36 dp y `ContentScale.Fit`, sin tinte, fondo, halo ni sombra. Se conserva `wizard_brand_official` para Acerca de Michi y `settings_donar` en la tarjeta Donar.
+- No se alteraron iconos funcionales, navegación, estados, tipografía ni jerarquía. Los paneles secundarios conservan su tratamiento previo.
+- Validación visual en emulador API 36: hub completo, 360 dp/1.3, 390 dp/1.3 y 411 dp/1.6; sin recortes, halos, desalineaciones ni truncamientos. Capturas en `/tmp/opencode/ui7/settings-fluent-hub.png`, `settings-fluent-hub-lower.png`, `settings-fluent-360dp-1.3.png`, `settings-fluent-390dp-1.3.png` y `settings-fluent-411dp-1.6.png`.
+- El APK Normal debug se instaló correctamente en el teléfono físico `25010PN30G` (`26dfb91d`), pero la navegación automatizada quedó bloqueada por `SecurityException: INJECT_EVENTS`; la revisión visual física queda **NOT_RUN** y no se declara certificada.
+
+| Comprobación | Resultado |
+|---|---|
+| `:app:compileNormalDebugKotlin` | **PASS** |
+| `SettingsHierarchyTest`, `SettingsIndexPolicyTest` | **PASS** |
+| `:app:testNormalDebugUnitTest :app:testFdroidDebugUnitTest` | **PASS** |
+| `:app:lintNormalDebug` | **PASS** |
+| `:app:assembleNormalDebug :app:assembleFdroidDebug` | **PASS** |
+| `tools/check_settings_architecture.py` | **PASS** |
+| Revisión visual 360/390/411 dp | **PASS** en emulador |
+| Revisión visual física | **NOT_RUN** (`INJECT_EVENTS` bloqueado) |
+| CI de esta integración | **NOT_RUN** (sin commit; falta autorización) |
+
+Gates: código/compilación/unit/lint/build **PASS**; visual emulador **PASS**; visual físico y TalkBack formal **NOT_RUN**; CI **NOT_RUN**; release **NO-GO**.

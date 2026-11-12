@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -85,18 +84,15 @@ internal fun SettingsDonationCard(onOpenExternal: ((String) -> Unit)? = null) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier.size(44.dp)
-                    .background(PrimaryPinkContainer.copy(alpha = .14f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                // Fluent Color Heart from the very same family used by FirstRunWizard.
+            Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                // Original Fluent Donate artwork: no tile, tint or extra frame.
                 androidx.compose.foundation.Image(
                     painter = androidx.compose.ui.res.painterResource(
-                        org.michimusic.mobile.R.drawable.settings_fluent_heart,
+                        org.michimusic.mobile.R.drawable.settings_donar,
                     ),
                     contentDescription = null,
-                    modifier = Modifier.size(30.dp),
+                    modifier = Modifier.size(36.dp),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
