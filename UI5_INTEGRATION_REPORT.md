@@ -1759,7 +1759,9 @@ física pendientes.
 
 ## UI7 — Cierre correctivo
 
-Base: `master@7220b7a562ff05eeba24058597f9b5e2b5da2782`.
+Base de la pasada: `master@7220b7a562ff05eeba24058597f9b5e2b5da2782`.
+Integración correctiva publicada en `master@6c85f0eed2041a04afa4dc42df86dbd91c37ae97`;
+commits `2d87760` (correctivo UI7) y `6c85f0e` (RTP test determinista).
 Cambios en working tree, **sin commit, push, PR ni release**.
 
 ### Correcciones
@@ -1802,14 +1804,14 @@ lifecycle solo se verificó con compilación y tests unitarios.
 
 ### Gates
 
-- **GO_CODE:** PASS en working tree; no publicado.
+- **GO_CODE:** PASS; publicado en `2d87760` + `6c85f0e`.
 - **GO_COMPILATION:** PASS.
 - **GO_ARCHITECTURE:** PASS.
 - **GO_UNIT:** PASS.
 - **GO_LINT:** parcial (último PASS antes del cambio de lifecycle).
 - **GO_BUILD:** parcial (ídem).
-- **GO_INSTRUMENTATION:** NOT_RUN.
-- **GO_CI:** NOT_RUN para estos cambios correctivos.
+- **GO_INSTRUMENTATION:** PASS vía CI `43133887801` Job G API 36.
+- **GO_CI:** PASS; run `43133887801` 8/8 sobre `6c85f0e`.
 - **GO_VISUAL:** NOT_RUN.
 - **GO_PHYSICAL:** NOT_RUN.
 - **GO_RELEASE:** **NO-GO**.
