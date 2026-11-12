@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.michimusic.mobile.ui.components.AeroSeekerTrack
@@ -29,7 +28,6 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 internal fun SettingsSeekerPreview(style: AeroSeekerStyle) {
     val demonstration = remember { seekerPreviewSamples() }
     Box(Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 8.dp)
-        .clearAndSetSemantics { }
         .testTag("settings_seeker_demo_${style.name.lowercase()}"),
         contentAlignment = Alignment.Center) {
         if (style == AeroSeekerStyle.ORIGINAL) {
