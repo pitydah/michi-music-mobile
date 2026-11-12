@@ -1,8 +1,11 @@
 package org.michimusic.link.rtp
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -241,8 +244,8 @@ class RtpAudioSenderTest {
     }
 
     @Test
-    fun `socket send error triggers onError callback with real exception`() = runTest {
-        var errorReported: Exception? = null
+    fun `socket send error triggers onError callback with real exception`() = runBlocking {
+        val errorReported = CompletableDeferred<Exception>()
 
         val failingSocket = object : DatagramSocket() {
             override fun send(p: DatagramPacket?) {
@@ -265,20 +268,14 @@ class RtpAudioSenderTest {
         )
 
         val sender = RtpAudioSender(socketProvider = { failingSocket })
-        sender.onError = { errorReported = it }
+        sender.onError = { errorReported.complete(it) }
 
         sender.start("127.0.0.1", effective, this)
         sender.sendPcmChunk(ByteArray(1920))
-
-        var attempts = 0
-        while (attempts < 50 && errorReported == null) {
-            delay(50)
-            attempts++
-        }
-
-        assertNotNull("onError must be called with IOException on socket failure", errorReported)
-        assertTrue(errorReported is IOException)
-        assertEquals("Network unreachable test simulation", errorReported?.message)
+        val error = withTimeout(5_000) { errorReported.await() }
+        assertNotNull("onError must be called with IOException on socket failure", error)
+        assertTrue(error is IOException)
+        assertEquals("Network unreachable test simulation", error.message)
 
         sender.stop()
     }
