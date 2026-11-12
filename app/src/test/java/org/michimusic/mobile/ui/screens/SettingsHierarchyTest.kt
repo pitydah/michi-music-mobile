@@ -1,12 +1,14 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -147,6 +149,48 @@ class SettingsHierarchyTest {
                 org.michimusic.player.ReplayGainPreAmp(with = -1.5f, without = 0f)
             )
         }
+    }
+
+    @Test
+    fun testBackFromSystemKeepsTheHubScrollPosition() {
+        composeTestRule.setContent {
+            org.koin.compose.KoinContext {
+                SettingsScreen()
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_route_system")
+            .performScrollTo()
+            .performClick()
+        composeTestRule.onNodeWithTag("settings_reopen_wizard").assertExists()
+
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_hub").assertExists()
+        // SaveableStateHolder must restore the ROOT scroll state, not reset it.
+        composeTestRule.onNodeWithTag("settings_route_system").assertIsDisplayed()
+    }
+
+    @Test
+    fun testBackFromSystemKeepsTheHubSearchFilter() {
+        composeTestRule.setContent {
+            org.koin.compose.KoinContext {
+                SettingsScreen()
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_search_input").performTextInput("diagnóstico")
+        composeTestRule.onNodeWithTag("settings_route_system").performClick()
+        composeTestRule.onNodeWithTag("settings_reopen_wizard").assertExists()
+
+        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("settings_route_system").assertExists()
+        composeTestRule.onNodeWithTag("settings_route_playback").assertDoesNotExist()
     }
 
     @Test

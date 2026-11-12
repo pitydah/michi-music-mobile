@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessibilityNew
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
@@ -20,7 +21,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -126,7 +126,7 @@ internal fun SettingsHubIndex(
                         SettingsSection.AUDIO_OUTPUT -> Icons.Default.Headphones
                         SettingsSection.PROCESSING -> Icons.Default.GraphicEq
                         SettingsSection.LIBRARY_STORAGE -> Icons.Default.Storage
-                        SettingsSection.ECOSYSTEM -> Icons.Default.Tune
+                        SettingsSection.ECOSYSTEM -> Icons.Default.Devices
                         SettingsSection.APPEARANCE -> Icons.Default.Palette
                         SettingsSection.ACCESSIBILITY -> Icons.Default.AccessibilityNew
                         SettingsSection.PRIVACY -> Icons.Default.Security
@@ -134,13 +134,10 @@ internal fun SettingsHubIndex(
                         else -> Icons.Default.Info
                     }
                     val wizardIcon: Int? = when (entry.section) {
-                        SettingsSection.PLAYBACK -> null
-                        SettingsSection.PROCESSING -> R.drawable.wizard_audio_waveform
-                        SettingsSection.AUDIO_OUTPUT -> R.drawable.wizard_fluent_headphones
-                        SettingsSection.LIBRARY_STORAGE -> R.drawable.wizard_fluent_library
-                        SettingsSection.ECOSYSTEM -> R.drawable.wizard_fluent_phone_laptop
+                        // Only the protected Michi emblem stays as artwork; every
+                        // other destination uses one coherent Material family.
                         SettingsSection.ABOUT -> R.drawable.wizard_brand_official
-                        else -> null // Never mislabel a different Fluent Color symbol.
+                        else -> null
                     }
                     val accent = when (entry.section) {
                         SettingsSection.ECOSYSTEM, SettingsSection.PRIVACY, SettingsSection.ABOUT -> SecondaryPurple

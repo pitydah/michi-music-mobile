@@ -95,6 +95,14 @@ internal fun playlistPrimaryActionsCompact(widthDp: Float, fontScale: Float): Bo
     !widthDp.isFinite() || !fontScale.isFinite() ||
         widthDp < 360f || fontScale >= 1.6f
 
+/**
+ * Standard rows keep the canonical 0.62/0.38 balance. Extreme layouts need a
+ * little more width for "Mezclar" so both labels stay whole at 2x text; the
+ * compact variant still renders both actions in the same row.
+ */
+internal fun playlistPrimaryActionWeights(compact: Boolean): Pair<Float, Float> =
+    if (compact) 0.56f to 0.44f else 0.62f to 0.38f
+
 /** UI5 may release only its own grants, never grants inherited from music imports. */
 internal fun playlistOwnedGrantKey(uri: String): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(uri.toByteArray(Charsets.UTF_8))

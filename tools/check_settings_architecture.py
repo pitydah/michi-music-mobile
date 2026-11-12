@@ -139,8 +139,59 @@ def run() -> None:
     system = code("SettingsSystemPanel.kt")
     if "settingsWizardReminders(" not in system:
         error("Wizard reminder state no longer uses the pure policy")
+
+    # Settings keeps per-destination scroll/search state and a single Back contract.
+    for required in ("rememberSaveableStateHolder()", "SaveableStateProvider(currentSection.name)",
+            "verticalScroll(rememberScrollState())", "BackHandler", "settings_back_button"):
+        if required not in screen:
+            error(f"Settings destination state contract missing {required}")
+    hub = code("SettingsHubIndex.kt")
+    for required in ("rememberSaveable", "settings_search_input"):
+        if required not in hub:
+            error(f"Settings search lost its saved local state: {required}")
+
+    # Genres: the screen consumes the ViewModel; only the ViewModel/repository owns Room.
+    albums = code("AlbumsScreen.kt")
+    for forbidden in ("TrackDao", "AppDao", "observeGenreEvidenceSnapshot",
+            "buildGenreScopedIndex", "GenreLibraryRepository(", "MichiDatabase.getInstance",
+            "Room."):
+        if forbidden in albums:
+            error(f"AlbumsScreen reclaimed genre IO from its owner: {forbidden}")
+    if "GenreLibraryViewModel" not in albums:
+        error("AlbumsScreen no longer delegates genre indexing to GenreLibraryViewModel")
+    genre_vm = (ROOT / "app/src/main/java/org/michimusic/mobile/screens/GenreLibraryViewModel.kt").read_text()
+    if len(genre_vm.splitlines()) > 160:
+        error("GenreLibraryViewModel grew towards a monolith")
+    for required in ("viewModelScope", "collectLatest", "generation",
+            "GenreIndexLoad.Ready(", "fun clear()", "Dispatchers.Default"):
+        if required not in genre_vm:
+            error(f"genre scope/isolation contract missing {required}")
+    if not re.search(r"requestGeneration\s*!=\s*generation", genre_vm):
+        error("genre results no longer reject stale generations")
+
+    # Playlists: one balanced row, with the compact policy in the shared visual policy.
+    actions = code("PlaylistPrimaryActions.kt")
+    if len(actions.splitlines()) > 90:
+        error("PlaylistPrimaryActions regressed into a larger surface")
+    if actions.count("Row(") != 1 or "Column(" in actions:
+        error("Playlist actions must stay in exactly one row")
+    for required in ("playlistPrimaryActionWeights(", "weight(playWeight)",
+            "weight(shuffleWeight)", "spacedBy(10.dp)",
+            "playlistPrimaryActionsCompact(", "playlist_detail_play_all",
+            "playlist_detail_shuffle_all", "Reproducir playlist", "Mezclar playlist"):
+        if required not in actions:
+            error(f"Playlist action row contract missing {required}")
+    visual = code("PlaylistVisualPolicy.kt")
+    if "playlistPrimaryActionsCompact(" not in visual:
+        error("compact playlist action policy disappeared")
+    if "playlistPrimaryActionWeights(" not in visual:
+        error("playlist action weight policy disappeared")
+    for weight in ("0.62f", "0.38f", "0.56f", "0.44f"):
+        if weight not in visual:
+            error(f"playlist action weight contract missing {weight}")
     print("SETTINGS ARCHITECTURE PASS:", len(screen.splitlines()),
           "root lines,", len(ACTUAL_PANELS), "domain panels, no forbidden root dependencies")
+    print("GENRES/PLAYLISTS ARCHITECTURE PASS: single genre owner, one playlist row")
 
 
 if __name__ == "__main__":

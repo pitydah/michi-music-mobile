@@ -16,9 +16,10 @@ import org.michimusic.mobile.ui.components.AeroActionKind
 
 /**
  * The playlist detail keeps one compact row at every width. The shared
- * [aeroHeroActionsVertical] policy is intentionally untouched: it still serves
- * other Aero surfaces. Extreme widths/fonts reserve the same row with a 48 dp
- * touch target and full accessibility labels.
+ * Aero hero stacking policy is intentionally untouched: it still serves other
+ * surfaces. Extreme widths/fonts reserve the same row with a 48 dp touch
+ * target, rebalance the two weights and drop the decorative glyph so both
+ * action labels stay whole and their accessibility labels remain complete.
  */
 @Composable
 internal fun PlaylistPrimaryActions(
@@ -29,6 +30,7 @@ internal fun PlaylistPrimaryActions(
     val config = LocalConfiguration.current
     val compact = playlistPrimaryActionsCompact(config.screenWidthDp.toFloat(), config.fontScale)
     val minHeight = if (compact) 48.dp else 56.dp
+    val (playWeight, shuffleWeight) = playlistPrimaryActionWeights(compact)
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -36,22 +38,22 @@ internal fun PlaylistPrimaryActions(
     ) {
         AeroActionButton(
             label = "Reproducir",
-            icon = Icons.Filled.PlayArrow,
+            icon = if (compact) null else Icons.Filled.PlayArrow,
             kind = AeroActionKind.Primary,
             onClick = onPlay,
             modifier = Modifier
-                .weight(0.62f)
+                .weight(playWeight)
                 .heightIn(min = minHeight),
             testTag = "playlist_detail_play_all",
             accessibilityLabel = "Reproducir playlist",
         )
         AeroActionButton(
             label = "Mezclar",
-            icon = Icons.Filled.Shuffle,
+            icon = if (compact) null else Icons.Filled.Shuffle,
             kind = AeroActionKind.Quiet,
             onClick = onShuffle,
             modifier = Modifier
-                .weight(0.38f)
+                .weight(shuffleWeight)
                 .heightIn(min = minHeight),
             testTag = "playlist_detail_shuffle_all",
             accessibilityLabel = "Mezclar playlist",

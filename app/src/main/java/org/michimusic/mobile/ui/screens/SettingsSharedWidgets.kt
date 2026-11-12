@@ -77,18 +77,20 @@ internal fun SettingsCategoryNavCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (iconRes != null) {
-                androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.res.painterResource(iconRes),
-                    contentDescription = null,
-                    modifier = Modifier.size(38.dp),
-                )
-            } else {
-                Box(
-                    modifier = Modifier.size(44.dp).clip(MichiShapes.sm)
-                        .background(accent.copy(alpha = 0.11f)),
-                    contentAlignment = Alignment.Center,
-                ) {
+            // One optical frame for every destination: canonical illustrations
+            // and tinted vectors share the same 44 dp tile and baseline.
+            Box(
+                modifier = Modifier.size(44.dp).clip(MichiShapes.sm)
+                    .background(accent.copy(alpha = 0.11f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (iconRes != null) {
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(iconRes),
+                        contentDescription = null,
+                        modifier = Modifier.size(34.dp),
+                    )
+                } else {
                     Icon(icon, contentDescription = null, tint = accent,
                         modifier = Modifier.size(23.dp))
                 }

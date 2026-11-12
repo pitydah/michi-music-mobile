@@ -1599,7 +1599,8 @@ class SyncViewModel(
      */
     fun schedulePeriodicSyncIfEnabled() {
         val scheduler = autoSyncScheduler ?: return
-        viewModelScope.launch { scheduler.refresh() }
+        // App-owned scope: leaving the screen must not cancel the scheduling.
+        scheduler.requestRefresh()
     }
 
 

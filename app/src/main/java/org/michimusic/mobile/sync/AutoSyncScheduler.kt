@@ -11,7 +11,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.michimusic.link.PairedDeviceRegistry
 import org.michimusic.link.identity.MichiIdentityAuthority
@@ -33,6 +36,13 @@ class AutoSyncScheduler(
 ) {
     private val appContext = context.applicationContext
     private val refreshMutex = Mutex()
+
+    /**
+     * App-owned scope: completing a pairing and leaving its screen must not
+     * cancel the refresh that schedules or cancels the periodic mirror.
+     * The mutex serialises concurrent requests; no polling is added.
+     */
+    private val appScope = CoroutineScope(SupervisorJob() + ioDispatcher)
 
     fun isEnabled(): Boolean =
         appContext.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
@@ -66,6 +76,15 @@ class AutoSyncScheduler(
     /** Re-reads the preference and the pairings, then schedules or cancels. */
     suspend fun refresh() {
         withContext(ioDispatcher) { refreshMutex.withLock { refreshBlocking() } }
+    }
+
+    /**
+     * Fire-and-forget refresh for callers tied to a screen lifecycle (pairing,
+     * forget, settings). The work belongs to this app-owned scope so popBackStack
+     * or a completed pairing cannot cancel it.
+     */
+    fun requestRefresh() {
+        appScope.launch { refresh() }
     }
 
     private suspend fun refreshBlocking() {

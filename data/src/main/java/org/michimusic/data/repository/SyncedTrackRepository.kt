@@ -208,39 +208,39 @@ open class SyncedTrackRepository(
 private fun TrackDto.toCachedTrackPreserving(
     old: CachedTrack? = null,
     sourceId: String = LOCAL_SOURCE_ID,
-) = CachedTrack(
-    id = id,
-    title = title,
-    artist = artist,
-    album = album,
-    albumArtist = old?.albumArtist ?: "",
-    // Keep the previous genre only if a legacy peer omitted it AND the track
-    // identity has not changed. A reused ID must never inherit stale tags.
-    genre = genre.ifBlank {
-        old?.takeIf { previous ->
-            sameLegacySyncTrack(
-                previous.title, previous.artist, previous.album, previous.duration,
-                title, artist, album, duration.toLong(),
-            )
-        }?.genre.orEmpty()
-    },
-    duration = duration.toLong(),
-    size = size,
-    format = format,
-    bitrate = bitrate,
-    sampleRate = sampleRate,
-    channels = channels,
-    coverId = coverId,
-    trackNumber = trackNumber,
-    year = year,
-    filepath = old?.filepath ?: "",
-    downloaded = old?.downloaded ?: false,
-    sourceId = sourceId,
-    verifiedSize = old?.verifiedSize ?: 0L,
-    verifiedSha256 = old?.verifiedSha256 ?: "",
-    verifiedAt = old?.verifiedAt ?: 0L,
-    verifiedAlgorithm = old?.verifiedAlgorithm ?: "",
-)
+) = old?.takeIf { previous ->
+    sameLegacySyncTrack(
+        previous.title, previous.artist, previous.album, previous.duration,
+        title, artist, album, duration.toLong(),
+    )
+}.let { sameOld ->
+    CachedTrack(
+        id = id,
+        title = title,
+        artist = artist,
+        album = album,
+        // A reused ID must not inherit another recording's owner metadata or
+        // download/verification receipts. The file itself is never deleted.
+        albumArtist = sameOld?.albumArtist ?: "",
+        genre = genre.ifBlank { sameOld?.genre.orEmpty() },
+        duration = duration.toLong(),
+        size = size,
+        format = format,
+        bitrate = bitrate,
+        sampleRate = sampleRate,
+        channels = channels,
+        coverId = coverId,
+        trackNumber = trackNumber,
+        year = year,
+        filepath = sameOld?.filepath ?: "",
+        downloaded = sameOld?.downloaded ?: false,
+        sourceId = sourceId,
+        verifiedSize = sameOld?.verifiedSize ?: 0L,
+        verifiedSha256 = sameOld?.verifiedSha256 ?: "",
+        verifiedAt = sameOld?.verifiedAt ?: 0L,
+        verifiedAlgorithm = sameOld?.verifiedAlgorithm ?: "",
+    )
+}
 
 private const val VERIFICATION_TIMESTAMP_TOLERANCE_MS = 2_000L
 

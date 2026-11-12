@@ -41,7 +41,7 @@ class SyncedTrackRepositoryTest {
         every { mockTrackDao.getTracksForSource("") } returns flowOf(listOf(existingTrackDownloaded, existingTrackNotDownloaded))
 
         val newTracksFromNetwork = listOf(
-            TrackDto(id = "t1", title = "Track 1 Updated", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0),
+            TrackDto(id = "t1", title = "Track 1", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0),
             TrackDto(id = "t3", title = "Track 3 New", artist = "", album = "", duration = 0, size = 0, format = "", bitrate = 0, sampleRate = 0, channels = 0)
         )
 
@@ -52,7 +52,7 @@ class SyncedTrackRepositoryTest {
             mockTrackDao.insertAll(match<List<CachedTrack>> { list ->
                 val t1 = list.find { it.id == "t1" }
                 val t3 = list.find { it.id == "t3" }
-                t1?.downloaded == true && t1.filepath == "/path/t1" && t1.title == "Track 1 Updated" &&
+                t1?.downloaded == true && t1.filepath == "/path/t1" && t1.title == "Track 1" &&
                 t3?.downloaded == false && t3.title == "Track 3 New"
             })
         }
@@ -319,6 +319,63 @@ class SyncedTrackRepositoryTest {
         coVerify {
             mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
                 rows.single().id == "t1" && rows.single().genre == ""
+            })
+        }
+    }
+
+    @Test
+    fun `reused id invalidates download state and verification receipts`() = runTest {
+        every { mockTrackDao.getTracksForSource("peer-a") } returns flowOf(listOf(
+            CachedTrack(
+                id = "t1", title = "Old title", artist = "A", album = "B",
+                duration = 100, sourceId = "peer-a", albumArtist = "Old album artist",
+                downloaded = true, filepath = "/music/old.flac",
+                verifiedSize = 123L, verifiedSha256 = "abc", verifiedAt = 456L,
+                verifiedAlgorithm = "sha256",
+            ),
+        ))
+
+        repository.saveLibrary(
+            listOf(TrackDto(id = "t1", title = "New title", artist = "A", album = "B", duration = 100)),
+            sourceId = "peer-a",
+        )
+
+        // The reused ID starts clean. The old physical file is never deleted here.
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                val row = rows.single()
+                row.downloaded == false && row.filepath == "" &&
+                    row.verifiedSize == 0L && row.verifiedSha256 == "" &&
+                    row.verifiedAt == 0L && row.verifiedAlgorithm == "" &&
+                    row.albumArtist == ""
+            })
+        }
+    }
+
+    @Test
+    fun `same identity keeps download state and verification receipts`() = runTest {
+        every { mockTrackDao.getTracksForSource("peer-a") } returns flowOf(listOf(
+            CachedTrack(
+                id = "t1", title = "Same", artist = "A", album = "B",
+                duration = 100, sourceId = "peer-a", albumArtist = "Album artist",
+                downloaded = true, filepath = "/music/same.flac",
+                verifiedSize = 123L, verifiedSha256 = "abc", verifiedAt = 456L,
+                verifiedAlgorithm = "sha256",
+            ),
+        ))
+
+        repository.saveLibrary(
+            listOf(TrackDto(id = "t1", title = "Same", artist = "A", album = "B", duration = 100)),
+            sourceId = "peer-a",
+        )
+
+        coVerify {
+            mockTrackDao.insertAll(match<List<CachedTrack>> { rows ->
+                val row = rows.single()
+                row.downloaded && row.filepath == "/music/same.flac" &&
+                    row.verifiedSize == 123L && row.verifiedSha256 == "abc" &&
+                    row.verifiedAt == 456L && row.verifiedAlgorithm == "sha256" &&
+                    row.albumArtist == "Album artist"
             })
         }
     }

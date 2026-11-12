@@ -1,11 +1,15 @@
 package org.michimusic.mobile.ui.screens
 
 import android.content.res.Configuration
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -70,6 +74,39 @@ class PlaylistPrimaryActionsComposeTest {
         )
         assertTrue("Primary action must keep a 48dp target", playBounds.height >= 48f)
         assertTrue("Secondary action must keep a 48dp target", shuffleBounds.height >= 48f)
+        val compactProportion = playBounds.width / (playBounds.width + shuffleBounds.width)
+        assertEquals(
+            "Compact actions must rebalance toward the shorter label",
+            0.56f,
+            compactProportion,
+            0.02f,
+        )
+    }
+
+    @Test fun actionsKeepTheirProportionAndAccessibilityLabels() {
+        val config = Configuration().apply {
+            screenWidthDp = 412
+            fontScale = 1f
+        }
+        rule.setContent {
+            CompositionLocalProvider(LocalConfiguration provides config) {
+                MichiTheme {
+                    Box(Modifier.fillMaxWidth()) {
+                        PlaylistPrimaryActions(onPlay = {}, onShuffle = {})
+                    }
+                }
+            }
+        }
+        val playBounds = rule.onNodeWithTag("playlist_detail_play_all")
+            .fetchSemanticsNode().boundsInRoot
+        val shuffleBounds = rule.onNodeWithTag("playlist_detail_shuffle_all")
+            .fetchSemanticsNode().boundsInRoot
+        val proportion = playBounds.width / (playBounds.width + shuffleBounds.width)
+        assertEquals("Primary/secondary width ratio", 0.62f, proportion, 0.02f)
+        rule.onNodeWithTag("playlist_detail_play_all")
+            .assertContentDescriptionEquals("Reproducir playlist")
+        rule.onNodeWithTag("playlist_detail_shuffle_all")
+            .assertContentDescriptionEquals("Mezclar playlist")
     }
 
     @Test fun responsivePolicyUsesCompactSingleRowForExtremeLayouts() {
@@ -78,5 +115,9 @@ class PlaylistPrimaryActionsComposeTest {
         org.junit.Assert.assertFalse(playlistPrimaryActionsCompact(393f, 1f))
         org.junit.Assert.assertFalse(playlistPrimaryActionsCompact(412f, 1f))
         assertTrue(playlistPrimaryActionsCompact(600f, 2f))
+        assertEquals(0.62f, playlistPrimaryActionWeights(compact = false).first, 0f)
+        assertEquals(0.38f, playlistPrimaryActionWeights(compact = false).second, 0f)
+        assertEquals(0.56f, playlistPrimaryActionWeights(compact = true).first, 0f)
+        assertEquals(0.44f, playlistPrimaryActionWeights(compact = true).second, 0f)
     }
 }

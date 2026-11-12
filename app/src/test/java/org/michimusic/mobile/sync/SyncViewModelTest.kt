@@ -72,6 +72,29 @@ class SyncViewModelTest {
     }
 
     @Test
+    fun `schedulePeriodicSyncIfEnabled uses the app owned refresh`() {
+        val scheduler = mockk<AutoSyncScheduler>(relaxed = true)
+        val localViewModel = SyncViewModel(
+            context = context,
+            linkDiscovery = linkDiscovery,
+            registry = registry,
+            connectionManager = connectionManager,
+            identityAuthority = org.michimusic.link.identity.MichiIdentityAuthority(
+                context,
+                factory = { identity },
+                initialState = org.michimusic.link.identity.IdentityState.Ready(identity),
+            ),
+            trackRepository = trackRepository,
+            autoSyncScheduler = scheduler,
+        )
+
+        localViewModel.schedulePeriodicSyncIfEnabled()
+
+        // The request is owned by the scheduler; no viewModelScope launch exists.
+        io.mockk.verify(exactly = 1) { scheduler.requestRefresh() }
+    }
+
+    @Test
     fun `startDiscovery updates connection state to DISCOVERING`() = runTest(testDispatcher) {
         backgroundScope.launch { viewModel.uiState.collect { } }
         viewModel.startDiscovery()
