@@ -1825,3 +1825,13 @@ lifecycle solo se verificó con compilación y tests unitarios.
 - El scroll de Settings es por destino; no se comparte estado entre secciones.
 - Persisten límites de evidencia: sin dispositivo no hay instrumentación ni
   capturas; sin CI no hay certificación del SHA final.
+
+### Cierre M1-M3 (UI7 correctivo)
+
+- Commits `4f0b99a` (M1-M3) + `8e5e5f9` (ReplayGain test wait); CI `43138869351` **8/8 PASS** (rerun) sobre `8e5e5f9`.
+- M1: Reproducir/Mezclar en una fila 0.62/0.38, 48/56 dp, `playlistPrimaryActionsCompact`; androidTest actualizado. Test instrumentado **NOT_RUN** sin dispositivo.
+- M2: `SettingsHubIndex` diferencia `PlayArrow` de `Headphones`/wizard headphones; PROCESSING mantiene `GraphicEq`/waveform. Matriz visual/TalkBack **NOT_RUN**.
+- M3: `GenreIndexLoad.Ready` expone `scopeKey`/`generation`; el ViewModel descarta generaciones obsoletas; `GenreLibraryViewModelTest` **PASS**.
+- Flake documentado: `PlaylistsViewModelTest.moveTrack_validOperation_callsRepositoryExactlyOnce` falló en Job B y pasó al rerun; no se modificó la aserción.
+- M4-M7 pendientes: identidad de copias/checksums al reutilizar `trackId`, AutoSync fuera de `viewModelScope`, guardias/cobertura, certificación visual y cierre.
+- Gates: `GO_PLAYLIST_ACTION_ROW` código PASS, instrumentado/visual NOT_RUN; `GO_SETTINGS_ICON_MATRIX` código PASS, visual/TalkBack NOT_RUN; `GO_GENRE_SCOPE_ISOLATION` unit PASS, instrumentación NOT_RUN; `GO_CI` PASS (rerun); `GO_VISUAL`/`GO_PHYSICAL`/`GO_SYNC_COPY_IDENTITY`/`GO_AUTOSYNC_LIFECYCLE` pendientes; `GO_RELEASE` **NO-GO**.
