@@ -1,5 +1,6 @@
 package org.michimusic.mobile.screens
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -161,9 +162,8 @@ class PlaylistsViewModelTest {
         // A repo whose observePlaylists() flow never emits (simulating a not-yet-loaded
         // reactive list) must not block loadPlaylistDetail from resolving via getById.
         val slowRepo = object : FakePlaylistRepo() {
-            override fun observePlaylists() = kotlinx.coroutines.flow.flow<List<org.michimusic.core.models.Playlist>> {
-                kotlinx.coroutines.awaitCancellation()
-            }
+            override fun observePlaylists() =
+                kotlinx.coroutines.flow.flowOf(emptyList<org.michimusic.core.models.Playlist>())
         }
         val vm = PlaylistsViewModel(slowRepo, LocalMediaRepository(), testDispatcher)
 
@@ -379,6 +379,7 @@ class PlaylistsViewModelTest {
         // A repository call that never completes keeps isRemovingTrack true, so a second
         // tap while the first removal is still in flight must be a synchronous no-op.
         var callCount = 0
+        val gate = CompletableDeferred<Unit>()
         val neverCompletingRepo = object : PlaylistRepository(
             trackDao = mockk<TrackDao>(relaxed = true),
             localMediaRepository = LocalMediaRepository(),
@@ -387,7 +388,7 @@ class PlaylistsViewModelTest {
             override suspend fun getTracksForPlaylist(playlist: Playlist): List<Track> = emptyList()
             override suspend fun removeTrackFromPlaylist(id: String, trackId: String) {
                 callCount++
-                kotlinx.coroutines.awaitCancellation()
+                gate.await()
             }
         }
         val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
@@ -399,6 +400,10 @@ class PlaylistsViewModelTest {
 
         assertEquals(1, callCount)
         assertTrue(vm.isRemovingTrack.value)
+        // Let the in-flight job finish before MainDispatcherRule resets Main,
+        // otherwise the next test inherits an uncaught cancellation.
+        gate.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
     }
 
     // --- 4C: deleting a playlist ---
@@ -449,13 +454,14 @@ class PlaylistsViewModelTest {
         // call that never completes keeps isDeletingPlaylist true, so a second tap on the
         // confirm button while the first deletion is still in flight must be a no-op.
         var callCount = 0
+        val gate = CompletableDeferred<Unit>()
         val neverCompletingRepo = object : PlaylistRepository(
             trackDao = mockk<TrackDao>(relaxed = true),
             localMediaRepository = LocalMediaRepository(),
         ) {
             override suspend fun deletePlaylist(id: String) {
                 callCount++
-                kotlinx.coroutines.awaitCancellation()
+                gate.await()
             }
         }
         val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
@@ -467,6 +473,8 @@ class PlaylistsViewModelTest {
 
         assertEquals(1, callCount)
         assertTrue(vm.isDeletingPlaylist.value)
+        gate.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
     }
 
     // --- 4D: renaming a playlist ---
@@ -527,13 +535,14 @@ class PlaylistsViewModelTest {
     @Test
     fun renamePlaylist_calledAgainWhileInFlight_isIgnored() = runTest(testDispatcher) {
         var callCount = 0
+        val gate = CompletableDeferred<Unit>()
         val neverCompletingRepo = object : PlaylistRepository(
             trackDao = mockk<TrackDao>(relaxed = true),
             localMediaRepository = LocalMediaRepository(),
         ) {
             override suspend fun renamePlaylist(id: String, newName: String) {
                 callCount++
-                kotlinx.coroutines.awaitCancellation()
+                gate.await()
             }
         }
         val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
@@ -545,6 +554,8 @@ class PlaylistsViewModelTest {
 
         assertEquals(1, callCount)
         assertTrue(vm.isRenamingPlaylist.value)
+        gate.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
     }
 
     @Test
@@ -650,13 +661,14 @@ class PlaylistsViewModelTest {
     @Test
     fun moveTrack_calledAgainWhileInFlight_isIgnored() = runTest(testDispatcher) {
         var callCount = 0
+        val gate = CompletableDeferred<Unit>()
         val neverCompletingRepo = object : PlaylistRepository(
             trackDao = mockk<TrackDao>(relaxed = true),
             localMediaRepository = LocalMediaRepository(),
         ) {
             override suspend fun moveTrack(id: String, trackId: String, direction: MoveDirection) {
                 callCount++
-                kotlinx.coroutines.awaitCancellation()
+                gate.await()
             }
         }
         val vm = PlaylistsViewModel(neverCompletingRepo, LocalMediaRepository(), testDispatcher)
@@ -668,6 +680,8 @@ class PlaylistsViewModelTest {
 
         assertEquals(1, callCount)
         assertTrue(vm.isReorderingTrack.value)
+        gate.complete(Unit)
+        testDispatcher.scheduler.advanceUntilIdle()
     }
 
     @Test

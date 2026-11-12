@@ -227,6 +227,15 @@ class SettingsHierarchyTest {
             ),
         )
 
+        // Selecting TRACK recomposes the selector. Wait for OFF to be enabled
+        // before clicking, or the click can be lost in F-Droid.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            runCatching {
+                composeTestRule.onNodeWithTag("rg_mode_OFF").assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
+
         // Scroll to and click "Desactivado" (OFF mode) via testTag
         composeTestRule.onNodeWithTag("rg_mode_OFF")
             .performScrollTo()
