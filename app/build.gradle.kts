@@ -261,3 +261,17 @@ val verifyUi7EditorialPosters = tasks.register<Exec>("verifyUi7EditorialPosters"
     inputs.dir(file("src/main/assets/ui7/editorial/posters"))
 }
 tasks.named("preBuild").configure { dependsOn(verifyUi7EditorialPosters) }
+
+// UI7 Mosaico destacado: the 216 approved local crops are byte-verified on every
+// build, and the manifest must remain the deterministic derivative of the pack.
+val verifyUi7MosaicAssets = tasks.register<Exec>("verifyUi7MosaicAssets") {
+    group = "verification"
+    description = "Reject modified, missing or undocumented UI7 Mosaico destacado WebP assets"
+    workingDir = rootProject.rootDir
+    commandLine("python3", rootProject.file("tools/validate_ui7_mosaic_assets.py").absolutePath)
+    inputs.file(rootProject.file("tools/validate_ui7_mosaic_assets.py"))
+    inputs.file(rootProject.file("tools/validate_ui7_editorial_assets.py"))
+    inputs.file(file("src/main/java/org/michimusic/mobile/ui/screens/GenreMosaicArtworkPolicy.kt"))
+    inputs.dir(file("src/main/assets/ui7/mosaic"))
+}
+tasks.named("preBuild").configure { dependsOn(verifyUi7MosaicAssets) }

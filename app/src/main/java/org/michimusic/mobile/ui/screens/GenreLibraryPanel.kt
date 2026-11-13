@@ -155,6 +155,26 @@ fun GenreLibraryPanel(
             }
         }
     }
+    // FEATURED is the only consumer of the approved Mosaico pack: one bounded read
+    // of its manifest while that view is visible, never a media scan or directory probe.
+    val mosaicAssets by produceState(
+        initialValue = emptyMap<String, MosaicArtworkAsset>(), key1 = viewMode,
+    ) {
+        if (viewMode == GenreViewMode.FEATURED) {
+            value = withContext(Dispatchers.IO) {
+                try {
+                    val files = context.assets.list(mosaicFolder).orEmpty().toSet()
+                    val text = context.assets.open("$mosaicFolder/manifest.tsv")
+                        .bufferedReader().use { it.readText() }
+                    mosaicApprovedArtwork(text, files)
+                } catch (cancel: CancellationException) {
+                    throw cancel // Leaving Mosaico must stop its one-shot load.
+                } catch (_: Exception) {
+                    emptyMap() // Unapproved/incomplete pack never blocks or invents cards.
+                }
+            }
+        }
+    }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     // Both grids retain their independent positions when switching modes or opening details.
     val featuredGridState = rememberLazyGridState()
@@ -245,9 +265,11 @@ fun GenreLibraryPanel(
                             ) {
                                 item(key = "featured_${visibleGenres.first().id}",
                                     span = { GridItemSpan(columns) }) {
-                                    GenreTile(genre = visibleGenres.first(), featured = true,
+                                    val featured = visibleGenres.first()
+                                    GenreTile(genre = featured, featured = true,
+                                        mosaicAsset = mosaicArtworkForGenre(featured.id, mosaicAssets),
                                         modifier = Modifier.fillMaxWidth(),
-                                        onOpen = { openGenre(visibleGenres.first().id) })
+                                        onOpen = { openGenre(featured.id) })
                                 }
                                 gridItems(visibleGenres.drop(1), key = { it.id }) { genre ->
                                     GenreTile(genre = genre, featured = false,
@@ -582,17 +604,18 @@ private fun GenreGeometry(genreId: String, accent: Color, editorial: Boolean) {
 }
 
 /**
- * Single future-artwork insertion seam for both approved views. Today this plane
- * renders ONLY a static Compose material/geometry, with no Image, Coil, bitmaps
- * or drawable lookup. A future approved image renderer must remain beneath the
- * live Compose label and must never own genre identity, count or click handling.
+ * Single artwork seam for both approved views. Editorial still renders ONLY a static
+ * Compose material/geometry; FEATURED may place one approved Mosaico crop above it.
+ * Either way the image layer stays beneath the live Compose label and never owns
+ * genre identity, count or click handling.
  */
 @Composable
-private fun GenreVisualPlane(
+internal fun GenreVisualPlane(
     genreId: String,
     accent: Color,
     mode: GenreViewMode,
     treatment: GenreEditorialTreatment? = null,
+    modifier: Modifier = Modifier,
 ) {
     val editorial = mode == GenreViewMode.EDITORIAL
     val backgroundBrush = if (!editorial)
@@ -600,14 +623,20 @@ private fun GenreVisualPlane(
     else if (treatment == GenreEditorialTreatment.COVER)
         Brush.horizontalGradient(listOf(AeroGraphiteRaised, SurfaceObsidian))
     else Brush.verticalGradient(listOf(AeroGraphiteRaised, SurfaceObsidian))
-    Box(Modifier.fillMaxSize().background(backgroundBrush).clearAndSetSemantics {}) {
+    Box(modifier.fillMaxSize().background(backgroundBrush).clearAndSetSemantics {}) {
         GenreGeometry(genreId, accent, editorial)
     }
 }
 
-/** One full-width focal genre and a calm compact secondary grid. No images. */
+/** One full-width focal genre and a calm compact secondary grid. */
 @Composable
-private fun GenreTile(genre: LibraryGenre, featured: Boolean, modifier: Modifier = Modifier, onOpen: () -> Unit) {
+private fun GenreTile(
+    genre: LibraryGenre,
+    featured: Boolean,
+    modifier: Modifier = Modifier,
+    mosaicAsset: MosaicArtworkAsset? = null,
+    onOpen: () -> Unit,
+) {
     val accent = if (LocalVisualPreferences.current.highContrast) PureWhite else genreAccent(genre)
     val count = genre.tracks.size
     val height = genreMosaicHeightDp(featured, LocalConfiguration.current.fontScale)
@@ -618,7 +647,7 @@ private fun GenreTile(genre: LibraryGenre, featured: Boolean, modifier: Modifier
         onClick = onOpen,
     ) {
         Box(Modifier.fillMaxWidth().height(height.dp).clearAndSetSemantics {}) {
-            GenreVisualPlane(genre.id, accent, mode = GenreViewMode.FEATURED)
+            GenreMosaicArtwork(asset = mosaicAsset, genreId = genre.id, accent = accent)
             Column(
                 modifier = Modifier.fillMaxSize().padding(if (featured) 20.dp else 14.dp),
                 verticalArrangement = Arrangement.SpaceBetween,

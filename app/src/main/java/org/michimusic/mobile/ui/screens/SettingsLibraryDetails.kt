@@ -73,6 +73,7 @@ internal fun SettingsLibraryDetails(
     onSelectTree: () -> Unit,
     onRestoreDefault: () -> Unit,
     onRescan: () -> Unit,
+    onRecoverGenres: () -> Unit,
     onRefreshStorage: () -> Unit,
     onGrantWrite: () -> Unit,
     onCreateFolder: () -> Unit,
@@ -185,6 +186,19 @@ internal fun SettingsLibraryDetails(
                     Text("Volver a escanear")
                 }
             }
+            TextButton(
+                enabled = !busy && (currentRoot.isDefault || !permissionRevoked),
+                onClick = onRecoverGenres,
+                modifier = Modifier.testTag("settings_library_recover_genres"),
+            ) {
+                Text("Recuperar géneros faltantes")
+            }
+            Text(
+                "Relee etiquetas de archivos de esta biblioteca solo cuando lo solicitas; " +
+                    "no modifica la música ni activa escaneos permanentes.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
 
 
             Spacer(Modifier.height(12.dp))

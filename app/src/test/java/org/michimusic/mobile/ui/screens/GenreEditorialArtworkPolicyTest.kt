@@ -58,8 +58,9 @@ class GenreEditorialArtworkPolicyTest {
         assertTrue(!editorialProductionGeometryValid("cover", 4096, 4096))
     }
 
-    @Test fun inventoryContainsOnlyThe176VerifiedEditorialSources() {
-        assertEquals(176, editorialSourceKeys.size)
+    @Test fun inventoryContainsOnlyThe216VerifiedEditorialSources() {
+        // The reconciled UI7 editorial pack ships one verified source per Mosaico genre.
+        assertEquals(216, editorialSourceKeys.size)
         assertTrue("new_wave" in editorialSourceKeys)
         assertTrue("afrobeat" in editorialSourceKeys)
         assertTrue("afrobeats" in editorialSourceKeys)

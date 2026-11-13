@@ -8,6 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         CachedTrack::class,
+        EmbeddedTagEvidence::class,
         CachedAlbum::class,
         CachedArtist::class,
         CachedPlaylist::class,
@@ -28,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApprovedSyncPlanEntity::class,
         LibraryExclusionEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class MichiDatabase : RoomDatabase() {
@@ -50,6 +51,32 @@ abstract class MichiDatabase : RoomDatabase() {
 
     companion object {
         const val DEFAULT_DEVICE_LIBRARY_ID = "lib_device_local"
+
+        val MIGRATION_11_12 = Migration(11, 12) { db ->
+            // Metadata-only sidecar. Cached track and playlist identities are untouched.
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `embedded_tag_evidence` (
+                    `sourceId` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL,
+                    `sizeBytes` INTEGER NOT NULL,
+                    `modifiedAt` INTEGER NOT NULL,
+                    `parserVersion` INTEGER NOT NULL,
+                    `genre` TEXT NOT NULL,
+                    `genreValues` TEXT NOT NULL,
+                    `title` TEXT NOT NULL,
+                    `artist` TEXT NOT NULL,
+                    `album` TEXT NOT NULL,
+                    `albumArtist` TEXT NOT NULL,
+                    `composer` TEXT NOT NULL,
+                    `trackNumber` INTEGER NOT NULL,
+                    `trackTotal` INTEGER NOT NULL,
+                    `discNumber` INTEGER NOT NULL,
+                    `discTotal` INTEGER NOT NULL,
+                    `date` TEXT NOT NULL,
+                    PRIMARY KEY(`sourceId`, `trackId`)
+                )
+            """.trimIndent())
+        }
 
         val MIGRATION_1_2 = Migration(1, 2) { db ->
             db.execSQL("ALTER TABLE cached_tracks ADD COLUMN format TEXT NOT NULL DEFAULT ''")

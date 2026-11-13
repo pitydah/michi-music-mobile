@@ -60,6 +60,7 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 internal fun SettingsLibraryPanel() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val localMediaRepository: org.michimusic.data.repository.LocalMediaRepository = koinInject()
                         val musicRootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
                         val currentRoot by musicRootAuthority.currentRoot.collectAsStateWithLifecycle()
                         val lastScan by musicRootAuthority.lastScan.collectAsStateWithLifecycle()
@@ -278,6 +279,37 @@ internal fun SettingsLibraryPanel() {
                                     } catch (_: Exception) {
                                         folderMessage = "No se pudo restaurar Music/."
                                     } finally { folderBusy = false }
+                                }
+                            },
+                            onRecoverGenres = {
+                                if (!folderBusy) scope.launch {
+                                    folderBusy = true
+                                    folderProgress = 0
+                                    folderMessage = null
+                                    try {
+                                        val result = localMediaRepository.recoverAllMissingGenres(
+                                            onProgress = { done, total ->
+                                                withContext(Dispatchers.Main) {
+                                                    folderProgress = done
+                                                    folderMessage = "Recuperando etiquetas: $done de $total"
+                                                }
+                                            },
+                                        )
+                                        folderMessage = when (result) {
+                                            is org.michimusic.data.repository.MediaResult.Success ->
+                                                "Recuperación terminada. Regresa a Biblioteca para ver los géneros actualizados."
+                                            org.michimusic.data.repository.MediaResult.PermissionDenied ->
+                                                "Permiso de lectura denegado. Revisa el origen de la biblioteca."
+                                            is org.michimusic.data.repository.MediaResult.QueryFailed ->
+                                                "No se completó la recuperación: la biblioteca cambió o el proveedor falló."
+                                        }
+                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                        throw cancelled
+                                    } catch (_: Exception) {
+                                        folderMessage = "No fue posible recuperar las etiquetas."
+                                    } finally {
+                                        folderBusy = false
+                                    }
                                 }
                             },
                             onRescan = {

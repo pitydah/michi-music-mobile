@@ -83,6 +83,10 @@ class SettingsHierarchyTest {
                     single<org.michimusic.mobile.sync.AutoSyncScheduler> {
                         mockk<org.michimusic.mobile.sync.AutoSyncScheduler>(relaxed = true)
                     }
+                    // P12 Library now injects the repository for manual genre recovery.
+                    single<org.michimusic.data.repository.LocalMediaRepository> {
+                        mockk(relaxed = true)
+                    }
                     // The privacy section now renders the device identity state. These tests
                     // never resolve it, so a permanently loading authority is enough and
                     // keeps them independent of the Keystore.

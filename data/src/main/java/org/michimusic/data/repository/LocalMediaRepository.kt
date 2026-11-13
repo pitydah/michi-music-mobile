@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -16,6 +17,8 @@ import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.EmbeddedTagEvidence
+import org.michimusic.data.cache.RecoveredSafGenre
 import org.michimusic.data.cache.LibraryExclusionDao
 import org.michimusic.data.cache.LibraryExclusionEntity
 import org.michimusic.data.cache.ReplayGainDao
@@ -36,6 +39,7 @@ open class LocalMediaRepository(
     private data class PendingTrack(val track: Track)
 
     companion object {
+        private const val MAX_EMBEDDED_GENRE_READS_PER_QUERY = 32
         private const val CACHE_TTL_MS = 30_000L
 
         /** Android 13+ split audio permission; Android 12 still uses the storage grant. */
@@ -49,6 +53,8 @@ open class LocalMediaRepository(
         }
     }
 
+    /** Position of the next batch across repeated foreground library refreshes. */
+    private var nextGenreScanRow = 0
     private var cachedTracks: List<Track>? = null
     private var cacheTime = 0L
     private val cacheMutex = Mutex()
@@ -163,6 +169,88 @@ open class LocalMediaRepository(
     open suspend fun invalidateCache() {
         cacheMutex.withLock {
             cachedTracks = null
+        }
+    }
+    /**
+     * Explicit foreground request. No worker, timer or background rescan.
+     * Outputs and evidence are only committed if the active snapshot is unchanged.
+     * The progress callback runs on Dispatchers.IO; UI must marshal to Main.
+     */
+    suspend fun recoverAllMissingGenres(
+        onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): MediaResult<List<Track>> {
+        val current = fetchTracksResult()
+        if (current !is MediaResult.Success) return current
+        val ctx = context ?: return current
+        val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
+        val owner = if (root.isDefault) TagEvidencePolicy.MEDIASTORE_OWNER
+            else root.sourceId ?: libraryVisibilitySource(root)
+        val original = current.data
+        val mutable = original.toMutableList()
+        val pending = original.map { GenreMetadataMerge.choose(null, it.genre, null).isEmpty() }.toMutableList()
+        val total = pending.count { it }
+        if (total == 0) return current
+        val freshEvidence = ArrayList<EmbeddedTagEvidence>()
+        val safUpdates = ArrayList<RecoveredSafGenre>()
+        val updated = withContext(Dispatchers.IO) {
+            var completed = 0
+            var next = 0
+            onProgress(0, total)
+            while (completed < total) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val batch = GenreBackfill.nextBatch(pending, next, 32, total - completed)
+                if (batch.indices.isEmpty()) break
+                for (i in batch.indices) {
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    val song = mutable[i]
+                    val uri = android.net.Uri.parse(song.filepath)
+                    val fields = UriEmbeddedTags.read(ctx, uri)
+                    val genre = GenreMetadataMerge.choose(fields?.genre, null, null)
+                    if (genre.isNotBlank()) {
+                        mutable[i] = song.copy(genre = genre)
+                        if (!root.isDefault) {
+                            safUpdates.add(RecoveredSafGenre(owner, song.id, song.filepath, song.size, genre))
+                        }
+                    }
+                    // MediaStore fingerprints are authoritative only with a known mtime.
+                    // SAF rows are replaced atomically whenever a tree is reindexed.
+                    val modified = try {
+                        val key = if (root.isDefault) MediaStore.Audio.Media.DATE_MODIFIED
+                            else android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                        ctx.contentResolver.query(uri, arrayOf(key), null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else 0L
+                        } ?: 0L
+                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) { 0L }
+                    if (!root.isDefault || modified > 0L) {
+                        freshEvidence.add(TagEvidencePolicy.record(owner, song.id, song.size, modified, fields))
+                    }
+                    pending[i] = false
+                    completed++
+                }
+                next = batch.nextCursor
+                onProgress(completed, total)
+                kotlinx.coroutines.yield()
+            }
+            mutable.toList()
+        }
+        return cacheMutex.withLock {
+            if (cachedTracks !== original || (rootPreferences?.currentRoot() ?: MusicRoot.Default) != root) {
+                return@withLock MediaResult.QueryFailed(
+                    IllegalStateException("La biblioteca cambió mientras se recuperaban géneros."),
+                )
+            }
+            try {
+                importedTrackDao?.persistRecoveredGenres(freshEvidence, safUpdates)
+                cachedTracks = updated
+                cacheTime = System.currentTimeMillis()
+                MediaResult.Success(updated, current.coverage)
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (error: Exception) {
+                MediaResult.QueryFailed(error)
+            }
         }
     }
 
@@ -369,6 +457,7 @@ open class LocalMediaRepository(
             MediaStore.Audio.Media.MIME_TYPE,
             MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.DATE_MODIFIED,
             MediaStore.Audio.Media.IS_RINGTONE,
             MediaStore.Audio.Media.IS_ALARM,
             MediaStore.Audio.Media.IS_NOTIFICATION,
@@ -411,6 +500,16 @@ open class LocalMediaRepository(
 
         val pendingTracks = mutableListOf<PendingTrack>()
         var needsGenreMembershipRecovery = !genreProjected
+        var genreReadBudget = MAX_EMBEDDED_GENRE_READS_PER_QUERY
+        val scanFromRow = nextGenreScanRow
+        var nextRow = scanFromRow
+        val savedEvidence = try {
+            importedTrackDao?.getTagEvidenceForSource(TagEvidencePolicy.MEDIASTORE_OWNER)
+                ?.associateBy { it.trackId }.orEmpty()
+        } catch (cancel: kotlinx.coroutines.CancellationException) {
+            throw cancel
+        } catch (_: Exception) { emptyMap<String, EmbeddedTagEvidence>() }
+        val evidenceUpdates = ArrayList<EmbeddedTagEvidence>()
         // Album-level credit lives in the albums table, not in each song row.
         // It is the stable grouping key for compilations with guest artists.
         val albumArtistById = mutableMapOf<String, String>()
@@ -445,6 +544,7 @@ open class LocalMediaRepository(
             val mimeCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
             val displayNameCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
             val dateCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+            val modifiedCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
             val ringtoneCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_RINGTONE)
             val alarmCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_ALARM)
             val notificationCol = c.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_NOTIFICATION)
@@ -493,34 +593,64 @@ open class LocalMediaRepository(
                     id.toLong()
                 ).toString()
                 val albumId = c.getString(albumIdCol) ?: ""
+                val providerGenre = if (genreCol >= 0) c.getString(genreCol).orEmpty() else ""
+                // A fast foreground pass reads at most 32 missing-genre files.
+                // The cursor advances on each refresh, avoiding starvation after 1,024 entries.
+                val fileSize = c.getLong(sizeCol).coerceAtLeast(0L)
+                val modified = c.getLong(modifiedCol).coerceAtLeast(0L)
+                val needsProbe = TagEvidencePolicy.needsProbe(providerGenre, title, artist, album)
+                val cachedEvidence = if (needsProbe) savedEvidence[trackId]?.takeIf {
+                    it.matchesMediaStore(fileSize, modified)
+                } else null
+                val embedded = if (!needsProbe) null else if (cachedEvidence != null) cachedEvidence
+                else if (genreReadBudget > 0 && (c.position >= scanFromRow || c.count <= scanFromRow)) {
+                    genreReadBudget--
+                    nextRow = c.position + 1
+                    val fields = UriEmbeddedTags.read(ctx, android.net.Uri.parse(contentUri))
+                    val evidence = TagEvidencePolicy.record(
+                        TagEvidencePolicy.MEDIASTORE_OWNER, trackId, fileSize, modified, fields)
+                    if (modified > 0) evidenceUpdates.add(evidence)
+                    evidence
+                } else null
+                val genre = GenreMetadataMerge.choose(embedded?.genre, providerGenre, null)
                 pendingTracks.add(
                     PendingTrack(
                         track = Track(
                             id = trackId,
-                            title = title ?: "Unknown",
-                            artist = artist ?: "Unknown",
-                            album = album ?: "Unknown",
+                            title = MetadataFieldMerge.choose(embedded?.title, title, "Unknown"),
+                            artist = MetadataFieldMerge.choose(embedded?.artist, artist, "Unknown"),
+                            album = MetadataFieldMerge.choose(embedded?.album, album, "Unknown"),
                             albumId = albumId,
-                            albumArtist = albumArtistById[albumId].orEmpty(),
+                            albumArtist = MetadataFieldMerge.choose(embedded?.albumArtist,
+                                albumArtistById[albumId]),
                             duration = duration.coerceAtLeast(0),
                             filepath = contentUri,
-                            trackNumber = c.getInt(trackCol).coerceAtLeast(0),
-                            year = c.getInt(yearCol).coerceAtLeast(0),
+                            trackNumber = embedded?.trackNumber?.takeIf { it > 0 }
+                                ?: c.getInt(trackCol).coerceAtLeast(0),
+                            year = embedded?.date?.let(TagEvidencePolicy::exactYear)
+                                ?: c.getInt(yearCol).coerceAtLeast(0),
                             size = c.getLong(sizeCol).coerceAtLeast(0),
                             format = (c.getString(mimeCol) ?: "").substringAfterLast("/"),
                             coverId = c.getString(albumIdCol) ?: "",
                             dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
-                            genre = if (genreCol >= 0) c.getString(genreCol).orEmpty() else "",
+                            genre = genre,
                             source = TrackSource.LOCAL,
                             sourceMimeType = c.getString(mimeCol).orEmpty(),
                             sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),
-                            trackNumberFromMediaStore = true,
+                            trackNumberFromMediaStore = embedded?.trackNumber?.takeIf { it > 0 } == null,
                         ),
                     ),
                 )
             }
         }
 
+        // Committed only after the MediaStore query succeeds: never cache a partial scan.
+        if (evidenceUpdates.isNotEmpty()) {
+            try { importedTrackDao?.putTagEvidence(evidenceUpdates) }
+            catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { /* Catalog remains readable; retry when Room recovers. */ }
+        }
+        nextGenreScanRow = if (genreReadBudget == 0) nextRow else 0
         // OEM compatibility: query existing genre-membership tables only if the
         // preferred GENRE column was refused/omitted. This executes once during
         // the normal authorized IO load, never once per file or Compose frame.

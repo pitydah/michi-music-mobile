@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.michimusic.data.cache.CachedTrack
+import org.michimusic.data.cache.EmbeddedTagEvidence
 import org.michimusic.data.cache.TrackDao
 
 /** Explicit outcome so a revoked grant is never reported as an empty library. */
@@ -96,11 +97,13 @@ class SafMediaRepository(
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
             DocumentsContract.Document.COLUMN_MIME_TYPE,
             DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
         val pendingDirs = ArrayDeque<String>()
         pendingDirs.add(rootDocumentId)
         val seenDocuments = HashSet<String>()
         val indexed = mutableListOf<CachedTrack>()
+        val evidence = mutableListOf<EmbeddedTagEvidence>()
         var queryFailed = false
 
         while (pendingDirs.isNotEmpty()) {
@@ -126,6 +129,7 @@ class SafMediaRepository(
                 val nameCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                 val mimeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                 val sizeCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                val modifiedCol = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                 if (idCol < 0 || nameCol < 0 || mimeCol < 0) {
                     queryFailed = true
                     return@use
@@ -143,19 +147,27 @@ class SafMediaRepository(
                     if (!seenDocuments.add(documentId)) continue
                     val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
                     val metadata = retrieverMetadata(documentUri)
+                    val trackId = treeTrackId(treeUri, documentId)
+                    val fileSize = if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L
+                    val modified = if (modifiedCol >= 0 && !c.isNull(modifiedCol)) c.getLong(modifiedCol) else 0L
+                    evidence.add(TagEvidencePolicy.record(
+                        sourceId, trackId, fileSize, modified, metadata.embedded,
+                    ))
                     val title = metadata.title.ifBlank {
                         childName.substringBeforeLast('.').ifBlank { childName }
                     }
                     indexed.add(
                         CachedTrack(
-                            id = treeTrackId(treeUri, documentId),
+                            id = trackId,
                             title = title,
                             artist = metadata.artist,
                             album = metadata.album,
                             albumArtist = metadata.albumArtist,
                             genre = metadata.genre,
+                            trackNumber = metadata.embedded?.trackNumber ?: 0,
+                            year = metadata.embedded?.date?.let(TagEvidencePolicy::exactYear) ?: 0,
                             duration = metadata.duration,
-                            size = if (sizeCol >= 0 && !c.isNull(sizeCol)) c.getLong(sizeCol) else 0L,
+                            size = fileSize,
                             format = sourceFileExtension(childName)
                                 .ifBlank { mime.substringAfterLast('/') },
                             filepath = documentUri.toString(),
@@ -177,7 +189,7 @@ class SafMediaRepository(
             )
         }
         val written = try {
-            trackDao.replaceForSource(sourceId, indexed)
+            trackDao.replaceForSourceWithEvidence(sourceId, indexed, evidence)
             true
         } catch (e: CancellationException) {
             throw e
@@ -284,7 +296,7 @@ class SafMediaRepository(
 
     /** Removes an inactive/staged source after a confirmed replacement or rollback. */
     suspend fun clearSource(sourceId: String) = withContext(Dispatchers.IO) {
-        trackDao.deleteForSource(sourceId)
+        trackDao.clearSourceWithEvidence(sourceId)
         localMediaRepository?.invalidateCache()
     }
 
@@ -323,27 +335,49 @@ class SafMediaRepository(
         val album: String = "Unknown Album",
         val albumArtist: String = "",
         val genre: String = "",
+        val embedded: EmbeddedTagFields? = null,
         val duration: Long = 0L,
     )
 
     private fun retrieverMetadata(uri: Uri): TreeMetadata {
+        // One bounded read per indexed SAF file, never a second pass for genre.
+        val embedded = try {
+            UriEmbeddedTags.read(context, uri)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Exception) {
+            null
+        }
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, uri)
             TreeMetadata(
-                title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE).orEmpty(),
-                artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                    ?.takeIf { it.isNotBlank() } ?: "Unknown Artist",
-                album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                    ?.takeIf { it.isNotBlank() } ?: "Unknown Album",
-                albumArtist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)
-                    .orEmpty(),
-                genre = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE).orEmpty(),
+                title = MetadataFieldMerge.choose(embedded?.title,
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)),
+                artist = MetadataFieldMerge.choose(embedded?.artist,
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST), "Unknown Artist"),
+                album = MetadataFieldMerge.choose(embedded?.album,
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM), "Unknown Album"),
+                albumArtist = MetadataFieldMerge.choose(embedded?.albumArtist,
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST)),
+                genre = GenreMetadataMerge.choose(embedded?.genre, null,
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)),
+                embedded = embedded,
                 duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
             )
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (_: Exception) {
-            TreeMetadata()
+            // Embedded tags remain useful when the platform retriever rejects a codec.
+            TreeMetadata(
+                title = embedded?.title.orEmpty(),
+                artist = MetadataFieldMerge.choose(embedded?.artist, null, "Unknown Artist"),
+                album = MetadataFieldMerge.choose(embedded?.album, null, "Unknown Album"),
+                albumArtist = embedded?.albumArtist.orEmpty(),
+                genre = embedded?.genre.orEmpty(),
+                embedded = embedded,
+            )
         } finally {
             runCatching { retriever.release() }
         }

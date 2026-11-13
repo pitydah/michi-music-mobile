@@ -115,7 +115,7 @@ class SafMediaRepositoryTest {
             }
         }
         val rows = slot<List<org.michimusic.data.cache.CachedTrack>>()
-        coEvery { trackDao.replaceForSource(any(), capture(rows)) } returns Unit
+        coEvery { trackDao.replaceForSourceWithEvidence(any(), capture(rows), any()) } returns Unit
 
         val result = SafMediaRepository(context, trackDao).indexTree(tree)
 

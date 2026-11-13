@@ -11,6 +11,61 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TrackDao {
+    /** Single, owner-scoped read for fast foreground MediaStore indexing. */
+    @Query("SELECT * FROM embedded_tag_evidence WHERE sourceId = :sourceId")
+    suspend fun getTagEvidenceForSource(sourceId: String): List<EmbeddedTagEvidence>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putTagEvidence(rows: List<EmbeddedTagEvidence>)
+
+    @Query("DELETE FROM embedded_tag_evidence WHERE sourceId = :sourceId")
+    suspend fun deleteTagEvidenceForSource(sourceId: String)
+
+    /** Index + structured evidence must change together, never partially. */
+    @Transaction
+    suspend fun replaceForSourceWithEvidence(
+        sourceId: String,
+        tracks: List<CachedTrack>,
+        evidence: List<EmbeddedTagEvidence>,
+    ) {
+        deleteForSource(sourceId)
+        deleteTagEvidenceForSource(sourceId)
+        if (tracks.isNotEmpty()) insertAll(tracks)
+        if (evidence.isNotEmpty()) putTagEvidence(evidence)
+    }
+
+    /** Removing a SAF library must also remove its orphanable evidence. */
+    @Transaction
+    suspend fun clearSourceWithEvidence(sourceId: String) {
+        deleteForSource(sourceId)
+        deleteTagEvidenceForSource(sourceId)
+    }
+
+    /** Updates only missing genres; guard prevents racing with a changed SAF document. */
+    @Query(
+        "UPDATE cached_tracks SET genre = :genre WHERE sourceId = :sourceId " +
+            "AND id = :id AND filepath = :filepath AND size = :size AND (TRIM(genre) = '' OR LOWER(TRIM(genre)) IN ('unknown','unknown genre','<unknown>','sin género','sin genero','sin clasificar','n/a','unspecified','not specified','?'))",
+    )
+    suspend fun fillMissingSafGenre(
+        sourceId: String, id: String, filepath: String, size: Long, genre: String,
+    ): Int
+
+    @Transaction
+    suspend fun persistRecoveredGenres(
+        evidence: List<EmbeddedTagEvidence>,
+        safChanges: List<RecoveredSafGenre>,
+    ) {
+        val rejected = HashSet<Pair<String, String>>()
+        for (change in safChanges) {
+            val changed = fillMissingSafGenre(
+                change.sourceId, change.trackId, change.filepath, change.size, change.genre,
+            )
+            if (changed == 0) rejected.add(change.sourceId to change.trackId)
+        }
+        val allowed = evidence.filterNot { (it.sourceId to it.trackId) in rejected }
+        if (allowed.isNotEmpty()) putTagEvidence(allowed)
+    }
+
     @Query("SELECT * FROM cached_tracks ORDER BY title")
     fun getAllTracks(): Flow<List<CachedTrack>>
 
