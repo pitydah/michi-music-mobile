@@ -16,17 +16,21 @@ data class LibraryGenre(
 private const val UNKNOWN_GENRE_ID = "__ui7_unknown_genre__"
 private const val UNKNOWN_GENRE_TITLE = "Sin clasificar"
 
-private fun genreNames(raw: String): List<String> {
-    val pieces = raw.split(';', '\u0000')
-        .map { it.trim().replace(Regex("\\s+"), " ") }
-        .filter(String::isNotEmpty)
-        .filterNot {
-            val lower = it.lowercase(Locale.ROOT)
-            lower == "<unknown>" || lower == "unknown" || lower == "sin género" ||
-                lower == "sin clasificar" || lower == "unspecified"
+private data class GenreToken(val key: String, val title: String)
+private fun genreNames(raw: String): List<GenreToken> {
+    val unique = linkedMapOf<String, GenreToken>()
+    // Refuse pathological metadata instead of allocating thousands of UI groups.
+    if (raw.length > 8_192) return emptyList()
+    raw.split(';', '\u0000', '\u001f').forEach { rawName ->
+        val label = genreCleanLabel(rawName)
+        val key = genreGroupingKey(label)
+        if (!genreTagIsUnknownKey(key)) {
+            unique.putIfAbsent(key, GenreToken(key, genreCanonicalDisplayName(key, label)))
+            if (unique.size > 32) return emptyList() // Never publish partial categories.
         }
+    }
     // Slash is not a delimiter: styles such as "Rock/Pop" are valid single labels.
-    return pieces.distinctBy { it.lowercase(Locale.ROOT) }
+    return unique.values.toList()
 }
 
 /**
@@ -39,11 +43,13 @@ fun groupLibraryGenres(tracks: List<Track>): List<LibraryGenre> {
     val buckets = linkedMapOf<String, Bucket>()
     // Avoid duplicate rows if a scope presents a track through more than one album.
     tracks.distinctBy { Triple(it.sourceId, it.id, it.filepath) }.forEach { track ->
-        val names = genreNames(track.genre).ifEmpty { listOf(UNKNOWN_GENRE_TITLE) }
+        val names = genreNames(track.genre).ifEmpty { listOf(GenreToken(UNKNOWN_GENRE_ID, UNKNOWN_GENRE_TITLE)) }
         names.forEach { name ->
-            val id = if (name == UNKNOWN_GENRE_TITLE) UNKNOWN_GENRE_ID
-                else name.lowercase(Locale.ROOT)
-            buckets.getOrPut(id) { Bucket(name, mutableListOf()) }.tracks.add(track)
+            val id = name.key
+            val bucket = buckets.getOrPut(id) { Bucket(name.title, mutableListOf()) }
+            val preferred = genrePreferredDisplayTitle(bucket.title, name.title)
+            if (preferred != bucket.title) buckets[id] = Bucket(preferred, bucket.tracks)
+            bucket.tracks.add(track)
         }
     }
     return buckets.map { (id, bucket) ->

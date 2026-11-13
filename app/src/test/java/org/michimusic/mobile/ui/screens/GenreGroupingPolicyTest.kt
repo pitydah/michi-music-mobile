@@ -157,4 +157,82 @@ class GenreGroupingPolicyTest {
         val two = Track("same", "A", genre="Folk", sourceId="two")
         assertEquals(2, groupLibraryGenres(listOf(one,two)).single().tracks.size)
     }
+
+    @Test fun aliasSpellingsUnifyOnlySameStyleWithoutRewritingTracks() {
+        val original = listOf(
+            song("a", "Synth-Pop"), song("b", "Synthpop"), song("c", "SYNTH POP"))
+        val grouped = groupLibraryGenres(original)
+        assertEquals(1, grouped.size)
+        assertEquals("Synth-Pop", grouped.single().title)
+        assertEquals(3, grouped.single().tracks.size)
+        assertEquals("Synthpop", original[1].genre)
+    }
+
+    @Test fun canonicalTitleDoesNotDependOnTrackOrder() {
+        val first = listOf(song("a", "Synthpop"), song("b", "SYNTH POP"))
+        val second = first.reversed()
+        assertEquals("Synth-Pop", groupLibraryGenres(first).single().title)
+        assertEquals(groupLibraryGenres(first).single().title, groupLibraryGenres(second).single().title)
+    }
+
+    @Test fun aliasRepeatedInsideTagDoesNotDuplicateSameSong() {
+        val genres = groupLibraryGenres(listOf(song("a", "Lo-Fi;Lofi;Lo Fi")))
+        assertEquals(1, genres.single().tracks.size)
+    }
+
+    @Test fun separateSimilarStylesNeverMergeOrInventParentGenres() {
+        val genres = groupLibraryGenres(listOf(
+            song("a", "Afrobeat"), song("b", "Afrobeats"),
+            song("c", "Heavy Metal"), song("d", "Metal"),
+            song("e", "Rock/Pop")))
+        assertEquals(5, genres.size)
+        assertEquals(5, genres.map { it.id }.toSet().size)
+    }
+
+    @Test fun actualLibraryCountControlsBothModesIncludingSingleNewWave() {
+        val one = groupLibraryGenres(listOf(song("a", "New Wave"), song("b", "new-wave")))
+        assertEquals(1, one.size)
+        assertEquals(2, one.single().tracks.size)
+        assertEquals(GenreEditorialTreatment.COVER, editorialSlot(0, 2).treatment)
+        val five = groupLibraryGenres((0 until 5).map { song("$it", "Style $it") })
+        assertEquals(5, five.size)
+    }
+
+    @Test fun unknownMetadataVariantsDoNotBecomeInventedGenres() {
+        val genres = groupLibraryGenres(listOf(song("a", "sin genero"), song("b", "N/A")))
+        assertEquals(listOf("Sin clasificar"), genres.map { it.title })
+        assertEquals(2, genres.single().tracks.size)
+    }
+
+    @Test fun metadataUnitSeparatorIsSupportedWithoutSplittingSlash() {
+        val genres = groupLibraryGenres(listOf(song("a", "Jazz\u001fRock/Pop")))
+        assertEquals(listOf("Jazz", "Rock/Pop"), genres.map { it.title })
+    }
+
+    @Test fun stableDisplayChoiceIndependentOfTrackEnumeration() {
+        val first = groupLibraryGenres(listOf(song("1", "jazz"), song("2", "Jazz")))
+        val reversed = groupLibraryGenres(listOf(song("2", "Jazz"), song("1", "jazz")))
+        assertEquals("Jazz", first.single().title)
+        assertEquals(first.map { it.title }, reversed.map { it.title })
+        assertEquals("jazz", first.single().tracks.first().genre)
+    }
+
+    @Test fun outrageousGenreFieldDoesNotAllocateUnboundedGroups() {
+        val long = groupLibraryGenres(listOf(song("1", "X".repeat(9_000))))
+        assertEquals(listOf("Sin clasificar"), long.map { it.title })
+        val tooMany = groupLibraryGenres(listOf(song("2", (1..33).joinToString(";") { "Style $it" })))
+        assertEquals(listOf("Sin clasificar"), tooMany.map { it.title })
+    }
+
+    @Test fun thirtyTwoTagsRemainSupportedWithoutInference() {
+        val genres = groupLibraryGenres(listOf(song("1", (1..32).joinToString(";") { "Style $it" })))
+        assertEquals(32, genres.size)
+        assertEquals(1, genres.first().tracks.size)
+    }
+
+    @Test fun emptyAndRepeatedTokensDoNotExhaustValidGenreQuota() {
+        val manySeparators = "Rock" + ";".repeat(200) + "Rock"
+        val genres = groupLibraryGenres(listOf(song("1", manySeparators)))
+        assertEquals(listOf("Rock"), genres.map { it.title })
+    }
 }

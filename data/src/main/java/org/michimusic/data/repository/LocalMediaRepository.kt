@@ -410,6 +410,7 @@ open class LocalMediaRepository(
         }
 
         val pendingTracks = mutableListOf<PendingTrack>()
+        var needsGenreMembershipRecovery = !genreProjected
         // Album-level credit lives in the albums table, not in each song row.
         // It is the stable grouping key for compilations with guest artists.
         val albumArtistById = mutableMapOf<String, String>()
@@ -457,6 +458,7 @@ open class LocalMediaRepository(
             } else {
                 -1
             }
+            if (genreCol < 0) needsGenreMembershipRecovery = true
 
             while (c.moveToNext()) {
                 val id = c.getString(idCol) ?: continue
@@ -519,7 +521,28 @@ open class LocalMediaRepository(
             }
         }
 
-        return MediaResult.Success(applyReplayGain(pendingTracks.map { it.track }))
+        // OEM compatibility: query existing genre-membership tables only if the
+        // preferred GENRE column was refused/omitted. This executes once during
+        // the normal authorized IO load, never once per file or Compose frame.
+        val recovered = if (needsGenreMembershipRecovery && pendingTracks.isNotEmpty()) {
+            recoverMediaStoreGenreMemberships(
+                resolver = ctx.contentResolver,
+                volume = MediaStore.VOLUME_EXTERNAL_PRIMARY,
+                permittedAudioIds = pendingTracks.mapNotNull {
+                    it.track.id.removePrefix("local_").toLongOrNull()
+                }.toSet(),
+            )
+        } else emptyMap()
+        val completed = if (recovered.isEmpty()) pendingTracks.map { it.track } else {
+            pendingTracks.map { pending ->
+                val track = pending.track
+                val mediaId = track.id.removePrefix("local_").toLongOrNull()
+                if (mediaId == null) track else track.copy(
+                    genre = preserveMediaStoreGenre(track.genre, recovered[mediaId]),
+                )
+            }
+        }
+        return MediaResult.Success(applyReplayGain(completed))
     }
 
     private suspend fun customRootTracks(): MediaResult<List<Track>> {

@@ -1,0 +1,4 @@
+# UI7_EDITORIAL_PRODUCTION_MANIFEST_V1
+# TAB-separated: genre_key  variant  filename  sha256  width_px  height_px  source_drive_file_id  approval  text_free  frame_free  safe_layout
+# Empty by design: the 176 Drive recuts contain baked text/borders. DO NOT ship them as approved artwork.
+# Add APPROVED rows only after visual sign-off, source preservation and SHA/dimension validation.

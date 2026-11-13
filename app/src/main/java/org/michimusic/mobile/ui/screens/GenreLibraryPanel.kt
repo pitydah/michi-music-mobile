@@ -47,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
@@ -75,6 +77,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.ui.components.AeroCard
 import org.michimusic.mobile.ui.components.AeroSurface
@@ -110,6 +115,46 @@ fun GenreLibraryPanel(
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     // Save across detail navigation; state inside the overview branch would reset.
     var viewMode by rememberSaveable { mutableStateOf(GenreViewMode.FEATURED) }
+    // One bounded I/O pass only while Editorial is visible: do not publish
+    // loose, unapproved WebPs by filename alone. Invalid manifest fails closed.
+    val context = LocalContext.current
+    val productionAssets by produceState(initialValue = emptySet<String>(), key1 = viewMode) {
+        if (viewMode == GenreViewMode.EDITORIAL) {
+            value = withContext(Dispatchers.IO) {
+                try {
+                    val directory = "ui7/editorial/production"
+                    val files = context.assets.list(directory).orEmpty().toSet()
+                    val manifest = context.assets.open("$directory/manifest.tsv")
+                        .bufferedReader().use { it.readText() }
+                    editorialApprovedAssetNames(manifest, files)
+                } catch (cancel: CancellationException) {
+                    throw cancel // Navigating away must stop Editorial's one-shot load.
+                } catch (_: Exception) {
+                    emptySet() // Invalid package never blocks or invents genre cards.
+                }
+            }
+        }
+    }
+    // Source Editorial posters already include titles and frames. Read their complete
+    // bounded manifest once per Editorial entry; never enumerate media or decode 176 bitmaps.
+    val posterAssets by produceState(
+        initialValue = emptyMap<String, EditorialPosterAsset>(), key1 = viewMode,
+    ) {
+        if (viewMode == GenreViewMode.EDITORIAL) {
+            value = withContext(Dispatchers.IO) {
+                try {
+                    val files = context.assets.list(editorialPosterFolder).orEmpty().toSet()
+                    val text = context.assets.open("$editorialPosterFolder/manifest.tsv")
+                        .bufferedReader().use { it.readText() }
+                    editorialApprovedPosters(text, files)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+            }
+        }
+    }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     // Both grids retain their independent positions when switching modes or opening details.
     val featuredGridState = rememberLazyGridState()
@@ -224,11 +269,23 @@ fun GenreLibraryPanel(
                                 visibleGenres.forEachIndexed { index, genre ->
                                     item(
                                         key = genre.id,
-                                        span = { GridItemSpan(editorialSlot(index, columns).span) },
+                                        span = {
+                                            val poster = editorialPosterForTitle(genre.title, posterAssets)
+                                            GridItemSpan(if (poster != null) editorialPosterSpan(columns, poster)
+                                                else editorialSlot(index, columns).span)
+                                        },
                                     ) {
+                                        val poster = editorialPosterForTitle(genre.title, posterAssets)
+                                        if (poster != null) {
+                                            GenreEditorialPosterTile(genre, poster,
+                                                onOpen = { openGenre(genre.id) })
+                                        } else {
                                         GenreEditorialTile(genre = genre,
                                             slot = editorialSlot(index, columns),
+                                            columns = columns,
+                                            productionAssetNames = productionAssets,
                                             onOpen = { openGenre(genre.id) })
+                                        }
                                     }
                                 }
                             }
@@ -599,7 +656,13 @@ private fun GenreTile(genre: LibraryGenre, featured: Boolean, modifier: Modifier
 
 /** Three different editorial compositions; no image slots and no false rankings. */
 @Composable
-private fun GenreEditorialTile(genre: LibraryGenre, slot: GenreEditorialSlot, onOpen: () -> Unit) {
+private fun GenreEditorialTile(
+    genre: LibraryGenre,
+    slot: GenreEditorialSlot,
+    columns: Int,
+    productionAssetNames: Set<String>,
+    onOpen: () -> Unit,
+) {
     val accent = if (LocalVisualPreferences.current.highContrast) PureWhite else genreAccent(genre)
     val count = genre.tracks.size
     val itemLabel = "Abrir género ${genre.title}, $count ${if (count == 1) "pista" else "pistas"}"
@@ -614,6 +677,10 @@ private fun GenreEditorialTile(genre: LibraryGenre, slot: GenreEditorialSlot, on
         Box(Modifier.fillMaxSize().clearAndSetSemantics {}) {
             GenreVisualPlane(genre.id, accent, mode = GenreViewMode.EDITORIAL,
                 treatment = treatment)
+            // The source keys never drive tile creation. Only validated,
+            // text-free and frame-free derived assets may cover this plane.
+            // Missing/decoding-failed images leave the original geometry below.
+            GenreEditorialArtwork(genre.title, treatment, columns, productionAssetNames)
             // Marginal ink and typographic color blocks distinguish this from Mosaico.
             when (treatment) {
                 GenreEditorialTreatment.COVER -> {

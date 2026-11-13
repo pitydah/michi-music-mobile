@@ -234,3 +234,30 @@ tasks.register("checkMedia3Alignment") {
     }
 }
 tasks.named("preBuild").configure { dependsOn("checkMedia3Alignment") }
+
+// UI7 Editorial: publication gate is part of every app build/flavor, not a manual step.
+// It reads only checked-in metadata and approved local artwork; no network/scan.
+val verifyUi7EditorialAssets = tasks.register<Exec>("verifyUi7EditorialAssets") {
+    group = "verification"
+    description = "Reject unapproved, inconsistent or corrupted UI7 Editorial WebP assets"
+    workingDir = rootProject.rootDir
+    commandLine("python3", rootProject.file("tools/validate_ui7_editorial_assets.py").absolutePath)
+    inputs.file(rootProject.file("tools/validate_ui7_editorial_assets.py"))
+    inputs.file(file("src/main/java/org/michimusic/mobile/ui/screens/GenreEditorialArtworkPolicy.kt"))
+    inputs.dir(file("src/main/assets/ui7/editorial/production"))
+}
+tasks.named("preBuild").configure { dependsOn(verifyUi7EditorialAssets) }
+
+// Keep the independently published complete-poster contract in the same build gate.
+// Poster image/text/frame semantics intentionally differ from derived V1 artwork.
+val verifyUi7EditorialPosters = tasks.register<Exec>("verifyUi7EditorialPosters") {
+    group = "verification"
+    description = "Validate exact source proportions and integrity of completed Editorial posters"
+    workingDir = rootProject.rootDir
+    commandLine("python3", rootProject.file("tools/validate_ui7_editorial_posters.py").absolutePath)
+    inputs.file(rootProject.file("tools/validate_ui7_editorial_posters.py"))
+    inputs.file(rootProject.file("tools/validate_ui7_editorial_assets.py"))
+    inputs.file(file("src/main/java/org/michimusic/mobile/ui/screens/GenreEditorialArtworkPolicy.kt"))
+    inputs.dir(file("src/main/assets/ui7/editorial/posters"))
+}
+tasks.named("preBuild").configure { dependsOn(verifyUi7EditorialPosters) }
