@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import org.michimusic.data.repository.MusicRoot
+import org.michimusic.data.repository.ExistingGenreVerificationReport
 import org.michimusic.mobile.library.LibraryStorageSnapshot
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
@@ -74,6 +75,10 @@ internal fun SettingsLibraryDetails(
     onRestoreDefault: () -> Unit,
     onRescan: () -> Unit,
     onRecoverGenres: () -> Unit,
+    onVerifyGenres: () -> Unit,
+    verificationReport: ExistingGenreVerificationReport?,
+    canCancelGenreOperation: Boolean,
+    onCancelGenreOperation: () -> Unit,
     onRefreshStorage: () -> Unit,
     onGrantWrite: () -> Unit,
     onCreateFolder: () -> Unit,
@@ -198,6 +203,14 @@ internal fun SettingsLibraryDetails(
                     "no modifica la música ni activa escaneos permanentes.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
+            )
+            SettingsGenreVerificationDetails(
+                enabled = !busy && (currentRoot.isDefault || !permissionRevoked),
+                busy = busy,
+                canCancel = canCancelGenreOperation,
+                report = verificationReport,
+                onVerify = onVerifyGenres,
+                onCancel = onCancelGenreOperation,
             )
 
 

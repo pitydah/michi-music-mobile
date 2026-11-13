@@ -97,7 +97,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
       - name: Verify Room Migrations and Schemas
-        run: ./gradlew :data:testDebugUnitTest --tests "org.michimusic.data.cache.Migration3To4Test" --tests "org.michimusic.data.cache.Migration10To11Test"
+        run: ./gradlew :data:testDebugUnitTest --tests "org.michimusic.data.cache.Migration3To4Test" --tests "org.michimusic.data.cache.Migration10To11Test" --tests "org.michimusic.data.cache.Migration11To12Test"
 
   build-normal:
     name: "Job E — Build Normal"

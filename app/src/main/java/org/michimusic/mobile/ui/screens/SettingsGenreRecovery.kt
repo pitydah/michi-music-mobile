@@ -24,6 +24,7 @@ import org.michimusic.data.repository.MediaResult
 internal fun rememberSettingsGenreRecovery(
     scope: CoroutineScope,
     busy: Boolean,
+    operationGate: SettingsLibraryOperationGate,
     onBusyChange: (Boolean) -> Unit,
     onProgressChange: (Int) -> Unit,
     onMessageChange: (String?) -> Unit,
@@ -33,35 +34,39 @@ internal fun rememberSettingsGenreRecovery(
     val busyWriter = rememberUpdatedState(onBusyChange)
     val progressWriter = rememberUpdatedState(onProgressChange)
     val messageWriter = rememberUpdatedState(onMessageChange)
-    return remember(repository, scope) {
+    return remember(repository, scope, operationGate) {
         {
-            if (!busyState.value) scope.launch {
-                busyWriter.value(true)
-                progressWriter.value(0)
-                messageWriter.value(null)
-                try {
-                    val result = repository.recoverAllMissingGenres(
-                        onProgress = { done, total ->
-                            withContext(Dispatchers.Main) {
-                                progressWriter.value(done)
-                                messageWriter.value("Recuperando etiquetas: $done de $total")
-                            }
-                        },
-                    )
-                    messageWriter.value(when (result) {
-                        is MediaResult.Success ->
-                            "Recuperación terminada. Regresa a Biblioteca para ver los géneros actualizados."
-                        MediaResult.PermissionDenied ->
-                            "Permiso de lectura denegado. Revisa el origen de la biblioteca."
-                        is MediaResult.QueryFailed ->
-                            "No se completó la recuperación: la biblioteca cambió o el proveedor falló."
-                    })
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    messageWriter.value("No fue posible recuperar las etiquetas.")
-                } finally {
-                    busyWriter.value(false)
+            if (!busyState.value) {
+                operationGate.launch(scope, SettingsLibraryOperation.RECOVER) {
+                    busyWriter.value(true)
+                    progressWriter.value(0)
+                    messageWriter.value(null)
+                    try {
+                        val result = repository.recoverAllMissingGenres(
+                            onProgress = { done, total ->
+                                withContext(Dispatchers.Main) {
+                                    progressWriter.value(done)
+                                    messageWriter.value("Recuperando etiquetas: $done de $total")
+                                }
+                            },
+                        )
+                        messageWriter.value(when (result) {
+                            is MediaResult.Success ->
+                                "Recuperación terminada. Regresa a Biblioteca para ver los géneros actualizados."
+                            MediaResult.PermissionDenied ->
+                                "Permiso de lectura denegado. Revisa el origen de la biblioteca."
+                            is MediaResult.QueryFailed ->
+                                "No se completó la recuperación: la biblioteca cambió o el proveedor falló."
+                        })
+                    } catch (cancelled: CancellationException) {
+                        progressWriter.value(0)
+                        messageWriter.value("Recuperación detenida. Los lotes confirmados se conservaron; al reintentar solo se examinarán géneros aún ausentes.")
+                        throw cancelled
+                    } catch (_: Exception) {
+                        messageWriter.value("No fue posible recuperar las etiquetas.")
+                    } finally {
+                        busyWriter.value(false)
+                    }
                 }
             }
         }

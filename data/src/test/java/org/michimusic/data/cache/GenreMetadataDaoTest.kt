@@ -39,6 +39,34 @@ class GenreMetadataDaoTest {
         } finally { db.close() }
     }
 
+    @Test fun structuredSidecarProjectionRequiresMatchingOwnerSizeVersionAndGenre() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(), MichiDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        try {
+            db.trackDao().insertAll(listOf(
+                CachedTrack(id = "one", title = "A", sourceId = "saf-a", size = 42,
+                    genre = "Jazz; Fusion", filepath = "content://a"),
+                CachedTrack(id = "one", title = "A", sourceId = "saf-b", size = 42,
+                    genre = "Rock", filepath = "content://b"),
+                CachedTrack(id = "two", title = "B", sourceId = "saf-a", size = 99,
+                    genre = "Metal", filepath = "content://c"),
+            ))
+            db.trackDao().putTagEvidence(listOf(
+                EmbeddedTagEvidence("saf-a", "one", 42, 12, 3,
+                    genre = "Jazz; Fusion", genreValues = "Jazz\u0000Fusion"),
+                EmbeddedTagEvidence("saf-b", "one", 42, 12, 3,
+                    genre = "Different", genreValues = "Poison"),
+                EmbeddedTagEvidence("saf-a", "two", 19, 12, 3,
+                    genre = "Metal", genreValues = "Poison"),
+            ))
+            val rows = db.trackDao().observeGenreEvidenceSnapshot().first()
+            assertEquals("Jazz\u0000Fusion", rows.single { it.sourceId == "saf-a" && it.id == "one" }.genreValues)
+            assertEquals("", rows.single { it.sourceId == "saf-b" && it.id == "one" }.genreValues)
+            assertEquals("", rows.single { it.sourceId == "saf-a" && it.id == "two" }.genreValues)
+        } finally { db.close() }
+    }
+
     @Test fun downloadFlagUpdateDoesNotAlterGenreProjection() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(
             ApplicationProvider.getApplicationContext(), MichiDatabase::class.java,

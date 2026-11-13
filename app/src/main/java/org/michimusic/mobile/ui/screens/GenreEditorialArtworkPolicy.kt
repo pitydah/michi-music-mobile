@@ -95,13 +95,8 @@ internal enum class EditorialProductionVariant(val suffix: String) {
     PORTRAIT_RIGHT("portrait_right"), SINGLE_COLUMN("single")
 }
 
-/** This path targets ONLY offline-corrected, approved, text-free WebP derivatives. */
-internal fun editorialProductionAssetPath(
-    genreTitle: String,
-    treatment: GenreEditorialTreatment,
-    columns: Int,
-): String? {
-    require(columns >= 1)
+/** Exact approved slug used by both complete posters and derived Editorial art. */
+internal fun editorialArtworkSlug(genreTitle: String): String? {
     val id = genreGroupingKey(genreTitle)
     if (id.isBlank() || id == "sin clasificar" || id == "unknown" || id == "<unknown>") return null
     val slug = when (id) {
@@ -110,12 +105,22 @@ internal fun editorialProductionAssetPath(
         "hi-nrg", "hi nrg" -> "hi_n_r_g"
         "drum bass" -> "drum_bass"
         else -> {
-            // Do not coerce arbitrary punctuation into another genre's artwork.
+            // Do not turn unapproved punctuation into somebody else's artwork.
             if (!productionGroupingPattern.matches(id)) return null
             id.replace(' ', '_').replace('-', '_')
         }
     }
-    if (slug !in editorialSourceKeys) return null
+    return slug.takeIf { it in editorialSourceKeys }
+}
+
+/** This path targets ONLY offline-corrected, approved, text-free WebP derivatives. */
+internal fun editorialProductionAssetPath(
+    genreTitle: String,
+    treatment: GenreEditorialTreatment,
+    columns: Int,
+): String? {
+    require(columns >= 1)
+    val slug = editorialArtworkSlug(genreTitle) ?: return null
     val variant = if (columns == 1) EditorialProductionVariant.SINGLE_COLUMN
         else when (treatment) {
             GenreEditorialTreatment.COVER -> EditorialProductionVariant.COVER

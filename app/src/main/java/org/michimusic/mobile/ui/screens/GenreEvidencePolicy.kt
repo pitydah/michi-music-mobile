@@ -14,6 +14,8 @@ data class GenreOwnerEvidence(
     val duration: Long,
     val filepath: String,
     val genre: String,
+    /** Original NUL-separated fields only after strict owner and file matching. */
+    val genreValues: String = "",
 )
 
 data class GenreScopedIndex(
@@ -70,10 +72,50 @@ fun buildGenreScopedIndex(
 ): GenreScopedIndex {
     val collisions = cachedGenreOwnerCollisions(cacheEvidence)
     val enriched = enrichGenreTracks(tracks, cacheEvidence, scopeOwnerId, isAllScope, collisions)
+    val withStructuredValues = attachTrustedGenreValues(enriched, cacheEvidence, collisions)
     return GenreScopedIndex(
-        genres = groupLibraryGenres(enriched),
-        blockedTrackIds = unsafeGenrePlaybackIds(enriched, collisions),
+        genres = groupLibraryGenres(withStructuredValues),
+        blockedTrackIds = unsafeGenrePlaybackIds(withStructuredValues, collisions),
     )
+}
+
+/**
+ * Structured genre evidence never crosses owner or location boundaries. A sidecar
+ * with the same ID but different title, artist, album, duration or path is not
+ * authority. Do not force non-local remote tracks to inherit local tag values.
+ * File freshness is checked in the DAO (parser/size) and at source reindex; an
+ * equal-size replacement with unchanged provider timestamps remains M4 work.
+ */
+internal fun attachTrustedGenreValues(
+    tracks: List<Track>,
+    evidence: List<GenreOwnerEvidence>,
+    collidingOwnerIds: Set<String>,
+): List<Track> {
+    val ids = tracks.mapTo(HashSet<String>(tracks.size)) { it.id }
+    val byId = evidence.asSequence()
+        .filter { it.id in ids && it.genreValues.isNotBlank() }
+        .groupBy { it.id }
+    return tracks.map { track ->
+        if (track.id in collidingOwnerIds || track.genre.isBlank() ||
+            track.filepath.isBlank()) return@map track
+        val candidates = byId[track.id].orEmpty().filter { row ->
+            row.sourceId == track.sourceId && row.filepath == track.filepath &&
+                row.genre == track.genre && row.title.sameTag(track.title) &&
+                (row.artist.isBlank() || row.artist.sameTag(track.artist)) &&
+                (row.album.isBlank() || row.album.sameTag(track.album)) &&
+                (row.duration <= 0 || track.duration <= 0 ||
+                    abs(row.duration - track.duration) <= 1_000L ||
+                    (row.duration <= 86_400L &&
+                        abs(row.duration * 1_000L - track.duration) <= 1_000L))
+        }
+        if (candidates.size != 1) return@map track
+        val raw = candidates.single()
+        // Centralized lossless decoder: never expose a partial/mismatched sidecar.
+        val values = org.michimusic.data.repository.TrustedGenreEncoding.decode(
+            raw.genre, raw.genreValues)
+        if (values.isEmpty()) return@map track
+        track.copy(genreValues = values)
+    }
 }
 
 /**

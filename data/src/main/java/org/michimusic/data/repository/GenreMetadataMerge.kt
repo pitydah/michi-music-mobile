@@ -10,6 +10,7 @@ internal object GenreMetadataMerge {
     private fun isPlaceholder(value: String): Boolean {
         val normalized = value.trim().lowercase(java.util.Locale.ROOT)
         return normalized in setOf("unknown", "unknown genre", "<unknown>",
-            "sin género", "sin genero", "sin clasificar", "n/a", "unspecified", "not specified", "?")
+            "sin género", "sin genero", "sin clasificar", "none", "unclassified",
+            "n/a", "unspecified", "not specified", "?")
     }
 }

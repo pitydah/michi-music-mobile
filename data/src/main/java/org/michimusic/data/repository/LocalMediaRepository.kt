@@ -172,9 +172,10 @@ open class LocalMediaRepository(
         }
     }
     /**
-     * Explicit foreground request. No worker, timer or background rescan.
-     * Outputs and evidence are only committed if the active snapshot is unchanged.
-     * The progress callback runs on Dispatchers.IO; UI must marshal to Main.
+     * Manual, cancelable recovery. Every 32-track page is a committed Room
+     * transaction + synchronized cache receipt. A new explicit invocation
+     * resumes from genres still missing; no worker or durable cursor is needed.
+     * Previously confirmed pages remain valid if the user stops mid-run.
      */
     suspend fun recoverAllMissingGenres(
         onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> },
@@ -186,13 +187,13 @@ open class LocalMediaRepository(
         val owner = if (root.isDefault) TagEvidencePolicy.MEDIASTORE_OWNER
             else root.sourceId ?: libraryVisibilitySource(root)
         val original = current.data
-        val mutable = original.toMutableList()
-        val pending = original.map { GenreMetadataMerge.choose(null, it.genre, null).isEmpty() }.toMutableList()
+        val pending = original.map {
+            GenreMetadataMerge.choose(null, it.genre, null).isBlank()
+        }.toMutableList()
         val total = pending.count { it }
         if (total == 0) return current
-        val freshEvidence = ArrayList<EmbeddedTagEvidence>()
-        val safUpdates = ArrayList<RecoveredSafGenre>()
-        val updated = withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
+            var snapshot = original
             var completed = 0
             var next = 0
             onProgress(0, total)
@@ -200,57 +201,210 @@ open class LocalMediaRepository(
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 val batch = GenreBackfill.nextBatch(pending, next, 32, total - completed)
                 if (batch.indices.isEmpty()) break
+                // Never allocate a whole-source evidence map for one manual page.
+                val indexedEvidence: Map<String, EmbeddedTagEvidence> = if (root.isDefault) emptyMap()
+                    else try {
+                        val dao = importedTrackDao ?: throw IllegalStateException("Sin índice SAF")
+                        dao.getTagEvidenceForTracks(owner, batch.indices.map { snapshot[it].id })
+                            .associateBy { it.trackId }
+                    } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+                    catch (failure: Exception) {
+                        return@withContext MediaResult.QueryFailed(
+                            IllegalStateException("Falló la lectura del índice SAF", failure))
+                    }
+                val proposals = HashMap<Int, Track>()
+                val freshEvidence = ArrayList<EmbeddedTagEvidence>()
+                val safUpdates = ArrayList<RecoveredSafGenre>()
                 for (i in batch.indices) {
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    val song = mutable[i]
+                    val song = snapshot[i]
                     val uri = android.net.Uri.parse(song.filepath)
-                    val fields = UriEmbeddedTags.read(ctx, uri)
-                    val genre = GenreMetadataMerge.choose(fields?.genre, null, null)
-                    if (genre.isNotBlank()) {
-                        mutable[i] = song.copy(genre = genre)
+                    val sizeKey = if (root.isDefault) MediaStore.Audio.Media.SIZE
+                        else android.provider.DocumentsContract.Document.COLUMN_SIZE
+                    val modifiedKey = if (root.isDefault) MediaStore.Audio.Media.DATE_MODIFIED
+                        else android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                    fun stamp(): RecoveryDocumentStamp? = try {
+                        ctx.contentResolver.query(uri, arrayOf(sizeKey, modifiedKey), null, null, null)
+                            ?.use { cursor ->
+                                if (!cursor.moveToFirst() || cursor.isNull(0) || cursor.isNull(1)) null
+                                else RecoveryDocumentStamp(cursor.getLong(0), cursor.getLong(1))
+                            }
+                    } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+                    catch (_: Exception) { null }
+                    val before = stamp()
+                    val fields = if (before != null) UriEmbeddedTags.read(ctx, uri) else null
+                    val after = if (fields != null) stamp() else null
+                    val trusted = RecoveryFingerprintPolicy.isCurrent(
+                        owner, song.id, song.size, before, after,
+                        indexedEvidence[song.id], root.isDefault,
+                    )
+                    val values = TagGenreBounds.safeValues(fields)
+                    val genre = if (trusted && !values.isNullOrEmpty())
+                        GenreMetadataMerge.choose(values.joinToString("; "), null, null) else ""
+                    if (genre.isNotBlank() && fields != null) {
+                        proposals[i] = song.copy(genre = genre, genreValues = values.orEmpty())
                         if (!root.isDefault) {
-                            safUpdates.add(RecoveredSafGenre(owner, song.id, song.filepath, song.size, genre))
+                            safUpdates.add(RecoveredSafGenre(
+                                owner, song.id, song.filepath, song.size, genre, before!!.modifiedAt))
                         }
+                        freshEvidence.add(TagEvidencePolicy.record(
+                            owner, song.id, song.size, before!!.modifiedAt, fields))
                     }
-                    // MediaStore fingerprints are authoritative only with a known mtime.
-                    // SAF rows are replaced atomically whenever a tree is reindexed.
-                    val modified = try {
-                        val key = if (root.isDefault) MediaStore.Audio.Media.DATE_MODIFIED
-                            else android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED
-                        ctx.contentResolver.query(uri, arrayOf(key), null, null, null)?.use { cursor ->
-                            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else 0L
-                        } ?: 0L
-                    } catch (cancel: kotlinx.coroutines.CancellationException) {
-                        throw cancel
-                    } catch (_: Exception) { 0L }
-                    if (!root.isDefault || modified > 0L) {
-                        freshEvidence.add(TagEvidencePolicy.record(owner, song.id, song.size, modified, fields))
-                    }
-                    pending[i] = false
-                    completed++
                 }
+                // Atomic unit of progress is ONE page: never advertise it as done
+                // until its source-owned Room transaction and cache receipt agree.
+                val pageResult = cacheMutex.withLock {
+                    if (cachedTracks !== snapshot ||
+                        (rootPreferences?.currentRoot() ?: MusicRoot.Default) != root) {
+                        return@withLock MediaResult.QueryFailed(
+                            IllegalStateException("La biblioteca cambió durante la recuperación"))
+                    }
+                    try {
+                        val applied = importedTrackDao?.persistRecoveredGenres(freshEvidence, safUpdates)
+                            ?: if (root.isDefault) emptySet() else throw IllegalStateException(
+                                "No está disponible el índice SAF para confirmar la página")
+                        val confirmed = RecoveryPageCommitPolicy.apply(
+                            snapshot, proposals, applied, owner, root.isDefault)
+                        cachedTracks = confirmed
+                        cacheTime = System.currentTimeMillis()
+                        MediaResult.Success(confirmed, current.coverage)
+                    } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+                    catch (error: Exception) { MediaResult.QueryFailed(error) }
+                }
+                if (pageResult !is MediaResult.Success) return@withContext pageResult
+                snapshot = pageResult.data
+                for (i in batch.indices) pending[i] = false
+                completed += batch.indices.size
                 next = batch.nextCursor
                 onProgress(completed, total)
                 kotlinx.coroutines.yield()
             }
-            mutable.toList()
+            MediaResult.Success(snapshot, current.coverage)
         }
-        return cacheMutex.withLock {
-            if (cachedTracks !== original || (rootPreferences?.currentRoot() ?: MusicRoot.Default) != root) {
-                return@withLock MediaResult.QueryFailed(
-                    IllegalStateException("La biblioteca cambió mientras se recuperaban géneros."),
-                )
+    }
+
+    /**
+     * Explicit, READ-ONLY comparison of existing provider/cache genre with embedded tags.
+     * A tap verifies up to 128 tracks; subsequent taps advance by [startOffset].
+     * No genre mutations, automatic classification, background workers or full-file hashes.
+     * The existing fetchTracksResult may still perform its normal foreground cache refresh.
+     */
+    suspend fun verifyExistingGenres(
+        startOffset: Int = 0,
+        expectedSnapshotToken: String? = null,
+        onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> },
+    ): MediaResult<ExistingGenreVerificationReport> {
+        val current = fetchTracksResult()
+        if (current !is MediaResult.Success) return when (current) {
+            MediaResult.PermissionDenied -> MediaResult.PermissionDenied
+            is MediaResult.QueryFailed -> current
+            else -> MediaResult.QueryFailed(IllegalStateException("Biblioteca no disponible"))
+        }
+        val ctx = context ?: return MediaResult.QueryFailed(
+            IllegalStateException("Biblioteca local no disponible"))
+        val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
+        val owner = if (root.isDefault) TagEvidencePolicy.MEDIASTORE_OWNER
+            else root.sourceId ?: libraryVisibilitySource(root)
+        return withContext(Dispatchers.IO) {
+            // Even the O(library-size) in-memory eligibility filter stays off Main.
+            val eligible = current.data.filter { song ->
+                song.filepath.isNotBlank() &&
+                    GenreMetadataMerge.choose(null, song.genre, null).isNotBlank()
             }
-            try {
-                importedTrackDao?.persistRecoveredGenres(freshEvidence, safUpdates)
-                cachedTracks = updated
-                cacheTime = System.currentTimeMillis()
-                MediaResult.Success(updated, current.coverage)
-            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                throw cancel
-            } catch (error: Exception) {
-                MediaResult.QueryFailed(error)
+            val snapshotToken = ExistingGenreVerificationPolicy.snapshotToken(owner, eligible)
+            // Offset alone is unsafe. Refuse negative, out-of-range or stale cursors.
+            val start = ExistingGenreVerificationPolicy.continuationStart(
+                startOffset, eligible.size, snapshotToken, expectedSnapshotToken)
+                ?: return@withContext MediaResult.QueryFailed(
+                    IllegalStateException("El cursor o catálogo cambió; reinicia la verificación"))
+            val page = eligible.subList(start,
+                minOf(start + ExistingGenreVerificationPolicy.PAGE_SIZE, eligible.size))
+            val indexed = if (root.isDefault) emptyMap() else try {
+                val dao = importedTrackDao ?: throw IllegalStateException("Sin índice SAF")
+                dao.getTagEvidenceForTracks(owner, page.map { it.id })
+                    .associateBy { it.trackId }
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (failure: Exception) {
+                return@withContext MediaResult.QueryFailed(failure)
             }
+            var matching = 0
+            var differing = 0
+            var noGenre = 0
+            var unreadable = 0
+            var permissionDenied = 0
+            var unverifiable = 0
+            val differences = ArrayList<ExistingGenreDifference>()
+            onProgress(0, page.size)
+            for ((position, song) in page.withIndex()) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if ((rootPreferences?.currentRoot() ?: MusicRoot.Default) != root)
+                    return@withContext MediaResult.QueryFailed(
+                        IllegalStateException("La biblioteca cambió durante la verificación"))
+                val uri = android.net.Uri.parse(song.filepath)
+                val sizeColumn = if (root.isDefault) MediaStore.Audio.Media.SIZE
+                    else android.provider.DocumentsContract.Document.COLUMN_SIZE
+                val modifiedColumn = if (root.isDefault) MediaStore.Audio.Media.DATE_MODIFIED
+                    else android.provider.DocumentsContract.Document.COLUMN_LAST_MODIFIED
+                fun stamp(): RecoveryDocumentStamp? = try {
+                    ctx.contentResolver.query(uri, arrayOf(sizeColumn, modifiedColumn), null, null, null)
+                        ?.use { cursor ->
+                            if (!cursor.moveToFirst() || cursor.isNull(0) || cursor.isNull(1)) null
+                            else RecoveryDocumentStamp(cursor.getLong(0), cursor.getLong(1))
+                        }
+                } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+                catch (_: Exception) { null }
+                val before = stamp()
+                val outcome = if (before == null) EmbeddedTagReadResult.Unverifiable
+                    else UriEmbeddedTags.readDetailed(ctx, uri)
+                val fields = EmbeddedTagReadPolicy.fieldsOrNull(outcome)
+                val after = if (fields != null) stamp() else null
+                val trusted = RecoveryFingerprintPolicy.isCurrent(
+                    owner, song.id, song.size, before, after, indexed[song.id], root.isDefault)
+                when {
+                    outcome == EmbeddedTagReadResult.PermissionDenied -> {
+                        unreadable++
+                        permissionDenied++
+                    }
+                    outcome == EmbeddedTagReadResult.ReadFailed -> unreadable++
+                    outcome == EmbeddedTagReadResult.Unverifiable -> unverifiable++
+                    !trusted -> unverifiable++
+                    outcome is EmbeddedTagReadResult.NoGenreTag -> noGenre++
+                    outcome is EmbeddedTagReadResult.Parsed ->
+                        when (ExistingGenreVerificationPolicy.compare(song.genre, fields)) {
+                            ExistingGenreComparison.MATCH -> matching++
+                            ExistingGenreComparison.DIFFERENT -> {
+                                differing++
+                                if (differences.size < ExistingGenreVerificationPolicy.MAX_VISIBLE_DIFFERENCES) {
+                                    differences.add(ExistingGenreDifference(
+                                        song.id, song.title, song.genre, outcome.fields.genre.orEmpty()))
+                                }
+                            }
+                            ExistingGenreComparison.NO_EMBEDDED_GENRE -> noGenre++
+                            ExistingGenreComparison.READ_FAILED -> unreadable++
+                        }
+                }
+                if ((position + 1) % 8 == 0 || position + 1 == page.size)
+                    onProgress(position + 1, page.size)
+                if ((position + 1) % 16 == 0) kotlinx.coroutines.yield()
+            }
+            if ((rootPreferences?.currentRoot() ?: MusicRoot.Default) != root ||
+                !cacheMutex.withLock { cachedTracks === current.data }) {
+                return@withContext MediaResult.QueryFailed(
+                    IllegalStateException("La biblioteca cambió durante la verificación"))
+            }
+            MediaResult.Success(ExistingGenreVerificationReport(
+                examined = page.size,
+                candidates = eligible.size,
+                nextOffset = (start + page.size).takeIf { it < eligible.size },
+                snapshotToken = snapshotToken,
+                matching = matching,
+                differing = differing,
+                withoutEmbeddedGenre = noGenre,
+                unreadable = unreadable,
+                permissionDenied = permissionDenied,
+                unverifiable = unverifiable,
+                differences = differences,
+            ), current.coverage)
         }
     }
 
@@ -599,10 +753,14 @@ open class LocalMediaRepository(
                 val fileSize = c.getLong(sizeCol).coerceAtLeast(0L)
                 val modified = c.getLong(modifiedCol).coerceAtLeast(0L)
                 val needsProbe = TagEvidencePolicy.needsProbe(providerGenre, title, artist, album)
-                val cachedEvidence = if (needsProbe) savedEvidence[trackId]?.takeIf {
+                // Reuse an already-verified embedded tag even when MediaStore now
+                // reports all four basic fields. This adds no file I/O and stops a
+                // provider-only value from masking prior TCON evidence.
+                val cachedEvidence = savedEvidence[trackId]?.takeIf {
                     it.matchesMediaStore(fileSize, modified)
-                } else null
-                val embedded = if (!needsProbe) null else if (cachedEvidence != null) cachedEvidence
+                }
+                val embedded = if (cachedEvidence != null) cachedEvidence
+                else if (!needsProbe) null
                 else if (genreReadBudget > 0 && (c.position >= scanFromRow || c.count <= scanFromRow)) {
                     genreReadBudget--
                     nextRow = c.position + 1
@@ -634,6 +792,12 @@ open class LocalMediaRepository(
                             coverId = c.getString(albumIdCol) ?: "",
                             dateAdded = if (dateCol >= 0) c.getLong(dateCol) else 0L,
                             genre = genre,
+                            // Original independent tags (not guessed from a semicolon).
+                            // This transient field is never sent over Michi Link.
+                            genreValues = if (embedded?.genre == genre &&
+                                embedded.genreValues.isNotBlank()) {
+                                TrustedGenreEncoding.decode(embedded.genre, embedded.genreValues)
+                            } else emptyList(),
                             source = TrackSource.LOCAL,
                             sourceMimeType = c.getString(mimeCol).orEmpty(),
                             sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),

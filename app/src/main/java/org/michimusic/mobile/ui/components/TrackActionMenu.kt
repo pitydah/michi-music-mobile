@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,6 +87,7 @@ fun TrackActionBottomSheet(
     var confirmingHide by remember(track.id) { mutableStateOf(false) }
     var hideBusy by remember(track.id) { mutableStateOf(false) }
     var hideError by remember(track.id) { mutableStateOf<String?>(null) }
+    var showExtendedMetadata by remember(track.sourceId, track.id, track.filepath) { mutableStateOf(false) }
     val hideScope = rememberCoroutineScope()
     org.michimusic.mobile.ui.components.premium.MichiBottomSheet(
         onDismissRequest = onDismiss,
@@ -184,6 +186,19 @@ fun TrackActionBottomSheet(
                         onDismiss()
                     },
                 )
+            }
+
+            // A user gesture is the ONLY trigger for the cold Room lookup.
+            // Do not attempt metadata reads on peer/remote tracks or by scrolling.
+            if (track.filepath.startsWith("content://") && track.id.isNotBlank()) {
+                TrackActionMenuItem(
+                    icon = Icons.Default.Info,
+                    title = if (showExtendedMetadata) "Ocultar metadatos del archivo"
+                        else "Metadatos del archivo",
+                    tint = TertiaryCyan,
+                    onClick = { showExtendedMetadata = !showExtendedMetadata },
+                )
+                if (showExtendedMetadata) TrackExtendedMetadataDetails(track)
             }
 
             if (onHideFromLibrary != null) {

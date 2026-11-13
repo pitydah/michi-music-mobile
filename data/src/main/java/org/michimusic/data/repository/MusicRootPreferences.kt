@@ -197,5 +197,5 @@ private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-25
 
 private val AUDIO_EXTENSIONS = setOf(
     "aac", "aif", "aiff", "alac", "ape", "flac", "m4a", "mka", "mp3", "mp4",
-    "oga", "ogg", "opus", "wav", "wave", "wma",
+    "oga", "ogg", "opus", "wav", "wave", "wma", "wv",
 )

@@ -7,6 +7,9 @@ class GenreMetadataMergeTest {
     @Test fun placeholdersCannotMaskEmbeddedGenreOrFallback() {
         assertEquals("Jazz", GenreMetadataMerge.choose("Jazz", "N/A", null))
         assertEquals("Rock", GenreMetadataMerge.choose(null, "Sin clasificar", "Rock"))
+        assertEquals("Rock", GenreMetadataMerge.choose(null, "NONE", "Rock"))
+        assertEquals("Jazz", GenreMetadataMerge.choose(null, "Unclassified", "Jazz"))
+        assertEquals("", GenreMetadataMerge.choose(null, "None", "unclassified"))
         assertEquals("", GenreMetadataMerge.choose(null, "?", "<unknown>"))
     }
 

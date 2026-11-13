@@ -4,6 +4,7 @@ import androidx.room.Room
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 import org.michimusic.data.cache.MichiDatabase
+import org.michimusic.data.repository.ExtendedTrackMetadataRepository
 import org.michimusic.data.repository.LocalMediaRepository
 import org.michimusic.data.repository.MusicRootPreferences
 import org.michimusic.data.repository.PlaylistRepository
@@ -57,6 +58,8 @@ val dataModule = module {
     // The local library is scoped to one root: Music/ by default or one SAF tree.
     // Exclusion DAO is metadata-only. It must be shared by all LocalMediaRepository callers.
     single { LocalMediaRepository(androidContext(), get(), get(), get(), get()) }
+    // Cold Room accessor; it performs no query unless the user opens song details.
+    single { ExtendedTrackMetadataRepository(get(), androidContext()) }
     single<org.michimusic.data.repository.FavoritesRepository> {
         org.michimusic.data.repository.DefaultFavoritesRepository(get())
     }

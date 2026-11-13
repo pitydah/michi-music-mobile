@@ -27,9 +27,9 @@ internal object TagEvidencePolicy {
         modifiedAt: Long,
         fields: EmbeddedTagFields?,
     ): EmbeddedTagEvidence {
-        val genres = fields?.genres.orEmpty().map(String::trim)
-            .filter { it.isNotEmpty() && it.length <= 2048 && '\uFFFD' !in it }
-            .distinct().take(32)
+        // Never silently persist the first 32 tags from a malformed 33+ tag set.
+        // Invalid/oversized genre payloads are unclassified; extended fields survive.
+        val genres = TagGenreBounds.safeValues(fields).orEmpty()
         return EmbeddedTagEvidence(
             sourceId = sourceId,
             trackId = trackId,

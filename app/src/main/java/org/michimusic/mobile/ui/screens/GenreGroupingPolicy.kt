@@ -17,11 +17,17 @@ private const val UNKNOWN_GENRE_ID = "__ui7_unknown_genre__"
 private const val UNKNOWN_GENRE_TITLE = "Sin clasificar"
 
 private data class GenreToken(val key: String, val title: String)
-private fun genreNames(raw: String): List<GenreToken> {
+private fun genreNames(raw: String, structured: List<String>): List<GenreToken> {
     val unique = linkedMapOf<String, GenreToken>()
-    // Refuse pathological metadata instead of allocating thousands of UI groups.
-    if (raw.length > 8_192) return emptyList()
-    raw.split(';', '\u0000', '\u001f').forEach { rawName ->
+    // Without structured evidence, a semicolon may be part of ONE real genre.
+    // Only verified individual tags may create multiple memberships on ';'.
+    // Keep NUL/US as explicit legacy field delimiters; '/' is always literal.
+    // Refuse unbounded inputs before allocating split arrays.
+    if (structured.isEmpty() && raw.length > 8_192) return emptyList()
+    val values = if (structured.isNotEmpty()) structured else raw.split('\u0000', '\u001f')
+    if (values.size > 32) return emptyList()
+    if (values.sumOf(String::length) > 8_192) return emptyList()
+    values.forEach { rawName ->
         val label = genreCleanLabel(rawName)
         val key = genreGroupingKey(label)
         if (!genreTagIsUnknownKey(key)) {
@@ -35,7 +41,9 @@ private fun genreNames(raw: String): List<GenreToken> {
 
 /**
  * Pure scoped grouping, never scans the filesystem or invokes providers. Optional
- * multi-value genre tags separated by semicolon or NUL are indexed individually.
+ * verified structured tags support many genres, preserving literal semicolons.
+ * Legacy semicolon text is ONE ambiguous literal, not two invented genres;
+ * only explicit NUL/US field delimiters are split.
  * Untagged tracks remain visible under an explicit, non-inferred bucket.
  */
 fun groupLibraryGenres(tracks: List<Track>): List<LibraryGenre> {
@@ -43,7 +51,8 @@ fun groupLibraryGenres(tracks: List<Track>): List<LibraryGenre> {
     val buckets = linkedMapOf<String, Bucket>()
     // Avoid duplicate rows if a scope presents a track through more than one album.
     tracks.distinctBy { Triple(it.sourceId, it.id, it.filepath) }.forEach { track ->
-        val names = genreNames(track.genre).ifEmpty { listOf(GenreToken(UNKNOWN_GENRE_ID, UNKNOWN_GENRE_TITLE)) }
+        val names = genreNames(track.genre, track.genreValues)
+            .ifEmpty { listOf(GenreToken(UNKNOWN_GENRE_ID, UNKNOWN_GENRE_TITLE)) }
         names.forEach { name ->
             val id = name.key
             val bucket = buckets.getOrPut(id) { Bucket(name.title, mutableListOf()) }

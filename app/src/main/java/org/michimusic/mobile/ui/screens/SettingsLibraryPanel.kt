@@ -66,12 +66,28 @@ internal fun SettingsLibraryPanel() {
                         var folderBusy by remember { mutableStateOf(false) }
                         var folderProgress by remember { mutableStateOf(0) }
                         var folderMessage by remember { mutableStateOf<String?>(null) }
+                        val operationGate = remember { SettingsLibraryOperationGate() }
                         val recoverGenres = rememberSettingsGenreRecovery(
                             scope = scope,
+                            operationGate = operationGate,
                             busy = folderBusy,
                             onBusyChange = { folderBusy = it },
                             onProgressChange = { folderProgress = it },
                             onMessageChange = { folderMessage = it },
+                        )
+                        val verificationSession = rememberGenreVerificationSession(
+                            currentRoot.sourceId, currentRoot.treeUri,
+                        )
+                        val verifyExistingGenres = rememberSettingsGenreVerification(
+                            scope = scope,
+                            busy = folderBusy,
+                            operationGate = operationGate,
+                            startOffset = verificationSession.offset,
+                            expectedSnapshotToken = verificationSession.snapshotToken,
+                            onBusyChange = { folderBusy = it },
+                            onProgressChange = { folderProgress = it },
+                            onMessageChange = { folderMessage = it },
+                            onReport = verificationSession::accept,
                         )
                         var storageSnapshot by remember {
                             mutableStateOf<org.michimusic.mobile.library.LibraryStorageSnapshot?>(null)
@@ -93,6 +109,18 @@ internal fun SettingsLibraryPanel() {
                         var permissionTruth by remember(currentRoot.sourceId, currentRoot.treeUri) {
                             mutableStateOf(SettingsLibraryPermissionTruth())
                         }
+                        val maintenance = SettingsLibraryMaintenanceActions(
+                            scope = scope,
+                            gate = operationGate,
+                            authority = musicRootAuthority,
+                            permissionReader = permissionReader,
+                            defaultRoot = currentRoot.isDefault,
+                            onBusy = { folderBusy = it },
+                            onProgress = { folderProgress = it },
+                            onMessage = { folderMessage = it },
+                            onPermissions = { permissionTruth = it },
+                            onRescanSuccess = verificationSession::clear,
+                        )
                         val hasFolderWriteAccess = permissionTruth.canWrite
                         val permissionRevoked = permissionTruth.permissionRevoked
                         var showCreateFolderDialog by remember { mutableStateOf(false) }
@@ -267,51 +295,12 @@ internal fun SettingsLibraryPanel() {
                                 folderCreateError = null
                                 showCreateFolderDialog = true
                             },
-                            onRestoreDefault = {
-                                scope.launch {
-                                    folderBusy = true
-                                    folderMessage = null
-                                    try {
-                                        val result = musicRootAuthority.restoreDefault()
-                                        if (result.success) {
-                                            permissionTruth = permissionReader.read()
-                                            folderMessage = "Biblioteca restaurada a Music/"
-                                        } else {
-                                            folderMessage = result.message
-                                                ?: "No se pudo restaurar Music/. La biblioteca anterior sigue intacta."
-                                        }
-                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                        throw cancelled
-                                    } catch (_: Exception) {
-                                        folderMessage = "No se pudo restaurar Music/."
-                                    } finally { folderBusy = false }
-                                }
-                            },
+                            onRestoreDefault = maintenance::restore,
                             onRecoverGenres = recoverGenres,
-                            onRescan = {
-                                scope.launch {
-                                    folderBusy = true
-                                    folderProgress = 0
-                                    folderMessage = null
-                                    try {
-                                        val result = musicRootAuthority.rescan { folderProgress = it }
-                                        if (result.success) {
-                                            permissionTruth = permissionReader.read()
-                                            folderMessage = if (currentRoot.isDefault) {
-                                                "Biblioteca actualizada."
-                                            } else if (result.trackCount == 0) {
-                                                "La carpeta no contiene pistas compatibles."
-                                            } else "Biblioteca actualizada: ${result.trackCount} pista(s)."
-                                        } else {
-                                            permissionTruth = permissionReader.read()
-                                            folderMessage = result.message ?: "No se pudo volver a leer la carpeta."
-                                        }
-                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                        throw cancelled
-                                    } catch (_: Exception) {
-                                        folderMessage = "No se pudo volver a leer la carpeta."
-                                    } finally { folderBusy = false }
-                                }
-                            },
+                            onVerifyGenres = verifyExistingGenres,
+                            verificationReport = verificationSession.report,
+                            onCancelGenreOperation = { operationGate.cancelRead() },
+                            canCancelGenreOperation = operationGate.canCancel,
+                            onRescan = maintenance::rescan,
                         )
 }

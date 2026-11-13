@@ -45,6 +45,12 @@ data class Track(
     val albumArtist: String = "",
     /** Raw optional genre evidence; no taxonomy is inferred when metadata is absent. */
     val genre: String = "",
+    /**
+     * Verified local-only individual tag values. Never serialized in Michi Link
+     * or inferred by splitting a literal semicolon inside one genre.
+     * Empty means the legacy [genre] representation is all that is available.
+     */
+    @Transient val genreValues: List<String> = emptyList(),
 ) {
     /**
      * Normalized metadata signature fallback: "title|artist|album|duration_secs".

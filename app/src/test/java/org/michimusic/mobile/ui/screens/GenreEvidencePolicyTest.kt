@@ -13,6 +13,42 @@ class GenreEvidencePolicyTest {
     private fun evidence(owner: String, genre: String, path: String = ""): GenreOwnerEvidence =
         GenreOwnerEvidence(owner, "same", "Same", "Band", "Record", 123_000L, path, genre)
 
+    @Test fun structuredGenreValuesRequireOwnerLocationAndMatchingTrackMetadata() {
+        val a = track(owner = "saf-a", genre = "Jazz; Fusion", path = "content://tree/a.flac")
+        val b = evidence("saf-a", "Jazz; Fusion", path = "content://tree/a.flac")
+            .copy(genreValues = "Jazz; Fusion")
+        val good = buildGenreScopedIndex(listOf(a), listOf(b), "saf-a", isAllScope = false)
+        assertEquals(listOf("Jazz; Fusion"), good.genres.map { it.title })
+        val badOwner = buildGenreScopedIndex(listOf(a), listOf(b.copy(sourceId = "saf-b")),
+            "saf-a", isAllScope = false)
+        assertEquals(listOf("Jazz; Fusion"), badOwner.genres.map { it.title })
+        val badPath = buildGenreScopedIndex(listOf(a), listOf(b.copy(filepath = "content://tree/b.flac")),
+            "saf-a", isAllScope = false)
+        assertEquals(listOf("Jazz; Fusion"), badPath.genres.map { it.title })
+    }
+
+    @Test fun malformedOrContradictoryStructuredEvidenceCannotCreateExtraMembership() {
+        val track = track(owner = "saf-a", genre = "Jazz; Fusion", path = "content://tree/a.flac")
+        val correct = evidence("saf-a", "Jazz; Fusion", path = "content://tree/a.flac")
+        val poison = correct.copy(genreValues = "Metal\u0000Fusion")
+        val result = buildGenreScopedIndex(listOf(track), listOf(poison), "saf-a", isAllScope = false)
+        assertEquals(listOf("Jazz; Fusion"), result.genres.map { it.title })
+        val fake33 = (1..33).joinToString("\u0000") { "Style $it" }
+        val many = buildGenreScopedIndex(listOf(track), listOf(correct.copy(genreValues = fake33)),
+            "saf-a", isAllScope = false)
+        assertEquals(listOf("Jazz; Fusion"), many.genres.map { it.title })
+    }
+
+    @Test fun ownerCollisionNeverTransfersStructuredGenreValues() {
+        val song = track(owner = "saf-a", genre = "Jazz; Fusion", path = "content://tree/a.flac")
+        val row = evidence("saf-a", "Jazz; Fusion", "content://tree/a.flac")
+            .copy(genreValues = "Jazz; Fusion")
+        val other = evidence("saf-b", "Rock", "content://tree/b.flac")
+        val out = buildGenreScopedIndex(listOf(song), listOf(row, other), "saf-a", isAllScope = false)
+        assertEquals(listOf("Jazz; Fusion"), out.genres.map { it.title })
+        assertEquals(setOf("same"), out.blockedTrackIds)
+    }
+
     @Test fun onePeerCanSupplyMissingGenreWithVerifiedOwnerEvenBeforeDownload() {
         val result = enrichGenreTracks(listOf(track()), listOf(evidence("peer-a", "Jazz")),
             scopeOwnerId = "peer-a", isAllScope = false, collidingOwnerIds = emptySet())

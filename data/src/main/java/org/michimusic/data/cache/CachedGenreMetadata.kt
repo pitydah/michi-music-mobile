@@ -10,4 +10,6 @@ data class CachedGenreMetadata(
     val duration: Long,
     val filepath: String,
     val genre: String,
+    /** NUL-separated values from a matching source-owned embedded tag sidecar. */
+    val genreValues: String = "",
 )

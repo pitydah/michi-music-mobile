@@ -111,6 +111,8 @@ fun GenreLibraryPanel(
     isPlaying: Boolean,
     onPlay: (List<Track>, Int) -> Unit,
     globallyBlockedTrackIds: Set<String> = emptySet(),
+    // Optional read-only load receipt for Android UI7 instrumented verification.
+    onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)? = null,
 ) {
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     // Save across detail navigation; state inside the overview branch would reset.
@@ -136,7 +138,7 @@ fun GenreLibraryPanel(
         }
     }
     // Source Editorial posters already include titles and frames. Read their complete
-    // bounded manifest once per Editorial entry; never enumerate media or decode 176 bitmaps.
+    // bounded manifest once per Editorial entry; never enumerate media or decode 216 bitmaps.
     val posterAssets by produceState(
         initialValue = emptyMap<String, EditorialPosterAsset>(), key1 = viewMode,
     ) {
@@ -146,10 +148,18 @@ fun GenreLibraryPanel(
                     val files = context.assets.list(editorialPosterFolder).orEmpty().toSet()
                     val text = context.assets.open("$editorialPosterFolder/manifest.tsv")
                         .bufferedReader().use { it.readText() }
-                    editorialApprovedPosters(text, files)
+                    val approved = editorialApprovedPosters(text, files) { reason ->
+                        GenreArtworkDiagnostics.catalogRejected("EDITORIAL", reason)
+                    }
+                    if (approved.isNotEmpty()) {
+                        GenreArtworkDiagnostics.catalogLoaded("EDITORIAL", approved.size,
+                            files.count { it.endsWith(".webp") })
+                    }
+                    approved
                 } catch (cancel: CancellationException) {
                     throw cancel
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    GenreArtworkDiagnostics.catalogError("EDITORIAL", error)
                     emptyMap()
                 }
             }
@@ -166,11 +176,19 @@ fun GenreLibraryPanel(
                     val files = context.assets.list(mosaicFolder).orEmpty().toSet()
                     val text = context.assets.open("$mosaicFolder/manifest.tsv")
                         .bufferedReader().use { it.readText() }
-                    mosaicApprovedArtwork(text, files)
+                    val approved = mosaicApprovedArtwork(text, files) { reason ->
+                        GenreArtworkDiagnostics.catalogRejected("MOSAIC", reason)
+                    }
+                    if (approved.isNotEmpty()) {
+                        GenreArtworkDiagnostics.catalogLoaded("MOSAIC", approved.size,
+                            files.count { it.endsWith(".webp") })
+                    }
+                    approved
                 } catch (cancel: CancellationException) {
                     throw cancel // Leaving Mosaico must stop its one-shot load.
-                } catch (_: Exception) {
-                    emptyMap() // Unapproved/incomplete pack never blocks or invents cards.
+                } catch (error: Exception) {
+                    GenreArtworkDiagnostics.catalogError("MOSAIC", error)
+                    emptyMap() // Keep production fail-closed without hiding the cause in Debug.
                 }
             }
         }
@@ -268,12 +286,14 @@ fun GenreLibraryPanel(
                                     val featured = visibleGenres.first()
                                     GenreTile(genre = featured, featured = true,
                                         mosaicAsset = mosaicArtworkForGenre(featured.id, mosaicAssets),
+                                        onArtworkLoad = onArtworkLoad,
                                         modifier = Modifier.fillMaxWidth(),
                                         onOpen = { openGenre(featured.id) })
                                 }
                                 gridItems(visibleGenres.drop(1), key = { it.id }) { genre ->
                                     GenreTile(genre = genre, featured = false,
                                         mosaicAsset = mosaicArtworkForGenre(genre.id, mosaicAssets),
+                                        onArtworkLoad = onArtworkLoad,
                                         modifier = Modifier.fillMaxWidth(),
                                         onOpen = { openGenre(genre.id) })
                                 }
@@ -290,24 +310,20 @@ fun GenreLibraryPanel(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 visibleGenres.forEachIndexed { index, genre ->
-                                    item(
-                                        key = genre.id,
-                                        span = {
-                                            val poster = editorialPosterForTitle(genre.title, posterAssets)
-                                            GridItemSpan(if (poster != null) editorialPosterSpan(columns, poster)
-                                                else editorialSlot(index, columns).span)
-                                        },
-                                    ) {
+                                    // The canonical COVER / LEFT / RIGHT rhythm is fixed
+                                    // by the slot, never by the horizontal source crop.
+                                    val slot = editorialSlot(index, columns)
+                                    item(key = genre.id, span = { GridItemSpan(slot.span) }) {
                                         val poster = editorialPosterForTitle(genre.title, posterAssets)
                                         if (poster != null) {
-                                            GenreEditorialPosterTile(genre, poster,
+                                            GenreEditorialPosterTile(genre, poster, slot,
+                                                onArtworkLoad = onArtworkLoad,
                                                 onOpen = { openGenre(genre.id) })
                                         } else {
-                                        GenreEditorialTile(genre = genre,
-                                            slot = editorialSlot(index, columns),
-                                            columns = columns,
-                                            productionAssetNames = productionAssets,
-                                            onOpen = { openGenre(genre.id) })
+                                            GenreEditorialTile(genre = genre, slot = slot,
+                                                columns = columns,
+                                                productionAssetNames = productionAssets,
+                                                onOpen = { openGenre(genre.id) })
                                         }
                                     }
                                 }
@@ -636,6 +652,7 @@ private fun GenreTile(
     featured: Boolean,
     modifier: Modifier = Modifier,
     mosaicAsset: MosaicArtworkAsset? = null,
+    onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)? = null,
     onOpen: () -> Unit,
 ) {
     val accent = if (LocalVisualPreferences.current.highContrast) PureWhite else genreAccent(genre)
@@ -648,7 +665,10 @@ private fun GenreTile(
         onClick = onOpen,
     ) {
         Box(Modifier.fillMaxWidth().height(height.dp).clearAndSetSemantics {}) {
-            GenreMosaicArtwork(asset = mosaicAsset, genreId = genre.id, accent = accent)
+            GenreMosaicArtwork(asset = mosaicAsset, genreId = genre.id, accent = accent,
+                onImageResult = onArtworkLoad?.let { notify ->
+                    { ok -> notify(GenreViewMode.FEATURED, genre.id, ok) }
+                })
             Column(
                 modifier = Modifier.fillMaxSize().padding(if (featured) 20.dp else 14.dp),
                 verticalArrangement = Arrangement.SpaceBetween,

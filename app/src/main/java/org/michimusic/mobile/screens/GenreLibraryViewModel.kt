@@ -45,6 +45,7 @@ internal class GenreLibraryRepository(private val trackDao: TrackDao) {
                     duration = row.duration,
                     filepath = row.filepath,
                     genre = row.genre,
+                    genreValues = row.genreValues,
                 )
             },
             scopeOwnerId = scopeOwnerId,

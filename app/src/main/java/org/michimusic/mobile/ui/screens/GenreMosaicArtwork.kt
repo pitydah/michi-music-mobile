@@ -15,7 +15,7 @@ import coil3.request.ImageRequest
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 
 /**
- * Visual-only layer for the FEATURED focal card.
+ * Visual-only layer for FEATURED focal and secondary cards.
  *
  * The Compose plane is always painted first, so a missing, unapproved or
  * undecodable asset degrades to the pre-existing geometry instead of an empty
@@ -30,6 +30,7 @@ internal fun GenreMosaicArtwork(
     genreId: String,
     accent: Color,
     modifier: Modifier = Modifier,
+    onImageResult: ((Boolean) -> Unit)? = null,
 ) {
     Box(modifier.fillMaxSize()) {
         GenreVisualPlane(genreId, accent, mode = GenreViewMode.FEATURED)
@@ -45,6 +46,15 @@ internal fun GenreMosaicArtwork(
                 contentDescription = null, // The parent card supplies the real scoped name/count.
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
+                onSuccess = {
+                    GenreArtworkDiagnostics.imageSuccess("MOSAIC", asset.filename)
+                    onImageResult?.invoke(true)
+                },
+                onError = { result ->
+                    GenreArtworkDiagnostics.imageFailure("MOSAIC", asset.filename,
+                        result.result.throwable)
+                    onImageResult?.invoke(false)
+                },
             )
             // Top scrim protects the eyebrow row; the lower ramp hides the crop's own
             // baked label so a stale or differently spelled name never competes with

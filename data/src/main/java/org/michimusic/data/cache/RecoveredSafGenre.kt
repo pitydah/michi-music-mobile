@@ -7,4 +7,6 @@ data class RecoveredSafGenre(
     val filepath: String,
     val size: Long,
     val genre: String,
+    /** The Room sidecar must still describe the same indexed SAF document. */
+    val expectedModifiedAt: Long,
 )

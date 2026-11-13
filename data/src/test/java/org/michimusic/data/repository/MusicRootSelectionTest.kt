@@ -38,6 +38,10 @@ class MusicRootSelectionTest {
         assertTrue(isSupportedAudioDocument("audio/flac", "track.bin"))
         assertTrue(isSupportedAudioDocument("application/ogg", "track"))
         assertTrue(isSupportedAudioDocument(null, "track.FLAC"))
+        // WavPack stores APEv2 tags and may be advertised by SAF as generic binary.
+        assertTrue(isSupportedAudioDocument("application/octet-stream", "album.WV"))
+        assertTrue(isSupportedAudioDocument(null, "album.wv"))
+        assertFalse(isSupportedAudioDocument(null, "album.wvc"))
         assertFalse(isSupportedAudioDocument("image/jpeg", "cover.jpg"))
         assertFalse(isSupportedAudioDocument("video/mp4", "clip.bin"))
     }

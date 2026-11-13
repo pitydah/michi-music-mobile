@@ -98,33 +98,44 @@ internal fun mosaicGenreIndexKey(genreKey: String): String =
 internal fun mosaicApprovedArtwork(
     manifest: String,
     installed: Set<String>,
+    onRejected: (String) -> Unit = {},
 ): Map<String, MosaicArtworkAsset> {
-    if (manifest.length > maxMosaicManifestChars) return emptyMap()
+    fun reject(reason: String): Map<String, MosaicArtworkAsset> {
+        onRejected(reason)
+        return emptyMap()
+    }
+    if (manifest.length > maxMosaicManifestChars) return reject("oversized_manifest")
     val rows = manifest.lineSequence().iterator()
-    if (!rows.hasNext() || rows.next() != mosaicManifestHeader) return emptyMap()
+    if (!rows.hasNext() || rows.next() != mosaicManifestHeader) return reject("invalid_header")
     val artwork = linkedMapOf<String, MosaicArtworkAsset>()
     val usedFiles = hashSetOf<String>()
     val usedIndexes = hashSetOf<String>()
+    var lineNumber = 1
     for (line in rows) {
+        lineNumber++
         if (line.isBlank() || line.startsWith('#')) continue
         val parts = line.split('\t')
-        if (parts.size != 6) return emptyMap()
+        if (parts.size != 6) return reject("line_${lineNumber}_columns")
         val key = parts[0]
         val filename = parts[1]
         val sha = parts[2]
-        val width = parts[3].toIntOrNull() ?: return emptyMap()
-        val height = parts[4].toIntOrNull() ?: return emptyMap()
+        val width = parts[3].toIntOrNull() ?: return reject("line_${lineNumber}_width")
+        val height = parts[4].toIntOrNull() ?: return reject("line_${lineNumber}_height")
         val approval = parts[5]
         val index = mosaicGenreIndexKey(key)
-        if (index.isEmpty() || mosaicGenreKeyFromFilename(filename) != key) return emptyMap()
-        if (!mosaicSha256Pattern.matches(sha) || approval != mosaicApprovalState) return emptyMap()
-        if (!mosaicArtworkGeometryValid(width, height)) return emptyMap()
-        if (filename !in installed) return emptyMap()
-        if (!usedFiles.add(filename) || !usedIndexes.add(index)) return emptyMap()
+        if (index.isEmpty() || mosaicGenreKeyFromFilename(filename) != key)
+            return reject("line_${lineNumber}_genre_identity")
+        if (!mosaicSha256Pattern.matches(sha) || approval != mosaicApprovalState)
+            return reject("line_${lineNumber}_integrity_or_approval")
+        if (!mosaicArtworkGeometryValid(width, height)) return reject("line_${lineNumber}_geometry")
+        if (filename !in installed) return reject("line_${lineNumber}_asset_missing")
+        if (!usedFiles.add(filename) || !usedIndexes.add(index))
+            return reject("line_${lineNumber}_duplicate")
         artwork[index] = MosaicArtworkAsset(key, filename, width, height)
     }
-    // Packaged crops the manifest does not approve are never published by filename.
-    if (installed.any { it.endsWith(".webp") && it !in usedFiles }) return emptyMap()
+    // A single stray WebP must not silently publish an incomplete approved pack.
+    if (installed.any { it.endsWith(".webp") && it !in usedFiles }) return reject("unexpected_webp")
+    if (artwork.isEmpty()) return reject("empty_catalog")
     return artwork
 }
 

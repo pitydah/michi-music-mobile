@@ -17,10 +17,9 @@ internal const val editorialPosterFolder = "ui7/editorial/posters"
 private val posterHash = Regex("[a-f0-9]{64}")
 private val posterSourceSheet = Regex("UI7_EDITORIAL_LAMINA_[0-9]{2}_[A-Za-z0-9_]+\\.png")
 
-/** Reuse the strict genre->art mapping already shared by the derived-art resolver. */
+/** Finished posters use the approved genre identity, not a Production asset path. */
 internal fun editorialPosterSlug(genreTitle: String): String? =
-    editorialProductionAssetPath(genreTitle, GenreEditorialTreatment.COVER, 2)
-        ?.substringAfterLast("/genre_")?.removeSuffix("_cover.webp")
+    editorialArtworkSlug(genreTitle)
 
 internal fun editorialPosterForTitle(
     genreTitle: String,
@@ -36,30 +35,43 @@ internal fun editorialPosterSpan(columns: Int, poster: EditorialPosterAsset?): I
 /** Fail closed atomically: a malformed row invalidates the whole poster catalog.
  * File bytes and SHA-256 are checked at Android build time, not on UI thread.
  */
-internal fun editorialApprovedPosters(manifest: String, installed: Set<String>): Map<String, EditorialPosterAsset> {
-    if (manifest.length > 160_000) return emptyMap()
+internal fun editorialApprovedPosters(
+    manifest: String,
+    installed: Set<String>,
+    onRejected: (String) -> Unit = {},
+): Map<String, EditorialPosterAsset> {
+    fun reject(reason: String): Map<String, EditorialPosterAsset> {
+        onRejected(reason)
+        return emptyMap()
+    }
+    if (manifest.length > 160_000) return reject("oversized_manifest")
     val rows = manifest.lineSequence().iterator()
-    if (!rows.hasNext() || rows.next() != editorialPosterManifestHeader) return emptyMap()
+    if (!rows.hasNext() || rows.next() != editorialPosterManifestHeader) return reject("invalid_header")
     val result = linkedMapOf<String, EditorialPosterAsset>()
     val used = hashSetOf<String>()
+    var lineNumber = 1
     for (line in rows) {
+        lineNumber++
         if (line.isBlank() || line.startsWith('#')) continue
         val parts = line.split('\t')
-        if (parts.size != 8) return emptyMap()
+        if (parts.size != 8) return reject("line_${lineNumber}_columns")
         val slug = parts[0]; val filename = parts[1]; val sha = parts[2]
         val width = parts[3]; val height = parts[4]; val sourceSheet = parts[5]
         val approval = parts[6]; val presentation = parts[7]
-        val w = width.toIntOrNull() ?: return emptyMap()
-        val h = height.toIntOrNull() ?: return emptyMap()
-        if (slug !in editorialSourceKeys || filename != "genre_${slug}_editorial.webp" ||
-            !posterHash.matches(sha) || !posterSourceSheet.matches(sourceSheet) ||
-            approval != "USER_CONFIRMED_COMPLETE" || presentation != "POSTER_COMPLETE" ||
-            w !in 320..4096 || h !in 200..4096 || w.toLong() * h > 3_686_400L ||
-            w.toDouble() / h !in 1.4..4.5 || filename !in installed ||
-            !used.add(filename) || result.containsKey(slug)
-        ) return emptyMap()
+        val w = width.toIntOrNull() ?: return reject("line_${lineNumber}_width")
+        val h = height.toIntOrNull() ?: return reject("line_${lineNumber}_height")
+        if (slug !in editorialSourceKeys || filename != "genre_${slug}_editorial.webp")
+            return reject("line_${lineNumber}_genre_identity")
+        if (!posterHash.matches(sha) || !posterSourceSheet.matches(sourceSheet) ||
+            approval != "USER_CONFIRMED_COMPLETE" || presentation != "POSTER_COMPLETE")
+            return reject("line_${lineNumber}_integrity_or_approval")
+        if (w !in 320..4096 || h !in 200..4096 || w.toLong() * h > 3_686_400L ||
+            w.toDouble() / h !in 1.4..4.5) return reject("line_${lineNumber}_geometry")
+        if (filename !in installed) return reject("line_${lineNumber}_asset_missing")
+        if (!used.add(filename) || result.containsKey(slug)) return reject("line_${lineNumber}_duplicate")
         result[slug] = EditorialPosterAsset(slug, filename, w, h)
     }
-    if (installed.any { it.endsWith(".webp") && it !in used }) return emptyMap()
+    if (installed.any { it.endsWith(".webp") && it !in used }) return reject("unexpected_webp")
+    if (result.isEmpty()) return reject("empty_catalog")
     return result
 }

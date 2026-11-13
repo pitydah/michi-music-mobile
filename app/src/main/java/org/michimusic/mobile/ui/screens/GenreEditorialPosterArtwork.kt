@@ -14,6 +14,7 @@ import coil3.request.ImageRequest
 internal fun GenreEditorialPosterArtwork(
     poster: EditorialPosterAsset,
     modifier: Modifier = Modifier,
+    onImageResult: ((Boolean) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val request = remember(context, poster.filename) {
@@ -26,5 +27,14 @@ internal fun GenreEditorialPosterArtwork(
         contentDescription = null, // Parent tile supplies the real scoped name/count.
         modifier = modifier.fillMaxSize(),
         contentScale = ContentScale.Fit,
+        onSuccess = {
+            GenreArtworkDiagnostics.imageSuccess("EDITORIAL", poster.filename)
+            onImageResult?.invoke(true)
+        },
+        onError = { result ->
+            GenreArtworkDiagnostics.imageFailure("EDITORIAL", poster.filename,
+                result.result.throwable)
+            onImageResult?.invoke(false)
+        },
     )
 }
