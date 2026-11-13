@@ -273,6 +273,7 @@ fun GenreLibraryPanel(
                                 }
                                 gridItems(visibleGenres.drop(1), key = { it.id }) { genre ->
                                     GenreTile(genre = genre, featured = false,
+                                        mosaicAsset = mosaicArtworkForGenre(genre.id, mosaicAssets),
                                         modifier = Modifier.fillMaxWidth(),
                                         onOpen = { openGenre(genre.id) })
                                 }
