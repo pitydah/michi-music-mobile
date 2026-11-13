@@ -60,13 +60,19 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 internal fun SettingsLibraryPanel() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val localMediaRepository: org.michimusic.data.repository.LocalMediaRepository = koinInject()
                         val musicRootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
                         val currentRoot by musicRootAuthority.currentRoot.collectAsStateWithLifecycle()
                         val lastScan by musicRootAuthority.lastScan.collectAsStateWithLifecycle()
                         var folderBusy by remember { mutableStateOf(false) }
                         var folderProgress by remember { mutableStateOf(0) }
                         var folderMessage by remember { mutableStateOf<String?>(null) }
+                        val recoverGenres = rememberSettingsGenreRecovery(
+                            scope = scope,
+                            busy = folderBusy,
+                            onBusyChange = { folderBusy = it },
+                            onProgressChange = { folderProgress = it },
+                            onMessageChange = { folderMessage = it },
+                        )
                         var storageSnapshot by remember {
                             mutableStateOf<org.michimusic.mobile.library.LibraryStorageSnapshot?>(null)
                         }
@@ -281,37 +287,7 @@ internal fun SettingsLibraryPanel() {
                                     } finally { folderBusy = false }
                                 }
                             },
-                            onRecoverGenres = {
-                                if (!folderBusy) scope.launch {
-                                    folderBusy = true
-                                    folderProgress = 0
-                                    folderMessage = null
-                                    try {
-                                        val result = localMediaRepository.recoverAllMissingGenres(
-                                            onProgress = { done, total ->
-                                                withContext(Dispatchers.Main) {
-                                                    folderProgress = done
-                                                    folderMessage = "Recuperando etiquetas: $done de $total"
-                                                }
-                                            },
-                                        )
-                                        folderMessage = when (result) {
-                                            is org.michimusic.data.repository.MediaResult.Success ->
-                                                "Recuperación terminada. Regresa a Biblioteca para ver los géneros actualizados."
-                                            org.michimusic.data.repository.MediaResult.PermissionDenied ->
-                                                "Permiso de lectura denegado. Revisa el origen de la biblioteca."
-                                            is org.michimusic.data.repository.MediaResult.QueryFailed ->
-                                                "No se completó la recuperación: la biblioteca cambió o el proveedor falló."
-                                        }
-                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                                        throw cancelled
-                                    } catch (_: Exception) {
-                                        folderMessage = "No fue posible recuperar las etiquetas."
-                                    } finally {
-                                        folderBusy = false
-                                    }
-                                }
-                            },
+                            onRecoverGenres = recoverGenres,
                             onRescan = {
                                 scope.launch {
                                     folderBusy = true
