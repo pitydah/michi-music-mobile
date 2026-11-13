@@ -1921,3 +1921,15 @@ Gates: código/compilación/unit/lint/build **PASS**; visual emulador **PASS**; 
 - Pruebas: `GenreLibraryViewModelTest` cubre dos bibliotecas del mismo propietario con claves distintas, cambio rápido de propietario, error Room/reintento y cancelación.
 - Publicado en `41905c5` (`fix(genres): scope index identity to the active library`, 5 archivos, +83/−15); CI funcional `43334135811` **8/8 PASS**.
 - Gates: `GO_GENRE_SCOPE_ISOLATION` **PASS** unitario; instrumentación/visual específica M4 **NOT_RUN**; release **NO-GO**.
+
+### Integración UI7 P12 (publicada)
+
+- Parche `UI7_ACUMULATIVO.patch` descargado de Drive y aplicado limpiamente sobre `cb043ec`; commit funcional `2159402` (`feat(ui): integrate UI7 P12 genre classification and artwork policies`), **26 archivos, +1696/−16**.
+- P12 aporta: clasificación y agrupación multigénero (`GenreClassificationPolicy`, `GenreGroupingPolicy`), políticas Editorial/Mosaico (`GenreEditorialArtwork*`, `GenreEditorialPoster*`), manifiestos UI7, recuperación MediaStore acotada (`MediaStoreGenreRecovery`), pruebas y herramientas Python de validación.
+- `MediaStoreGenreRecovery` queda cableado en `LocalMediaRepository` solo cuando la columna `GENRE` falta o fue rechazada; presupuesto de 2 s, cancelación estructurada y fallo cerrado a `emptyMap()`.
+- La UI Editorial carga los manifiestos en `Dispatchers.IO` y solo pinta recursos aprobados; ante error o manifiesto vacío usa fallback, sin inventar arte.
+- CI funcional `43339425161` sobre `2159402`: **8/8 PASS** (Lint, Unit Normal/F-Droid, Build Normal/F-Droid, Room, Instrumentación API 36, Quality Gate).
+- Gates locales: compilación app, unit data, unit app Normal/F-Droid, lint, builds Normal/F-Droid y guardia de arquitectura **PASS**.
+- Límites reales: `MichiDatabase` sigue en versión 11; el parche no incluye migración 11→12 ni evidencia persistida de etiquetas. Los manifiestos de artwork están vacíos por diseño y no hay binarios aprobados; los recortes de Drive contienen texto/bordes horneados y no deben publicarse como arte aprobado. La acción manual «Recuperar géneros faltantes» en Ajustes → Biblioteca no existe todavía.
+- Validación visual específica de P12: **NOT_RUN**; las capturas existentes son anteriores a P12. La CI sí ejecutó instrumentación API 36.
+- Sin amend, force-push ni release. `GO_RELEASE`: **NO-GO**.
