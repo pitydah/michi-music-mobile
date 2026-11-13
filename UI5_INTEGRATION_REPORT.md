@@ -1912,3 +1912,12 @@ Publicado en `1c01e62` (`feat(ui): integrate Fluent artwork in Settings`, 14 arc
 | CI funcional | **8/8 PASS** en el run `43151009701` sobre `1168d71` (incluye Fluent + fix de tests) |
 
 Gates: código/compilación/unit/lint/build **PASS**; visual emulador **PASS**; visual físico y TalkBack formal **NOT_RUN**; CI **PASS**; release **NO-GO**.
+
+### Identidad de Géneros por biblioteca (M4, publicado)
+
+- Causa raíz: `scopeKey` solo distinguía propietario/ALL/LOCAL, y `AlbumsScreen` renderizaba `GenreIndexLoad.Ready` sin comprobar que perteneciera al ámbito visible.
+- `GenreEvidencePolicy.genreScopeKey(libraryId, scopeOwnerId, isAllScope)` define identidades estables: `ALL`, `ONE:<libraryId>:<owner>`, `OWNER:<owner>` y `LOCAL`.
+- `GenreLibraryViewModel.load` acepta `libraryId` y publica `Ready` con esa clave; `AlbumsScreen` calcula `expectedScopeKey` y solo muestra el panel cuando coincide. Un resultado ajeno se presenta como indexación, no como datos de otra biblioteca.
+- Pruebas: `GenreLibraryViewModelTest` cubre dos bibliotecas del mismo propietario con claves distintas, cambio rápido de propietario, error Room/reintento y cancelación.
+- Publicado en `41905c5` (`fix(genres): scope index identity to the active library`, 5 archivos, +83/−15); CI funcional `43334135811` **8/8 PASS**.
+- Gates: `GO_GENRE_SCOPE_ISOLATION` **PASS** unitario; instrumentación/visual específica M4 **NOT_RUN**; release **NO-GO**.
