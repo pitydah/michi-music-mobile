@@ -20,6 +20,7 @@ import org.michimusic.mobile.ui.screens.GenreIndexLoad
 import org.michimusic.mobile.ui.screens.GenreOwnerEvidence
 import org.michimusic.mobile.ui.screens.GenreScopedIndex
 import org.michimusic.mobile.ui.screens.buildGenreScopedIndex
+import org.michimusic.mobile.ui.screens.genreScopeKey
 
 /** The only owner of genre-index IO and owner-collision evidence. */
 internal class GenreLibraryRepository(private val trackDao: TrackDao) {
@@ -76,9 +77,10 @@ class GenreLibraryViewModel(trackDao: TrackDao) : ViewModel() {
         tracks: List<Track>,
         scopeOwnerId: String?,
         isAllScope: Boolean,
+        libraryId: String? = null,
     ) {
         val requestGeneration = ++generation
-        val requestScope = scopeOwnerId ?: if (isAllScope) "ALL" else "LOCAL"
+        val requestScope = genreScopeKey(libraryId, scopeOwnerId, isAllScope)
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _state.value = GenreIndexLoad.Loading

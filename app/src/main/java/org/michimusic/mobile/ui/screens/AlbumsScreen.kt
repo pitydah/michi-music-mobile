@@ -1186,9 +1186,12 @@ fun AlbumsScreen(
                             key(activeScope) {
                                 // A single cold Room flow prevents transient authorization
                                 // with an empty collision list while genre rows are loading.
-                                val scopeOwner = (activeScope as? org.michimusic.core.models.LibraryScope.One)
+                                val activeLibrary = activeScope as? org.michimusic.core.models.LibraryScope.One
+                                val activeLibraryId = activeLibrary?.libraryId
+                                val scopeOwner = activeLibrary
                                     ?.let { selected -> availableLibraries.firstOrNull { it.id == selected.libraryId }?.ownerId }
                                 val isAllScope = activeScope is org.michimusic.core.models.LibraryScope.All
+                                val expectedScopeKey = genreScopeKey(activeLibraryId, scopeOwner, isAllScope)
                                 DisposableEffect(Unit) {
                                     onDispose { genreLibraryViewModel.clear() }
                                 }
@@ -1198,6 +1201,7 @@ fun AlbumsScreen(
                                         tracks = scoped.albums.flatMap { it.tracks },
                                         scopeOwnerId = scopeOwner,
                                         isAllScope = isAllScope,
+                                        libraryId = activeLibraryId,
                                     )
                                 }
                                 when (val current = genreLoad) {
@@ -1214,15 +1218,22 @@ fun AlbumsScreen(
                                         }
                                     }
                                     is GenreIndexLoad.Ready -> {
-                                        genreViewState.SaveableStateProvider("genre_panel") {
-                                            GenreLibraryPanel(
-                                                genres = current.index.genres,
-                                                playableTrackIds = scoped.playableTrackIds,
-                                                globallyBlockedTrackIds = current.index.blockedTrackIds,
-                                                currentTrack = currentTrack,
-                                                isPlaying = isPlaying,
-                                                onPlay = ::playQueueSafe,
-                                            )
+                                        if (current.scopeKey == expectedScopeKey) {
+                                            genreViewState.SaveableStateProvider("genre_panel") {
+                                                GenreLibraryPanel(
+                                                    genres = current.index.genres,
+                                                    playableTrackIds = scoped.playableTrackIds,
+                                                    globallyBlockedTrackIds = current.index.blockedTrackIds,
+                                                    currentTrack = currentTrack,
+                                                    isPlaying = isPlaying,
+                                                    onPlay = ::playQueueSafe,
+                                                )
+                                            }
+                                        } else {
+                                            Box(Modifier.fillMaxSize().testTag("genres_indexing"),
+                                                contentAlignment = Alignment.Center) {
+                                                CircularProgressIndicator(color = PrimaryPink)
+                                            }
                                         }
                                     }
                                 }

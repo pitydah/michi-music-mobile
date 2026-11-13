@@ -34,6 +34,22 @@ sealed interface GenreIndexLoad {
     data object Failed : GenreIndexLoad
 }
 
+/**
+ * Stable identity of the visible library scope. A selected library is never
+ * represented by its owner alone: two libraries can share an owner and must
+ * never reuse each other's genre index.
+ */
+internal fun genreScopeKey(
+    libraryId: String?,
+    scopeOwnerId: String?,
+    isAllScope: Boolean,
+): String = when {
+    isAllScope -> "ALL"
+    !libraryId.isNullOrBlank() -> "ONE:$libraryId:${scopeOwnerId.orEmpty()}"
+    scopeOwnerId != null -> "OWNER:$scopeOwnerId"
+    else -> "LOCAL"
+}
+
 /** One coherent Room snapshot includes rows without genre to detect duplicate IDs. */
 fun cachedGenreOwnerCollisions(evidence: List<GenreOwnerEvidence>): Set<String> {
     val firstOwnerById = HashMap<String, String>(evidence.size)

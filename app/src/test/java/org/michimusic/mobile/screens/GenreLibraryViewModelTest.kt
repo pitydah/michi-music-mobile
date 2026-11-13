@@ -95,7 +95,7 @@ class GenreLibraryViewModelTest {
             isAllScope = false,
         )
         val first = withTimeout(5_000) {
-            viewModel.state.first { it is GenreIndexLoad.Ready && it.scopeKey == "ownerA" }
+            viewModel.state.first { it is GenreIndexLoad.Ready && it.scopeKey == "OWNER:ownerA" }
         } as GenreIndexLoad.Ready
         assertTrue(first.index.genres.any { it.title == "Jazz" })
 
@@ -108,12 +108,48 @@ class GenreLibraryViewModelTest {
             isAllScope = false,
         )
         val second = withTimeout(5_000) {
-            viewModel.state.first { it is GenreIndexLoad.Ready && it.scopeKey == "ownerB" }
+            viewModel.state.first { it is GenreIndexLoad.Ready && it.scopeKey == "OWNER:ownerB" }
         } as GenreIndexLoad.Ready
 
         assertTrue(second.index.genres.any { it.title == "Rock" })
         assertTrue(second.index.genres.none { it.title == "Jazz" })
         assertTrue(second.generation > first.generation)
+    }
+
+    @Test
+    fun sameOwnerDifferentLibrariesKeepSeparateScopeKeys() = runBlocking {
+        val dao = mockk<TrackDao>()
+        val evidence = MutableStateFlow(listOf(
+            genreRow("t1", "Jazz Song", "ownerA", "Jazz"),
+            genreRow("t2", "Rock Song", "ownerA", "Rock"),
+        ))
+        every { dao.observeGenreEvidenceSnapshot() } returns evidence
+        val viewModel = GenreLibraryViewModel(dao)
+
+        viewModel.load(
+            listOf(genreTrack("t1", "Jazz Song", "ownerA")),
+            scopeOwnerId = "ownerA",
+            isAllScope = false,
+            libraryId = "lib-a",
+        )
+        val first = withTimeout(5_000) {
+            viewModel.state.first { it is GenreIndexLoad.Ready && it.scopeKey == "ONE:lib-a:ownerA" }
+        } as GenreIndexLoad.Ready
+
+        viewModel.load(
+            listOf(genreTrack("t2", "Rock Song", "ownerA")),
+            scopeOwnerId = "ownerA",
+            isAllScope = false,
+            libraryId = "lib-b",
+        )
+        val second = withTimeout(5_000) {
+            viewModel.state.first { it is GenreIndexLoad.Ready && it.scopeKey == "ONE:lib-b:ownerA" }
+        } as GenreIndexLoad.Ready
+
+        assertTrue(first.scopeKey != second.scopeKey)
+        assertEquals("Jazz", first.index.genres.single { it.title == "Jazz" }.title)
+        assertTrue(second.index.genres.any { it.title == "Rock" })
+        assertTrue(second.index.genres.none { it.title == "Jazz" })
     }
 
     @Test
@@ -146,7 +182,7 @@ class GenreLibraryViewModelTest {
         val ready = withTimeout(5_000) {
             viewModel.state.first { it is GenreIndexLoad.Ready }
         } as GenreIndexLoad.Ready
-        assertEquals("ownerB", ready.scopeKey)
+        assertEquals("OWNER:ownerB", ready.scopeKey)
         assertTrue(ready.index.genres.any { it.title == "Rock" })
     }
 

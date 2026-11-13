@@ -163,11 +163,14 @@ def run() -> None:
     if len(genre_vm.splitlines()) > 160:
         error("GenreLibraryViewModel grew towards a monolith")
     for required in ("viewModelScope", "collectLatest", "generation",
-            "GenreIndexLoad.Ready(", "fun clear()", "Dispatchers.Default"):
+            "GenreIndexLoad.Ready(", "fun clear()", "Dispatchers.Default",
+            "libraryId", "genreScopeKey("):
         if required not in genre_vm:
             error(f"genre scope/isolation contract missing {required}")
     if not re.search(r"requestGeneration\s*!=\s*generation", genre_vm):
         error("genre results no longer reject stale generations")
+    if "genreScopeKey(" not in albums or "current.scopeKey == expectedScopeKey" not in albums:
+        error("AlbumsScreen no longer validates the visible library before rendering genres")
 
     # Playlists: one balanced row, with the compact policy in the shared visual policy.
     actions = code("PlaylistPrimaryActions.kt")
