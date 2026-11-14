@@ -103,7 +103,8 @@ class GenreArtworkInventory312Test {
             mosaic.values.count { it.opticalMask != null })
         assertEquals("every Editorial row keeps its measured mask", 312,
             posters.values.count { it.opticalMask != null })
-        // An unverified row stays on the fallback path instead of guessing a frame.
+        // An unverified row is a QA flag, not an absence: both counts are the
+        // documented debt of the published pack (298/312 and 227/312).
         assertEquals(298, mosaic.values.count { it.opticalMask?.verified == true })
         assertEquals(227, posters.values.count { it.opticalMask?.verified == true })
     }
@@ -150,6 +151,51 @@ class GenreArtworkInventory312Test {
         )
         assertNull("Editorial rejected: $posterRejection", posterRejection)
         assertEquals(312, posters.size)
+    }
+
+    @Test fun everyApprovedMosaicCropPaintsAtEveryContractWidth() {
+        val mosaic = mosaicApprovedArtwork(
+            text(File(mosaicDir, "manifest.tsv")),
+            mosaicDir.listFiles().orEmpty().map { it.name }.toSet(),
+            opticalMasks = parseUi7OpticalMasks(text(File(mosaicDir, "optical.tsv"))),
+        )
+        listOf(320 to 1, 360 to 1, 390 to 2, 411 to 2, 480 to 2).forEach { (panel, columns) ->
+            val size = mosaicCardSize(panel.toFloat(), columns)
+            mosaic.values.forEach { asset ->
+                val decision = ui7ArtworkDecision(
+                    mosaicVisualSpec(asset), size.widthDp, size.heightDp, 26f, 26f,
+                )
+                assertTrue("[${panel}dp] ${asset.filename} must paint",
+                    decision.paintsArtwork)
+                assertEquals(Ui7AssetAvailability.ASSET_PACKAGED, decision.availability)
+                // Every Mosaico source is 1.32..1.56: the residual band is a QA
+                // record, never a reason to hide the crop.
+                assertTrue("[${panel}dp] ${asset.filename} debt must be measured",
+                    decision.quality.aspectDebtPerSideDp >= 0f)
+            }
+        }
+    }
+
+    @Test fun everyApprovedPosterPaintsAsBannerOrCompact() {
+        val posters = editorialApprovedPosters(
+            text(File(posterDir, "manifest.tsv")),
+            posterDir.listFiles().orEmpty().map { it.name }.toSet(),
+            opticalMasks = parseUi7OpticalMasks(text(File(posterDir, "optical.tsv"))),
+        )
+        listOf(320 to 1, 360 to 1, 390 to 2, 411 to 2, 480 to 2).forEach { (panel, _) ->
+            val usable = editorialUsableWidthDp(panel.toFloat())
+            posters.values.forEach { poster ->
+                val spec = editorialVisualSpec(poster)!!
+                val height = usable / spec.ratio
+                val decision = ui7ArtworkDecision(spec, usable, height, 26f, 26f)
+                assertTrue("[${panel}dp] ${poster.filename} must paint", decision.paintsArtwork)
+                val expectedClass = editorialPosterClass(spec.ratio)
+                assertTrue("${poster.filename} must be a real banner/compact",
+                    expectedClass != EditorialPosterClass.RETRATO_FUTURO)
+                assertEquals("[${panel}dp] ${poster.filename} must not need a portrait",
+                    false, decision.quality.needsPortraitVariant)
+            }
+        }
     }
 
     @Test fun representativeNewGenresResolveInBothViews() {

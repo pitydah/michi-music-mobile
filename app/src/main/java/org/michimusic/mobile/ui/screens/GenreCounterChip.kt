@@ -28,22 +28,26 @@ internal fun genreCounterLabel(count: Int): String =
 
 internal data class GenreCounterSize(val widthDp: Float, val heightDp: Float)
 
-/** Numeric chip typography: white 14sp SemiBold, tabular figures where available. */
+/** Numeric chip typography: white 12sp SemiBold, tabular figures where available. */
 internal val GenreCounterTextStyle = TextStyle(
-    fontSize = 14.sp,
-    lineHeight = 18.sp,
+    fontSize = 12.sp,
+    lineHeight = 16.sp,
     fontWeight = FontWeight.SemiBold,
     color = PureWhite,
     fontFeatureSettings = "tnum",
 )
 
-internal const val GENRE_COUNTER_BASE_SIZE_DP = 28
+/**
+ * Nominal 26dp disc (contract range 24..28dp). A three/four-digit count grows the
+ * capsule from the measured text instead of truncating it.
+ */
+internal const val GENRE_COUNTER_BASE_SIZE_DP = 26
 internal const val GENRE_COUNTER_HORIZONTAL_PADDING_DP = 6
-internal const val GENRE_COUNTER_VERTICAL_PADDING_DP = 4
+internal const val GENRE_COUNTER_VERTICAL_PADDING_DP = 3
 internal const val GENRE_COUNTER_INSET_DP = 12
 
-/** Neutral translucent chip fill from the contract; never a saturated status badge. */
-internal val GenreCounterFill = Color(0xFFB8BEC8).copy(alpha = 0.45f)
+/** Neutral translucent chip fill from the contract (alpha 0.52..0.72). */
+internal val GenreCounterFill = Color(0xFFB8BEC8).copy(alpha = 0.62f)
 
 /**
  * Measured chip box for the genre's real count at the current font scale. The
@@ -74,8 +78,8 @@ internal fun rememberGenreCounterSize(count: Int): GenreCounterSize {
 }
 
 /**
- * The one count affordance of both views: only the digits are visible, 14sp white
- * on the neutral 45% chip, bottom-end of the artwork. The chip is a capsule whose
+ * The one count affordance of both views: only the digits are visible, 12sp white
+ * on the neutral 62% chip, bottom-end of the artwork. The chip is a capsule whose
  * radius is half its height and becomes circular for one/two digits; it grows from
  * the measured text instead of ellipsizing. No stroke, shadow, icon, "pistas" or
  * separate click target.

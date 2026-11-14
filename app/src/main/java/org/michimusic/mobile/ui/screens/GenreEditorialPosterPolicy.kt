@@ -89,7 +89,7 @@ internal fun editorialApprovedPosters(
             widthPx = w,
             heightPx = h,
             opticalMask = mask,
-            counterSafeRect = if (mask?.verified == true) ui7EditorialCounterSafeRegion else null,
+            counterSafeRect = ui7EditorialCounterSafeRegion,
         )
     }
     if (installed.any { it.endsWith(".webp") && it !in used }) return reject("unexpected_webp")

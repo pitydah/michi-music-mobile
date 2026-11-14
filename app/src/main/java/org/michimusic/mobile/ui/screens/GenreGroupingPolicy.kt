@@ -2,7 +2,6 @@ package org.michimusic.mobile.ui.screens
 
 import org.michimusic.core.models.Track
 import java.util.Locale
-import kotlin.math.roundToInt
 
 /** A genre is an index into the authoritative scoped tracks, never a new audio owner. */
 data class LibraryGenre(
@@ -119,45 +118,9 @@ fun genresByTrackCount(genres: List<LibraryGenre>): List<LibraryGenre> =
         { -it.tracks.size }, { it.title.lowercase(Locale.ROOT) }))
 
 /**
- * Editorial card height for one treatment, growing only with the live text.
- *
- * The historical 218dp Mosaico hero and 166dp secondary are deliberately gone:
- * the homogeneous grid derives every cell from the current panel width and the
- * 7:5 / 8:5 treatment ratio instead.
+ * Legacy Editorial treatment names, kept only for the dormant, not-bundled
+ * production-asset path ([editorialProductionAssetPath]). The live wall derives
+ * its geometry from the real WebP ratio through [editorialPlan]; there is no
+ * fixed 192/246/200 height any more.
  */
-fun genreEditorialHeightDp(
-    treatment: GenreEditorialTreatment,
-    columns: Int,
-    fontScale: Float,
-): Int {
-    val slot = editorialSlotFor(treatment, columns)
-    return slot.heightDp + ((fontScale.coerceIn(1f, 3f) - 1f) * 24).roundToInt()
-}
-
-/** Editorial composition geometry, independent of any future image asset. */
 enum class GenreEditorialTreatment { COVER, PORTRAIT_LEFT, PORTRAIT_RIGHT }
-
-data class GenreEditorialSlot(
-    val span: Int,
-    val heightDp: Int,
-    val treatment: GenreEditorialTreatment,
-)
-
-/**
- * Canonical cell geometry for one Editorial treatment: a 192dp cover spanning
- * the row, a 246dp one-column portrait, and a 200dp single-column card.
- * Poster cells use the same treatment heights instead of their own asset ratio,
- * so two paired cards always share one exterior height.
- */
-fun editorialSlotFor(
-    treatment: GenreEditorialTreatment,
-    columns: Int,
-): GenreEditorialSlot {
-    require(columns >= 1)
-    if (columns == 1) return GenreEditorialSlot(1, 200, treatment)
-    return if (treatment == GenreEditorialTreatment.COVER) {
-        GenreEditorialSlot(columns, 192, treatment)
-    } else {
-        GenreEditorialSlot(1, 246, treatment)
-    }
-}

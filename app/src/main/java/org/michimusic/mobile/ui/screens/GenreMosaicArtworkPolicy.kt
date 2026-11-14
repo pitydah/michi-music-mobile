@@ -148,7 +148,7 @@ internal fun mosaicApprovedArtwork(
             widthPx = width,
             heightPx = height,
             opticalMask = mask,
-            counterSafeRect = if (mask?.verified == true) ui7MosaicCounterSafeRegion else null,
+            counterSafeRect = ui7MosaicCounterSafeRegion,
         )
     }
     // A single stray WebP must not silently publish an incomplete approved pack.

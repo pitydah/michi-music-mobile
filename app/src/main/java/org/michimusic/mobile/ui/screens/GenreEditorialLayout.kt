@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,8 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -40,53 +37,159 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
-import org.michimusic.mobile.ui.theme.SurfaceObsidian
-import org.michimusic.mobile.ui.theme.TextSecondary
+import kotlin.math.min
 
 /**
- * Editorial wall: `COVER(1) → PAIR(2) → PAIR(2) → COVER(1)` and repeat.
+ * Editorial wall — a heterogeneous poster wall driven by the real file ratios.
  *
- * Each card is independent and has one click target, one title and one numeric
- * chip. A trailing single genre is promoted to COVER instead of leaving a half
- * empty row. Pairs always share the same exterior height; no asset ratio can make
- * one half taller than the other.
+ * The historical `[1,2,2,1]` rhythm is a visual reference only. Here the shape of
+ * the WebP decides its class (EditorialPosterClass): panoramic/fine banners take
+ * one full-width row, compact posters form pairs of equal height and proportional
+ * width, and a compact that cannot reach the legible minimum becomes a
+ * full-width single. The order received from `genresByTrackCount` is preserved
+ * and a genre without an asset emits its fallback in the correct position.
+ *
+ * No asset is ever promoted to a portrait: the approved pack contains only
+ * horizontal finished posters.
  */
+internal enum class EditorialPosterClass {
+    RETRATO_FUTURO,
+    COMPACTO_ALTO,
+    COMPACTO_MEDIO,
+    COMPACTO_ANCHO,
+    INTERMEDIO_FUTURO,
+    BANNER_PANORAMICO,
+    BANNER_FINO,
+}
+
+/** Minimum legible compact width for a pair at the active font scale (doc E2). */
+internal fun editorialPairMinWidthDp(fontScale: Float): Float =
+    EDITORIAL_PAIR_MIN_WIDTH_DP +
+        EDITORIAL_PAIR_MIN_WIDTH_GROWTH_DP * (fontScale.coerceIn(1f, 2f) - 1f)
+
+/** Content width `U = A - 2*20dp`. */
+internal fun editorialUsableWidthDp(availableWidthDp: Float): Float =
+    (availableWidthDp - 2 * GENRE_GRID_SIDE_PADDING_DP).coerceAtLeast(1f)
+
+/**
+ * Normative class from the real source ratio. Bands are exactly those of the
+ * visual contract; a source below 1.40:1 has no approved horizontal slot yet and
+ * is recorded as RETRATO_FUTURO instead of inventing a portrait.
+ */
+internal fun editorialPosterClass(ratio: Float): EditorialPosterClass = when {
+    ratio < EDITORIAL_COMPACT_MIN_RATIO -> EditorialPosterClass.RETRATO_FUTURO
+    ratio < 1.60f -> EditorialPosterClass.COMPACTO_ALTO
+    ratio < 1.90f -> EditorialPosterClass.COMPACTO_MEDIO
+    ratio < EDITORIAL_COMPACT_MAX_RATIO -> EditorialPosterClass.COMPACTO_ANCHO
+    ratio < 3.00f -> EditorialPosterClass.INTERMEDIO_FUTURO
+    ratio < 3.70f -> EditorialPosterClass.BANNER_PANORAMICO
+    else -> EditorialPosterClass.BANNER_FINO
+}
+
+/** One genre cell of the wall, already measured in dp. */
+internal data class EditorialPiece(
+    val genre: LibraryGenre,
+    /** Null when the real genre has no approved poster: honest fallback cell. */
+    val poster: EditorialPosterAsset?,
+    val widthDp: Float,
+    val heightDp: Float,
+) {
+    val isFallback: Boolean get() = poster == null
+}
+
+internal enum class EditorialRowKind { BANNER, SINGLE_COMPACT, PAIR, FALLBACK }
+
 internal sealed interface EditorialRow {
     val key: String
+    val kind: EditorialRowKind
+    val heightDp: Float
 
-    data class Cover(val genre: LibraryGenre) : EditorialRow {
-        override val key: String get() = "cover:${genre.id}"
+    /** Full-width banner, full-width compact or full-width fallback. */
+    data class Full(val piece: EditorialPiece) : EditorialRow {
+        override val key: String get() = "single:${piece.genre.id}"
+        override val kind: EditorialRowKind
+            get() = when {
+                piece.poster == null -> EditorialRowKind.FALLBACK
+                piece.poster.ratio >= EDITORIAL_COMPACT_MAX_RATIO -> EditorialRowKind.BANNER
+                else -> EditorialRowKind.SINGLE_COMPACT
+            }
+        override val heightDp: Float get() = piece.heightDp
     }
 
-    data class Pair(val leading: LibraryGenre, val trailing: LibraryGenre) : EditorialRow {
-        override val key: String get() = "pair:${leading.id}:${trailing.id}"
+    data class Pair(val leading: EditorialPiece, val trailing: EditorialPiece) : EditorialRow {
+        override val key: String get() = "pair:${leading.genre.id}:${trailing.genre.id}"
+        override val kind: EditorialRowKind get() = EditorialRowKind.PAIR
+        override val heightDp: Float get() = leading.heightDp
     }
 }
 
-/** Canonical `[1,2,2,1]` rhythm. One-column panels show every genre as a cover. */
-internal fun editorialRows(genres: List<LibraryGenre>, columns: Int): List<EditorialRow> {
+/**
+ * Deterministic planner (doc §3.6). Ratios come from the resolved asset, never
+ * from the genre name, the alphabet or a fixed pattern.
+ */
+internal fun editorialPlan(
+    genres: List<LibraryGenre>,
+    posters: Map<String, EditorialPosterAsset>,
+    availableWidthDp: Float,
+    columns: Int,
+    fontScale: Float,
+): List<EditorialRow> {
     require(columns >= 1)
     if (genres.isEmpty()) return emptyList()
-    if (columns == 1) return genres.map { EditorialRow.Cover(it) }
-    val pattern = intArrayOf(1, 2, 2, 1)
-    val rows = ArrayList<EditorialRow>((genres.size + 1) / 2)
-    var genreIndex = 0
-    var phase = 0
-    while (genreIndex < genres.size) {
-        val wanted = pattern[phase % pattern.size]
-        val remaining = genres.size - genreIndex
-        val take = minOf(wanted, remaining)
-        if (take == 2) {
-            rows += EditorialRow.Pair(genres[genreIndex], genres[genreIndex + 1])
-        } else {
-            rows += EditorialRow.Cover(genres[genreIndex])
+    val usable = editorialUsableWidthDp(availableWidthDp)
+    val gap = GENRE_GRID_GAP_DP.toFloat()
+    val minWidth = editorialPairMinWidthDp(fontScale)
+    val rows = ArrayList<EditorialRow>(genres.size)
+    var index = 0
+    while (index < genres.size) {
+        val genre = genres[index]
+        val poster = editorialPosterForTitle(genre.title, posters)
+        if (poster == null) {
+            rows += EditorialRow.Full(
+                EditorialPiece(
+                    genre = genre,
+                    poster = null,
+                    widthDp = usable,
+                    heightDp = usable / EDITORIAL_FALLBACK_RATIO,
+                ),
+            )
+            index += 1
+            continue
         }
-        genreIndex += take
-        phase++
+        val ra = poster.ratio
+        val compactA = ra >= EDITORIAL_COMPACT_MIN_RATIO && ra < EDITORIAL_COMPACT_MAX_RATIO
+        if (columns >= 2 && compactA) {
+            val nextGenre = genres.getOrNull(index + 1)
+            val nextPoster = nextGenre?.let { editorialPosterForTitle(it.title, posters) }
+            val rb = nextPoster?.ratio
+            if (nextGenre != null && nextPoster != null && rb != null &&
+                rb >= EDITORIAL_COMPACT_MIN_RATIO && rb < EDITORIAL_COMPACT_MAX_RATIO
+            ) {
+                val height = (usable - gap) / (ra + rb)
+                val leadingWidth = ra * height
+                val trailingWidth = rb * height
+                if (min(leadingWidth, trailingWidth) >= minWidth) {
+                    rows += EditorialRow.Pair(
+                        leading = EditorialPiece(genre, poster, leadingWidth, height),
+                        trailing = EditorialPiece(nextGenre, nextPoster, trailingWidth, height),
+                    )
+                    index += 2
+                    continue
+                }
+            }
+        }
+        rows += EditorialRow.Full(
+            EditorialPiece(
+                genre = genre,
+                poster = poster,
+                widthDp = usable,
+                heightDp = usable / ra,
+            ),
+        )
+        index += 1
     }
     return rows
 }
@@ -102,10 +205,9 @@ internal fun GenreEditorialGrid(
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val rows = remember(genres, columns) { editorialRows(genres, columns) }
     val fontScale = LocalConfiguration.current.fontScale
-    val sizes = remember(availableWidthDp, columns, fontScale) {
-        editorialCardSize(availableWidthDp, columns, fontScale)
+    val plan = remember(genres, posterAssets, availableWidthDp, columns, fontScale) {
+        editorialPlan(genres, posterAssets, availableWidthDp, columns, fontScale)
     }
     LazyColumn(
         state = state,
@@ -118,63 +220,38 @@ internal fun GenreEditorialGrid(
         ),
         verticalArrangement = Arrangement.spacedBy(GENRE_GRID_GAP_DP.dp),
     ) {
-        // `contentType` includes the viewport decisions that change the item
-        // lambda, so a split-screen/font-scale change rebuilds the row content
-        // instead of reusing the previous card geometry.
-        items(rows, key = { it.key }, contentType = { "$columns:$fontScale" }) { row ->
+        // `contentType` includes the viewport decisions and the row treatment so a
+        // width/font-scale change rebuilds the row content instead of reusing the
+        // previous geometry. Item keys are stable per genre, never per asset.
+        items(plan, key = { it.key }, contentType = { "${it.kind}:$columns:$fontScale" }) { row ->
             when (row) {
-                is EditorialRow.Cover -> BoxWithConstraints(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(
-                            if (columns == 1) sizes.singleHeightDp.dp else sizes.coverHeightDp.dp,
-                        ),
-                ) {
-                    EditorialCell(
-                        genre = row.genre,
-                        treatment = GenreEditorialTreatment.COVER,
-                        columns = columns,
-                        cardWidthDp = maxWidth.value,
-                        cardHeightDp = maxHeight.value,
-                        posterAssets = posterAssets,
-                        onArtworkLoad = onArtworkLoad,
-                        onOpen = onOpen,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                is EditorialRow.Full -> EditorialPieceTile(
+                    piece = row.piece,
+                    onArtworkLoad = onArtworkLoad,
+                    onOpen = onOpen,
+                    modifier = Modifier.fillMaxWidth().height(row.heightDp.dp),
+                )
                 is EditorialRow.Pair -> Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(sizes.portraitHeightDp.dp),
+                    modifier = Modifier.fillMaxWidth().height(row.heightDp.dp),
                     horizontalArrangement = Arrangement.spacedBy(GENRE_GRID_GAP_DP.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-                        EditorialCell(
-                            genre = row.leading,
-                            treatment = GenreEditorialTreatment.PORTRAIT_LEFT,
-                            columns = columns,
-                            cardWidthDp = maxWidth.value,
-                            cardHeightDp = maxHeight.value,
-                            posterAssets = posterAssets,
-                                onArtworkLoad = onArtworkLoad,
-                            onOpen = onOpen,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
-                        EditorialCell(
-                            genre = row.trailing,
-                            treatment = GenreEditorialTreatment.PORTRAIT_RIGHT,
-                            columns = columns,
-                            cardWidthDp = maxWidth.value,
-                            cardHeightDp = maxHeight.value,
-                            posterAssets = posterAssets,
-                                onArtworkLoad = onArtworkLoad,
-                            onOpen = onOpen,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
+                    EditorialPieceTile(
+                        piece = row.leading,
+                        onArtworkLoad = onArtworkLoad,
+                        onOpen = onOpen,
+                        modifier = Modifier
+                            .width(row.leading.widthDp.dp)
+                            .fillMaxHeight(),
+                    )
+                    EditorialPieceTile(
+                        piece = row.trailing,
+                        onArtworkLoad = onArtworkLoad,
+                        onOpen = onOpen,
+                        modifier = Modifier
+                            .width(row.trailing.widthDp.dp)
+                            .fillMaxHeight(),
+                    )
                 }
             }
         }
@@ -182,77 +259,53 @@ internal fun GenreEditorialGrid(
 }
 
 @Composable
-private fun EditorialCell(
-    genre: LibraryGenre,
-    treatment: GenreEditorialTreatment,
-    columns: Int,
-    cardWidthDp: Float,
-    cardHeightDp: Float,
-    posterAssets: Map<String, EditorialPosterAsset>,
+private fun EditorialPieceTile(
+    piece: EditorialPiece,
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)?,
     onOpen: (String) -> Unit,
     modifier: Modifier,
 ) {
-    val chip = rememberGenreCounterSize(genre.tracks.size)
-    val poster = editorialPosterForTitle(genre.title, posterAssets)
-    val spec = editorialVisualSpec(poster, treatment)
-    val treatmentKey = treatment.toUi7Treatment()
-    val outcome = ui7RenderOutcome(
-        spec = spec,
-        treatment = treatmentKey,
-        cardWidthDp = cardWidthDp,
-        cardHeightDp = cardHeightDp,
-        sourceRatio = poster?.ratio ?: 1f,
-        chipWidthDp = chip.widthDp,
-        chipHeightDp = chip.heightDp,
-    )
-    val compatible = outcome == Ui7RenderOutcome.ASSET
-    LaunchedEffect(poster?.filename, outcome, treatmentKey) {
-        if (poster != null && !compatible) {
-            GenreArtworkDiagnostics.unsupportedAspect(
-                view = "EDITORIAL",
-                filename = poster.filename,
-                sourceRatio = poster.ratio,
-                targetWidthDp = cardWidthDp,
-                targetHeightDp = cardHeightDp,
-            )
-            GenreArtworkDiagnostics.renderOutcome("EDITORIAL", poster.filename, outcome)
-        }
-    }
-    if (!compatible || poster == null || spec == null) {
+    val poster = piece.poster
+    val spec = remember(poster) { editorialVisualSpec(poster) }
+    var decodeFailed by remember(poster?.filename) { mutableStateOf(false) }
+    if (poster == null || spec == null || decodeFailed) {
         GenreEditorialFallbackTile(
-            genre = genre,
-            treatment = treatment,
-            columns = columns,
+            genre = piece.genre,
             modifier = modifier,
-            onOpen = { onOpen(genre.id) },
+            onOpen = { onOpen(piece.genre.id) },
         )
-    } else {
-        GenreEditorialPosterTile(
-            genre = genre,
+        return
+    }
+    GenreArtworkSurface(
+        spec = spec,
+        genre = piece.genre,
+        count = piece.genre.tracks.size,
+        view = "EDITORIAL",
+        testTag = "genre_editorial_${piece.genre.id}",
+        modifier = modifier,
+        onOpen = { onOpen(piece.genre.id) },
+    ) { artModifier ->
+        GenreEditorialPosterArtwork(
             poster = poster,
-            spec = spec,
-            treatment = treatment,
-            columns = columns,
-            modifier = modifier,
-            onArtworkLoad = onArtworkLoad,
-            onOpen = { onOpen(genre.id) },
+            modifier = artModifier.testTag("genre_editorial_poster_${piece.genre.id}"),
+            onImageResult = { ok ->
+                if (!ok) decodeFailed = true
+                onArtworkLoad?.let { notify ->
+                    notify(GenreViewMode.EDITORIAL, piece.genre.id, ok)
+                }
+            },
         )
     }
 }
 
 /**
- * Compose fallback for an Editorial slot without an approved vertical/cover
- * variant. It keeps the treatment geometry (192/246/200), uses one Compose
- * border because no rasterized border exists, and shows the real title plus the
- * numeric chip only. No horizontal historical poster is forced into the slot and
- * no "PENDIENTE" text is ever visible.
+ * Compose fallback for a real genre whose approved poster is absent or failed to
+ * decode. One surface, the real title and the real numeric chip; it never claims
+ * a vertical artwork and never shows technical text.
  */
 @Composable
 internal fun GenreEditorialFallbackTile(
     genre: LibraryGenre,
-    treatment: GenreEditorialTreatment,
-    columns: Int,
     modifier: Modifier = Modifier,
     onOpen: () -> Unit,
 ) {
@@ -260,7 +313,7 @@ internal fun GenreEditorialFallbackTile(
     val accent = if (highContrast) PureWhite else genreAccent(genre)
     val shape = RoundedCornerShape(14.dp)
     var focused by remember { mutableStateOf(false) }
-    Box(
+    BoxWithConstraints(
         modifier
             .clip(shape)
             .clickable(role = Role.Button, onClick = onOpen)
@@ -270,45 +323,28 @@ internal fun GenreEditorialFallbackTile(
             }
             .testTag("genre_editorial_${genre.id}"),
     ) {
+        val wide = maxWidth.value >= 300f
         GenreArtworkPlaceholder(
             accent,
             Modifier.fillMaxSize().testTag("genre_editorial_fallback_${genre.id}"),
         )
         Box(Modifier.fillMaxSize().border(1.dp, accent.copy(alpha = 0.62f), shape))
-        val titleSize = when (treatment) {
-            GenreEditorialTreatment.COVER -> 28.sp
-            GenreEditorialTreatment.PORTRAIT_LEFT,
-            GenreEditorialTreatment.PORTRAIT_RIGHT -> 22.sp
-        }
-        val titleLine = when (treatment) {
-            GenreEditorialTreatment.COVER -> 32.sp
-            else -> 26.sp
-        }
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(
-                    start = if (columns == 1) 22.dp else 16.dp,
-                    end = 14.dp,
-                    top = 18.dp,
-                    bottom = 16.dp,
-                ),
+                .padding(start = if (wide) 22.dp else 16.dp, end = 14.dp, top = 18.dp,
+                    bottom = 16.dp),
             verticalArrangement = Arrangement.Bottom,
         ) {
             Box(Modifier.width(30.dp).height(2.dp).background(accent.copy(alpha = 0.85f)))
             Text(
                 text = genre.title,
                 style = MichiTypography.sectionTitle.copy(
-                    fontSize = titleSize,
-                    lineHeight = titleLine,
+                    fontSize = if (wide) 28.sp else 22.sp,
+                    lineHeight = if (wide) 32.sp else 26.sp,
                 ),
                 color = PureWhite,
-                // A portrait cell is 170dp wide: three lines keep the real name
-                // ("Afro-Cuban Jazz") visible instead of truncating it to two.
-                maxLines = when (treatment) {
-                    GenreEditorialTreatment.COVER -> 2
-                    else -> 3
-                },
+                maxLines = if (wide) 2 else 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 10.dp, end = 52.dp),
             )

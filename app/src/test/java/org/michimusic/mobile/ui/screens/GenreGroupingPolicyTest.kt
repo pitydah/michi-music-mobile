@@ -101,31 +101,19 @@ class GenreGroupingPolicyTest {
         )
     }
 
-    @Test fun editorialLayoutDoesNotDependOnAnyAssetOrGenreName() {
-        val rows = editorialRows(groupLibraryGenres((0..5).map { song("g$it", "Style $it") }), 2)
-        // COVER(1) -> PAIR(2) -> PAIR(2) -> COVER(1).
-        assertEquals(listOf(1, 2, 2, 1), rows.map {
-            if (it is EditorialRow.Pair) 2 else 1
-        })
-        assertEquals(listOf(192, 246, 246, 192), rows.map { row ->
-            when (row) {
-                is EditorialRow.Cover ->
-                    genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 1f)
-                is EditorialRow.Pair ->
-                    genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f)
-            }
-        })
-        assertEquals(200, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 1, 1f))
-    }
-
-    @Test fun editorialTreatmentsAreThreeDistinctSemanticsIndependentOfImages() {
-        assertEquals(
-            listOf(GenreEditorialTreatment.COVER, GenreEditorialTreatment.PORTRAIT_LEFT,
-                GenreEditorialTreatment.PORTRAIT_RIGHT, GenreEditorialTreatment.COVER),
-            (0..3).map { editorialSlotFor(GenreEditorialTreatment.entries[it % 3], 2).treatment },
-        )
-        assertEquals(1, editorialSlotFor(GenreEditorialTreatment.PORTRAIT_LEFT, 1).span)
-        assertEquals(2, editorialSlotFor(GenreEditorialTreatment.COVER, 2).span)
+    @Test fun editorialLayoutMustUseRealRatiosNotAFixedPattern() {
+        // The planner needs real poster ratios; without assets it emits one honest
+        // full-width fallback per genre, never a positional [1,2,2,1] rhythm.
+        val genres = groupLibraryGenres((0..5).map { song("g$it", "Style $it") })
+        val plan = editorialPlan(genres, emptyMap(), availableWidthDp = 390f, columns = 2,
+            fontScale = 1f)
+        assertEquals(6, plan.size)
+        assertTrue(plan.all { it.kind == EditorialRowKind.FALLBACK })
+        plan.forEach { row ->
+            assertTrue(row is EditorialRow.Full)
+            assertEquals(editorialUsableWidthDp(390f), row.heightDp * EDITORIAL_FALLBACK_RATIO,
+                0.01f)
+        }
     }
 
     @Test fun geometryReservesRealCardWidthAndMeasuredTextSpace() {
@@ -142,9 +130,6 @@ class GenreGroupingPolicyTest {
         assertEquals(1, genreGridColumns(390, 175))
         assertEquals(2, genreGridColumns(480, 200))
         assertEquals(1, genreGridColumns(320, 200))
-        // Fixed rhythm remains 192/246/200 for Compose-drawn cells.
-        assertEquals(216, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 2f))
-        assertEquals(270, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 2f))
     }
 
     @Test fun productionColumnContractIsOneColumnUpTo360() {
@@ -163,15 +148,16 @@ class GenreGroupingPolicyTest {
         assertEquals(28, GENRE_GRID_BOTTOM_PADDING_DP)
     }
 
-    @Test fun mosaicHeightsComeFromTheTreatmentNotThePanelOrAsset() {
-        // Latest contract §3.4/§9.3: a homogeneous grid, no 218dp hero and no
-        // 166dp secondary.
-        assertEquals(175f, mosaicCardSize(320f, 1).heightDp, 0.01f)
-        assertEquals(200f, mosaicCardSize(360f, 1).heightDp, 0.01f)
-        assertEquals(121f, mosaicCardSize(390f, 2).heightDp, 0.6f)
-        assertEquals(129f, mosaicCardSize(411f, 2).heightDp, 0.6f)
-        assertEquals(154f, mosaicCardSize(480f, 2).heightDp, 0.6f)
-        // Both cells of a row share the same treatment height, independent of the
+    @Test fun mosaicHeightsAreTheHomogeneousOnePointFourTwoCell() {
+        // Homogeneous grid: one and two columns share the same 1.42 aspect, so a
+        // WebP ratio never decides the exterior height and no hero exists.
+        assertEquals(280f, mosaicCardSize(320f, 1).widthDp, 0.01f)
+        assertEquals(280f / 1.42f, mosaicCardSize(320f, 1).heightDp, 0.01f)
+        assertEquals(320f / 1.42f, mosaicCardSize(360f, 1).heightDp, 0.01f)
+        assertEquals(170f / 1.42f, mosaicCardSize(390f, 2).heightDp, 0.01f)
+        assertEquals(180.5f / 1.42f, mosaicCardSize(411f, 2).heightDp, 0.01f)
+        assertEquals(215f / 1.42f, mosaicCardSize(480f, 2).heightDp, 0.01f)
+        // Both cells of a row share the same exterior size, independent of the
         // native ratio of the crop that happens to land there.
         val row = mosaicCardSize(411f, 2)
         assertEquals(row.heightDp, mosaicCardSize(411f, 2).heightDp, 0f)
@@ -268,7 +254,10 @@ class GenreGroupingPolicyTest {
         val one = groupLibraryGenres(listOf(song("a", "New Wave"), song("b", "new-wave")))
         assertEquals(1, one.size)
         assertEquals(2, one.single().tracks.size)
-        assertTrue(editorialRows(one, 2).first() is EditorialRow.Cover)
+        val plan = editorialPlan(one, emptyMap(), availableWidthDp = 411f, columns = 2,
+            fontScale = 1f)
+        assertEquals(1, plan.size)
+        assertTrue(plan.first() is EditorialRow.Full)
         val five = groupLibraryGenres((0 until 5).map { song("$it", "Style $it") })
         assertEquals(5, five.size)
     }

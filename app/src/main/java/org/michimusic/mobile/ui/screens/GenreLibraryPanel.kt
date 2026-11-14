@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,11 +21,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.DropdownMenu
@@ -44,15 +40,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -66,8 +58,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.michimusic.core.models.Track
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
+import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
+import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
+import org.michimusic.mobile.ui.motion.aeroTrackArtworkCoverModel
+import org.michimusic.mobile.ui.motion.aeroTrackArtworkFallbackUri
 import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.GlassFillMid
@@ -97,97 +93,47 @@ fun GenreLibraryPanel(
     captureIntelligenceTicket: () -> org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket? = { null },
     playIntelligenceQueue: (List<Track>, Int,
         org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket) -> Boolean = { _, _, _ -> false },
-    // Optional read-only load receipt for Android UI7 instrumented verification.
+    // Optional read-only load receipts for Android UI7 instrumented verification.
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)? = null,
+    onTrackArtworkLoad: ((String, Boolean) -> Unit)? = null,
 ) {
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Explicit origin of the open detail. It is captured when a card is opened,
+    // so the header can never infer Editorial/Mosaico from a filename or from a
+    // later mode selection.
+    var detailMode by rememberSaveable { mutableStateOf<GenreViewMode?>(null) }
     // Save across detail navigation; state inside the overview branch would reset.
     var viewMode by rememberSaveable { mutableStateOf(GenreViewMode.FEATURED) }
     val context = LocalContext.current
-    // Source Editorial posters already include titles and frames. Read their complete
-    // bounded manifest once per Editorial entry; never enumerate media or decode 312 bitmaps.
-    val posterAssets by produceState(
-        initialValue = emptyMap<String, EditorialPosterAsset>(), key1 = viewMode,
-    ) {
-        if (viewMode == GenreViewMode.EDITORIAL) {
-            value = withContext(Dispatchers.IO) {
-                try {
-                    val files = context.assets.list(editorialPosterFolder).orEmpty().toSet()
-                    val text = context.assets.open("$editorialPosterFolder/manifest.tsv")
-                        .bufferedReader().use { it.readText() }
-                    val optical = runCatching {
-                        context.assets.open("$editorialPosterFolder/optical.tsv")
-                            .bufferedReader().use { parseUi7OpticalMasks(it.readText()) }
-                    }.getOrDefault(emptyMap())
-                    val approved = editorialApprovedPosters(
-                        manifest = text,
-                        installed = files,
-                        onRejected = { reason ->
-                            GenreArtworkDiagnostics.catalogRejected("EDITORIAL", reason)
-                        },
-                        opticalMasks = optical,
-                    )
-                    if (approved.isNotEmpty()) {
-                        GenreArtworkDiagnostics.catalogLoaded("EDITORIAL", approved.size,
-                            files.count { it.endsWith(".webp") })
-                    }
-                    approved
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (error: Exception) {
-                    GenreArtworkDiagnostics.catalogError("EDITORIAL", error)
-                    emptyMap()
-                }
-            }
-        }
+    // Both approved catalogs are read once, when the panel enters composition. They
+    // are independent one-shot reads of a bounded manifest (never a media scan and
+    // never 312 bitmap decodes) and they survive view switches/detail navigation, so
+    // a late manifest can neither flash a false fallback wall nor lose scroll.
+    val posterCatalog by produceState<Ui7Catalog<EditorialPosterAsset>>(Ui7Catalog.Loading) {
+        value = withContext(Dispatchers.IO) { loadEditorialCatalog(context) }
     }
-    // FEATURED is the only consumer of the approved Mosaico pack: one bounded read
-    // of its manifest while that view is visible, never a media scan or directory probe.
-    val mosaicAssets by produceState(
-        initialValue = emptyMap<String, MosaicArtworkAsset>(), key1 = viewMode,
-    ) {
-        if (viewMode == GenreViewMode.FEATURED) {
-            value = withContext(Dispatchers.IO) {
-                try {
-                    val files = context.assets.list(mosaicFolder).orEmpty().toSet()
-                    val text = context.assets.open("$mosaicFolder/manifest.tsv")
-                        .bufferedReader().use { it.readText() }
-                    val optical = runCatching {
-                        context.assets.open("$mosaicFolder/optical.tsv")
-                            .bufferedReader().use { parseUi7OpticalMasks(it.readText()) }
-                    }.getOrDefault(emptyMap())
-                    val approved = mosaicApprovedArtwork(
-                        manifest = text,
-                        installed = files,
-                        onRejected = { reason ->
-                            GenreArtworkDiagnostics.catalogRejected("MOSAIC", reason)
-                        },
-                        opticalMasks = optical,
-                    )
-                    if (approved.isNotEmpty()) {
-                        GenreArtworkDiagnostics.catalogLoaded("MOSAIC", approved.size,
-                            files.count { it.endsWith(".webp") })
-                    }
-                    approved
-                } catch (cancel: CancellationException) {
-                    throw cancel // Leaving Mosaico must stop its one-shot load.
-                } catch (error: Exception) {
-                    GenreArtworkDiagnostics.catalogError("MOSAIC", error)
-                    emptyMap() // Keep production fail-closed without hiding the cause in Debug.
-                }
-            }
-        }
+    val mosaicCatalog by produceState<Ui7Catalog<MosaicArtworkAsset>>(Ui7Catalog.Loading) {
+        value = withContext(Dispatchers.IO) { loadMosaicCatalog(context) }
     }
     // Both views retain their independent positions when switching modes or opening details.
     val featuredGridState = rememberLazyGridState()
     val editorialListState = rememberLazyListState()
-    val openGenre: (String) -> Unit = { id -> selectedId = id }
+    val openGenre: (String) -> Unit = { id ->
+        detailMode = viewMode
+        selectedId = id
+    }
     val selected = genres.firstOrNull { it.id == selectedId }
     // A deleted/retagged genre must never reopen from a stale saved ID.
     LaunchedEffect(selectedId, genres) {
-        if (selectedId != null && selected == null) selectedId = null
+        if (selectedId != null && selected == null) {
+            selectedId = null
+            detailMode = null
+        }
     }
-    BackHandler(enabled = selected != null) { selectedId = null }
+    BackHandler(enabled = selected != null) {
+        selectedId = null
+        detailMode = null
+    }
 
     if (genres.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(20.dp).testTag("genres_empty"),
@@ -203,13 +149,13 @@ fun GenreLibraryPanel(
     }
     if (selected == null) {
         val ordered = remember(genres) { genresByTrackCount(genres) }
-        // Observe the one-shot catalog loads in the panel's own composition scope
+        // Observe the one-shot catalog states in the panel's own composition scope
         // too. BoxWithConstraints composes its content in a subcomposition, and a
         // load observed only there left the grid on the empty fail-closed map after
         // the 312-item catalog arrived (reproduced on emulator-5554), so artwork
         // never recomposed. Reading the states here restarts the panel reliably.
-        val mosaicArtwork = mosaicAssets
-        val editorialPosters = posterAssets
+        val mosaicState = mosaicCatalog
+        val posterState = posterCatalog
         Column(Modifier.fillMaxSize().testTag("genres_overview")) {
             GenreModeToolbar(
                 totalGenres = genres.size,
@@ -227,19 +173,25 @@ fun GenreLibraryPanel(
                         columns = columns,
                         availableWidthDp = maxWidth.value,
                         state = featuredGridState,
-                        artwork = mosaicArtwork,
+                        artwork = mosaicState.entriesOrEmpty(),
                         onArtworkLoad = onArtworkLoad,
                         onOpen = openGenre,
+                        loading = mosaicState is Ui7Catalog.Loading,
                     )
-                    GenreViewMode.EDITORIAL -> GenreEditorialGrid(
-                        genres = ordered,
-                        columns = columns,
-                        availableWidthDp = maxWidth.value,
-                        state = editorialListState,
-                        posterAssets = editorialPosters,
-                        onArtworkLoad = onArtworkLoad,
-                        onOpen = openGenre,
-                    )
+                    GenreViewMode.EDITORIAL -> when (posterState) {
+                        // The wall materialises only when the real ratios are known:
+                        // never a full fallback wall that jumps when the manifest lands.
+                        is Ui7Catalog.Loading -> GenreEditorialLoading(Modifier.fillMaxSize())
+                        else -> GenreEditorialGrid(
+                            genres = ordered,
+                            columns = columns,
+                            availableWidthDp = maxWidth.value,
+                            state = editorialListState,
+                            posterAssets = posterState.entriesOrEmpty(),
+                            onArtworkLoad = onArtworkLoad,
+                            onOpen = openGenre,
+                        )
+                    }
                 }
             }
         }
@@ -257,61 +209,33 @@ fun GenreLibraryPanel(
     }
     val playableIdentities = remember(playableIndexByIdentity) { playableIndexByIdentity.keys }
     val largeText = LocalConfiguration.current.fontScale >= 1.3f
+    val originMode = detailMode ?: viewMode
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("genre_detail"),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item(key = "genre_header") {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    MichiIconAction(
-                        icon = Icons.Filled.ArrowBack,
-                        contentDescription = "Volver a géneros",
-                        onClick = { selectedId = null },
-                        tint = PureWhite,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                    )
-                    Text("Géneros", style = MichiTypography.microLabel, color = TextSecondary)
-                }
-                Text(
-                    text = selected.title,
-                    style = MichiTypography.sectionTitle.copy(fontSize = 22.sp),
-                    color = PureWhite,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.testTag("genre_detail_title"),
-                )
-                Text(
-                    "${selected.tracks.size} ${if (selected.tracks.size == 1) "canción" else "canciones"}" +
-                        " · ${selected.albumCount} ${if (selected.albumCount == 1) "álbum" else "álbumes"}",
-                    style = MichiTypography.metadata,
-                    color = TextSecondary,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MichiIconAction(
-                        icon = Icons.Filled.PlayArrow,
-                        contentDescription = "Reproducir género ${selected.title}",
-                        onClick = { if (playableTracks.isNotEmpty()) onPlay(playableTracks, 0) },
-                        enabled = playableTracks.isNotEmpty(),
-                        tint = PrimaryPinkContainer,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                    )
-                    MichiIconAction(
-                        icon = Icons.Filled.Shuffle,
-                        contentDescription = "Aleatorio: ${selected.title}",
-                        onClick = {
-                            if (playableTracks.isNotEmpty()) onPlay(playableTracks.shuffled(), 0)
-                        },
-                        enabled = playableTracks.isNotEmpty(),
-                        tint = PureWhite,
-                        minTargetSize = MichiSpacing.minTouchTarget,
-                    )
-                    if (playableTracks.isEmpty()) {
-                        Text("No hay pistas reproducibles", style = MichiTypography.microLabel,
-                            color = TextMuted, modifier = Modifier.align(Alignment.CenterVertically))
-                    }
-                }
+            GenreDetailHeader(
+                genre = selected,
+                viewMode = originMode,
+                poster = editorialPosterForTitle(selected.title, posterCatalog.entriesOrEmpty()),
+                mosaic = mosaicArtworkForGenre(selected.id, mosaicCatalog.entriesOrEmpty()),
+                productionAssets = emptySet(),
+                onArtworkLoad = onArtworkLoad,
+                onBack = {
+                    selectedId = null
+                    detailMode = null
+                },
+                onPlay = { if (playableTracks.isNotEmpty()) onPlay(playableTracks, 0) },
+                onShuffle = {
+                    if (playableTracks.isNotEmpty()) onPlay(playableTracks.shuffled(), 0)
+                },
+            )
+            if (playableTracks.isEmpty()) {
+                Text("No hay pistas reproducibles", style = MichiTypography.microLabel,
+                    color = TextMuted,
+                    modifier = Modifier.padding(top = 6.dp, start = 4.dp))
             }
         }
         // MI-22: detail-only; preserve C14 Editorial/Mosaico layout and grid semantics.
@@ -353,20 +277,26 @@ fun GenreLibraryPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // UI7 NO-IMAGE phase: even detail rows avoid decoding artwork.
-                Box(
-                    Modifier.size(44.dp).clip(RoundedCornerShape(9.dp))
-                        .background(AeroGraphiteRaised),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.LibraryMusic, contentDescription = null,
-                        tint = TextSecondary, modifier = Modifier.size(20.dp))
-                }
+                // Same shared artwork seam as Now Playing: model cover, then the
+                // real local file for embedded art, then the neutral placeholder.
+                AlbumArtView(
+                    coverStyle = coverStyleFor(track.coverId.ifBlank { track.title }),
+                    imageModel = aeroTrackArtworkCoverModel(track.source, track.coverId),
+                    fallbackMediaUri = aeroTrackArtworkFallbackUri(track.source, track.filepath),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("genre_track_art_${track.id}"),
+                    cornerRadius = 9.dp,
+                    onImageResult = onTrackArtworkLoad?.let { notify ->
+                        { ok -> notify(track.id, ok) }
+                    },
+                )
                 Column(Modifier.weight(1f)) {
                     Text(track.title, fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (active) TertiaryCyan else PureWhite,
-                        maxLines = if (largeText) 2 else 1, overflow = TextOverflow.Ellipsis)
+                        maxLines = if (largeText) 2 else 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("genre_track_title_${track.id}"))
                     Text(listOf(track.artist, track.album).filter(String::isNotBlank).joinToString(" · "),
                         style = MichiTypography.microLabel,
                         color = if (playable) TextSecondary else TextMuted,
@@ -467,51 +397,89 @@ private fun GenreModeToolbar(
 }
 
 /**
- * Pure Compose ornamental ink. No assets, image loaders, animated gradients,
- * per-frame allocations or fake genre artwork. The lines are decoration only and
- * are hidden whenever approved artwork covers the plane.
+ * Editorial loading surface: the wall is not materialised until the real poster
+ * ratios are available, so a false fallback wall cannot shift under the user.
+ * Neutral, no technical text, no invented genres.
  */
 @Composable
-private fun GenreGeometry(genreId: String, accent: Color, editorial: Boolean) {
-    val variant = remember(genreId) { (genreId.hashCode() and Int.MAX_VALUE) % 3 }
-    Canvas(Modifier.fillMaxSize()) {
-        val center = Offset(size.width * (if (editorial) .82f else .87f), size.height * .39f)
-        val radius = size.minDimension * (if (editorial) .29f else .36f)
-        val stroke = (if (editorial) 1.1.dp else 1.4.dp).toPx()
-        drawCircle(accent.copy(alpha = .20f), radius, center, style = Stroke(stroke))
-        drawCircle(accent.copy(alpha = .12f), radius * .62f, center, style = Stroke(stroke))
-        val y0 = size.height * (.2f + variant * .085f)
-        repeat(3) { n ->
-            val y = y0 + n * 13.dp.toPx()
-            drawLine(accent.copy(alpha = .14f),
-                start = Offset(size.width * .55f, y),
-                end = Offset(size.width, y + size.height * .13f),
-                strokeWidth = stroke)
+private fun GenreEditorialLoading(modifier: Modifier = Modifier) {
+    Box(modifier.testTag("genres_editorial_loading"))
+}
+
+/** One bounded read of the approved Mosaico catalog; never enumerates media. */
+private fun loadMosaicCatalog(context: android.content.Context): Ui7Catalog<MosaicArtworkAsset> {
+    GenreArtworkDiagnostics.catalogLoading("MOSAIC")
+    return try {
+        val files = context.assets.list(mosaicFolder).orEmpty().toSet()
+        val text = context.assets.open("$mosaicFolder/manifest.tsv")
+            .bufferedReader().use { it.readText() }
+        val optical = runCatching {
+            context.assets.open("$mosaicFolder/optical.tsv").bufferedReader().use {
+                parseUi7OpticalMasks(it.readText()) { line, reason ->
+                    GenreArtworkDiagnostics.opticalRowRejected("MOSAIC", line, reason)
+                }
+            }
+        }.getOrDefault(emptyMap())
+        var rejection: String? = null
+        val approved = mosaicApprovedArtwork(
+            manifest = text,
+            installed = files,
+            onRejected = { reason -> rejection = reason },
+            opticalMasks = optical,
+        )
+        if (rejection != null || approved.isEmpty()) {
+            GenreArtworkDiagnostics.catalogRejected("MOSAIC", rejection ?: "empty_catalog")
+            Ui7Catalog.Rejected(rejection ?: "empty_catalog")
+        } else {
+            GenreArtworkDiagnostics.catalogLoaded(
+                "MOSAIC", approved.size, files.count { it.endsWith(".webp") },
+            )
+            Ui7Catalog.Ready(approved)
         }
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (error: Exception) {
+        GenreArtworkDiagnostics.catalogError("MOSAIC", error)
+        Ui7Catalog.Rejected("manifest_read_failed")
     }
 }
 
-/**
- * Single artwork seam for both approved views. Editorial renders ONLY a static
- * Compose material/geometry; FEATURED may place one approved Mosaico crop above it.
- * Either way the image layer stays beneath the live Compose label and never owns
- * genre identity, count or click handling.
- */
-@Composable
-internal fun GenreVisualPlane(
-    genreId: String,
-    accent: Color,
-    mode: GenreViewMode,
-    treatment: GenreEditorialTreatment? = null,
-    modifier: Modifier = Modifier,
-) {
-    val editorial = mode == GenreViewMode.EDITORIAL
-    val backgroundBrush = if (!editorial)
-        Brush.linearGradient(listOf(AeroGraphiteRaised, SurfaceObsidian, accent.copy(alpha = .11f)))
-    else if (treatment == GenreEditorialTreatment.COVER)
-        Brush.horizontalGradient(listOf(AeroGraphiteRaised, SurfaceObsidian))
-    else Brush.verticalGradient(listOf(AeroGraphiteRaised, SurfaceObsidian))
-    Box(modifier.fillMaxSize().background(backgroundBrush).clearAndSetSemantics {}) {
-        GenreGeometry(genreId, accent, editorial)
+/** One bounded read of the approved Editorial poster catalog. */
+private fun loadEditorialCatalog(
+    context: android.content.Context,
+): Ui7Catalog<EditorialPosterAsset> {
+    GenreArtworkDiagnostics.catalogLoading("EDITORIAL")
+    return try {
+        val files = context.assets.list(editorialPosterFolder).orEmpty().toSet()
+        val text = context.assets.open("$editorialPosterFolder/manifest.tsv")
+            .bufferedReader().use { it.readText() }
+        val optical = runCatching {
+            context.assets.open("$editorialPosterFolder/optical.tsv").bufferedReader().use {
+                parseUi7OpticalMasks(it.readText()) { line, reason ->
+                    GenreArtworkDiagnostics.opticalRowRejected("EDITORIAL", line, reason)
+                }
+            }
+        }.getOrDefault(emptyMap())
+        var rejection: String? = null
+        val approved = editorialApprovedPosters(
+            manifest = text,
+            installed = files,
+            onRejected = { reason -> rejection = reason },
+            opticalMasks = optical,
+        )
+        if (rejection != null || approved.isEmpty()) {
+            GenreArtworkDiagnostics.catalogRejected("EDITORIAL", rejection ?: "empty_catalog")
+            Ui7Catalog.Rejected(rejection ?: "empty_catalog")
+        } else {
+            GenreArtworkDiagnostics.catalogLoaded(
+                "EDITORIAL", approved.size, files.count { it.endsWith(".webp") },
+            )
+            Ui7Catalog.Ready(approved)
+        }
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (error: Exception) {
+        GenreArtworkDiagnostics.catalogError("EDITORIAL", error)
+        Ui7Catalog.Rejected("manifest_read_failed")
     }
 }

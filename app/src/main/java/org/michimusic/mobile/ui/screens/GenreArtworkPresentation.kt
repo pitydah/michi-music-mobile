@@ -17,21 +17,57 @@ import kotlin.math.min
  * numeric chip; it must not add a second border, matte or title around a
  * [Ui7ArtworkKind.LEGACY_COMPLETE] resource.
  *
- * All regions are normalized to the source image. The renderer converts them to
- * the displayed artwork rect from the real layout size, never from a screen-wide
- * assumption.
+ * Two independent axes are modelled here and **must not be mixed**:
+ *
+ * - [Ui7AssetAvailability] answers "is there a packaged, decodable artwork for
+ *   this real genre?". Only a real integrity/decode failure may withhold paint.
+ * - [Ui7VisualQualityFlags] records artistic debt (unverified contour, aspect
+ *   band, unverified chip region, missing vertical variant). Debt is reported and
+ *   never replaces a legitimate WebP with a generic card.
  */
 internal enum class Ui7ArtworkKind { LEGACY_COMPLETE, COMPOSE_READY, MISSING }
 
-internal enum class Ui7Treatment {
-    MOSAIC_GRID,
-    EDITORIAL_COVER,
-    EDITORIAL_PORTRAIT_LEFT,
-    EDITORIAL_PORTRAIT_RIGHT,
-    SINGLE_COLUMN,
+/**
+ * Asset/file availability for one genre card.
+ *
+ * [LOADING_CATALOG] is a transient reading state: it must never publish an empty
+ * catalog as final. [IMAGE_DECODE_SUCCESS] / [IMAGE_DECODE_FAILURE] are runtime
+ * observations reported by Coil; only the failure of *that* resource falls back,
+ * it never invalidates a sibling.
+ */
+internal enum class Ui7AssetAvailability {
+    LOADING_CATALOG,
+    CATALOG_REJECTED,
+    NO_ASSET_FOR_GENRE,
+    ASSET_PACKAGED,
+    IMAGE_DECODE_SUCCESS,
+    IMAGE_DECODE_FAILURE,
+    ;
+
+    /** The artwork may be painted (integrity is proven; quality is not required). */
+    val paintsArtwork: Boolean
+        get() = this == ASSET_PACKAGED || this == IMAGE_DECODE_SUCCESS
 }
 
-internal enum class Ui7AssetApproval { APPROVED, PROVISIONAL, NOT_APPROVED }
+/**
+ * Artistic QA flags. Recorded per card, aggregated only in DEBUG diagnostics and
+ * never used to veto an otherwise decodable resource.
+ *
+ * @property aspectDebtPerSideDp visible residual band when `ContentScale.Fit` keeps
+ * the real proportions inside a fixed cell; above [GENRE_ASPECT_DEBT_THRESHOLD_DP]
+ * it blocks *artistic approval*, not rendering.
+ */
+internal data class Ui7VisualQualityFlags(
+    val opticalMaskUnverified: Boolean = false,
+    val aspectDebtPerSideDp: Float = 0f,
+    val counterRegionUnverified: Boolean = false,
+    val needsPortraitVariant: Boolean = false,
+) {
+    val aspectDebt: Boolean get() = aspectDebtPerSideDp >= GENRE_ASPECT_DEBT_THRESHOLD_DP
+
+    val hasDebt: Boolean
+        get() = opticalMaskUnverified || aspectDebt || counterRegionUnverified || needsPortraitVariant
+}
 
 /** Rectangle in the 0..1 coordinate space of the displayed artwork. */
 internal data class NormalizedRect(
@@ -82,8 +118,9 @@ internal data class NormalizedRect(
  * arc) so the baked stroke is preserved instead of being cut by an arbitrary
  * `RoundedCornerShape` radius.
  *
- * [verified] is false when the offline inspection could not establish four
- * plausible radii/insets; the caller must fall back rather than guess.
+ * [verified] false means the offline inspection could not establish four
+ * plausible radii/insets. The asset is still painted, clipped by
+ * [provisionalUi7OpticalMask], and the card records `mask_pending`.
  */
 internal data class Ui7OpticalMask(
     val sourceWidthPx: Int,
@@ -100,6 +137,29 @@ internal data class Ui7OpticalMask(
 )
 
 /**
+ * Conservative shape for a resource whose optical frame is not certified yet:
+ * a 2px inset and a 5% corner radius of the short side. It clips only the
+ * bitmap's own outer margin, never paints a second line, and is replaced by the
+ * measured contour as soon as `verified=1` exists.
+ */
+internal fun provisionalUi7OpticalMask(widthPx: Int, heightPx: Int): Ui7OpticalMask {
+    val radius = min(widthPx, heightPx) * 0.05f
+    return Ui7OpticalMask(
+        sourceWidthPx = widthPx,
+        sourceHeightPx = heightPx,
+        leftInsetPx = 2f,
+        topInsetPx = 2f,
+        rightInsetPx = 2f,
+        bottomInsetPx = 2f,
+        topLeftRadiusPx = radius,
+        topRightRadiusPx = radius,
+        bottomRightRadiusPx = radius,
+        bottomLeftRadiusPx = radius,
+        verified = false,
+    )
+}
+
+/**
  * The single presentation record for one approved asset. It never creates a
  * second source of truth: dimensions and hashes still come from the manifest,
  * while framing/regions come from the static optical metadata.
@@ -110,16 +170,24 @@ internal data class Ui7VisualAssetSpec(
     val widthPx: Int,
     val heightPx: Int,
     val kind: Ui7ArtworkKind,
-    val approvedTreatments: Set<Ui7Treatment>,
     val embeddedTitleVerified: Boolean,
     val frameIncluded: Boolean,
     val opticalMask: Ui7OpticalMask?,
     val protectedRects: List<NormalizedRect>,
     val counterSafeRect: NormalizedRect?,
-    val approval: Ui7AssetApproval,
 ) {
+    val ratio: Float get() = widthPx.toFloat() / heightPx.toFloat()
+
     val hasVerifiedContour: Boolean
         get() = frameIncluded && opticalMask?.verified == true
+
+    /**
+     * Mask used to clip the *painted art rect*. A verified measurement wins; an
+     * unverified resource keeps painting with the provisional shape.
+     */
+    val clipMask: Ui7OpticalMask
+        get() = opticalMask?.takeIf { hasVerifiedContour }
+            ?: provisionalUi7OpticalMask(widthPx, heightPx)
 }
 
 /** Bottom-end chip region documented for the Mosaico crop family. */
@@ -131,148 +199,187 @@ internal val ui7EditorialCounterSafeRegion = NormalizedRect(0.55f, 0.35f, 0.985f
 /** The visible baked title of a Mosaico crop sits bottom-start. */
 private val mosaicEmbeddedTitleRect = NormalizedRect(0f, 0.72f, 0.58f, 0.99f)
 
-/** Mosaico crop approved for the homogeneous grid. */
-internal fun mosaicVisualSpec(
-    asset: MosaicArtworkAsset?,
-    treatment: Ui7Treatment,
-): Ui7VisualAssetSpec? {
+/**
+ * Mosaico crop spec. Availability never depends on the optical row: an
+ * unverified mask is a QA flag, and the numeric chip always has a documented
+ * provisional region.
+ */
+internal fun mosaicVisualSpec(asset: MosaicArtworkAsset?): Ui7VisualAssetSpec? {
     if (asset == null) return null
-    val mask = asset.opticalMask
-    val verified = mask?.verified == true
-    val treatments = if (verified) {
-        when (treatment) {
-            Ui7Treatment.MOSAIC_GRID, Ui7Treatment.SINGLE_COLUMN ->
-                setOf(Ui7Treatment.MOSAIC_GRID, Ui7Treatment.SINGLE_COLUMN)
-            else -> emptySet()
-        }
-    } else {
-        emptySet()
-    }
     return Ui7VisualAssetSpec(
         genreKey = asset.genreKey,
         fileName = asset.filename,
         widthPx = asset.widthPx,
         heightPx = asset.heightPx,
         kind = Ui7ArtworkKind.LEGACY_COMPLETE,
-        approvedTreatments = treatments,
         embeddedTitleVerified = true,
         frameIncluded = true,
-        opticalMask = mask,
+        opticalMask = asset.opticalMask,
         protectedRects = listOf(mosaicEmbeddedTitleRect),
-        counterSafeRect = if (verified) {
-            asset.counterSafeRect ?: ui7MosaicCounterSafeRegion
-        } else {
-            null
-        },
-        approval = if (verified) Ui7AssetApproval.APPROVED else Ui7AssetApproval.PROVISIONAL,
+        counterSafeRect = asset.counterSafeRect ?: ui7MosaicCounterSafeRegion,
     )
 }
 
-/** Editorial poster approved for its target treatment, when compatible. */
-internal fun editorialVisualSpec(
-    poster: EditorialPosterAsset?,
-    treatment: GenreEditorialTreatment,
-): Ui7VisualAssetSpec? {
+/**
+ * Editorial poster spec. The approved pack contains only horizontal finished
+ * posters (1.4..4.5:1), so a poster is never asked to become a portrait: the
+ * planner derives a banner or a proportional compact/pair from its real ratio.
+ */
+internal fun editorialVisualSpec(poster: EditorialPosterAsset?): Ui7VisualAssetSpec? {
     if (poster == null) return null
-    val mask = poster.opticalMask
-    val verified = mask?.verified == true
-    val ui7Treatment = treatment.toUi7Treatment()
-    val portrait = ui7Treatment == Ui7Treatment.EDITORIAL_PORTRAIT_LEFT ||
-        ui7Treatment == Ui7Treatment.EDITORIAL_PORTRAIT_RIGHT
-    val approved = if (!verified || (portrait && !poster.isVertical)) {
-        emptySet()
-    } else {
-        setOf(ui7Treatment)
-    }
     return Ui7VisualAssetSpec(
         genreKey = poster.slug,
         fileName = poster.filename,
         widthPx = poster.widthPx,
         heightPx = poster.heightPx,
         kind = Ui7ArtworkKind.LEGACY_COMPLETE,
-        approvedTreatments = approved,
         embeddedTitleVerified = true,
         frameIncluded = true,
-        opticalMask = mask,
+        opticalMask = poster.opticalMask,
         protectedRects = emptyList(),
-        counterSafeRect = if (verified) {
-            poster.counterSafeRect ?: ui7EditorialCounterSafeRegion
-        } else {
-            null
-        },
-        approval = if (verified) Ui7AssetApproval.APPROVED else Ui7AssetApproval.PROVISIONAL,
+        counterSafeRect = poster.counterSafeRect ?: ui7EditorialCounterSafeRegion,
     )
 }
 
-internal fun GenreEditorialTreatment.toUi7Treatment(): Ui7Treatment = when (this) {
-    GenreEditorialTreatment.COVER -> Ui7Treatment.EDITORIAL_COVER
-    GenreEditorialTreatment.PORTRAIT_LEFT -> Ui7Treatment.EDITORIAL_PORTRAIT_LEFT
-    GenreEditorialTreatment.PORTRAIT_RIGHT -> Ui7Treatment.EDITORIAL_PORTRAIT_RIGHT
+/** The decision for one card: availability plus recorded debt. */
+internal data class Ui7ArtworkDecision(
+    val availability: Ui7AssetAvailability,
+    val spec: Ui7VisualAssetSpec?,
+    val quality: Ui7VisualQualityFlags,
+) {
+    val paintsArtwork: Boolean get() = availability.paintsArtwork && spec != null
 }
 
 /**
- * Normative decision of §8.1: the single place that decides between the approved
- * asset and the view-specific Compose fallback. It never inspects pixels; it
- * consults the offline optical metadata, the approved treatments and the pure
- * fit/counter arithmetic.
+ * Single decision point of both views.
+ *
+ * There is deliberately no veto here beyond a missing packaged asset: a ratio
+ * mismatch is reported as [Ui7VisualQualityFlags.aspectDebtPerSideDp], an
+ * unmeasured contour as [Ui7VisualQualityFlags.opticalMaskUnverified] and an
+ * unverified chip region as [Ui7VisualQualityFlags.counterRegionUnverified].
+ * The renderer paints the WebP in every one of those cases.
  */
-internal enum class Ui7RenderOutcome {
-    /** Exact approved asset: draw the single optical contour plus the numeric chip. */
-    ASSET,
-
-    /** No catalog row for this genre: the library still shows a fallback card. */
-    NO_ASSET,
-
-    /** Row exists but the optical contour was not measured: never guess a frame. */
-    UNVERIFIED_CONTOUR,
-
-    /** Editorial portrait slot without an authentic vertical variant. */
-    NEEDS_APPROVED_PORTRAIT,
-
-    /** Editorial cover whose approved sheet cannot fill the 192dp box intact. */
-    NEEDS_APPROVED_COVER,
-
-    /** Mosaico source whose ratio cannot fill the 7:5 / 8:5 cell without a band. */
-    UNSUPPORTED_ASPECT,
-
-    /** The chip would leave the verified bottom-end region or touch protected art. */
-    COUNTER_COLLISION,
+internal fun ui7ArtworkDecision(
+    spec: Ui7VisualAssetSpec?,
+    cellWidthDp: Float,
+    cellHeightDp: Float,
+    chipWidthDp: Float = 0f,
+    chipHeightDp: Float = 0f,
+    needsPortraitVariant: Boolean = false,
+): Ui7ArtworkDecision {
+    if (spec == null) {
+        return Ui7ArtworkDecision(
+            availability = Ui7AssetAvailability.NO_ASSET_FOR_GENRE,
+            spec = null,
+            quality = Ui7VisualQualityFlags(needsPortraitVariant = needsPortraitVariant),
+        )
+    }
+    val art = genreArtworkFitRect(cellWidthDp, cellHeightDp, spec.ratio)
+    val debt = art?.let { aspectDebtPerSideDp(cellWidthDp, cellHeightDp, it) } ?: 0f
+    val counterUnverified = art != null && chipWidthDp > 0f && chipHeightDp > 0f &&
+        !counterPlacementIsSafe(spec, art.width, art.height, chipWidthDp, chipHeightDp)
+    return Ui7ArtworkDecision(
+        availability = Ui7AssetAvailability.ASSET_PACKAGED,
+        spec = spec,
+        quality = Ui7VisualQualityFlags(
+            opticalMaskUnverified = !spec.hasVerifiedContour,
+            aspectDebtPerSideDp = debt,
+            counterRegionUnverified = counterUnverified,
+            needsPortraitVariant = needsPortraitVariant,
+        ),
+    )
 }
 
-/** §8.1 decision tree, shared by both views and by the pure tests. */
-internal fun ui7RenderOutcome(
-    spec: Ui7VisualAssetSpec?,
-    treatment: Ui7Treatment,
-    cardWidthDp: Float,
-    cardHeightDp: Float,
-    sourceRatio: Float,
-    chipWidthDp: Float,
-    chipHeightDp: Float,
-): Ui7RenderOutcome {
-    if (spec == null) return Ui7RenderOutcome.NO_ASSET
-    if (!spec.frameIncluded || spec.opticalMask?.verified != true) {
-        return Ui7RenderOutcome.UNVERIFIED_CONTOUR
+/**
+ * One-shot catalog reading state.
+ *
+ * [Loading] is transient and must never be published as an empty/final catalog:
+ * the Editorial wall materialises only once [Ready] arrives, and Mosaico renders
+ * neutral skeleton cells with the real genre count meanwhile.
+ */
+internal sealed interface Ui7Catalog<out T> {
+    data object Loading : Ui7Catalog<Nothing>
+    data class Ready<T>(val entries: Map<String, T>) : Ui7Catalog<T>
+    data class Rejected(val reason: String) : Ui7Catalog<Nothing>
+
+    fun entriesOrEmpty(): Map<String, T> = when (this) {
+        is Ready -> entries
+        else -> emptyMap()
     }
-    val portrait = treatment == Ui7Treatment.EDITORIAL_PORTRAIT_LEFT ||
-        treatment == Ui7Treatment.EDITORIAL_PORTRAIT_RIGHT
-    if (!spec.approvedTreatments.contains(treatment)) {
-        return if (portrait) {
-            Ui7RenderOutcome.NEEDS_APPROVED_PORTRAIT
-        } else {
-            Ui7RenderOutcome.NEEDS_APPROVED_COVER
-        }
-    }
-    if (!genreArtworkFitsWithoutDamage(cardWidthDp, cardHeightDp, sourceRatio)) {
-        return when {
-            portrait -> Ui7RenderOutcome.NEEDS_APPROVED_PORTRAIT
-            treatment == Ui7Treatment.EDITORIAL_COVER -> Ui7RenderOutcome.NEEDS_APPROVED_COVER
-            else -> Ui7RenderOutcome.UNSUPPORTED_ASPECT
-        }
-    }
-    if (!counterPlacementIsSafe(spec, cardWidthDp, cardHeightDp, chipWidthDp, chipHeightDp)) {
-        return Ui7RenderOutcome.COUNTER_COLLISION
-    }
-    return Ui7RenderOutcome.ASSET
+}
+
+/** The rect and clip for one paint, derived from the real measured cell. */
+internal data class Ui7ArtworkFrame(
+    val rect: GenreArtworkRect,
+    val shape: Shape,
+) {
+    val widthDp: Float get() = rect.width
+    val heightDp: Float get() = rect.height
+}
+
+/**
+ * Fit the source inside [cellWidthDp] x [cellHeightDp] without distortion and
+ * attach the clip to the painted rect (never to the outer cell, so a residual
+ * band can never look like a second, misaligned frame).
+ */
+internal fun ui7ArtworkFrame(
+    spec: Ui7VisualAssetSpec,
+    cellWidthDp: Float,
+    cellHeightDp: Float,
+): Ui7ArtworkFrame? {
+    val rect = genreArtworkFitRect(cellWidthDp, cellHeightDp, spec.ratio) ?: return null
+    return Ui7ArtworkFrame(
+        rect = rect,
+        shape = Ui7OpticalFrameShape(spec.widthPx, spec.heightPx, spec.clipMask),
+    )
+}
+
+/**
+ * Pure contour arithmetic for one painted rect: source-pixel insets/radii mapped
+ * with **one** uniform scale to `size`. Keeping it pure lets the JVM tests verify
+ * that X and Y never receive different scales (the historical double/misaligned
+ * frame defect) without Android graphics stubs.
+ */
+internal data class Ui7OpticalContour(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+    val topLeftRadius: Float,
+    val topRightRadius: Float,
+    val bottomRightRadius: Float,
+    val bottomLeftRadius: Float,
+) {
+    val width: Float get() = right - left
+    val height: Float get() = bottom - top
+}
+
+internal fun ui7OpticalContour(
+    size: Size,
+    sourceWidthPx: Int,
+    sourceHeightPx: Int,
+    mask: Ui7OpticalMask,
+): Ui7OpticalContour? {
+    val width = size.width
+    val height = size.height
+    if (width <= 0f || height <= 0f || sourceWidthPx <= 0 || sourceHeightPx <= 0) return null
+    val scale = min(width / sourceWidthPx.toFloat(), height / sourceHeightPx.toFloat())
+    val left = (mask.leftInsetPx * scale).coerceIn(0f, width / 2f)
+    val top = (mask.topInsetPx * scale).coerceIn(0f, height / 2f)
+    val right = (width - mask.rightInsetPx * scale).coerceIn(width / 2f, width)
+    val bottom = (height - mask.bottomInsetPx * scale).coerceIn(height / 2f, height)
+    val limit = min(max(0f, (right - left) / 2f), max(0f, (bottom - top) / 2f))
+    fun radius(px: Float): Float = px.coerceIn(0f, max(2f, limit))
+    return Ui7OpticalContour(
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom,
+        topLeftRadius = radius(mask.topLeftRadiusPx * scale),
+        topRightRadius = radius(mask.topRightRadiusPx * scale),
+        bottomRightRadius = radius(mask.bottomRightRadiusPx * scale),
+        bottomLeftRadius = radius(mask.bottomLeftRadiusPx * scale),
+    )
 }
 
 /**
@@ -280,6 +387,10 @@ internal fun ui7RenderOutcome(
  * `RoundedCornerShape` either cuts the baked stroke at the four corners or leaves
  * opaque wedges outside it. The quadratic control point at the actual corner
  * reproduces the measured intercepts.
+ *
+ * One uniform scale is applied to X and Y (the measured mask lives in source
+ * pixels), so the contour stays aligned with the bitmap when the cell ratio
+ * differs from the source ratio.
  */
 internal class Ui7OpticalFrameShape(
     private val sourceWidthPx: Int,
@@ -291,35 +402,23 @@ internal class Ui7OpticalFrameShape(
         layoutDirection: LayoutDirection,
         density: Density,
     ): Outline {
-        val width = size.width
-        val height = size.height
-        if (width <= 0f || height <= 0f || sourceWidthPx <= 0 || sourceHeightPx <= 0) {
-            return Outline.Rectangle(androidx.compose.ui.geometry.Rect(0f, 0f, width, height))
-        }
-        val sx = width / sourceWidthPx.toFloat()
-        val sy = height / sourceHeightPx.toFloat()
-        val left = (mask.leftInsetPx * sx).coerceIn(0f, width / 2f)
-        val top = (mask.topInsetPx * sy).coerceIn(0f, height / 2f)
-        val right = (width - mask.rightInsetPx * sx).coerceIn(width / 2f, width)
-        val bottom = (height - mask.bottomInsetPx * sy).coerceIn(height / 2f, height)
-        val maxRadiusX = max(0f, (right - left) / 2f)
-        val maxRadiusY = max(0f, (bottom - top) / 2f)
-        val limit = min(maxRadiusX, maxRadiusY)
-        fun radius(px: Float): Float = px.coerceIn(0f, max(2f, limit))
-        val rtl = radius(mask.topLeftRadiusPx * sx)
-        val rtr = radius(mask.topRightRadiusPx * sx)
-        val rbr = radius(mask.bottomRightRadiusPx * sx)
-        val rbl = radius(mask.bottomLeftRadiusPx * sx)
+        val contour = ui7OpticalContour(size, sourceWidthPx, sourceHeightPx, mask)
+            ?: return Outline.Rectangle(
+                androidx.compose.ui.geometry.Rect(0f, 0f, size.width, size.height),
+            )
         val path = Path().apply {
-            moveTo(left + rtl, top)
-            lineTo(right - rtr, top)
-            quadraticTo(right, top, right, top + rtr)
-            lineTo(right, bottom - rbr)
-            quadraticTo(right, bottom, right - rbr, bottom)
-            lineTo(left + rbl, bottom)
-            quadraticTo(left, bottom, left, bottom - rbl)
-            lineTo(left, top + rtl)
-            quadraticTo(left, top, left + rtl, top)
+            moveTo(contour.left + contour.topLeftRadius, contour.top)
+            lineTo(contour.right - contour.topRightRadius, contour.top)
+            quadraticTo(contour.right, contour.top,
+                contour.right, contour.top + contour.topRightRadius)
+            lineTo(contour.right, contour.bottom - contour.bottomRightRadius)
+            quadraticTo(contour.right, contour.bottom,
+                contour.right - contour.bottomRightRadius, contour.bottom)
+            lineTo(contour.left + contour.bottomLeftRadius, contour.bottom)
+            quadraticTo(contour.left, contour.bottom,
+                contour.left, contour.bottom - contour.bottomLeftRadius)
+            lineTo(contour.left, contour.top + contour.topLeftRadius)
+            quadraticTo(contour.left, contour.top, contour.left + contour.topLeftRadius, contour.top)
             close()
         }
         return Outline.Generic(path)

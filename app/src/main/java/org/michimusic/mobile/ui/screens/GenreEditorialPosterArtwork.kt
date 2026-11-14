@@ -3,6 +3,7 @@ package org.michimusic.mobile.ui.screens
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -14,6 +15,8 @@ import coil3.request.ImageRequest
 internal fun GenreEditorialPosterArtwork(
     poster: EditorialPosterAsset,
     modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit,
+    alignment: Alignment = Alignment.Center,
     onImageResult: ((Boolean) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -26,7 +29,8 @@ internal fun GenreEditorialPosterArtwork(
         model = request,
         contentDescription = null, // Parent tile supplies the real scoped name/count.
         modifier = modifier.fillMaxSize(),
-        contentScale = ContentScale.Fit,
+        contentScale = contentScale,
+        alignment = alignment,
         onSuccess = {
             GenreArtworkDiagnostics.imageSuccess("EDITORIAL", poster.filename)
             onImageResult?.invoke(true)

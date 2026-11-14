@@ -64,6 +64,16 @@ fun aeroTrackArtworkLocalFallback(source: TrackSource, filePath: String): String
     }
 }
 
+/**
+ * One shared embedded-artwork URI for Now Playing, the track action sheet and
+ * library rows. MediaStore may report an absolute path; convert it locally and
+ * never construct an HTTP request for remote content.
+ */
+fun aeroTrackArtworkFallbackUri(source: TrackSource, filePath: String): String? {
+    val local = aeroTrackArtworkLocalFallback(source, filePath) ?: return null
+    return if (local.startsWith("/")) Uri.fromFile(File(local)).toString() else local
+}
+
 /** No transition is scheduled for changes to transport position, route, or playback flags. */
 fun aeroTrackArtworkDurationMs(reducedMotion: Boolean, highContrast: Boolean): Int =
     if (reducedMotion || highContrast) 0 else MichiMotion.durationStandard
@@ -80,6 +90,7 @@ fun AeroTrackArtworkMotion(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 12.dp,
     borderWidth: Dp = 0.dp,
+    onImageResult: ((Boolean) -> Unit)? = null,
 ) {
     val preferences = LocalVisualPreferences.current
     val duration = aeroTrackArtworkDurationMs(preferences.reducedMotion, preferences.highContrast)
@@ -98,19 +109,19 @@ fun AeroTrackArtworkMotion(
                 modifier = Modifier.fillMaxSize(),
                 cornerRadius = cornerRadius,
                 borderWidth = borderWidth,
+                onImageResult = onImageResult,
             )
         } else {
             AlbumArtView(
                 coverStyle = coverStyleFor(snapshot.coverId.ifBlank { snapshot.title }),
                 imageModel = aeroTrackArtworkCoverModel(snapshot.source, snapshot.coverId),
-                fallbackMediaUri = aeroTrackArtworkLocalFallback(snapshot.source, snapshot.filePath)?.let {
-                    // MediaStore's original file path is often absolute rather than a
-                    // content URI. Convert locally; never construct an HTTP request.
-                    if (it.startsWith("/")) Uri.fromFile(File(it)).toString() else it
-                },
+                fallbackMediaUri = aeroTrackArtworkFallbackUri(
+                    snapshot.source, snapshot.filePath,
+                ),
                 modifier = Modifier.fillMaxSize(),
                 cornerRadius = cornerRadius,
                 borderWidth = borderWidth,
+                onImageResult = onImageResult,
             )
         }
     }

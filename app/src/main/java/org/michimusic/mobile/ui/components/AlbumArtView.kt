@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -166,6 +168,8 @@ fun AlbumArtView(
     borderWidth: Dp = 0.dp,
     borderColor: Color = GlassBorderLow,
     fallbackMediaUri: String? = null,
+    // Optional read-only load receipt for Android UI evidence/tests.
+    onImageResult: ((Boolean) -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(cornerRadius)
     val raw = imageModel?.toString()?.trim().orEmpty()
@@ -177,6 +181,7 @@ fun AlbumArtView(
     }
     var coverFailed by remember(coverModel) { mutableStateOf(false) }
     val context = LocalContext.current.applicationContext
+    val currentOnImageResult by rememberUpdatedState(onImageResult)
     val embedded by produceState<Bitmap?>(
         initialValue = null,
         key1 = fallbackMediaUri,
@@ -188,6 +193,7 @@ fun AlbumArtView(
             value = withContext(Dispatchers.IO) {
                 EmbeddedCoverCache.load(context, fallbackMediaUri)
             }
+            if (value != null) currentOnImageResult?.invoke(true)
         }
     }
 
@@ -197,23 +203,31 @@ fun AlbumArtView(
             .background(SurfaceObsidian)
             .border(borderWidth, borderColor, shape),
     ) {
-        if (coverModel != null && !coverFailed) {
-            AsyncImage(
-                model = coverModel,
-                contentDescription = "Carátula del álbum",
-                contentScale = ContentScale.Crop,
-                onError = { coverFailed = true },
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else if (embedded != null) {
-            Image(
-                bitmap = embedded!!.asImageBitmap(),
-                contentDescription = "Carátula del álbum",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            MissingAlbumArtwork()
+        // A changed model must not keep the previous painter while the next
+        // decode is in flight (rapid track changes in the action sheet/rows).
+        key(coverModel, fallbackMediaUri) {
+            if (coverModel != null && !coverFailed) {
+                AsyncImage(
+                    model = coverModel,
+                    contentDescription = "Carátula del álbum",
+                    contentScale = ContentScale.Crop,
+                    onSuccess = { currentOnImageResult?.invoke(true) },
+                    onError = {
+                        coverFailed = true
+                        currentOnImageResult?.invoke(false)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else if (embedded != null) {
+                Image(
+                    bitmap = embedded!!.asImageBitmap(),
+                    contentDescription = "Carátula del álbum",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                MissingAlbumArtwork()
+            }
         }
     }
 }

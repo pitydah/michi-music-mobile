@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +56,8 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.PlaylistRepository
+import org.michimusic.mobile.ui.motion.aeroTrackArtworkCoverModel
+import org.michimusic.mobile.ui.motion.aeroTrackArtworkFallbackUri
 import org.michimusic.mobile.ui.theme.GlassBorderHigh
 import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.AeroFinish
@@ -83,6 +86,8 @@ fun TrackActionBottomSheet(
     onViewSignalTruth: (() -> Unit)? = null,
     onHideFromLibrary: (suspend () -> org.michimusic.data.repository.LocalVisibilityResult)? = null,
     onHideSuccess: (() -> Unit)? = null,
+    // Optional read-only load receipt for Android UI7 instrumented verification.
+    onArtworkLoad: ((Boolean) -> Unit)? = null,
 ) {
     var confirmingHide by remember(track.id) { mutableStateOf(false) }
     var hideBusy by remember(track.id) { mutableStateOf(false) }
@@ -95,6 +100,7 @@ fun TrackActionBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .testTag("track_action_sheet")
                 .padding(horizontal = 20.dp, vertical = 8.dp),
         ) {
             // Header: Track preview
@@ -105,11 +111,18 @@ fun TrackActionBottomSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Same resolution as Now Playing for the exact track whose
+                // actions are open: model cover first, then a real local file
+                // for embedded art, never a fabricated remote/local path.
                 AlbumArtView(
-                    coverStyle = coverStyleFor(track.title),
+                    coverStyle = coverStyleFor(track.coverId.ifBlank { track.title }),
+                    imageModel = aeroTrackArtworkCoverModel(track.source, track.coverId),
+                    fallbackMediaUri = aeroTrackArtworkFallbackUri(track.source, track.filepath),
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .testTag("track_action_artwork"),
+                    onImageResult = onArtworkLoad,
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -119,6 +132,7 @@ fun TrackActionBottomSheet(
                         color = PureWhite,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("track_action_title"),
                     )
                     Text(
                         text = track.artist.ifBlank { "Artista desconocido" },

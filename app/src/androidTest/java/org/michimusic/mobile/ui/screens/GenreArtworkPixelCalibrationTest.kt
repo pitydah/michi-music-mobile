@@ -31,6 +31,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -41,6 +42,7 @@ import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -52,13 +54,15 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.VisualPreferences
 
 /**
- * Pixel contract on the cards named by the user: Timba, Rumba Cubana, New Wave,
- * Pop, Rock and Soft Rock.
+ * Pixel contract (rev05) on the cards named by the user: Timba, Rumba Cubana,
+ * New Wave, Pop, Rock and Soft Rock.
  *
- * A compatible crop is clipped by its calibrated optical outline, so the four
- * corners outside the baked frame show the dark screen — never an opaque wedge,
- * a cut stroke, a halo or a second border. An incompatible horizontal sheet is
- * never letterboxed inside a vertical or 7:5 slot: it falls back honestly.
+ * Availability and quality are independent: a packaged, decodable crop paints in
+ * its homogeneous 1.42 cell even when its ratio leaves a residual band, its
+ * optical row is `verified=0` (provisional contour) or its chip region is not
+ * certified. Editorial derives a banner, a proportional pair or a compact single
+ * from each real poster ratio; no horizontal sheet becomes a fake portrait.
+ * One frame, one baked title and a numeric chip inside the painted ArtRect.
  */
 @RunWith(AndroidJUnit4::class)
 class GenreArtworkPixelCalibrationTest {
@@ -107,7 +111,8 @@ class GenreArtworkPixelCalibrationTest {
     )
 
     private val mosaicTitles = listOf("Timba", "Rumba Cubana", "New Wave", "Pop", "Rock", "Soft Rock")
-    private val editorialTitles = listOf("New Wave", "Pop", "Rock", "Soft Rock")
+    private val editorialTitles =
+        listOf("New Wave", "Pop", "Rock", "Soft Rock", "NDW", "Timba")
 
     private fun pxOf(dpValue: Float): Float = with(rule.density) { dpValue.dp.toPx() }
     private fun dpOf(pxValue: Float): Float = pxValue / rule.density.density
@@ -119,6 +124,15 @@ class GenreArtworkPixelCalibrationTest {
 
     private fun bounds(tag: String, unmerged: Boolean = false): Rect =
         rule.onNodeWithTag(tag, useUnmergedTree = unmerged).fetchSemanticsNode().boundsInRoot
+
+    private fun hasTag(tag: String): Boolean =
+        rule.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    private fun composeHasTitle(tileTag: String, title: String): Boolean =
+        rule.onAllNodes(
+            hasText(title) and hasAnyAncestor(hasTestTag(tileTag)),
+            useUnmergedTree = true,
+        ).fetchSemanticsNodes().isNotEmpty()
 
     private fun ImageBitmap.blockStats(
         leftFraction: Float,
@@ -181,7 +195,7 @@ class GenreArtworkPixelCalibrationTest {
         Triple(0.985f, 0.97f, "bottom-right"),
     )
 
-    /** A clipped optical contour leaves the four corner blocks on the dark screen. */
+    /** A verified optical contour leaves the four corner blocks on the dark screen. */
     private fun assertNoCornerWedges(image: ImageBitmap, label: String) {
         cornerBlocks.forEach { (x, y, corner) ->
             val (mean, max) = image.blockStats(x, y, x + 0.014f, y + 0.028f)
@@ -192,11 +206,11 @@ class GenreArtworkPixelCalibrationTest {
     }
 
     /**
-     * Compose fallbacks legitimately draw their one visible border along the
-     * rounded contour, so the strict wedge test does not apply: the corner must be
-     * dark (no black rectangular block, no bright matte) but may contain that line.
+     * A fallback tile and a provisional (unverified) clip legitimately draw their
+     * one visible border along the rounded contour, so the corner must be dark
+     * (no rectangular block, no bright matte) but may contain that line.
      */
-    private fun assertFallbackCornersAreDark(image: ImageBitmap, label: String) {
+    private fun assertCornersAreDark(image: ImageBitmap, label: String) {
         cornerBlocks.forEach { (x, y, corner) ->
             val (mean, _) = image.blockStats(x, y, x + 0.014f, y + 0.028f)
             assertTrue("$label $corner corner mean=$mean must be near-black", mean < 40.0)
@@ -226,7 +240,21 @@ class GenreArtworkPixelCalibrationTest {
         rule.waitForIdle()
     }
 
-    @Test fun compatibleTimbaCropHasOneContourAndNoCornerWedges() {
+    /** The chip is anchored 12dp inside the *painted* ArtRect, never a footer. */
+    private fun assertChipInsideArtwork(tileTag: String, frameTag: String, chipTag: String,
+                                        label: String) {
+        val tile = bounds(tileTag)
+        val frame = bounds(frameTag, unmerged = true)
+        val chip = bounds(chipTag, unmerged = true)
+        assertNear("$label chip right edge", frame.right - pxOf(12f), chip.right, pxOf(1.5f))
+        assertNear("$label chip bottom edge", frame.bottom - pxOf(12f), chip.bottom, pxOf(1.5f))
+        assertTrue("$label chip must stay inside the ArtRect: chip=$chip frame=$frame",
+            chip.left >= frame.left && chip.top >= frame.top)
+        assertTrue("$label chip must stay inside the cell: chip=$chip tile=$tile",
+            chip.right <= tile.right + pxOf(0.5f) && chip.bottom <= tile.bottom + pxOf(0.5f))
+    }
+
+    @Test fun verifiedTimbaCropHasOneContourAndNoCornerWedges() {
         setMosaicPanel(411, mosaicTitles)
         rule.waitUntil(20_000) { receipts["FEATURED:timba"] != null }
         assertEquals("Timba must decode", true, receipts["FEATURED:timba"])
@@ -242,14 +270,22 @@ class GenreArtworkPixelCalibrationTest {
         assertTrue("Timba must not duplicate its baked title",
             rule.onAllNodesWithText("Timba", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
 
-        // Numeric chip: bottom-end, 12dp inside the optical contour, no footer.
+        // The frame is the painted ArtRect, centred inside the homogeneous cell.
         val tileBounds = bounds("genre_tile_timba")
-        val chip = bounds("genre_counter_timba", unmerged = true)
-        assertNear("chip right", tileBounds.right - pxOf(12f), chip.right, pxOf(1f))
-        assertNear("chip bottom", tileBounds.bottom - pxOf(12f), chip.bottom, pxOf(1f))
-        assertTrue("chip must not sit in a footer", chip.bottom < tileBounds.bottom - pxOf(4f))
-        assertTrue("chip must be inside the card",
-            chip.left >= tileBounds.left && chip.top >= tileBounds.top)
+        val frame = bounds("genre_art_frame_timba", unmerged = true)
+        val asset = mosaicArtworkForGenre("timba", mosaicAssets)!!
+        assertNear("frame ratio follows the source", asset.ratio, frame.width / frame.height, 0.02f)
+        assertNear("frame is horizontally centred",
+            (tileBounds.width - frame.width) / 2f, frame.left - tileBounds.left, pxOf(1f))
+        assertNear("frame is vertically centred",
+            (tileBounds.height - frame.height) / 2f, frame.top - tileBounds.top, pxOf(1f))
+
+        // Numeric chip: bottom-end inside the optical contour, no footer.
+        assertChipInsideArtwork("genre_tile_timba", "genre_art_frame_timba",
+            "genre_counter_timba", "Timba")
+        assertTrue("chip must not sit in a footer",
+            bounds("genre_counter_timba", unmerged = true).bottom <
+                tileBounds.bottom - pxOf(4f))
         rule.onAllNodes(
             hasText("pistas") and hasAnyAncestor(hasTestTag("genre_tile_timba")),
             useUnmergedTree = true,
@@ -258,43 +294,52 @@ class GenreArtworkPixelCalibrationTest {
         }
     }
 
-    @Test fun incompatibleSheetsFallBackWithoutLetterboxingOrPerAssetHeight() {
+    @Test fun everyPackagedCropPaintsInTheHomogeneousCell() {
         setMosaicPanel(411, mosaicTitles)
         val size = mosaicCardSize(411f, 2)
-        fun expectedArt(title: String): Boolean {
-            val asset = mosaicArtworkForGenre(genreGroupingKey(title), mosaicAssets) ?: return false
-            return ui7RenderOutcome(
-                mosaicVisualSpec(asset, Ui7Treatment.MOSAIC_GRID),
-                Ui7Treatment.MOSAIC_GRID, size.widthDp, size.heightDp,
-                asset.ratio, 46f, 28f,
-            ) == Ui7RenderOutcome.ASSET
-        }
-        assertTrue("Timba 1.404 must fill the 7:5 cell", expectedArt("Timba"))
         mosaicTitles.forEach { title ->
             val id = genreGroupingKey(title)
             rule.onNodeWithTag("genres_featured")
                 .performScrollToNode(hasTestTag("genre_tile_$id"))
             rule.waitForIdle()
+            rule.waitUntil(20_000) { receipts["FEATURED:$id"] != null }
+            assertEquals("$title must decode", true, receipts["FEATURED:$id"])
+
             val tile = bounds("genre_tile_$id")
-            assertNear("$title card height must be the treatment height",
-                size.heightDp, dpOf(tile.height), 1f)
             assertNear("$title card width", size.widthDp, dpOf(tile.width), 1f)
-            val hasArt = rule.onAllNodesWithTag("genre_artwork_$id", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-            val hasTitle = rule.onAllNodes(
-                hasText(title) and hasAnyAncestor(hasTestTag("genre_tile_$id")),
-                useUnmergedTree = true,
-            ).fetchSemanticsNodes().isNotEmpty()
-            // Only crops that fill the 7:5 cell intact may render; the rest are
-            // honest fallbacks with exactly one Compose title.
-            assertEquals("$title art decision", expectedArt(title), hasArt)
-            assertEquals("$title single title", !hasArt, hasTitle)
-            assertNear("$title chip bottom-end", tile.bottom - pxOf(12f),
-                bounds("genre_counter_$id", unmerged = true).bottom, pxOf(1f))
+            assertNear("$title card height", size.heightDp, dpOf(tile.height), 1f)
+            assertTrue("$title must paint its approved crop", hasTag("genre_artwork_$id"))
+            assertFalse("$title must not fall back", hasTag("genre_mosaic_fallback_$id"))
+            assertEquals("$title must not duplicate its baked title", false,
+                composeHasTitle("genre_tile_$id", title))
+            assertChipInsideArtwork("genre_tile_$id", "genre_art_frame_$id",
+                "genre_counter_$id", title)
+
+            val asset = mosaicArtworkForGenre(id, mosaicAssets)!!
+            val decision = ui7ArtworkDecision(
+                mosaicVisualSpec(asset)!!, size.widthDp, size.heightDp, 26f, 26f,
+            )
+            assertEquals("$title must be available", true, decision.paintsArtwork)
+            assertNear("$title frame keeps the source ratio", asset.ratio,
+                bounds("genre_art_frame_$id", unmerged = true).let { it.width / it.height },
+                0.02f)
+        }
+        // The two named corners stay clean on a verified crop; unverified rows are
+        // exercised by the dedicated provisional-contour test.
+        listOf("Timba", "Rumba Cubana").forEach { title ->
+            val id = genreGroupingKey(title)
+            rule.onNodeWithTag("genres_featured")
+                .performScrollToNode(hasTestTag("genre_tile_$id"))
+            rule.waitForIdle()
+            assertNoCornerWedges(rule.onNodeWithTag("genre_tile_$id").captureToImage(), title)
         }
     }
 
-    @Test fun anUnverifiedOpticalRowFallsBackInsteadOfGuessingAFrame() {
+    /**
+     * `verified=0` is QA debt, never an image veto: the crop paints with the
+     * conservative 2px/5% provisional contour and the card records mask_pending.
+     */
+    @Test fun unverifiedOpticalRowPaintsWithTheProvisionalContour() {
         val timba = mosaicAssets.getValue("timba")
         val unverified = timba.copy(opticalMask = timba.opticalMask?.copy(verified = false))
         assertEquals("fixture must have an optical row", true, timba.opticalMask != null)
@@ -307,24 +352,40 @@ class GenreArtworkPixelCalibrationTest {
                         availableWidthDp = 411f,
                         state = rememberLazyGridState(),
                         artwork = mapOf("timba" to unverified),
-                        onArtworkLoad = null,
+                        onArtworkLoad = { view, id, ok -> receipts["${view.name}:$id"] = ok },
                         onOpen = {},
                     )
                 }
             }
         }
         rule.waitForIdle()
-        assertTrue("an unmeasured frame must not be rendered",
-            rule.onAllNodesWithTag("genre_artwork_timba", useUnmergedTree = true)
-                .fetchSemanticsNodes().isEmpty())
-        assertTrue("the fallback keeps the genre visible",
-            rule.onAllNodesWithTag("genre_mosaic_fallback_timba", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty())
+        rule.waitUntil(20_000) { receipts["FEATURED:timba"] != null }
+        assertEquals("an unmeasured frame must not hide the WebP", true,
+            receipts["FEATURED:timba"])
+        assertTrue("the crop must be composed", hasTag("genre_artwork_timba"))
+        assertFalse("no generic card may replace the crop",
+            hasTag("genre_mosaic_fallback_timba"))
+        assertCornersAreDark(rule.onNodeWithTag("genre_tile_timba").captureToImage(),
+            "Timba provisional")
+
+        rule.onNodeWithTag("genres_featured")
+            .performScrollToNode(hasTestTag("genre_tile_timba"))
+        rule.waitForIdle()
+        val spec = mosaicVisualSpec(unverified)!!
+        assertFalse(spec.hasVerifiedContour)
+        assertFalse("the provisional clip is not certified", spec.clipMask.verified)
+        assertEquals(2f, spec.clipMask.leftInsetPx)
+        val size = mosaicCardSize(411f, 2)
+        val decision = ui7ArtworkDecision(spec, size.widthDp, size.heightDp, 26f, 26f)
+        assertTrue(decision.paintsArtwork)
+        assertTrue(decision.quality.opticalMaskUnverified)
+        assertChipInsideArtwork("genre_tile_timba", "genre_art_frame_timba",
+            "genre_counter_timba", "Timba provisional")
         rule.onNodeWithTag("genre_tile_timba")
             .assertContentDescriptionEquals("Abrir género Timba, 3 pistas")
     }
 
-    @Test fun editorialFallbacksUseTreatmentHeightsAndNeverFakePortraits() {
+    @Test fun editorialIsRatioDrivenAndNeverFakesAPortrait() {
         val genres = editorialTitles.map { genre(it) }
         rule.setContent {
             MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
@@ -342,55 +403,87 @@ class GenreArtworkPixelCalibrationTest {
             }
         }
         rule.waitForIdle()
-        val size = editorialCardSize(411f, columns = 2, fontScale = 1f)
-        data class Expected(val title: String, val height: Float)
-        val expected = listOf(
-            Expected("New Wave", size.coverHeightDp),
-            Expected("Pop", size.portraitHeightDp),
-            Expected("Rock", size.portraitHeightDp),
-            Expected("Soft Rock", size.coverHeightDp),
+
+        val plan = editorialPlan(genres, posterAssets, 411f, 2, 1f)
+        // New Wave banner, Pop compact single (Rock is a banner), Rock banner,
+        // Soft Rock+NDW pair, Timba compact single.
+        assertEquals(
+            listOf(EditorialRowKind.BANNER, EditorialRowKind.SINGLE_COMPACT,
+                EditorialRowKind.BANNER, EditorialRowKind.PAIR,
+                EditorialRowKind.SINGLE_COMPACT),
+            plan.map { it.kind },
         )
-        expected.forEach { entry ->
-            val id = genreGroupingKey(entry.title)
-            rule.onNodeWithTag("genres_editorial")
-                .performScrollToNode(hasTestTag("genre_editorial_$id"))
-            rule.waitForIdle()
-            val tile = rule.onNodeWithTag("genre_editorial_$id")
-            tile.assertIsDisplayed()
-            val tileBounds = bounds("genre_editorial_$id")
-            assertNear("${entry.title} height", entry.height, dpOf(tileBounds.height), 1f)
-            // No horizontal sheet is forced into the slot.
-            assertTrue("${entry.title} must not paint a horizontal poster",
-                rule.onAllNodesWithTag("genre_editorial_poster_$id", useUnmergedTree = true)
-                    .fetchSemanticsNodes().isEmpty())
-            assertTrue("${entry.title} must expose the fallback tile",
-                rule.onAllNodesWithTag("genre_editorial_fallback_$id", useUnmergedTree = true)
-                    .fetchSemanticsNodes().isNotEmpty())
-            val image = tile.captureToImage()
-            assertFallbackCornersAreDark(image, "${entry.title} fallback")
-            val chip = bounds("genre_counter_$id", unmerged = true)
-            assertNear("${entry.title} chip bottom-end", tileBounds.bottom - pxOf(12f),
-                chip.bottom, pxOf(1f))
-            assertNear("${entry.title} chip right-end", tileBounds.right - pxOf(12f),
-                chip.right, pxOf(1f))
-            val count = genres.first { it.id == id }.tracks.size
-            tile.assertContentDescriptionEquals(
-                "Abrir género ${entry.title}, $count pistas",
-            )
+        val usable = editorialUsableWidthDp(411f)
+        plan.forEach { row ->
+            when (row) {
+                is EditorialRow.Full -> {
+                    val title = row.piece.genre.title
+                    rule.onNodeWithTag("genres_editorial")
+                        .performScrollToNode(hasTestTag(editorialTileTag(title)))
+                    rule.waitForIdle()
+                    rule.waitUntil(20_000) {
+                        receipts["EDITORIAL:${genreGroupingKey(title)}"] != null
+                    }
+                    val tile = bounds(editorialTileTag(title))
+                    assertNear("$title full width", usable, dpOf(tile.width), 1f)
+                    assertNear("$title height follows its real ratio",
+                        row.piece.heightDp, dpOf(tile.height), 1f)
+                    assertTrue("$title must paint its poster",
+                        hasTag(editorialPosterTag(title)))
+                    assertFalse("$title must not fall back",
+                        hasTag("genre_editorial_fallback_${genreGroupingKey(title)}"))
+                    assertFalse("$title must not add a Compose title",
+                        composeHasTitle(editorialTileTag(title), title))
+                    assertChipInsideArtwork(editorialTileTag(title),
+                        "genre_art_frame_${genreGroupingKey(title)}",
+                        "genre_counter_${genreGroupingKey(title)}", title)
+                }
+                is EditorialRow.Pair -> {
+                    val leading = row.leading.genre.title
+                    val trailing = row.trailing.genre.title
+                    rule.onNodeWithTag("genres_editorial")
+                        .performScrollToNode(hasTestTag(editorialTileTag(leading)))
+                    rule.waitForIdle()
+                    rule.waitUntil(20_000) {
+                        receipts["EDITORIAL:${genreGroupingKey(trailing)}"] != null
+                    }
+                    val left = bounds(editorialTileTag(leading))
+                    val right = bounds(editorialTileTag(trailing))
+                    assertNear("pair shares one top", left.top, right.top, pxOf(1f))
+                    assertNear("pair shares one height", left.height, right.height, pxOf(1f))
+                    assertNear("pair keeps the 10dp gap", pxOf(10f), right.left - left.right,
+                        pxOf(1f))
+                    assertNear("pair fills the usable width", usable,
+                        dpOf(left.width + right.width + pxOf(10f)), 1.5f)
+                    assertNear("$leading proportional width", row.leading.widthDp,
+                        dpOf(left.width), 1f)
+                    assertNear("$trailing proportional width", row.trailing.widthDp,
+                        dpOf(right.width), 1f)
+                    assertTrue("$leading must paint its poster",
+                        hasTag(editorialPosterTag(leading)))
+                    assertTrue("$trailing must paint its poster",
+                        hasTag(editorialPosterTag(trailing)))
+                    assertFalse("$leading must not fall back",
+                        hasTag("genre_editorial_fallback_${genreGroupingKey(leading)}"))
+                    assertFalse("$trailing must not fall back",
+                        hasTag("genre_editorial_fallback_${genreGroupingKey(trailing)}"))
+                }
+            }
         }
-        // Pop and Rock form a real pair: equal height, one row.
-        val pop = bounds("genre_editorial_pop")
-        val rock = bounds("genre_editorial_rock")
-        assertNear("pair shares one top", pop.top, rock.top, pxOf(1f))
-        assertNear("pair shares one height", pop.height, rock.height, pxOf(1f))
-        assertNear("pair shares one width", pop.width, rock.width, pxOf(1f))
-        assertNear("pair keeps the 10dp gap", pxOf(10f), rock.left - pop.right, pxOf(1f))
-        // No technical label is ever visible.
+        // No horizontal sheet is forced into a portrait slot, no technical text.
+        assertFalse("no fake portrait appears", hasTag("genre_editorial_portrait"))
         listOf("PENDIENTE", "NO-GO", "vertical").forEach { word ->
             assertTrue("technical text '$word' must not be visible",
                 rule.onAllNodesWithText(word, substring = true, useUnmergedTree = true)
                     .fetchSemanticsNodes().isEmpty())
         }
+        // Rock has an unverified Editorial optical row: it still paints, with the
+        // provisional contour, and the poster is not withheld.
+        val rock = editorialPosterForTitle("Rock", posterAssets)!!
+        assertFalse("Rock keeps mask debt", editorialVisualSpec(rock)!!.hasVerifiedContour)
+        assertTrue("Rock still paints",
+            rule.onAllNodesWithTag(editorialPosterTag("Rock"), useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun counterChipGrowsWithRealDigitsWithoutTruncation() {
@@ -430,10 +523,16 @@ class GenreArtworkPixelCalibrationTest {
             assertTrue("count $count must be displayed verbatim",
                 rule.onAllNodesWithText(count.toString(), useUnmergedTree = true)
                     .fetchSemanticsNodes().isNotEmpty())
-            assertTrue("count $count chip never collapses", chip.width >= pxOf(28f) - pxOf(1f))
+            assertTrue("count $count chip never collapses below the 24dp contract floor",
+                chip.width >= pxOf(24f) - pxOf(1f) && chip.height >= pxOf(24f) - pxOf(1f))
             if (count >= 100) {
                 assertTrue("wide count ${count} grows the capsule", chip.width > previousWidth)
             }
+            assertFalse("the chip never paints the word 'pistas'",
+                rule.onAllNodes(
+                    hasText("pistas") and hasAnyAncestor(hasTestTag("genre_tile_$id")),
+                    useUnmergedTree = true,
+                ).fetchSemanticsNodes().isNotEmpty())
             previousWidth = chip.width
         }
     }
@@ -575,10 +674,11 @@ class GenreArtworkPixelCalibrationTest {
                         "editorial-${evidenceName(title)}-$corner-400pct-${width}dp-$evidenceScaleTag")
                 }
                 val rect = bounds("genre_editorial_$id")
+                val poster = editorialPosterForTitle(title, posterAssets)
                 boundsLines += "editorial width=${width}dp fontScale=$evidenceFontScale " +
-                    "title=$title size=${dp(rect.width)}x${dp(rect.height)}dp " +
-                    "screenRatio=${screenWidthPx.toFloat() / rect.width} " +
-                    "poster=${rule.onAllNodesWithTag("genre_editorial_poster_$id",
+                    "title=$title tile=${dp(rect.width)}x${dp(rect.height)}dp " +
+                    "poster=${poster?.filename} ratio=${poster?.ratio} " +
+                    "art=${rule.onAllNodesWithTag("genre_editorial_poster_$id",
                         useUnmergedTree = true).fetchSemanticsNodes().size} " +
                     "counter=${bounds("genre_counter_$id", unmerged = true)}"
             }
@@ -589,6 +689,143 @@ class GenreArtworkPixelCalibrationTest {
         )
         assertEquals("every calibration card must produce a bounds line",
             evidenceWidths.size * (mosaicTitles.size + editorialTitles.size), boundsLines.size)
+    }
+
+    /**
+     * Doc §7.3/§7.4 evidence matrix: the real 19-genre library shape rendered by
+     * the production panel at every contract width and text scale. Each capture
+     * proves painting, one frame, no duplicate title, a numeric chip and an
+     * explicit per-genre receipt; both views are captured per scenario.
+     */
+    @Test fun captureNineteenGenreFixtureAcrossWidthsAndFontScales() {
+        assumeTrue("Visual evidence is opt-in: -e michiGenreEvidence true", evidenceEnabled)
+        val directory = File(context.getExternalFilesDir(null), "ui7-rev05-evidence")
+            .apply { mkdirs() }
+        val screenWidthPx = context.resources.displayMetrics.widthPixels
+        val scenarios = evidenceWidths.flatMap { width ->
+            listOf(1f, 1.3f, 1.5f, 2f).map { scale -> width to scale }
+        }
+        val scenario = mutableStateOf(scenarios.first())
+        val genres = genreNineteenFixture()
+        val playableIds = genres.flatMap { it.tracks }.map { it.id }.toSet()
+        val panelReceipts = ConcurrentHashMap<String, Boolean>()
+        val lines = mutableListOf<String>()
+
+        rule.setContent {
+            val (width, scale) = scenario.value
+            val baseConfiguration = LocalConfiguration.current
+            val configuration = remember(width, scale, baseConfiguration) {
+                Configuration(baseConfiguration).apply {
+                    screenWidthDp = width
+                    fontScale = scale
+                }
+            }
+            CompositionLocalProvider(
+                LocalConfiguration provides configuration,
+                LocalDensity provides Density(
+                    density = screenWidthPx.toFloat() / width,
+                    fontScale = scale,
+                ),
+            ) {
+                MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
+                    Box(
+                        Modifier.width(width.dp).fillMaxHeight().background(SurfaceObsidian)
+                            .testTag("ui7_19_root"),
+                    ) {
+                        GenreLibraryPanel(
+                            genres = genres,
+                            playableTrackIds = playableIds,
+                            currentTrack = null,
+                            isPlaying = false,
+                            onPlay = { _, _ -> },
+                            onArtworkLoad = { view, genreId, loaded ->
+                                panelReceipts["${view.name}:$genreId"] = loaded
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        rule.waitForIdle()
+
+        var renderedMode = GenreViewMode.FEATURED
+        fun selectMode(mode: GenreViewMode) {
+            if (renderedMode == mode) return
+            rule.onNodeWithTag("genre_view_selector").performClick()
+            rule.waitForIdle()
+            rule.onNodeWithTag("genre_view_${mode.name.lowercase()}").performClick()
+            rule.onNodeWithTag(if (mode == GenreViewMode.EDITORIAL) "genres_editorial"
+                else "genres_featured").assertIsDisplayed()
+            rule.waitForIdle()
+            renderedMode = mode
+        }
+        fun captureRoot(name: String) {
+            val bitmap = rule.onNodeWithTag("ui7_19_root").captureToImage().asAndroidBitmap()
+            writeBitmap(bitmap, directory, "$name.png")
+            println("UI7_19_EVIDENCE ${File(directory, "$name.png").absolutePath} " +
+                "${bitmap.width}x${bitmap.height}")
+        }
+
+        scenarios.forEach { (width, scale) ->
+            val tag = "fs" + scale.toString().replace(".", "")
+            rule.runOnIdle { scenario.value = width to scale }
+            rule.waitForIdle()
+            val density = screenWidthPx.toFloat() / width
+            fun dp(px: Float): Float = px / density
+
+            selectMode(GenreViewMode.FEATURED)
+            rule.onNodeWithTag("genres_featured")
+                .performScrollToNode(hasTestTag(mosaicTileTag("New Wave")))
+            rule.waitForIdle()
+            captureRoot("mosaico-19-${width}dp-$tag")
+            genreNineteenTitles.forEach { title ->
+                val id = genreGroupingKey(title)
+                rule.onNodeWithTag("genres_featured")
+                    .performScrollToNode(hasTestTag(mosaicTileTag(title)))
+                rule.waitForIdle()
+                assertTrue("[$width/$scale] $title Mosaico must paint",
+                    hasTag("genre_artwork_$id"))
+                assertFalse("[$width/$scale] $title Mosaico must not fall back",
+                    hasTag("genre_mosaic_fallback_$id"))
+                assertFalse("[$width/$scale] $title must not duplicate its title",
+                    composeHasTitle(mosaicTileTag(title), title))
+                val tile = bounds(mosaicTileTag(title))
+                lines += "mosaico\t${width}dp\t$scale\t$title\t${dp(tile.width)}" +
+                    "x${dp(tile.height)}\tart=1\t" +
+                    "receipt=${panelReceipts["FEATURED:$id"]}"
+            }
+
+            selectMode(GenreViewMode.EDITORIAL)
+            rule.onNodeWithTag("genres_editorial")
+                .performScrollToNode(hasTestTag(editorialTileTag("New Wave")))
+            rule.waitForIdle()
+            captureRoot("editorial-19-${width}dp-$tag")
+            genreNineteenTitles.forEach { title ->
+                val id = genreGroupingKey(title)
+                rule.onNodeWithTag("genres_editorial")
+                    .performScrollToNode(hasTestTag(editorialTileTag(title)))
+                rule.waitForIdle()
+                assertTrue("[$width/$scale] $title Editorial must paint",
+                    hasTag(editorialPosterTag(title)))
+                assertFalse("[$width/$scale] $title Editorial must not fall back",
+                    hasTag("genre_editorial_fallback_$id"))
+                assertFalse("[$width/$scale] $title must not duplicate its title",
+                    composeHasTitle(editorialTileTag(title), title))
+                val tile = bounds(editorialTileTag(title))
+                lines += "editorial\t${width}dp\t$scale\t$title\t${dp(tile.width)}" +
+                    "x${dp(tile.height)}\tart=1\t" +
+                    "receipt=${panelReceipts["EDITORIAL:$id"]}"
+            }
+        }
+        File(directory, "bounds-19-genres.tsv").writeText(
+            lines.joinToString("\n") + "\n",
+        )
+        assertEquals("19 genres x 5 widths x 4 scales x 2 views",
+            scenarios.size.toLong() * genreNineteenTitles.size * 2, lines.size.toLong())
+        assertTrue("the Mosaico matrix must decode real crops",
+            panelReceipts.any { it.key.startsWith("FEATURED:") && it.value })
+        assertTrue("the Editorial matrix must decode real posters",
+            panelReceipts.any { it.key.startsWith("EDITORIAL:") && it.value })
     }
 
     // endregion

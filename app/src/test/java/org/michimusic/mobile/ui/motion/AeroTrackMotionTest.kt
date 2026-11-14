@@ -40,6 +40,16 @@ class AeroTrackMotionTest {
         assertNull(aeroTrackArtworkLocalFallback(TrackSource.LOCAL, "//remote/share.mp3"))
     }
 
+    @Test fun fallbackUriPreservesAuthorizedLocalUrisAndDropsRemoteOnes() {
+        assertEquals("content://media/42",
+            aeroTrackArtworkFallbackUri(TrackSource.LOCAL, "content://media/42"))
+        assertEquals("file:///storage/song.flac",
+            aeroTrackArtworkFallbackUri(TrackSource.LOCAL, "file:///storage/song.flac"))
+        assertNull(aeroTrackArtworkFallbackUri(TrackSource.STREAMING, "content://media/42"))
+        assertNull(aeroTrackArtworkFallbackUri(TrackSource.SYNCED, "https://server/song.mp3"))
+        assertNull(aeroTrackArtworkFallbackUri(TrackSource.LOCAL, "//remote/share.mp3"))
+    }
+
     @Test fun immutableSnapshotRemembersProvenance() {
         val t = Track(id = "remote", title = "Live", coverId = "42", source = TrackSource.STREAMING)
         val snapshot = aeroTrackArtSnapshot(t)!!

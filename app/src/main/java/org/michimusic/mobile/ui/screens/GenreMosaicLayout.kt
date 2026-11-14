@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -40,19 +40,17 @@ import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
 
 /**
- * Mosaico destacado composition — homogeneous two-column grid.
+ * Mosaico destacado composition — one homogeneous grid.
  *
- * There is no historical hero: the first genre occupies the first cell and every
- * cell shares the same treatment height (`round(width * 5 / 7)` in two columns,
- * `round(width / 1.6)` in one). The order by track count remains, without medals
- * or invented rankings.
+ * Every visible card of a breakpoint shares exactly the same exterior width and
+ * height ([GENRE_MOSAIC_ASPECT_RATIO] = 1.42). There is no hero: the first genre
+ * occupies the first cell like any other, ordered by real track count.
  *
- * A compatible finished WebP is a single visual piece: its calibrated optical
- * outline is the only frame, its baked title is the only visible title and the
- * numeric chip is the only overlay. Incompatible sources use the view-specific
- * Compose fallback instead of being cropped or stretched.
+ * The WebP keeps its own proportions inside the cell (Fit); the measured optical
+ * contour is applied to the painted rect and is the only visible frame. A source
+ * whose ratio differs from 1.42 still paints — the residual area is recorded as
+ * aspect debt, never replaced by a generic card and never turned into a footer.
  */
-@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun GenreMosaicGrid(
     genres: List<LibraryGenre>,
@@ -63,8 +61,7 @@ internal fun GenreMosaicGrid(
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)?,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
-    treatment: Ui7Treatment = if (columns >= 2) Ui7Treatment.MOSAIC_GRID
-    else Ui7Treatment.SINGLE_COLUMN,
+    loading: Boolean = false,
 ) {
     if (genres.isEmpty()) return
     LazyVerticalGrid(
@@ -86,16 +83,14 @@ internal fun GenreMosaicGrid(
         gridItems(genres, key = { it.id }, contentType = { columns }) { genre ->
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val widthDp = maxWidth.value
-                val heightDp = if (columns >= 2) widthDp * 5f / 7f else widthDp / 1.6f
+                val heightDp = widthDp / GENRE_MOSAIC_ASPECT_RATIO
                 GenreMosaicCard(
                     genre = genre,
-                    cardWidthDp = widthDp,
-                    cardHeightDp = heightDp,
-                    treatment = treatment,
-                    mosaicAsset = mosaicArtworkForGenre(genre.id, artwork),
+                    mosaicAsset = if (loading) null else mosaicArtworkForGenre(genre.id, artwork),
                     onArtworkLoad = onArtworkLoad,
                     onOpen = { onOpen(genre.id) },
                     modifier = Modifier.fillMaxWidth().height(heightDp.dp),
+                    loading = loading,
                 )
             }
         }
@@ -109,104 +104,98 @@ internal fun genreCardLabel(genre: LibraryGenre): String =
 @Composable
 private fun GenreMosaicCard(
     genre: LibraryGenre,
-    cardWidthDp: Float,
-    cardHeightDp: Float,
-    treatment: Ui7Treatment,
     mosaicAsset: MosaicArtworkAsset?,
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)?,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
+    loading: Boolean = false,
 ) {
-    val highContrast = LocalVisualPreferences.current.highContrast
-    val spec = mosaicVisualSpec(mosaicAsset, treatment)
-    val chip = rememberGenreCounterSize(genre.tracks.size)
-    val outcome = ui7RenderOutcome(
-        spec = spec,
-        treatment = treatment,
-        cardWidthDp = cardWidthDp,
-        cardHeightDp = cardHeightDp,
-        sourceRatio = mosaicAsset?.ratio ?: 1f,
-        chipWidthDp = chip.widthDp,
-        chipHeightDp = chip.heightDp,
-    )
-    val compatible = outcome == Ui7RenderOutcome.ASSET
+    val spec = remember(mosaicAsset) { mosaicVisualSpec(mosaicAsset) }
     var decodeFailed by remember(mosaicAsset?.filename) { mutableStateOf(false) }
-    LaunchedEffect(mosaicAsset?.filename, outcome) {
-        if (mosaicAsset != null && !compatible) {
-            GenreArtworkDiagnostics.unsupportedAspect(
-                view = "MOSAIC",
-                filename = mosaicAsset.filename,
-                sourceRatio = mosaicAsset.ratio,
-                targetWidthDp = cardWidthDp,
-                targetHeightDp = cardHeightDp,
-            )
-            GenreArtworkDiagnostics.renderOutcome("MOSAIC", mosaicAsset.filename, outcome)
-        }
+    if (loading) {
+        GenreMosaicSkeletonCard(genre = genre, onOpen = onOpen, modifier = modifier)
+        return
     }
-    val accent = if (highContrast) PureWhite else genreAccent(genre)
-    if (!compatible || decodeFailed || mosaicAsset == null || spec == null) {
+    if (spec == null || mosaicAsset == null || decodeFailed) {
+        LaunchedEffect(mosaicAsset?.filename, decodeFailed) {
+            if (mosaicAsset == null) GenreArtworkDiagnostics.assetUnmapped("MOSAIC")
+        }
         GenreMosaicFallbackCard(
             genre = genre,
-            accent = accent,
             onOpen = onOpen,
             modifier = modifier,
         )
-    } else {
-        val mask = spec.opticalMask
-        val shape = remember(spec.fileName, mask) {
-            mask?.let { Ui7OpticalFrameShape(spec.widthPx, spec.heightPx, it) }
-        } ?: RoundedCornerShape(14.dp)
-        var focused by remember { mutableStateOf(false) }
-        Box(
-            modifier
-                .clip(shape)
-                .clickable(role = Role.Button, onClick = onOpen)
-                .onFocusChanged { focused = it.isFocused }
-                .semantics(mergeDescendants = true) {
-                    contentDescription = genreCardLabel(genre)
-                }
-                .testTag("genre_tile_${genre.id}"),
-        ) {
-            GenreArtworkPlaceholder(accent)
-            GenreMosaicArtwork(
-                asset = mosaicAsset,
-                genreId = genre.id,
-                accent = accent,
-                modifier = Modifier.fillMaxSize(),
-                onImageResult = { ok ->
-                    if (!ok) decodeFailed = true
-                    onArtworkLoad?.let { notify -> notify(GenreViewMode.FEATURED, genre.id, ok) }
-                },
-            )
-            GenreCounterChip(
-                count = genre.tracks.size,
-                testTag = "genre_counter_${genre.id}",
-                modifier = Modifier.align(Alignment.BottomEnd).padding(
-                    end = GENRE_COUNTER_INSET_DP.dp,
-                    bottom = GENRE_COUNTER_INSET_DP.dp,
-                ),
-            )
-            if (focused) {
-                Box(
-                    Modifier.fillMaxSize().border(
-                        width = 2.dp,
-                        color = PureWhite.copy(alpha = 0.92f),
-                        shape = shape,
-                    ),
-                )
-            }
-        }
+        return
+    }
+    GenreArtworkSurface(
+        spec = spec,
+        genre = genre,
+        count = genre.tracks.size,
+        view = "MOSAIC",
+        testTag = "genre_tile_${genre.id}",
+        modifier = modifier,
+        onOpen = onOpen,
+    ) { artModifier ->
+        GenreMosaicArtwork(
+            asset = mosaicAsset,
+            genreId = genre.id,
+            accent = if (LocalVisualPreferences.current.highContrast) PureWhite
+            else genreAccent(genre),
+            modifier = artModifier,
+            onImageResult = { ok ->
+                if (!ok) decodeFailed = true
+                onArtworkLoad?.let { notify -> notify(GenreViewMode.FEATURED, genre.id, ok) }
+            },
+        )
     }
 }
 
-/** Live Compose fallback: one silhouette, real title bottom-start, number bottom-end. */
+/**
+ * Transient loading cell: the real homogeneous geometry and real count, neutral
+ * art plane and no invented title. It exists only until the one-shot manifest
+ * read finishes and never publishes an empty catalog as final.
+ */
 @Composable
-private fun GenreMosaicFallbackCard(
+private fun GenreMosaicSkeletonCard(
     genre: LibraryGenre,
-    accent: Color,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val accent = if (LocalVisualPreferences.current.highContrast) PureWhite else genreAccent(genre)
+    Box(
+        modifier
+            .background(SurfaceObsidian)
+            .clickable(role = Role.Button, onClick = onOpen)
+            .semantics(mergeDescendants = true) {
+                contentDescription = genreCardLabel(genre)
+            }
+            .testTag("genre_tile_${genre.id}"),
+    ) {
+        GenreArtworkPlaceholder(accent, Modifier.fillMaxSize())
+        GenreCounterChip(
+            count = genre.tracks.size,
+            testTag = "genre_counter_${genre.id}",
+            modifier = Modifier.align(Alignment.BottomEnd).padding(
+                end = GENRE_COUNTER_INSET_DP.dp,
+                bottom = GENRE_COUNTER_INSET_DP.dp,
+            ),
+        )
+    }
+}
+
+/**
+ * Live Compose fallback for a genre with no packaged artwork (or a real decode
+ * failure). One silhouette, real title bottom-start, number bottom-end, no
+ * technical label and the same exterior cell as every other card.
+ */
+@Composable
+private fun GenreMosaicFallbackCard(
+    genre: LibraryGenre,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val accent = if (highContrast) PureWhite else genreAccent(genre)
     val shape = RoundedCornerShape(14.dp)
     var focused by remember { mutableStateOf(false) }
     Box(

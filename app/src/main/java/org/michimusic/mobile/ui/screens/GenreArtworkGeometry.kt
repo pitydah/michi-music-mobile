@@ -1,15 +1,17 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.Alignment
-import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Artwork geometry for the UI7 contract.
  *
- * Compatible assets fill their treatment exactly. This file reports where a
- * `ContentScale.Fit` bitmap lands so the renderer can reject a source that would
- * leave a visible matte or require a destructive crop, and so the numeric chip can
- * be anchored to the *artwork* border rather than to a larger box.
+ * The WebP is always fitted with one uniform scale: no `FillBounds`, no stretch
+ * and no destructive crop. This file reports where the bitmap actually lands so
+ * the renderer can clip the *painted* rect, anchor the numeric chip to the real
+ * artwork border and record the residual band as `aspect_debt_dp` — never as a
+ * reason to hide the image.
  */
 internal data class GenreArtworkRect(
     val left: Float,
@@ -47,26 +49,33 @@ internal fun genreArtworkFitRect(
 internal fun GenreArtworkRect.offsetBy(dxDp: Float, dyDp: Float): GenreArtworkRect =
     GenreArtworkRect(left + dxDp, top + dyDp, right + dxDp, bottom + dyDp)
 
-/** Fit always: no approved UI7 artwork may be cropped. */
+/** Fit always: no approved UI7 artwork may be cropped or stretched. */
 internal const val GENRE_ARTWORK_CONTENT_SCALE_FIT = true
 
-/** Maximum tolerated empty band (dp) before an asset is incompatible. */
-internal const val GENRE_ARTWORK_FIT_TOLERANCE_DP = 1.5f
-
 /**
- * True when a finished asset can fill [targetWidthDp] x [targetHeightDp] without
- * a destructive crop and without a visible empty band. The check is pure: it uses
- * the declared source ratio, never a runtime pixel scan.
+ * Residual band (dp per side) left by an intact Fit inside a fixed cell. Above
+ * [GENRE_ASPECT_DEBT_THRESHOLD_DP] the resource is recorded as `aspect_debt_dp`
+ * and blocked for artistic approval; it is still painted.
  */
-internal fun genreArtworkFitsWithoutDamage(
-    targetWidthDp: Float,
-    targetHeightDp: Float,
+internal const val GENRE_ASPECT_DEBT_THRESHOLD_DP = 2f
+
+internal fun aspectDebtPerSideDp(
+    cellWidthDp: Float,
+    cellHeightDp: Float,
+    artRect: GenreArtworkRect,
+): Float = max(
+    (cellWidthDp - artRect.width) / 2f,
+    (cellHeightDp - artRect.height) / 2f,
+).coerceAtLeast(0f)
+
+/** Convenience overload used by the pure decision and by tests. */
+internal fun aspectDebtPerSideDp(
+    cellWidthDp: Float,
+    cellHeightDp: Float,
     assetRatio: Float?,
-    toleranceDp: Float = GENRE_ARTWORK_FIT_TOLERANCE_DP,
-): Boolean {
-    val rect = genreArtworkFitRect(targetWidthDp, targetHeightDp, assetRatio) ?: return false
-    return abs(rect.width - targetWidthDp) <= toleranceDp &&
-        abs(rect.height - targetHeightDp) <= toleranceDp
+): Float {
+    val rect = genreArtworkFitRect(cellWidthDp, cellHeightDp, assetRatio) ?: return 0f
+    return aspectDebtPerSideDp(cellWidthDp, cellHeightDp, rect)
 }
 
 /**
@@ -154,8 +163,13 @@ internal fun normalizedBottomEndChipBox(
 }
 
 /**
- * Checks the chip against the asset's verified bottom-end region and every
- * protected rect, with an additional 4dp safety margin around faces/titles.
+ * True when the chip fits the asset's documented bottom-end region without
+ * touching a protected art region, with a 4dp safety margin.
+ *
+ * This is a *quality* answer only: `false` records `counter_pending` and the
+ * bitmap keeps painting. The chip region documented for the 312-resource family
+ * is a family-wide approximate region, not a per-subject measurement, so it can
+ * never be used as an image veto.
  */
 internal fun counterPlacementIsSafe(
     spec: Ui7VisualAssetSpec,
@@ -171,14 +185,28 @@ internal fun counterPlacementIsSafe(
     if (!safe.contains(box)) return false
     val marginX = 4f / artworkWidthDp
     val marginY = 4f / artworkHeightDp
-    return spec.protectedRects.none { protected ->
-        protected.intersects(
-            NormalizedRect(
-                (box.left - marginX).coerceIn(0f, 1f),
-                (box.top - marginY).coerceIn(0f, 1f),
-                (box.right + marginX).coerceIn(0f, 1f),
-                (box.bottom + marginY).coerceIn(0f, 1f),
-            ),
-        )
-    }
+    val padded = NormalizedRect(
+        (box.left - marginX).coerceIn(0f, 1f),
+        (box.top - marginY).coerceIn(0f, 1f),
+        (box.right + marginX).coerceIn(0f, 1f),
+        (box.bottom + marginY).coerceIn(0f, 1f),
+    )
+    return spec.protectedRects.none { protected -> protected.intersects(padded) }
+}
+
+/**
+ * True when a chip of [chipWidthDp] x [chipHeightDp] still fits inside the
+ * painted rect with the documented 10..12dp inset. Used to hide only the
+ * overlay (never the bitmap) on an extremely thin banner.
+ */
+internal fun counterFitsInsideArtwork(
+    artworkWidthDp: Float,
+    artworkHeightDp: Float,
+    chipWidthDp: Float,
+    chipHeightDp: Float,
+): Boolean {
+    if (artworkWidthDp <= 0f || artworkHeightDp <= 0f) return false
+    val inset = min(GENRE_COUNTER_INSET_DP.toFloat(), 10f)
+    return artworkWidthDp - 2 * inset >= chipWidthDp &&
+        artworkHeightDp - 2 * inset >= chipHeightDp
 }

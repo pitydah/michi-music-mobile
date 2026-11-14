@@ -86,6 +86,44 @@ internal fun genreLayoutFixture(): GenreLayoutFixture {
     )
 }
 
+/**
+ * Rev05 evidence matrix: the 19 real genres required by doc §7.4 (the six cards
+ * named by the user plus the shapes that already appear in the phone fixture and
+ * the contract examples). All of them have an approved crop and poster, so the
+ * matrix measures painting, not fallback.
+ */
+internal val genreNineteenTitles = listOf(
+    "New Wave", "Pop", "Rock", "Soft Rock", "Synth-Pop", "NDW", "Art Rock",
+    "Soul", "Ambient", "Blues", "Clásica", "Folk", "Jazz", "Metal", "Tango",
+    "Timba", "Rumba Cubana", "Salsa", "Bachata",
+)
+
+/**
+ * Track counts mirror the recorded library: New Wave carries 14 songs on 14
+ * albums and Pop 5; the rest keep two or three songs so the panel order is
+ * decided by real counts (never by the artwork manifest).
+ */
+internal fun genreNineteenFixture(): List<LibraryGenre> {
+    val tracks = mutableListOf<Track>()
+    fun add(title: String, count: Int, albums: Int, prefix: String) {
+        repeat(count) { index ->
+            tracks += genreLayoutTrack(
+                id = "$prefix$index",
+                title = "$title ${index + 1}",
+                genre = title,
+                albumId = "${prefix}_album_${index % albums}",
+                album = "$title Album ${index % albums + 1}",
+            )
+        }
+    }
+    add("New Wave", 14, 14, "nw")
+    add("Pop", 5, 5, "pop")
+    genreNineteenTitles.drop(2).forEachIndexed { index, title ->
+        add(title, 2 + index % 2, 2, "g19_$index")
+    }
+    return genresByTrackCount(groupLibraryGenres(tracks))
+}
+
 /** Canonical grouping key used by both production test tags. */
 internal fun genreLayoutId(title: String): String = genreGroupingKey(title)
 

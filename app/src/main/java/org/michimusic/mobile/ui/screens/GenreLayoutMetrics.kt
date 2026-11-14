@@ -14,19 +14,41 @@ import kotlin.math.roundToInt
  * 20dp side gutters, 10dp gaps, 4dp top and 28dp bottom padding are fixed. Only
  * the column count is adaptive: two columns require a 156dp legibility floor and
  * a measured numeric-chip width, so 320/360dp panels stay single-column and
- * 390/411/480 pair. The height of every cell comes from the treatment, never
- * from an asset's native ratio.
+ * 390/411/480 pair.
+ *
+ * Mosaico always uses the homogeneous 1.42 cell in one and two columns. Editorial
+ * no longer has per-treatment fixed heights: its geometry comes from each real
+ * file ratio through [editorialPlan].
  */
 internal const val GENRE_GRID_SIDE_PADDING_DP = 20
 internal const val GENRE_GRID_GAP_DP = 10
 internal const val GENRE_GRID_TOP_PADDING_DP = 4
 internal const val GENRE_GRID_BOTTOM_PADDING_DP = 28
 
+/** Homogeneous Mosaico cell: every card of a breakpoint shares W and H = W / 1.42. */
+internal const val GENRE_MOSAIC_ASPECT_RATIO = 1.42f
+
 /** Artwork + numeric-chip legibility floor for a compact (two-column) card. */
 internal const val GENRE_COMPACT_TILE_MIN_WIDTH_DP = 156
 
 /** Horizontal breathing room inside a Compose fallback caption. */
 internal const val GENRE_CARD_TEXT_PADDING_DP = 12
+
+/** Editorial class boundaries (doc §3.2). */
+internal const val EDITORIAL_COMPACT_MIN_RATIO = 1.40f
+internal const val EDITORIAL_COMPACT_MAX_RATIO = 2.40f
+
+/** Minimum legible width of each piece of an Editorial pair at fontScale 1. */
+internal const val EDITORIAL_PAIR_MIN_WIDTH_DP = 150f
+
+/** Extra pair minimum per unit of font scale above 1, up to 2x (doc §3.3 E2). */
+internal const val EDITORIAL_PAIR_MIN_WIDTH_GROWTH_DP = 32f
+
+/**
+ * Nominal ratio used only by a fallback cell whose genre has no packaged poster.
+ * It is never applied to a real asset, whose own ratio always wins.
+ */
+internal const val EDITORIAL_FALLBACK_RATIO = 1.70f
 
 /** Widest supported count ("1234") measured for the chip floor. */
 private const val genreCountSample = "1234"
@@ -44,46 +66,12 @@ internal data class GenreMosaicCardSize(val widthDp: Float, val heightDp: Float)
 internal fun mosaicCardSize(availableWidthDp: Float, columns: Int): GenreMosaicCardSize {
     require(columns >= 1)
     val usable = (availableWidthDp - 2 * GENRE_GRID_SIDE_PADDING_DP).coerceAtLeast(1f)
-    return if (columns >= 2) {
-        val width = ((usable - GENRE_GRID_GAP_DP) / 2f).coerceAtLeast(1f)
-        GenreMosaicCardSize(width, (width * 5f / 7f))
-    } else {
-        GenreMosaicCardSize(usable, usable / 1.60f)
-    }
-}
-
-/** Cover and portrait widths for the Editorial wall at the current panel width. */
-internal data class GenreEditorialCardSize(
-    val coverWidthDp: Float,
-    val portraitWidthDp: Float,
-    val coverHeightDp: Float,
-    val portraitHeightDp: Float,
-    val singleHeightDp: Float,
-)
-
-internal fun editorialCardSize(
-    availableWidthDp: Float,
-    columns: Int,
-    fontScale: Float,
-): GenreEditorialCardSize {
-    require(columns >= 1)
-    val usable = (availableWidthDp - 2 * GENRE_GRID_SIDE_PADDING_DP).coerceAtLeast(1f)
-    val portrait = if (columns >= 2) {
+    val width = if (columns >= 2) {
         ((usable - GENRE_GRID_GAP_DP) / 2f).coerceAtLeast(1f)
     } else {
         usable
     }
-    return GenreEditorialCardSize(
-        coverWidthDp = usable,
-        portraitWidthDp = portrait,
-        coverHeightDp = genreEditorialHeightDp(GenreEditorialTreatment.COVER, columns, fontScale)
-            .toFloat(),
-        portraitHeightDp =
-            genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, columns, fontScale)
-                .toFloat(),
-        singleHeightDp =
-            genreEditorialHeightDp(GenreEditorialTreatment.COVER, 1, fontScale).toFloat(),
-    )
+    return GenreMosaicCardSize(width, width / GENRE_MOSAIC_ASPECT_RATIO)
 }
 
 /**
