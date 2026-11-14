@@ -133,6 +133,7 @@ fun AeroSegmentedChoice(
     treatment: AeroSegmentTreatment = AeroSegmentTreatment.Rail,
     compact: Boolean = false,
     testTag: String? = null,
+    enabled: Boolean = true,
 ) {
     val visual = LocalVisualPreferences.current
     val contrast = visual.highContrast
@@ -169,6 +170,7 @@ fun AeroSegmentedChoice(
             .clip(shape)
             .selectable(
                 selected = selected,
+                enabled = enabled,
                 role = if (treatment == AeroSegmentTreatment.Rail) Role.Tab else Role.Button,
                 onClick = onClick,
             )

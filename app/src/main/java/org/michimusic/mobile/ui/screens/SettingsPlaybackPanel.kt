@@ -196,6 +196,7 @@ internal fun SettingsPlaybackPanel() {
                                                 org.michimusic.mobile.ui.components.AeroSegmentedChoice(
                                                     label = label,
                                                     selected = selectedMode == mode,
+                                                    enabled = !pending,
                                                     onClick = { if (!pending) persistMode(mode) },
                                                     modifier = Modifier.weight(1f),
                                                     treatment = org.michimusic.mobile.ui.components.AeroSegmentTreatment.Filter,
