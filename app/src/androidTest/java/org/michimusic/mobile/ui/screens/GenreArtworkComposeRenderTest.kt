@@ -161,7 +161,13 @@ class GenreArtworkComposeRenderTest {
         assertEquals("Editorial Jazz failed inside GenreLibraryPanel", true, receipts["EDITORIAL:jazz"])
     }
 
-    @Test fun finishedEditorialTilesRespectCanonicalSlotHeight() {
+    /**
+     * Completed posters are horizontal assets. A fixed canonical height forced the
+     * bitmap to letterbox inside tall/wide cells (large empty bands). The cell now
+     * derives its height from the approved asset ratio while ContentScale.Fit keeps
+     * the cat/lettering undeformed. This check fails on the fixed-height layout.
+     */
+    @Test fun editorialPosterTilesTakeTheirAssetAspectWithoutEmptyBands() {
         val rock = LibraryGenre("rock", "Rock", emptyList(), albumCount = 0)
         val jazz = LibraryGenre("jazz", "Jazz", emptyList(), albumCount = 0)
         rule.setContent {
@@ -169,20 +175,33 @@ class GenreArtworkComposeRenderTest {
                 Box(Modifier.width(350.dp)) {
                     GenreEditorialPosterTile(rock,
                         EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280),
-                        slot = editorialSlot(0, 2), onOpen = {})
+                        onOpen = {})
                 }
                 Box(Modifier.width(170.dp)) {
                     GenreEditorialPosterTile(jazz,
                         EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327),
-                        slot = editorialSlot(1, 2), onOpen = {})
+                        onOpen = {})
                 }
             }
         }
-        val hero = rule.onNodeWithTag("genre_editorial_rock").fetchSemanticsNode().boundsInRoot
-        val portrait = rule.onNodeWithTag("genre_editorial_jazz").fetchSemanticsNode().boundsInRoot
-        // Compare relative dp heights: density cancels. A ratio-driven poster card
-        // would be roughly half as high and this check would fail on actual Android.
-        assertTrue("Invalid Editorial heights: hero=${hero.height}, portrait=${portrait.height}",
-            abs(hero.height / portrait.height - (192f / 246f)) < 0.08f)
+        rule.waitForIdle()
+        val oneDp = with(rule.density) { 1.dp.toPx() }
+        fun assertCellMatchesAsset(tileTag: String, posterTag: String, ratio: Float) {
+            val tile = rule.onNodeWithTag(tileTag).fetchSemanticsNode().boundsInRoot
+            val image = rule.onNodeWithTag(posterTag, useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot
+            val emptyVertical = (image.height - image.width / ratio).coerceAtLeast(0f)
+            val emptyHorizontal = (image.width - image.height * ratio).coerceAtLeast(0f)
+            assertTrue("$posterTag does not fill its cell width: tile=$tile image=$image",
+                abs(image.width - tile.width) <= oneDp)
+            assertTrue("$posterTag has empty bands: vertical=" +
+                "${emptyVertical / rule.density.density}dp horizontal=" +
+                "${emptyHorizontal / rule.density.density}dp in $image",
+                emptyVertical <= oneDp && emptyHorizontal <= oneDp)
+            assertTrue("$posterTag aspect ${image.width / image.height} != $ratio",
+                abs(image.width / image.height - ratio) <= 0.02f)
+        }
+        assertCellMatchesAsset("genre_editorial_rock", "genre_editorial_poster_rock", 1027f / 280f)
+        assertCellMatchesAsset("genre_editorial_jazz", "genre_editorial_poster_jazz", 513f / 327f)
     }
 }

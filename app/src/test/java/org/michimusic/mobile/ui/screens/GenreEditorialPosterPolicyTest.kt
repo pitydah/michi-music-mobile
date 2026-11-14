@@ -27,6 +27,32 @@ class GenreEditorialPosterPolicyTest {
         assertEquals(1, editorialPosterSpan(1, panoramic))
         assertEquals(1, editorialPosterSpan(2, null))
     }
+
+    /**
+     * The Editorial grid must widen a cell from the approved poster ratio, not
+     * from the positional COVER/LEFT/RIGHT rhythm. A panoramic poster sitting in
+     * a one-column PORTRAIT slot becomes full width; a compact poster in a COVER
+     * slot keeps the canonical two-column cover instead of being narrowed.
+     */
+    @Test fun editorialSlotSpanWidensOnlyForPanoramicPosters() {
+        val wide = EditorialPosterAsset("clasica", "genre_clasica_editorial.webp", 1032, 255)
+        val compact = EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327)
+        val almostWide = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 239, 100)
+        // Real catalogue geometry: Clásica is 4.05:1 and lands on index 2
+        // (PORTRAIT_RIGHT), which used to force a one-column strip.
+        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(2, 2), wide))
+        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(1, 2), wide))
+        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(0, 2), wide))
+        // Normal posters keep the canonical rhythm.
+        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(0, 2), compact))
+        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(1, 2), compact))
+        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(2, 2), compact))
+        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(1, 2), almostWide))
+        // Single-column layouts cannot widen, and a missing poster keeps the slot.
+        assertEquals(1, editorialPosterSlotSpan(1, editorialSlot(1, 1), wide))
+        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(0, 2), null))
+        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(1, 2), null))
+    }
     @Test fun invalidPosterCatalogFailsClosed() {
         val name = "genre_new_wave_editorial.webp"
         val valid = editorialPosterManifestHeader + "\n" + record() + "\n"

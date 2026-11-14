@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Spacer
@@ -310,13 +311,16 @@ fun GenreLibraryPanel(
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 visibleGenres.forEachIndexed { index, genre ->
-                                    // The canonical COVER / LEFT / RIGHT rhythm is fixed
-                                    // by the slot, never by the horizontal source crop.
+                                    // The canonical COVER / LEFT / RIGHT rhythm sets the
+                                    // baseline span, but the approved poster ratio can widen
+                                    // it: a ~4:1 poster inside one column rendered as a short
+                                    // strip and left the rest of the row empty.
                                     val slot = editorialSlot(index, columns)
-                                    item(key = genre.id, span = { GridItemSpan(slot.span) }) {
-                                        val poster = editorialPosterForTitle(genre.title, posterAssets)
+                                    val poster = editorialPosterForTitle(genre.title, posterAssets)
+                                    val span = editorialPosterSlotSpan(columns, slot, poster)
+                                    item(key = genre.id, span = { GridItemSpan(span) }) {
                                         if (poster != null) {
-                                            GenreEditorialPosterTile(genre, poster, slot,
+                                            GenreEditorialPosterTile(genre, poster,
                                                 onArtworkLoad = onArtworkLoad,
                                                 onOpen = { openGenre(genre.id) })
                                         } else {
@@ -544,11 +548,15 @@ private fun GenreModeToolbar(
 private fun GenreSearchField(query: String, onQueryChange: (String) -> Unit) {
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    // This field is a bounded row inside the overview Column, not a flexible child.
+    // An unbounded heightIn(min = 52.dp) let the BasicTextField decoration inherit the
+    // column's remaining height (2113 px on a 1080x2400 device) and starved the
+    // LazyVerticalGrid to zero, so no genre card could be displayed.
     AeroSurface(
         role = AeroSurfaceRole.Content,
         finish = AeroFinish.Inset,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
-            .heightIn(min = 52.dp).testTag("genres_search_field"),
+            .heightIn(min = 52.dp, max = 64.dp).testTag("genres_search_field"),
         shape = MichiShapes.md,
         borderStroke = BorderStroke(
             width = if (LocalVisualPreferences.current.highContrast) 1.2.dp else .65.dp,
@@ -557,7 +565,8 @@ private fun GenreSearchField(query: String, onQueryChange: (String) -> Unit) {
         ),
         contentAlignment = Alignment.CenterStart,
     ) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 12.dp),
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).wrapContentHeight()
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Filled.Search, contentDescription = null,
@@ -576,7 +585,9 @@ private fun GenreSearchField(query: String, onQueryChange: (String) -> Unit) {
                     .semantics { contentDescription = "Buscar géneros en esta biblioteca" }
                     .testTag("genres_search_input"),
                 decorationBox = { input ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                    // Wrap the input; fillMaxSize here re-inflated the field to the
+                    // column's maximum height instead of its own content height.
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                         if (query.isEmpty()) {
                             Text("Buscar géneros", style = MichiTypography.metadata,
                                 color = TextSecondary)

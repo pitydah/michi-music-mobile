@@ -32,6 +32,17 @@ internal fun editorialPosterSpan(columns: Int, poster: EditorialPosterAsset?): I
     return if (columns > 1 && poster != null && poster.ratio >= 2.4f) columns else 1
 }
 
+/** Final Editorial span: the approved poster ratio can only widen a cell.
+ * A panoramic poster in a PORTRAIT slot takes the whole row (a single column
+ * renders it as a short strip); a compact poster never narrows a canonical
+ * COVER cell, so the ONE/COVER/LEFT/RIGHT rhythm stays intact for normal art.
+ */
+internal fun editorialPosterSlotSpan(
+    columns: Int,
+    slot: GenreEditorialSlot,
+    poster: EditorialPosterAsset?,
+): Int = maxOf(slot.span, editorialPosterSpan(columns, poster))
+
 /** Fail closed atomically: a malformed row invalidates the whole poster catalog.
  * File bytes and SHA-256 are checked at Android build time, not on UI thread.
  */
