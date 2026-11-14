@@ -1,6 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -29,7 +30,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.components.AeroSurface
+import org.michimusic.mobile.ui.theme.AeroSurfaceRole
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
@@ -37,18 +39,20 @@ import org.michimusic.mobile.ui.theme.PureWhite
 /**
  * Mosaico destacado composition.
  *
- * One full-width focal card (218dp) followed by a calm compact grid of 166dp
+ * One full-width focal card (218dp) followed by a compact grid of artwork-driven
  * cards. Both sizes share one approved crop and one continuous surface: no
  * footer band, no `SurfaceObsidian` caption strip, no separator, no eyebrow, no
  * arrow and no second title. The approved WebP already carries the genre title
  * and its frame, so Compose draws neither; the only live overlay is the real
- * scoped track count inside the artwork (focal card) or on the card's continuous
- * surface under the artwork band (compact card).
+ * scoped track count, placed inside the artwork when its verified top-right safe
+ * region fits and on the card's continuous surface otherwise.
  *
  * The artwork is never stretched, cropped, zoomed or blurred: the whole approved
- * frame is kept with `Fit` and the remaining area is the card's own designed
- * surface. A missing or undecodable asset keeps the accessible label/count and
- * falls back to a live Compose title instead of an unlabeled card.
+ * frame is mounted 8dp inside the rounded card (`Fit`) so the clip cannot cut the
+ * baked frame, and the compact card takes the artwork's own proportional height
+ * instead of reserving a bottom counter band. A missing or undecodable asset
+ * keeps the accessible label/count and falls back to a live Compose title instead
+ * of an unlabeled card.
  */
 @Composable
 internal fun GenreMosaicGrid(
@@ -122,25 +126,34 @@ private fun GenreMosaicHero(
     }
     val showComposeTitle = spec.title == GenreTitlePresentation.COMPOSE_TITLE || artworkUnavailable
     val height = genreMosaicHeroHeightDp(fontScale)
-    AeroCard(
-        modifier = Modifier.fillMaxWidth().height(height.dp)
-            .testTag("genre_tile_${genre.id}")
-            .semantics(mergeDescendants = true) {
-                contentDescription = genreCardLabel(genre)
-            },
-        onClick = onOpen,
-    ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val artworkRect = genreArtworkFitRect(maxWidth.value, maxHeight.value, mosaicAsset?.ratio)
-            GenreMosaicArtwork(
-                asset = mosaicAsset,
-                genreId = genre.id,
-                accent = accent,
-                onImageResult = { ok ->
-                    artworkUnavailable = !ok
-                    onArtworkLoad?.let { notify -> notify(GenreViewMode.FEATURED, genre.id, ok) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cardWidth = maxWidth.value
+        val cardHeight = height.toFloat()
+        AeroSurface(
+            role = AeroSurfaceRole.Raised,
+            modifier = Modifier.fillMaxWidth().height(height.dp)
+                .testTag("genre_tile_${genre.id}")
+                .semantics(mergeDescendants = true) {
+                    contentDescription = genreCardLabel(genre)
                 },
-            )
+            onClick = onOpen,
+            // The approved bitmap owns the only visible frame. Suppress the idle
+            // Aero hairline so the card cannot read as a second frame around the
+            // baked one; the focus ring still appears for keyboard/accessibility.
+            borderStroke = if (highContrast) null else BorderStroke(0.dp, Color.Transparent),
+        ) {
+            val mount = GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()
+            Box(Modifier.fillMaxSize().padding(mount.dp)) {
+                GenreMosaicArtwork(
+                    asset = mosaicAsset,
+                    genreId = genre.id,
+                    accent = accent,
+                    onImageResult = { ok ->
+                        artworkUnavailable = !ok
+                        onArtworkLoad?.let { notify -> notify(GenreViewMode.FEATURED, genre.id, ok) }
+                    },
+                )
+            }
             if (showComposeTitle) {
                 Text(
                     genre.title,
@@ -153,10 +166,15 @@ private fun GenreMosaicHero(
                         .fillMaxWidth(GENRE_HERO_TITLE_WIDTH_FRACTION),
                 )
             }
+            val artworkRect = genreMosaicArtworkRect(
+                containerWidthDp = cardWidth,
+                containerHeightDp = cardHeight,
+                assetRatio = mosaicAsset?.ratio,
+            )
             val placement = genreCounterPlacement(
                 anchor = spec.counterAnchor,
-                containerWidthDp = maxWidth.value,
-                containerHeightDp = maxHeight.value,
+                containerWidthDp = cardWidth,
+                containerHeightDp = cardHeight,
                 artworkRect = artworkRect?.takeIf { rect ->
                     counterFitsSafeRegion(
                         spec = spec,
@@ -200,29 +218,30 @@ private fun GenreMosaicSecondary(
         mutableStateOf(mosaicAsset == null)
     }
     val showComposeTitle = spec.title == GenreTitlePresentation.COMPOSE_TITLE || artworkUnavailable
-    val height = genreMosaicSecondaryHeightDp(fontScale)
-    AeroCard(
-        modifier = Modifier.fillMaxWidth().height(height.dp)
-            .testTag("genre_tile_${genre.id}")
-            .semantics(mergeDescendants = true) {
-                contentDescription = genreCardLabel(genre)
-            },
-        onClick = onOpen,
-    ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            // The artwork band keeps the whole approved frame; the count chip
-            // lives on the same continuous surface below it, never in a detached
-            // footer with its own background or separator.
-            val reserve = genreCounterReserveDp(fontScale)
-            val bandHeight = genreArtworkBandHeightDp(
-                widthDp = maxWidth.value,
-                assetRatio = mosaicAsset?.ratio,
-                maxHeightDp = (maxHeight.value - reserve).coerceAtLeast(0f),
-            )
-            Box(
-                Modifier.align(Alignment.TopStart).fillMaxWidth().height(bandHeight.dp)
-                    .testTag("genre_artwork_${genre.id}"),
-            ) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cardWidth = maxWidth.value
+        val mount = GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()
+        val innerWidth = (cardWidth - 2 * mount).coerceAtLeast(1f)
+        // The compact card takes the artwork's proportional height. There is no
+        // reserved counter band and no tall fixed card with the image confined to
+        // a top strip: the crop fills the visual area minus its 8dp mounts.
+        val cardHeight = if (mosaicAsset != null) {
+            (2 * mount + innerWidth / mosaicAsset.ratio)
+                .coerceAtLeast(GENRE_ARTWORK_MIN_CARD_HEIGHT_DP.toFloat())
+        } else {
+            genreMosaicSecondaryHeightDp(fontScale).toFloat()
+        }
+        AeroSurface(
+            role = AeroSurfaceRole.Raised,
+            modifier = Modifier.fillMaxWidth().height(cardHeight.dp)
+                .testTag("genre_tile_${genre.id}")
+                .semantics(mergeDescendants = true) {
+                    contentDescription = genreCardLabel(genre)
+                },
+            onClick = onOpen,
+            borderStroke = if (highContrast) null else BorderStroke(0.dp, Color.Transparent),
+        ) {
+            Box(Modifier.fillMaxSize().padding(mount.dp)) {
                 GenreMosaicArtwork(
                     asset = mosaicAsset,
                     genreId = genre.id,
@@ -250,14 +269,52 @@ private fun GenreMosaicSecondary(
                         ),
                 )
             }
+            val artworkRect = genreMosaicArtworkRect(
+                containerWidthDp = cardWidth,
+                containerHeightDp = cardHeight,
+                assetRatio = mosaicAsset?.ratio,
+            )
+            val placement = genreCounterPlacement(
+                anchor = spec.counterAnchor,
+                containerWidthDp = cardWidth,
+                containerHeightDp = cardHeight,
+                artworkRect = artworkRect?.takeIf { rect ->
+                    counterFitsSafeRegion(
+                        spec = spec,
+                        artworkWidthDp = rect.width,
+                        artworkHeightDp = rect.height,
+                        chipWidthDp = chip.widthDp,
+                        chipHeightDp = chip.heightDp,
+                    )
+                },
+                chip = chip,
+            )
             GenreCounterChip(
                 count = count,
                 testTag = "genre_counter_${genre.id}",
-                modifier = Modifier.align(Alignment.BottomEnd)
-                    .padding(GENRE_COUNTER_INSET_DP.dp),
+                modifier = Modifier.align(spec.counterAnchor.toAlignment())
+                    .padding(
+                        start = placement.startDp.dp,
+                        top = placement.topDp.dp,
+                        end = placement.endDp.dp,
+                        bottom = placement.bottomDp.dp,
+                    ),
             )
         }
     }
+}
+
+/** Artwork rect in card coordinates after the 8dp unclipped matte mount. */
+private fun genreMosaicArtworkRect(
+    containerWidthDp: Float,
+    containerHeightDp: Float,
+    assetRatio: Float?,
+): GenreArtworkRect? {
+    val mount = GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()
+    val innerWidth = (containerWidthDp - 2 * mount).coerceAtLeast(1f)
+    val innerHeight = (containerHeightDp - 2 * mount).coerceAtLeast(1f)
+    return genreArtworkFitRect(innerWidth, innerHeight, assetRatio)
+        ?.offsetBy(mount, mount)
 }
 
 /** The focal title never spans the whole card: it leaves the count chip clear. */

@@ -48,21 +48,9 @@ internal fun genreArtworkFitRect(
     }
 }
 
-/**
- * Height of a full-width artwork band that keeps the whole frame and stays above
- * the reserved count-chip surface. Invalid geometry falls back to [maxHeightDp]
- * so a malformed declaration can never produce a zero-height or cropped band.
- */
-internal fun genreArtworkBandHeightDp(
-    widthDp: Float,
-    assetRatio: Float?,
-    maxHeightDp: Float,
-): Float {
-    if (!maxHeightDp.isFinite() || maxHeightDp <= 0f) return 0f
-    if (!widthDp.isFinite() || widthDp <= 0f) return maxHeightDp
-    if (assetRatio == null || !assetRatio.isFinite() || assetRatio <= 0f) return maxHeightDp
-    return minOf(widthDp / assetRatio, maxHeightDp)
-}
+/** Translate a fit rect into the coordinate space of its parent container. */
+internal fun GenreArtworkRect.offsetBy(dxDp: Float, dyDp: Float): GenreArtworkRect =
+    GenreArtworkRect(left + dxDp, top + dyDp, right + dxDp, bottom + dyDp)
 
 /** Fit always: no approved UI7 artwork may be cropped. */
 internal const val GENRE_ARTWORK_CONTENT_SCALE_FIT = true

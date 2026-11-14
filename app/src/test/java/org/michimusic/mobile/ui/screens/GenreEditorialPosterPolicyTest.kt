@@ -34,11 +34,13 @@ class GenreEditorialPosterPolicyTest {
     }
 
     /**
-     * The old defect: card height came from the poster's own panorama ratio, so a
-     * paired Pop (514x268) rendered 88.6dp next to a Rock (1027x280) at 46.3dp in
-     * the same 170dp slot. Treatment heights fix the exterior rhythm.
+     * Historical posters are horizontal, so they must keep their own compact
+     * proportional height. A paired Pop (514x268) is ~132dp and Rock (1027x280)
+     * ~91dp at a 180.5dp half cell, never a forced 246dp column with a large
+     * empty band below the sheet. The 246dp treatment remains the *cap* for a
+     * genuinely vertical asset, and still sizes Compose-drawn cells.
      */
-    @Test fun pairedPosterCardsShareOneTreatmentHeightNotTheirAssetRatio() {
+    @Test fun horizontalPosterCardsTakeCompactProportionalHeightsNot246dp() {
         assertEquals(192, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 1f))
         assertEquals(246, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f))
         assertEquals(246, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_RIGHT, 2, 1f))
@@ -47,32 +49,42 @@ class GenreEditorialPosterPolicyTest {
             genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f),
             genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_RIGHT, 2, 1f),
         )
-        // Text scale may grow the card, never the artwork ratio.
+        // Text scale may grow a Compose-drawn card, never the poster ratio.
         assertEquals(216, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 2f))
         assertEquals(270, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 2f))
         val inner = 180.5f - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP
-        val popRatio = 514f / 268f
-        val rockRatio = 1027f / 280f
-        assertTrue("ratio-driven heights must differ", inner / popRatio - inner / rockRatio > 30f)
-        assertTrue(genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f) >= 48)
+        val chip = 26f
+        val popBand = editorialPosterBandHeightDp(inner, 10_000f, 514f / 268f)
+        val rockBand = editorialPosterBandHeightDp(inner, 10_000f, 1027f / 280f)
+        val popCard = editorialPosterCardHeightDp(popBand, chip)
+        val rockCard = editorialPosterCardHeightDp(rockBand, chip)
+        assertTrue("Pop must be a compact poster card, not 246dp: $popCard", popCard < 246f)
+        assertTrue("Rock must be a compact poster card, not 246dp: $rockCard", rockCard < 246f)
+        assertEquals(16f + popBand + 4f + chip, popCard, 0.05f)
+        assertEquals(16f + rockBand + 4f + chip, rockCard, 0.05f)
+        // The compact cards keep the approved poster ratio and their full band.
+        assertTrue(popBand > rockBand + 30f)
     }
 
-    @Test fun posterBandKeepsTheWholePosterAndReservesTheCountSurface() {
+    @Test fun posterBandKeepsTheWholePosterAndOnlyAVerticalAssetUsesTheSlot() {
         fun assertNear(expected: Float, actual: Float) {
             assertTrue("expected=$expected actual=$actual",
                 kotlin.math.abs(expected - actual) <= 0.05f)
         }
         // 180.5dp half cell: the inner mount leaves 164.5dp for the poster.
         val inner = 180.5f - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP
-        assertNear(inner * 268f / 514f, editorialPosterBandHeightDp(inner, 192f, 514f / 268f))
-        assertNear(inner * 280f / 1027f, editorialPosterBandHeightDp(inner, 192f, 1027f / 280f))
-        // A poster that would need more than the treatment surface is clamped, not
-        // cropped: 355dp inner width, 1.918:1 needs 185.1dp and fits under 192dp.
-        assertNear(355f / (514f / 268f), editorialPosterBandHeightDp(355f, 192f, 514f / 268f))
-        assertNear(138f, editorialPosterBandHeightDp(355f, 138f, 514f / 268f))
-        // Invalid geometry keeps the reserved band instead of a broken card.
-        assertNear(192f, editorialPosterBandHeightDp(0f, 192f, 2f))
-        assertNear(192f, editorialPosterBandHeightDp(355f, 192f, Float.NaN))
+        assertNear(inner * 268f / 514f, editorialPosterBandHeightDp(inner, 10_000f, 514f / 268f))
+        assertNear(inner * 280f / 1027f, editorialPosterBandHeightDp(inner, 10_000f, 1027f / 280f))
+        // Only a vertical asset is capped by the treatment slot (246 - 16 - 4 - 26).
+        val verticalMax = editorialPosterTreatmentBandMaxDp(246f, 26f)
+        assertNear(200f, verticalMax)
+        assertNear(200f, editorialPosterBandHeightDp(154f, verticalMax, 0.75f))
+        // Nothing is cropped: a 1.9:1 sheet in a 154dp inner width keeps 80.3dp.
+        assertNear(154f / (514f / 268f), editorialPosterBandHeightDp(154f, verticalMax, 514f / 268f))
+        // Invalid geometry falls back to the caller's cap, never a negative or
+        // broken band; a zero cap keeps the cell at zero.
+        assertNear(200f, editorialPosterBandHeightDp(0f, 200f, 2f))
+        assertNear(200f, editorialPosterBandHeightDp(355f, 200f, Float.NaN))
         assertNear(0f, editorialPosterBandHeightDp(355f, 0f, 2f))
     }
 

@@ -1,11 +1,13 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
@@ -54,6 +56,11 @@ internal fun rememberGenreCounterMaxSize(): GenreCounterSize {
  * padding, 7dp radius and a translucent obsidian backing so it stays legible on
  * any artwork without covering it with a full-width gradient or a footer band.
  * Callers own placement (12dp from the optical border) and the test tag.
+ *
+ * The surface is a [Box] around the label, not the label itself: a caller that
+ * constrains the chip to the documented counter height (the Editorial count row)
+ * gets a pill of exactly that height with a vertically centred label, while an
+ * unconstrained overlay keeps the packed label + padding size.
  */
 @Composable
 internal fun GenreCounterChip(
@@ -61,12 +68,7 @@ internal fun GenreCounterChip(
     modifier: Modifier = Modifier,
     testTag: String? = null,
 ) {
-    Text(
-        text = genreCounterLabel(count),
-        style = MichiTypography.metadata,
-        color = TextSecondary,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+    Box(
         modifier = modifier
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .clip(RoundedCornerShape(GENRE_COUNTER_RADIUS_DP.dp))
@@ -75,5 +77,14 @@ internal fun GenreCounterChip(
                 horizontal = GENRE_COUNTER_HORIZONTAL_PADDING_DP.dp,
                 vertical = GENRE_COUNTER_VERTICAL_PADDING_DP.dp,
             ),
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = genreCounterLabel(count),
+            style = MichiTypography.metadata,
+            color = TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

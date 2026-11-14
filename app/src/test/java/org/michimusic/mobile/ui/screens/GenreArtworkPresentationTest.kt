@@ -72,10 +72,15 @@ class GenreArtworkPresentationTest {
         val spec = mosaicPresentationSpec(rockCrop)
         // 316x218 artwork, 90x26 chip: 12dp inside the artwork border, top-right.
         assertTrue(counterFitsSafeRegion(spec, 316f, 218f, 90f, 26f))
-        // A chip that would reach past the artwork edge or the title band is
-        // rejected so the caller uses the conservative card placement.
+        // The compact Mosaico card (180x119 artwork) with the measured 60x22.4
+        // chip must also fit. The probe may not add a margin of its own, or the
+        // same chip lands 12dp from the card at some widths and 20dp at others.
+        assertTrue(counterFitsSafeRegion(spec, 180.38f, 119.1f, 60f, 22.4f))
+        // A chip that would reach past the artwork edge, the title band or the
+        // safe band height is rejected so the caller uses the card placement.
         assertFalse(counterFitsSafeRegion(spec, 316f, 218f, 320f, 26f))
         assertFalse(counterFitsSafeRegion(spec, 316f, 218f, 90f, 218f))
+        assertFalse(counterFitsSafeRegion(spec, 180.38f, 119.1f, 60f, 40f))
         assertFalse(counterFitsSafeRegion(spec, 0f, 218f, 90f, 26f))
         assertFalse(counterFitsSafeRegion(spec, Float.NaN, 218f, 90f, 26f))
     }
@@ -102,7 +107,6 @@ class GenreArtworkPresentationTest {
         assertEquals(7, GENRE_COUNTER_RADIUS_DP)
         assertEquals(8, GENRE_COUNTER_HORIZONTAL_PADDING_DP)
         assertEquals(4, GENRE_COUNTER_VERTICAL_PADDING_DP)
-        assertEquals(8, GENRE_COUNTER_BREATHING_DP)
         assertEquals("1 pista", genreCounterLabel(1))
         assertEquals("5 pistas", genreCounterLabel(5))
     }

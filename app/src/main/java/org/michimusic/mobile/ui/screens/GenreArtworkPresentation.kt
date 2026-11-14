@@ -75,7 +75,11 @@ internal data class GenreArtworkPresentationSpec(
     val counterAnchor: GenreOverlayAnchor,
     val opticalFrame: NormalizedRect = NormalizedRect.FULL,
     val safeCounterRegion: NormalizedRect = NormalizedRect.FULL,
-    /** The portrait slot has no approved vertical artwork yet. */
+    /**
+     * Technical inventory state only: the portrait slot has no approved vertical
+     * artwork yet. It is reported by tests/diagnostics and is never rendered as a
+     * visible warning, label or placeholder inside a card.
+     */
     val pendingVerticalAsset: Boolean = false,
 )
 
@@ -88,16 +92,20 @@ internal const val GENRE_COUNTER_INSET_DP = 12
 internal const val GENRE_COUNTER_RADIUS_DP = 7
 internal const val GENRE_COUNTER_HORIZONTAL_PADDING_DP = 8
 internal const val GENRE_COUNTER_VERTICAL_PADDING_DP = 4
-/** Minimum breathing room between the count chip and the artwork/title. */
-internal const val GENRE_COUNTER_BREATHING_DP = 8
 
 /** `MichiTypography.metadata` lineHeight is 16sp; two extra dp absorb font metrics. */
 internal fun genreCounterHeightDp(fontScale: Float): Float =
     16f * fontScale.coerceIn(1f, 3f) + 2f * GENRE_COUNTER_VERTICAL_PADDING_DP + 2f
 
-/** Surface kept free under an artwork band for the chip, its inset and its gap. */
-internal fun genreCounterReserveDp(fontScale: Float): Float =
-    GENRE_COUNTER_INSET_DP + genreCounterHeightDp(fontScale) + GENRE_COUNTER_BREATHING_DP
+/**
+ * Matte inset shared by both approved packs. It keeps the card's rounded clip
+ * outside the baked frame so no card corner can cut the approved artwork. The
+ * leftover surface is the card's one continuous background, never a footer.
+ */
+internal const val GENRE_ARTWORK_MOUNT_INSET_DP = 8
+
+/** Minimum touch height for an artwork-driven compact card. */
+internal const val GENRE_ARTWORK_MIN_CARD_HEIGHT_DP = 48
 
 /**
  * Verified Mosaico counter region for the approved crop family.
@@ -145,9 +153,11 @@ internal fun mosaicPresentationSpec(asset: MosaicArtworkAsset?): GenreArtworkPre
 
 /**
  * Editorial: an approved poster is a complete poster, so Compose draws no title
- * and no border. Paired portrait slots still hold a landscape sheet, because the
- * approved pack contains no vertical artwork; the card is marked
- * `PENDIENTE DE RECURSO VERTICAL APROBADO` instead of faking a vertical crop.
+ * and no border. Paired portrait slots currently hold a landscape sheet because
+ * the approved pack contains no vertical artwork. That incompatibility is
+ * recorded in [GenreArtworkPresentationSpec.pendingVerticalAsset] for the
+ * technical report/tests, never as visible card text: the UI keeps the whole
+ * poster at a compact, proportional size instead of forcing a portrait slot.
  */
 internal fun editorialPresentationSpec(
     poster: EditorialPosterAsset?,
@@ -178,6 +188,11 @@ internal fun editorialPresentationSpec(
  * True when a [chipWidthDp] x [chipHeightDp] chip placed at the spec's anchor
  * stays inside the documented safe region. Callers use this to decide between
  * the in-artwork placement and the conservative continuous-surface placement.
+ *
+ * The probe uses exactly the inset [genreCounterPlacement] applies (12dp from
+ * the artwork border). It must not add a second margin of its own: a stricter
+ * probe than the placement makes the same chip flip between the artwork anchor
+ * and the card surface as the card width changes.
  */
 internal fun counterFitsSafeRegion(
     spec: GenreArtworkPresentationSpec,
@@ -193,9 +208,8 @@ internal fun counterFitsSafeRegion(
     val insetDp = GENRE_COUNTER_INSET_DP.toFloat()
     val right = (artworkWidthDp - insetDp) / artworkWidthDp
     val left = (artworkWidthDp - insetDp - chipWidthDp) / artworkWidthDp
-    val insetY = GENRE_COUNTER_BREATHING_DP.toFloat()
-    val top = (insetY + GENRE_COUNTER_INSET_DP) / artworkHeightDp
-    val bottom = (insetY + GENRE_COUNTER_INSET_DP + chipHeightDp) / artworkHeightDp
+    val top = insetDp / artworkHeightDp
+    val bottom = (insetDp + chipHeightDp) / artworkHeightDp
     if (left < 0f || top < 0f || right > 1f || bottom > 1f) return false
     val chip = NormalizedRect(left, top, right, bottom)
     return spec.safeCounterRegion.contains(chip)

@@ -1,7 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -26,15 +25,24 @@ class GenreArtworkGeometryTest {
         assertNear(371f - (371f - 218f * ratio) / 2f, rect.right)
     }
 
-    @Test fun compactCropKeepsItsWholeFrameAboveTheCountSurface() {
-        // 411dp panel: 180.5dp compact card, 166dp tall: the crop is
-        // height-limited, so the matte is above and below, never a crop.
+    @Test fun compactCropKeepsItsWholeFrameWithoutReservingABottomBand() {
+        // A 1.4375 crop in the compact card's square-ish inner box is
+        // width-limited; the matte is the card's own surface, never a reserved
+        // counter band or a cropped bitmap.
         val ratio = 506f / 352f
-        val rect = genreArtworkFitRect(180.5f, 166f, ratio)!!
-        val height = 180.5f / ratio
-        assertNear(180.5f, rect.width)
-        assertNear(height, rect.height)
-        assertNear((166f - height) / 2f, rect.top)
+        val rect = genreArtworkFitRect(164.5f, 114.4f, ratio)!!
+        assertNear(164.5f, rect.width)
+        assertNear(164.5f / ratio, rect.height)
+        assertNear(0f, rect.top)
+    }
+
+    @Test fun artworkRectCanBeTranslatedIntoTheCardSpaceAfterTheMount() {
+        val rect = genreArtworkFitRect(164.5f, 100f, 1.645f)!!
+        val mounted = rect.offsetBy(8f, 8f)
+        assertNear(rect.left + 8f, mounted.left)
+        assertNear(rect.top + 8f, mounted.top)
+        assertNear(rect.right + 8f, mounted.right)
+        assertNear(rect.bottom + 8f, mounted.bottom)
     }
 
     @Test fun invalidGeometryNeverProducesAStretchedRect() {
@@ -44,21 +52,6 @@ class GenreArtworkGeometryTest {
         assertNull(genreArtworkFitRect(371f, 218f, 0f))
         assertNull(genreArtworkFitRect(371f, 218f, Float.NaN))
         assertNull(genreArtworkFitRect(Float.POSITIVE_INFINITY, 218f, 1.4f))
-    }
-
-    @Test fun artworkBandKeepsTheWholeFrameAndReservesTheCountSurface() {
-        // Compact card 180.5dp wide, 122dp kept above the chip reserve: the
-        // approved 1.4375 crop would need 125.6dp, so it is clamped (scaled down
-        // inside the band, never cropped).
-        assertNear(122f, genreArtworkBandHeightDp(180.5f, 506f / 352f, 122f))
-        assertNear(180.5f / (506f / 352f),
-            genreArtworkBandHeightDp(180.5f, 506f / 352f, 200f))
-        // A 1.918:1 poster in a 355dp band needs 185.1dp and must not be clamped.
-        assertNear(355f / (514f / 268f), genreArtworkBandHeightDp(355f, 514f / 268f, 138f * 2f))
-        // Invalid declaration keeps the full reserved band instead of a broken card.
-        assertNear(138f, genreArtworkBandHeightDp(355f, null, 138f))
-        assertNear(138f, genreArtworkBandHeightDp(355f, Float.NaN, 138f))
-        assertNear(0f, genreArtworkBandHeightDp(355f, 1.9f, 0f))
     }
 
     @Test fun focalCountChipSitsTwelveDpInsideTheArtworkBorder() {
@@ -102,12 +95,25 @@ class GenreArtworkGeometryTest {
         assertEquals(0f, degenerate.topDp)
     }
 
-    @Test fun editorialPosterBandNeverExceedsTheTreatmentSurface() {
-        // Rock 1027x280 in a 180.5dp half cell: the band is width-limited.
-        val rock = genreArtworkBandHeightDp(164f, 1027f / 280f, 192f)
-        assertNear(164f * 280f / 1027f, rock)
-        // Pop 514x268 would be 164/1.918 = 85.5dp, not the old 88.6dp exterior cell.
-        assertNear(164f * 268f / 514f, genreArtworkBandHeightDp(164f, 514f / 268f, 192f))
-        assertNotNull(rock)
+    @Test fun compactPosterCardHeightNeverForcesATallEmptyBand() {
+        // Pop 514x268 in a 154dp inner half cell: the poster is 80.3dp tall and
+        // the card is that band + mounts + gap + one 26dp count row.
+        val popBand = editorialPosterBandHeightDp(154f, 10_000f, 514f / 268f)
+        assertNear(154f * 268f / 514f, popBand)
+        assertNear(16f + popBand + 4f + 26f, editorialPosterCardHeightDp(popBand, 26f))
+        // Rock 1027x280 stays even more compact; it is not stretched to 246dp.
+        val rockBand = editorialPosterBandHeightDp(154f, 10_000f, 1027f / 280f)
+        assertNear(154f * 280f / 1027f, rockBand)
+        assertTrue(editorialPosterCardHeightDp(rockBand, 26f) < 246f)
+    }
+
+    @Test fun verticalPosterMayUseTheTreatmentSlotButHistoricalSheetsDoNot() {
+        // A real vertical asset is capped by the portrait treatment: the band is
+        // treatment - mounts - gap - count row, never a forced panorama band.
+        val verticalBandMax = editorialPosterTreatmentBandMaxDp(246f, 26f)
+        assertNear(200f, verticalBandMax)
+        assertNear(200f, editorialPosterBandHeightDp(154f, verticalBandMax, 0.75f))
+        // A 2000:1 malformed declaration is not used to invent a band.
+        assertTrue(editorialPosterBandHeightDp(154f, verticalBandMax, 0f) == verticalBandMax)
     }
 }

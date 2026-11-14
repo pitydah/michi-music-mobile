@@ -29,10 +29,14 @@ internal fun editorialPosterForTitle(
 /**
  * A poster is an authentic *vertical* resource when its declared proportions are
  * portrait. The approved pack is 1.4..4.5:1 (horizontal sheets only), so every
- * portrait Editorial slot is currently `PENDIENTE DE RECURSO VERTICAL APROBADO`.
+ * portrait Editorial slot currently records
+ * [GenreArtworkPresentationSpec.pendingVerticalAsset] in the technical report.
  */
 internal val EditorialPosterAsset.isVertical: Boolean
     get() = widthPx.toFloat() / heightPx.toFloat() < 1f
+
+/** Minimum interactive height for one Editorial poster cell. */
+internal const val EDITORIAL_POSTER_MIN_HEIGHT_DP = 48f
 
 /**
  * Mount inset that keeps the approved baked frame away from the card's own clip.
@@ -45,13 +49,17 @@ internal val EditorialPosterAsset.isVertical: Boolean
  */
 internal const val EDITORIAL_POSTER_MOUNT_INSET_DP = 8
 
+/** Breathing room between the poster and its integrated count row. */
+internal const val EDITORIAL_POSTER_COUNTER_GAP_DP = 4
+
 /**
- * Height of the full-width poster band inside a treatment-height card.
+ * Height of the poster band inside an Editorial poster card.
  *
- * The band keeps the whole poster (`Fit`, never a false vertical crop) and never
- * runs into the reserved count-chip surface. The *card* height comes from the
- * treatment, not from this ratio: that is what keeps a paired Pop (514x268) and
- * Rock (1027x280) at one equal exterior height instead of 88.6dp vs 46.3dp.
+ * A historical horizontal poster keeps its whole frame (`Fit`, never a false
+ * vertical crop) at the proportional height `innerWidth / ratio`. Only an
+ * actually vertical asset may use [maxBandHeightDp], which the renderer derives
+ * from the 192/246 treatment slot. The old forced 246dp surface for a horizontal
+ * sheet is therefore not reproduced.
  */
 internal fun editorialPosterBandHeightDp(
     innerWidthDp: Float,
@@ -62,6 +70,43 @@ internal fun editorialPosterBandHeightDp(
     if (!innerWidthDp.isFinite() || innerWidthDp <= 0f) return maxBandHeightDp
     if (!posterRatio.isFinite() || posterRatio <= 0f) return maxBandHeightDp
     return minOf(innerWidthDp / posterRatio, maxBandHeightDp)
+}
+
+/**
+ * Compact poster card height: the two 8dp mounts, the uncropped poster band, a
+ * 4dp association gap and the count row. It is deliberately driven by the
+ * approved poster ratio, so a landscape sheet never sits inside a 246dp column
+ * with a large empty band above its counter.
+ */
+internal fun editorialPosterCardHeightDp(
+    bandHeightDp: Float,
+    chipHeightDp: Float,
+    mountInsetDp: Int = EDITORIAL_POSTER_MOUNT_INSET_DP,
+    counterGapDp: Int = EDITORIAL_POSTER_COUNTER_GAP_DP,
+): Float {
+    if (!bandHeightDp.isFinite() || bandHeightDp <= 0f || !chipHeightDp.isFinite() ||
+        chipHeightDp <= 0f
+    ) return EDITORIAL_POSTER_MIN_HEIGHT_DP
+    return (2 * mountInsetDp + bandHeightDp + counterGapDp + chipHeightDp)
+        .coerceAtLeast(EDITORIAL_POSTER_MIN_HEIGHT_DP)
+}
+
+/**
+ * Maximum band height available inside a treatment slot, after its mounts, the
+ * association gap and the count row. Used only to cap an authentic vertical
+ * asset; a horizontal poster is never forced into this slot.
+ */
+internal fun editorialPosterTreatmentBandMaxDp(
+    treatmentHeightDp: Float,
+    chipHeightDp: Float,
+    mountInsetDp: Int = EDITORIAL_POSTER_MOUNT_INSET_DP,
+    counterGapDp: Int = EDITORIAL_POSTER_COUNTER_GAP_DP,
+): Float {
+    if (!treatmentHeightDp.isFinite() || treatmentHeightDp <= 0f ||
+        !chipHeightDp.isFinite() || chipHeightDp <= 0f
+    ) return EDITORIAL_POSTER_MIN_HEIGHT_DP
+    return (treatmentHeightDp - 2 * mountInsetDp - counterGapDp - chipHeightDp)
+        .coerceAtLeast(EDITORIAL_POSTER_MIN_HEIGHT_DP)
 }
 
 /** Posters >= 2.4:1 are the approved panoramic sheets; the layout keeps them in

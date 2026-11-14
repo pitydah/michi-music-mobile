@@ -18,6 +18,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -176,12 +177,12 @@ class GenreArtworkComposeRenderTest {
     }
 
     /**
-     * P0 regression: the old cell height came from the approved asset ratio, so a
-     * paired Pop (514x268) rendered 88.6dp next to a Rock (1027x280) at 46.3dp in
-     * the same 170dp slot. Heights must come from the treatment (cover 192dp,
-     * portrait pair 246dp) while the whole poster stays uncropped inside the card.
+     * P0 hotfix regression: c3afb53 forced every portrait slot to 246dp even
+     * though the approved pack is horizontal. Historical posters must drive a
+     * compact proportional card (whole frame + 4dp gap + count row), and only an
+     * authentic vertical asset may use the 246dp treatment cap.
      */
-    @Test fun editorialPosterCardsUseTreatmentHeightsAndKeepTheWholePoster() {
+    @Test fun editorialPosterCardsUseCompactProportionalHeightsAndKeepTheWholePoster() {
         val rock = LibraryGenre("rock", "Rock", emptyList(), albumCount = 0)
         val pop = LibraryGenre("pop", "Pop", emptyList(), albumCount = 0)
         val rockPoster = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280)
@@ -215,18 +216,36 @@ class GenreArtworkComposeRenderTest {
             slotNode(wrapper, "genre_editorial_poster_$genreId")
         fun tileOf(wrapper: String, genreId: String) =
             slotNode(wrapper, "genre_editorial_$genreId")
+        fun counterOf(wrapper: String, genreId: String) =
+            slotNode(wrapper, "genre_counter_$genreId")
+
+        fun expectedCardHeight(cellWidthDp: Float, ratio: Float): Float {
+            val band = editorialPosterBandHeightDp(
+                cellWidthDp - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP, 10_000f, ratio,
+            )
+            return editorialPosterCardHeightDp(band, 26f)
+        }
 
         val cover = tileOf("rock_cover", "rock")
-        assertEquals("cover must be the 192dp treatment", 192f, dpOf(cover.height), 0.5f)
-        val left = tileOf("rock_pair", "rock")
-        assertEquals("portrait must be the 246dp treatment", 246f, dpOf(left.height), 0.5f)
-        assertNear("cover must stay wider than a paired cell", 0f, dpOf(cover.width) - 350f, 0.5f)
-        assertNear("paired cells must keep the 170dp slot", 0f, dpOf(left.width) - 170f, 0.5f)
-        // The same genre in a 170dp pair cell must not shrink to its asset ratio.
         val pairRock = tileOf("rock_pair", "rock")
         val pairPop = tileOf("pop_pair", "pop")
-        assertNear("paired cards must share one exterior height", pairRock.height,
-            pairPop.height, oneDp)
+        assertNear("cover must take the compact proportional height",
+            expectedCardHeight(350f, rockPoster.ratio), dpOf(cover.height), 1f)
+        assertNear("rock pair must take its compact proportional height",
+            expectedCardHeight(170f, rockPoster.ratio), dpOf(pairRock.height), 1f)
+        assertNear("pop pair must take its compact proportional height",
+            expectedCardHeight(170f, popPoster.ratio), dpOf(pairPop.height), 1f)
+        assertTrue("portrait cards must not be forced to 246dp: rock=${dpOf(pairRock.height)}",
+            dpOf(pairRock.height) < 246f)
+        assertTrue("portrait cards must not be forced to 246dp: pop=${dpOf(pairPop.height)}",
+            dpOf(pairPop.height) < 246f)
+        assertNear("cover must stay full width", 350f, dpOf(cover.width), 0.5f)
+        assertNear("paired cells must keep the 170dp slot", 170f, dpOf(pairRock.width), 0.5f)
+        assertNear("paired cells share one width", dpOf(pairRock.width), dpOf(pairPop.width), 0.5f)
+        // The pair is not stretched to a common height; each card ends just under
+        // its own poster, so there is no empty band between poster and counter.
+        assertTrue("rock and pop must not be padded to a shared tall height",
+            abs(dpOf(pairRock.height) - dpOf(pairPop.height)) > 20f)
 
         // The whole poster is preserved: its displayed box keeps the asset ratio
         // and never exceeds the card's mount.
@@ -240,17 +259,22 @@ class GenreArtworkComposeRenderTest {
             assertEquals("${slot.wrapper} poster must keep its approved aspect",
                 slot.ratio, poster.width / poster.height, 0.02f)
             val tile = tileOf(slot.wrapper, slot.genreId)
+            val counter = counterOf(slot.wrapper, slot.genreId)
             assertTrue(
                 "${slot.wrapper} poster must fit inside the mounted card: poster=$poster tile=$tile",
                 poster.width <= tile.width - 2 * oneDp * EDITORIAL_POSTER_MOUNT_INSET_DP + oneDp,
             )
             assertTrue("${slot.wrapper} poster must stay inside the card mount: poster=$poster tile=$tile",
                 poster.left >= tile.left - oneDp && poster.right <= tile.right + oneDp)
+            // Counter is the next row: 4dp after the poster, 8dp above card bottom.
+            assertNear("${slot.wrapper} counter must sit 4dp below the poster",
+                poster.bottom + oneDp * EDITORIAL_POSTER_COUNTER_GAP_DP, counter.top, oneDp)
+            assertNear("${slot.wrapper} counter must keep the 8dp bottom mount",
+                tile.bottom - oneDp * EDITORIAL_POSTER_MOUNT_INSET_DP, counter.bottom, oneDp)
+            assertTrue("${slot.wrapper} must not show a pending-resource label",
+                rule.onAllNodesWithTag(
+                    "genre_editorial_pending_vertical_${slot.genreId}", useUnmergedTree = true,
+                ).fetchSemanticsNodes().isEmpty())
         }
-        // The Pop poster must be about 85dp tall, not the old 88.6dp exterior.
-        assertTrue("Pop poster band must keep its truthful height",
-            dpOf(posterOf("pop_pair", "pop").height) < 120f)
-        assertEquals("Pop card must not become an 88.6dp exterior",
-            246f, dpOf(pairPop.height), 0.5f)
     }
 }

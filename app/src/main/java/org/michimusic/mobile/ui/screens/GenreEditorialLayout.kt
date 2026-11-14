@@ -39,10 +39,10 @@ import org.michimusic.mobile.ui.theme.TextSecondary
  *
  * The grid is a grouped lazy list, not a generic masonry: two row shapes keep
  * stable keys, scroll restoration, lazy image composition, one-column
- * adaptation and per-card accessibility. A LazyVerticalGrid with fixed spans
- * would read the same rhythm, but a poster cell cannot fill the canonical
- * 246dp portrait slot (the approved pack is 1.48..4.24:1), so explicit rows
- * make the aspect contract and the promoted tail card unambiguous.
+ * adaptation and per-card accessibility. Approved posters keep their own
+ * proportional compact height, so a horizontal sheet is never stretched into a
+ * 246dp portrait slot; explicit rows keep the cover/pair contract and the
+ * promoted tail card unambiguous.
  */
 internal sealed interface EditorialRow {
     val key: String

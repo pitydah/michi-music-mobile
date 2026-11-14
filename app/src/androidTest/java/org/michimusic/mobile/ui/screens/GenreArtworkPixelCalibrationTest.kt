@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
@@ -117,6 +118,11 @@ class GenreArtworkPixelCalibrationTest {
     private fun pxOf(dpValue: Float): Float = with(rule.density) { dpValue.dp.toPx() }
     private fun dpOf(pxValue: Float): Float = pxValue / rule.density.density
 
+    private fun assertNear(message: String, expected: Float, actual: Float, tolerance: Float) {
+        assertTrue("$message (expected=$expected actual=$actual tolerance=$tolerance)",
+            abs(expected - actual) <= tolerance)
+    }
+
     private fun bounds(tag: String, unmerged: Boolean = false): Rect =
         rule.onNodeWithTag(tag, useUnmergedTree = unmerged).fetchSemanticsNode().boundsInRoot
 
@@ -202,36 +208,47 @@ class GenreArtworkPixelCalibrationTest {
         calibrationTitles.forEach { waitForReceipt(GenreViewMode.FEATURED, genreGroupingKey(it)) }
     }
 
-    @Test fun mosaicCalibrationCardsPaintArtworkWithNoBlackSurfaceBands() {
+    @Test fun mosaicCalibrationCardsPaintArtworkWithNoFooterBand() {
         setCalibrationPanel()
-        // The focal card is a full-bleed treated card; the compact cards below it
-        // keep a reserved count surface. Check the compact cards' reserved band.
+        // Every compact card takes the crop's own proportional height. The whole
+        // card is painted artwork + the 8dp mount; there is no footer band with a
+        // detached counter and no tall reserved black strip.
         calibrationTitles.drop(1).forEach { title ->
             val id = genreGroupingKey(title)
-            val card = rule.onNodeWithTag("genre_tile_$id")
-            card.assertIsDisplayed()
-            val image = card.captureToImage()
+            val cardNode = rule.onNodeWithTag("genre_tile_$id")
+            cardNode.assertIsDisplayed()
+            val card = bounds("genre_tile_$id")
+            val asset = mosaicArtworkForGenre(id, mosaicAssets)!!
+            val innerWidth = dpOf(card.width) - 2 * GENRE_ARTWORK_MOUNT_INSET_DP
+            val expectedHeight = 2 * GENRE_ARTWORK_MOUNT_INSET_DP + innerWidth / asset.ratio
+            assertEquals("$title compact card must be artwork-driven",
+                expectedHeight, dpOf(card.height), 2f)
+            val image = cardNode.captureToImage()
             // Painted artwork, not a black/empty background.
             assertTrue("$title artwork must be painted, variance=${image.lumaVariance()}",
                 image.lumaVariance() > 150.0)
-            // The card's own continuous surface under the crop band is near-black
-            // and flat: no bright separator, no second border, no halo.
-            val (panelMean, panelMax) = image.blockStats(0f, 0.80f, 0.15f, 1f)
-            assertTrue("$title count surface mean=$panelMean must be near-black",
-                panelMean < 45.0)
-            assertTrue("$title count surface max=$panelMax must have no bright ink",
-                panelMax < 110)
+            // The image occupies the card's visual area (minus the 8dp mount),
+            // and the bottom of the card is the image frame, not a footer surface.
+            val (panelMean, panelMax) = image.blockStats(0f, 0.90f, 0.10f, 1f)
+            assertTrue("$title bottom must be painted artwork, mean=$panelMean",
+                panelMean > 6.0 || panelMax > 60)
         }
     }
 
-    @Test fun mosaicCounterSitsInsideTheArtworkAndClearOfTheBakedTitle() {
+    @Test fun mosaicCounterSitsInsideTheArtworkAndNeverInAFooter() {
         setCalibrationPanel()
         calibrationTitles.forEach { title ->
             val id = genreGroupingKey(title)
             val card = bounds("genre_tile_$id")
             val counter = bounds("genre_counter_$id", unmerged = true)
             val asset = mosaicArtworkForGenre(id, mosaicAssets)!!
-            val art = genreArtworkFitRect(dpOf(card.width), dpOf(card.height), asset.ratio)!!
+            val mount = GENRE_ARTWORK_MOUNT_INSET_DP
+            val innerWidth = dpOf(card.width) - 2 * mount
+            val innerHeight = dpOf(card.height) - 2 * mount
+            val fit = genreArtworkFitRect(innerWidth, innerHeight, asset.ratio)!!
+            val art = fit.offsetBy(mount.toFloat(), mount.toFloat())
+            val artTop = card.top + pxOf(art.top)
+            val artBottom = card.top + pxOf(art.bottom)
             if (title == calibrationTitles.first()) {
                 // Focal card: 12dp inside the *artwork* border, top-right anchor.
                 assertTrue("$title counter must be 12dp inside the artwork right edge: " +
@@ -239,28 +256,34 @@ class GenreArtworkPixelCalibrationTest {
                     abs(card.left + pxOf(art.right - GENRE_COUNTER_INSET_DP) - counter.right) <=
                         pxOf(1.5f))
                 assertTrue("$title counter must be 12dp from the artwork top",
-                    abs(card.top + pxOf(art.top + GENRE_COUNTER_INSET_DP) - counter.top) <=
+                    abs(artTop + pxOf(GENRE_COUNTER_INSET_DP.toFloat()) - counter.top) <=
                         pxOf(1.5f))
-                // The baked title lives bottom-left in the approved crops.
-                val titleTop = card.top + pxOf(art.top + art.height * 0.72f)
-                assertTrue("$title counter must not cover the baked title: " +
-                    "counter=$counter titleRegionTop=$titleTop",
-                    counter.bottom < titleTop)
             } else {
-                // Compact card: the chip sits on the continuous surface, 12dp
-                // from the card's optical border, below the crop band.
-                assertTrue("$title counter must be 12dp from the card right",
-                    abs(card.right - pxOf(GENRE_COUNTER_INSET_DP.toFloat()) - counter.right) <= pxOf(1.5f))
-                assertTrue("$title counter must be 12dp from the card bottom",
-                    abs(card.bottom - pxOf(GENRE_COUNTER_INSET_DP.toFloat()) - counter.bottom) <=
+                // Compact card: the chip is an overlay inside the artwork's
+                // verified top-right safe band, never a footer. Its inset is
+                // measured from the artwork border, so the same chip keeps one
+                // position at every card width instead of drifting by the 8dp
+                // matte when it falls back to the card surface.
+                assertTrue("$title counter must be 12dp inside the artwork right edge",
+                    abs(card.left + pxOf(art.right - GENRE_COUNTER_INSET_DP) - counter.right) <=
                         pxOf(1.5f))
-                val artBand = bounds("genre_artwork_$id", unmerged = true)
-                assertTrue("$title counter must be 8dp clear of the crop band",
-                    counter.top >= artBand.bottom + pxOf(GENRE_COUNTER_BREATHING_DP.toFloat()) - pxOf(1f))
-                // The baked title is inside that band, so the chip is clear.
-                assertTrue("$title counter must stay below the artwork",
-                    counter.top >= artBand.bottom)
+                assertTrue("$title counter must be 12dp below the artwork top",
+                    abs(artTop + pxOf(GENRE_COUNTER_INSET_DP.toFloat()) - counter.top) <=
+                        pxOf(1.5f))
+                assertTrue("$title counter must sit in the upper part of the card: " +
+                    "counter=$counter card=$card",
+                    counter.top <= card.top + card.height * 0.55f)
+                assertTrue("$title counter must stay associated with the crop, not below it: " +
+                    "counter=$counter art=$artTop..$artBottom",
+                    counter.top < artBottom && counter.bottom > artTop)
+                assertTrue("$title counter must never sit below the artwork as a footer",
+                    counter.bottom < card.bottom - pxOf(GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()) + pxOf(1f))
             }
+            // The painted crop is visible from the top mount to the bottom mount:
+            // no reserved counter strip splits the card.
+            assertTrue("$title crop must start at the top mount", artTop <= card.top + pxOf(mount + 1f))
+            assertTrue("$title crop must reach the bottom mount",
+                artBottom >= card.bottom - pxOf(mount + 1f))
             // No duplicate Compose title: the crop already carries it.
             rule.onNode(
                 hasText(title) and hasAnyAncestor(hasTestTag("genre_tile_$id")),
@@ -296,10 +319,25 @@ class GenreArtworkPixelCalibrationTest {
 
         genres.forEach { item ->
             val id = genreGroupingKey(item.title)
-            val treatment = editorialTreatments.getValue(item.title)
+            val poster = editorialPosterForTitle(item.title, posterAssets)!!
             val card = bounds("genre_editorial_$id")
-            assertEquals("${item.title} treatment height",
-                genreEditorialHeightDp(treatment, 2, 1f).toFloat(), dpOf(card.height), 1f)
+            val band = editorialPosterBandHeightDp(
+                dpOf(card.width) - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP,
+                10_000f,
+                poster.ratio,
+            )
+            assertEquals("${item.title} compact proportional height",
+                editorialPosterCardHeightDp(band, genreCounterHeightDp(1f)), dpOf(card.height), 1.5f)
+            // A full-width 411dp poster is legitimately taller than 246dp when its
+            // ratio is close to 1.7:1; what must never happen is the fixed
+            // treatment height being imposed on a horizontal sheet. The pair test
+            // below proves the <246dp case for the real paired cell width.
+            assertTrue("${item.title} must use its own compact height, not the fixed 246dp treatment",
+                abs(dpOf(card.height) - 246f) > 1f)
+            assertTrue("${item.title} must not show a pending-resource label",
+                rule.onAllNodesWithTag(
+                    "genre_editorial_pending_vertical_$id", useUnmergedTree = true,
+                ).fetchSemanticsNodes().isEmpty())
 
             val image = rule.onNodeWithTag("genre_editorial_$id").captureToImage()
             // The poster is mounted 8dp inside the card, so the 400% outer corner
@@ -328,33 +366,58 @@ class GenreArtworkPixelCalibrationTest {
         }
     }
 
-    @Test fun editorialPairCardsShareOneExteriorHeightAndStayAligned() {
-        val genres = editorialTitles.map { genre(it) }
+    @Test fun editorialPairCardsAreCompactTopAlignedAndWithoutAnEmptyBand() {
+        val pop = genre("Pop")
+        val rock = genre("Rock")
         rule.setContent {
             MichiTheme {
-                Column(Modifier.width(411.dp).background(SurfaceObsidian)) {
-                    genres.forEach { item ->
-                        Box(Modifier.width(411.dp)) {
-                            GenreEditorialPosterTile(
-                                genre = item,
-                                poster = editorialPosterForTitle(item.title, posterAssets)!!,
-                                treatment = editorialTreatments.getValue(item.title),
-                                columns = 2,
-                                onOpen = {},
-                            )
-                        }
+                Row(Modifier.width(411.dp).background(SurfaceObsidian)) {
+                    Box(Modifier.weight(1f)) {
+                        GenreEditorialPosterTile(
+                            genre = pop,
+                            poster = editorialPosterForTitle("Pop", posterAssets)!!,
+                            treatment = GenreEditorialTreatment.PORTRAIT_LEFT,
+                            columns = 2,
+                            onOpen = {},
+                        )
+                    }
+                    Box(Modifier.weight(1f)) {
+                        GenreEditorialPosterTile(
+                            genre = rock,
+                            poster = editorialPosterForTitle("Rock", posterAssets)!!,
+                            treatment = GenreEditorialTreatment.PORTRAIT_RIGHT,
+                            columns = 2,
+                            onOpen = {},
+                        )
                     }
                 }
             }
         }
         rule.waitForIdle()
-        val pop = bounds("genre_editorial_pop")
-        val rock = bounds("genre_editorial_rock")
-        // Pop 514x268 and Rock 1027x280: the old ratio-driven cells were 88.6dp
-        // and 46.3dp; both must now be the 246dp portrait treatment.
-        assertEquals(246f, dpOf(pop.height), 1f)
-        assertEquals(246f, dpOf(rock.height), 1f)
-        assertEquals(dpOf(pop.height), dpOf(rock.height), 0.5f)
+        val popCard = bounds("genre_editorial_pop")
+        val rockCard = bounds("genre_editorial_rock")
+        val popPoster = bounds("genre_editorial_poster_pop", unmerged = true)
+        val rockPoster = bounds("genre_editorial_poster_rock", unmerged = true)
+        val popCounter = bounds("genre_counter_pop", unmerged = true)
+        val rockCounter = bounds("genre_counter_rock", unmerged = true)
+        // Pop 514x268 and Rock 1027x280 keep different truthful compact heights;
+        // neither is padded to 246dp, so no large black block separates poster and
+        // counter. They share width and top alignment, and each counter follows
+        // its own poster after the 4dp association gap.
+        assertNear("paired cells share one width", dpOf(popCard.width), dpOf(rockCard.width), 0.5f)
+        assertNear("paired cells share one top", dpOf(popCard.top), dpOf(rockCard.top), 0.5f)
+        assertTrue("Pop must not be a 246dp portrait block", dpOf(popCard.height) < 246f)
+        assertTrue("Rock must not be a 246dp portrait block", dpOf(rockCard.height) < 246f)
+        assertTrue("Rock is taller than Pop only by its own compact poster growth",
+            dpOf(popCard.height) > dpOf(rockCard.height))
+        assertNear("Pop counter follows the poster after the 4dp gap",
+            dpOf(popPoster.bottom) + EDITORIAL_POSTER_COUNTER_GAP_DP, dpOf(popCounter.top), 1f)
+        assertNear("Rock counter follows the poster after the 4dp gap",
+            dpOf(rockPoster.bottom) + EDITORIAL_POSTER_COUNTER_GAP_DP, dpOf(rockCounter.top), 1f)
+        assertNear("Pop card ends 8dp below its counter",
+            dpOf(popCounter.bottom) + EDITORIAL_POSTER_MOUNT_INSET_DP, dpOf(popCard.bottom), 1f)
+        assertNear("Rock card ends 8dp below its counter",
+            dpOf(rockCounter.bottom) + EDITORIAL_POSTER_MOUNT_INSET_DP, dpOf(rockCard.bottom), 1f)
     }
 
     @Test fun fallbackCardsKeepOneAccessibleTargetAndOneComposeTitle() {
@@ -556,13 +619,18 @@ class GenreArtworkPixelCalibrationTest {
                     "mosaico-${evidenceName(title)}-${width}dp-$evidenceScaleTag")
                 val rect = bounds(tag)
                 val asset = mosaicArtworkForGenre(id, mosaicAssets)!!
-                // The focal card is full-bleed: its artwork box is the computed Fit
-                // rect, while the compact cards expose a real `genre_artwork` node.
-                val artInfo = if (title == calibrationTitles.first()) {
-                    "artFit=${genreArtworkFitRect(dp(rect.width), dp(rect.height), asset.ratio)}"
-                } else {
-                    "art=${bounds("genre_artwork_$id", unmerged = true)}"
-                }
+                // Both sizes mount the whole crop 8dp inside the card; the Fit
+                // rect is pure arithmetic in card coordinates.
+                val artInfo = "artFit=" + (
+                    genreArtworkFitRect(
+                        dp(rect.width) - 2 * GENRE_ARTWORK_MOUNT_INSET_DP,
+                        dp(rect.height) - 2 * GENRE_ARTWORK_MOUNT_INSET_DP,
+                        asset.ratio,
+                    )?.offsetBy(
+                        GENRE_ARTWORK_MOUNT_INSET_DP.toFloat(),
+                        GENRE_ARTWORK_MOUNT_INSET_DP.toFloat(),
+                    )
+                    )
                 boundsLines += "mosaico width=${width}dp fontScale=$evidenceFontScale " +
                     "title=$title id=$id rect=${rect.left},${rect.top},${rect.right},${rect.bottom} " +
                     "size=${dp(rect.width)}x${dp(rect.height)}dp assetRatio=${asset.ratio} " +

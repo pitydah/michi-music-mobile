@@ -2,9 +2,13 @@ package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,23 +36,24 @@ import org.michimusic.mobile.ui.theme.MichiShapes
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SurfaceObsidian
-import org.michimusic.mobile.ui.theme.TextMuted
 
 /**
  * Finished poster card (`LEGACY_COMPLETE`).
  *
  * The approved WebP is the complete poster: its baked title and frame are the
- * only title and border, so Compose adds neither. The card height comes from the
- * treatment — 192dp cover, 246dp portrait pair, 200dp single column — never from
- * the poster's own panorama ratio, so the two cards of a pair always share one
- * exterior height and align top/bottom. The poster keeps its whole frame
- * (`Fit`) mounted 8dp inside the card; the area under it is the card's one
- * continuous surface, where the real track count stays integrated instead of
- * floating in a detached footer.
+ * only title and border, so Compose adds neither. The card keeps the whole
+ * poster at its truthful aspect (`Fit`) and mounts it 8dp inside the card so the
+ * rounded clip can never cut the baked frame. A compact count row follows the
+ * poster after a 4dp association gap; the row shares the card's one continuous
+ * surface, has no background/separator of its own, and cannot create the old
+ * large empty band between a panoramic poster and its counter.
  *
- * The approved pack has no vertical artwork, so a portrait slot is explicitly
- * marked `PENDIENTE DE RECURSO VERTICAL APROBADO` rather than faked with a crop.
- * No image is ever mirrored.
+ * The 192dp cover / 246dp portrait treatment heights are used only when the
+ * approved asset is actually vertical. Historical panoramic sheets drive their
+ * own compact card height, preserving the whole composition until an approved
+ * vertical variant exists. That inventory gap is recorded as
+ * [GenreArtworkPresentationSpec.pendingVerticalAsset] for tests/reporting and is
+ * never rendered as visible technical text.
  */
 @Composable
 internal fun GenreEditorialPosterTile(
@@ -64,18 +69,29 @@ internal fun GenreEditorialPosterTile(
     val fontScale = LocalConfiguration.current.fontScale
     val spec = editorialPresentationSpec(poster, treatment)
     var artworkUnavailable by remember(poster.filename) { mutableStateOf(false) }
-    val cardHeight = genreEditorialHeightDp(treatment, columns, fontScale)
+    val chipHeight = genreCounterHeightDp(fontScale)
+    val vertical = poster.isVertical
+    // Only an authentic vertical resource may consume a portrait/cover treatment
+    // slot. A horizontal historical sheet keeps its own proportional height.
+    val maxBandHeight = if (vertical) {
+        editorialPosterTreatmentBandMaxDp(
+            treatmentHeightDp = genreEditorialHeightDp(treatment, columns, fontScale).toFloat(),
+            chipHeightDp = chipHeight,
+        )
+    } else {
+        Float.MAX_VALUE
+    }
     BoxWithConstraints(modifier.fillMaxWidth()) {
-        val mount = EDITORIAL_POSTER_MOUNT_INSET_DP.dp
-        val reserve = genreCounterReserveDp(fontScale)
-        val innerWidth = (maxWidth.value - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP).coerceAtLeast(1f)
-        val availableHeight = (cardHeight - EDITORIAL_POSTER_MOUNT_INSET_DP - reserve)
-            .coerceAtLeast(24f)
-        val bandHeight = editorialPosterBandHeightDp(innerWidth, availableHeight, poster.ratio)
+        val mount = EDITORIAL_POSTER_MOUNT_INSET_DP
+        val innerWidth = (maxWidth.value - 2 * mount).coerceAtLeast(1f)
+        val bandHeight = editorialPosterBandHeightDp(
+            innerWidthDp = innerWidth,
+            maxBandHeightDp = maxBandHeight,
+            posterRatio = poster.ratio,
+        )
         val bandWidth = minOf(innerWidth, bandHeight * poster.ratio)
-        val cover = treatment == GenreEditorialTreatment.COVER
         Box(
-            Modifier.fillMaxWidth().height(cardHeight.dp)
+            Modifier.fillMaxWidth()
                 .clip(MichiShapes.md)
                 .background(SurfaceObsidian)
                 .clickable(role = Role.Button, onClick = onOpen)
@@ -84,65 +100,39 @@ internal fun GenreEditorialPosterTile(
                 }
                 .testTag("genre_editorial_${genre.id}"),
         ) {
-            // The mount is inset enough that the card clip never cuts the
-            // approved baked frame, and the reserved band keeps the count clear
-            // of the artwork.
-            Box(
-                Modifier.fillMaxSize().padding(
-                    start = mount,
-                    end = mount,
-                    top = mount,
-                    bottom = reserve.dp,
-                ),
-            ) {
-                if (cover) {
-                    Box(Modifier.align(Alignment.Center)) {
+            Column(Modifier.fillMaxWidth().padding(mount.dp)) {
+                Box(
+                    Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Box(Modifier.width(bandWidth.dp).height(bandHeight.dp)) {
                         PosterBand(genre, poster, bandWidth, bandHeight, onArtworkLoad) {
                             artworkUnavailable = it
                         }
-                    }
-                } else {
-                    Column(Modifier.fillMaxSize()) {
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                            PosterBand(genre, poster, bandWidth, bandHeight, onArtworkLoad) {
-                                artworkUnavailable = it
-                            }
-                        }
-                        if (spec.pendingVerticalAsset) {
-                            Box(
-                                Modifier.weight(1f).fillMaxWidth(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    EDITORIAL_PENDING_VERTICAL_LABEL,
-                                    style = MichiTypography.microLabel,
-                                    color = TextMuted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.testTag(
-                                        "genre_editorial_pending_vertical_${genre.id}",
-                                    ),
-                                )
-                            }
-                        } else if (artworkUnavailable) {
-                            Box(
-                                Modifier.weight(1f).fillMaxWidth(),
-                                contentAlignment = Alignment.Center,
-                            ) { FallbackPosterTitle(genre.title) }
+                        if (artworkUnavailable) {
+                            FallbackPosterTitle(genre.title, Modifier.align(Alignment.Center))
                         }
                     }
                 }
-                if (cover && artworkUnavailable) {
-                    FallbackPosterTitle(genre.title, Modifier.align(Alignment.Center))
+                Spacer(Modifier.height(EDITORIAL_POSTER_COUNTER_GAP_DP.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(chipHeight.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = if (
+                        spec.counterAnchor == GenreOverlayAnchor.BOTTOM_END
+                    ) Arrangement.End else Arrangement.Start,
+                ) {
+                    // The chip fills the documented counter row, so the 4dp gap
+                    // above it and the 8dp mount below it are exact instead of
+                    // drifting by the difference between the row height and the
+                    // packed label height.
+                    GenreCounterChip(
+                        count = count,
+                        testTag = "genre_counter_${genre.id}",
+                        modifier = Modifier.fillMaxHeight(),
+                    )
                 }
             }
-            GenreCounterChip(
-                count = count,
-                testTag = "genre_counter_${genre.id}",
-                modifier = Modifier.align(spec.counterAnchor.toAlignment())
-                    .padding(GENRE_COUNTER_INSET_DP.dp),
-            )
         }
     }
 }
@@ -181,9 +171,7 @@ private fun FallbackPosterTitle(title: String, modifier: Modifier = Modifier) {
         color = PureWhite,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Center,
         modifier = modifier.padding(horizontal = 12.dp),
     )
 }
-
-/** Honest state for a portrait slot with no approved vertical artwork yet. */
-internal const val EDITORIAL_PENDING_VERTICAL_LABEL = "PENDIENTE DE RECURSO VERTICAL APROBADO"

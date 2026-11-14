@@ -136,9 +136,9 @@ fun genreMosaicHeroHeightDp(fontScale: Float): Int =
         ((fontScale.coerceIn(1f, 3f) - 1f) * GENRE_MOSAIC_TEXT_GROWTH_DP).roundToInt()
 
 /**
- * Compact card height. It grows with the text scale because the crop keeps 166dp
- * at 1.0x and the count chip + its gap + its inset live on the card's continuous
- * surface below the artwork band (never in a detached footer).
+ * Compact card height used only when no approved crop is available. A real
+ * approved crop drives its own proportional card height instead, so the image
+ * fills the visual area and no reserved counter band is created.
  */
 fun genreMosaicSecondaryHeightDp(fontScale: Float): Int =
     GENRE_MOSAIC_SECONDARY_HEIGHT_DP +

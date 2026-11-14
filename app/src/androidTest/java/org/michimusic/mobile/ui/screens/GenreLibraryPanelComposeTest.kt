@@ -121,6 +121,38 @@ class GenreLibraryPanelComposeTest {
             abs(expected - actual) <= tolerance)
     }
 
+    /** Compact Mosaico card height: 8dp mounts + the crop's own inner aspect. */
+    private fun mosaicExpectedCardHeightDp(cellWidthDp: Float, ratio: Float): Float =
+        2f * GENRE_ARTWORK_MOUNT_INSET_DP +
+            (cellWidthDp - 2f * GENRE_ARTWORK_MOUNT_INSET_DP) / ratio
+
+    /** Compact Editorial card height: mounts + uncropped band + 4dp + count row. */
+    private fun editorialExpectedCardHeightDp(
+        cellWidthDp: Float,
+        ratio: Float,
+        fontScale: Float,
+    ): Float {
+        val band = editorialPosterBandHeightDp(
+            innerWidthDp = cellWidthDp - 2f * EDITORIAL_POSTER_MOUNT_INSET_DP,
+            maxBandHeightDp = 10_000f,
+            posterRatio = ratio,
+        )
+        return editorialPosterCardHeightDp(band, genreCounterHeightDp(fontScale))
+    }
+
+    private fun mosaicArtworkBounds(card: Rect, ratio: Float): Rect {
+        val mount = GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()
+        val innerWidth = dpOf(card.width) - 2f * mount
+        val innerHeight = dpOf(card.height) - 2f * mount
+        val fit = genreArtworkFitRect(innerWidth, innerHeight, ratio)!!
+        return Rect(
+            card.left + pxOf(fit.left + mount),
+            card.top + pxOf(fit.top + mount),
+            card.left + pxOf(fit.right + mount),
+            card.top + pxOf(fit.bottom + mount),
+        )
+    }
+
     private fun bounds(tag: String, unmergedTree: Boolean = false): Rect =
         rule.onNodeWithTag(tag, useUnmergedTree = unmergedTree)
             .fetchSemanticsNode().boundsInRoot
@@ -352,7 +384,7 @@ class GenreLibraryPanelComposeTest {
         val expectedHeroHeight = pxOf(genreMosaicHeroHeightDp(fontScale).toFloat())
         rule.onNodeWithTag(mosaicTileTag("New Wave")).assertIsDisplayed()
         assertNear("[$width/${fontScale}] hero must be full width", contentWidth, hero.width, pxOf(1.5f))
-        assertNear("[$width/${fontScale}] hero height is the 218dp treatment, not the asset ratio",
+        assertNear("[$width/${fontScale}] hero height stays the focal treatment",
             expectedHeroHeight, hero.height, pxOf(1.5f))
         assertNear("[$width/${fontScale}] hero must keep the 20dp gutters",
             pxOf(GENRE_GRID_SIDE_PADDING_DP.toFloat()), hero.left, pxOf(1f))
@@ -367,14 +399,18 @@ class GenreLibraryPanelComposeTest {
 
         // The hero counter is 12dp inside the *artwork* border, not the card's.
         val heroAsset = mosaicAsset("New Wave")
-        val heroArt = genreArtworkFitRect(dpOf(hero.width), dpOf(hero.height), heroAsset.ratio)!!
+        val heroArt = mosaicArtworkBounds(hero, heroAsset.ratio)
         val heroCounter = bounds("genre_counter_new wave", unmergedTree = true)
         assertNear("[$width/${fontScale}] hero counter must be 12dp inside the artwork right edge",
-            hero.left + pxOf(heroArt.right - GENRE_COUNTER_INSET_DP), heroCounter.right, pxOf(1f))
+            heroArt.right - pxOf(GENRE_COUNTER_INSET_DP.toFloat()), heroCounter.right, pxOf(1f))
         assertNear("[$width/${fontScale}] hero counter must be 12dp from the artwork top",
-            hero.top + pxOf(heroArt.top + GENRE_COUNTER_INSET_DP), heroCounter.top, pxOf(1f))
+            heroArt.top + pxOf(GENRE_COUNTER_INSET_DP.toFloat()), heroCounter.top, pxOf(1f))
         assertTrue("[$width/${fontScale}] hero counter must stay inside the card",
             heroCounter.left >= hero.left && heroCounter.bottom <= hero.bottom)
+        // The whole crop is mounted inside the card: no rounded-clip cut at the
+        // baked frame and no second border.
+        assertTrue("[$width/${fontScale}] hero crop must start at the 8dp mount",
+            heroArt.top >= hero.top + pxOf(GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()) - pxOf(1f))
 
         // First secondary must be displayed with positive bounds and no overlap.
         val firstSecondary = rule.onNodeWithTag(mosaicTileTag("Pop"))
@@ -395,12 +431,14 @@ class GenreLibraryPanelComposeTest {
         } else {
             contentWidth
         }
-        listOf(pop, ambient).forEach { cell ->
+        listOf(pop to "Pop", ambient to "Ambient").forEach { (cell, title) ->
             assertNear("[$width/${fontScale}] compact cell width", expectedCell, cell.width, pxOf(1.5f))
             assertTrue("[$width/${fontScale}] compact cell must stay >= 156dp: ${dpOf(cell.width)}dp",
                 cell.width >= pxOf(GENRE_COMPACT_TILE_MIN_WIDTH_DP.toFloat()) - pxOf(1f))
-            assertNear("[$width/${fontScale}] compact card height is the 166dp treatment",
-                pxOf(genreMosaicSecondaryHeightDp(fontScale).toFloat()), cell.height, pxOf(1.5f))
+            val asset = mosaicAsset(title)
+            assertNear("[$width/${fontScale}] $title compact card is artwork-driven, not a 166dp footer card",
+                pxOf(mosaicExpectedCardHeightDp(dpOf(cell.width), asset.ratio)),
+                cell.height, pxOf(2f))
         }
         // A tile that only pokes into the viewport is measured clamped to the
         // remaining space: its width is still the cell width, but its exterior
@@ -409,8 +447,6 @@ class GenreLibraryPanelComposeTest {
         assertTrue("[$width/${fontScale}] last cell must stay >= 156dp: ${dpOf(blues.width)}dp",
             blues.width >= pxOf(GENRE_COMPACT_TILE_MIN_WIDTH_DP.toFloat()) - pxOf(1f))
         if (expectedColumns == 2) {
-            assertNear("[$width/${fontScale}] last compact card height is the 166dp treatment",
-                pxOf(genreMosaicSecondaryHeightDp(fontScale).toFloat()), blues.height, pxOf(1.5f))
             assertNear("[$width/${fontScale}] second row shares one top", pop.top, ambient.top, pxOf(1f))
             assertTrue("[$width/${fontScale}] adjacent cells keep the 10dp gap",
                 ambient.left >= pop.right + pxOf(GENRE_GRID_GAP_DP.toFloat()) - pxOf(1f))
@@ -423,45 +459,50 @@ class GenreLibraryPanelComposeTest {
         record("[$width/$fontScale] mosaic columns=$expectedColumns cell=${dpOf(pop.width)}dp " +
             "hero=${dpOf(hero.width)}x${dpOf(hero.height)}dp card=${dpOf(pop.height)}dp")
 
-        // No footer: the crop band keeps the whole frame and the counter lives on
-        // the same continuous surface, 12dp from the card border and 8dp clear.
-        val popArt = bounds(mosaicArtworkTag("Pop"), unmergedTree = true)
-        assertNear("[$width/${fontScale}] crop band must keep width", pop.width, popArt.width, pxOf(1f))
-        assertNear("[$width/${fontScale}] crop band starts at the card top", pop.top, popArt.top, pxOf(1f))
-        val reserve = genreCounterReserveDp(fontScale)
-        assertTrue("[$width/${fontScale}] crop band must leave the count surface: " +
-            "art=${dpOf(popArt.height)}dp card=${dpOf(pop.height)}dp",
-            dpOf(popArt.height) <= dpOf(pop.height) - reserve + 1f)
+        // No footer and no reserved band: the 8dp mount is the only matte, the
+        // crop fills the rest of the card, and the counter is an overlay in the
+        // upper part (never a separate surface below the artwork).
         val popAsset = mosaicAsset("Pop")
-        assertNear("[$width/${fontScale}] crop band keeps the approved aspect",
-            minOf(dpOf(popArt.width) / popAsset.ratio, dpOf(pop.height) - reserve),
-            dpOf(popArt.height), 1.5f)
+        val popArt = mosaicArtworkBounds(pop, popAsset.ratio)
+        assertTrue("[$width/${fontScale}] crop must fill the card inner width: " +
+            "card=${dpOf(pop.width)}dp art=${dpOf(popArt.width)}dp",
+            abs(dpOf(popArt.width) - (dpOf(pop.width) - 2f * GENRE_ARTWORK_MOUNT_INSET_DP)) <= 1.5f)
+        assertTrue("[$width/${fontScale}] crop must fill the card inner height: " +
+            "card=${dpOf(pop.height)}dp art=${dpOf(popArt.height)}dp",
+            abs(dpOf(popArt.height) - (dpOf(pop.height) - 2f * GENRE_ARTWORK_MOUNT_INSET_DP)) <= 1.5f)
         val counter = bounds("genre_counter_pop", unmergedTree = true)
-        assertNear("[$width/${fontScale}] compact counter is 12dp from the card right",
-            pop.right - pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counter.right, pxOf(1f))
-        assertNear("[$width/${fontScale}] compact counter is 12dp from the card bottom",
-            pop.bottom - pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counter.bottom, pxOf(1f))
-        assertTrue("[$width/${fontScale}] counter must stay 8dp clear of the artwork",
-            counter.top >= popArt.bottom + pxOf(GENRE_COUNTER_BREATHING_DP.toFloat()) - pxOf(1f))
+        // The chip lives in the artwork's verified top-right safe band, so its
+        // inset is measured from the artwork border, not from the card edge:
+        // the 8dp matte sits between them. Measuring from the card would make
+        // the same chip drift by the mount as the width changes.
+        assertNear("[$width/${fontScale}] compact counter is 12dp inside the artwork right",
+            popArt.right - pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counter.right, pxOf(1.5f))
+        assertNear("[$width/${fontScale}] compact counter is 12dp below the artwork top",
+            popArt.top + pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counter.top, pxOf(1.5f))
+        assertTrue("[$width/${fontScale}] compact counter is an overlay, not a footer: " +
+            "counter=$counter art=$popArt",
+            counter.top < popArt.bottom && counter.bottom > popArt.top &&
+                counter.top <= pop.top + pop.height * 0.55f)
         assertTrue("[$width/${fontScale}] counter must stay inside the card",
             counter.left >= pop.left && counter.right <= pop.right &&
                 counter.top >= pop.top && counter.bottom <= pop.bottom)
+        // No bottom footer surface: nothing may be reserved below the crop.
+        assertNear("[$width/${fontScale}] crop reaches the bottom mount",
+            pop.bottom - pxOf(GENRE_ARTWORK_MOUNT_INSET_DP.toFloat()), popArt.bottom, pxOf(1.5f))
         // The approved crop already carries "Pop"; Compose never duplicates it.
         rule.onAllNodesWithText("Pop", useUnmergedTree = true).assertCountEquals(0)
 
-        // One column: the last secondary sits at the viewport edge, so prove its
-        // exterior treatment after scrolling it fully into view.
-        if (expectedColumns == 1) {
-            rule.onNodeWithTag("genres_featured")
-                .performScrollToNode(hasTestTag(mosaicTileTag("Blues")))
-            rule.waitForIdle()
-            val bluesFull = bounds(mosaicTileTag("Blues"))
-            assertNear("[$width/${fontScale}] scrolled last cell width",
-                expectedCell, bluesFull.width, pxOf(1.5f))
-            assertNear("[$width/${fontScale}] scrolled last card height is the 166dp treatment",
-                pxOf(genreMosaicSecondaryHeightDp(fontScale).toFloat()), bluesFull.height,
-                pxOf(1.5f))
-        }
+        // Prove the last compact card fully after scrolling it into view.
+        rule.onNodeWithTag("genres_featured")
+            .performScrollToNode(hasTestTag(mosaicTileTag("Blues")))
+        rule.waitForIdle()
+        val bluesFull = bounds(mosaicTileTag("Blues"))
+        assertNear("[$width/${fontScale}] scrolled last cell width",
+            expectedCell, bluesFull.width, pxOf(1.5f))
+        val bluesAsset = mosaicAsset("Blues")
+        assertNear("[$width/${fontScale}] scrolled last card is artwork-driven",
+            pxOf(mosaicExpectedCardHeightDp(dpOf(bluesFull.width), bluesAsset.ratio)),
+            bluesFull.height, pxOf(2f))
     }
 
     // endregion
@@ -511,7 +552,9 @@ class GenreLibraryPanelComposeTest {
                 )
             }
         }.toMap()
-        // 1.0x column rhythm: 192dp cover, 246dp portrait pair, one-column 200dp.
+        // 1.0x compact rhythm: each historical poster keeps its own proportional
+        // height plus one integrated count row. The 246dp treatment is only a
+        // cap for authentic vertical assets, which this pack does not contain.
         val records = fixture.ordered.map { genre ->
             val tag = editorialTileTag(genre.title)
             rule.onNodeWithTag("genres_editorial").performScrollToNode(hasTestTag(tag))
@@ -531,10 +574,14 @@ class GenreLibraryPanelComposeTest {
 
             assertTrue("${genre.title} card must keep a 48dp target: $tile",
                 tile.height >= pxOf(48f))
-            // Heights come from the treatment, never from the poster ratio: Pop
-            // (514x268) and Rock (1027x280) must share one 246dp exterior.
-            assertNear("${genre.title} card height must be the $treatment treatment",
-                pxOf(genreEditorialHeightDp(treatment, 2, 1f).toFloat()), tile.height, pxOf(1.5f))
+            val expectedHeight = editorialExpectedCardHeightDp(dpOf(tile.width), ratio, 1f)
+            assertNear("${genre.title} card must keep its compact proportional height",
+                pxOf(expectedHeight), tile.height, pxOf(2f))
+            // The guard is against the fixed treatment, not against being tall:
+            // a full-width COVER whose approved sheet is near 1.6:1 is honestly
+            // taller than 246dp. The exact compact height above is the contract.
+            assertTrue("${genre.title} horizontal poster must not use the fixed 246dp " +
+                "treatment: ${dpOf(tile.height)}dp", abs(dpOf(tile.height) - 246f) > 1f)
             // The whole poster is preserved (no false vertical crop) and mounted
             // inside the card's one continuous surface.
             val posterWidthDp = dpOf(poster.width)
@@ -544,60 +591,45 @@ class GenreLibraryPanelComposeTest {
                 "poster=${dpOf(poster.width)}dp tile=${dpOf(tile.width)}dp",
                 dpOf(poster.width) <=
                     dpOf(tile.width) - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP + 1f)
-            assertTrue("${genre.title} poster must stay above the count surface",
-                poster.bottom <= tile.bottom - pxOf(
-                    (genreCounterReserveDp(1f) - 1f),
-                ))
-            // Mounted geometry follows the treatment policy exactly: the whole
-            // poster is scaled to the available band (never cropped), and the
-            // 8dp mount is kept on every side.
-            val innerDp = dpOf(tile.width) - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP
-            val availableDp = dpOf(tile.height) - EDITORIAL_POSTER_MOUNT_INSET_DP -
-                genreCounterReserveDp(1f)
-            val bandHeightDp = editorialPosterBandHeightDp(innerDp, availableDp, ratio)
-            val bandWidthDp = minOf(innerDp, bandHeightDp * ratio)
-            assertNear("${genre.title} poster band width", pxOf(bandWidthDp), poster.width,
-                pxOf(1.5f))
-            assertNear("${genre.title} poster band height", pxOf(bandHeightDp), poster.height,
-                pxOf(1.5f))
-            assertTrue("${genre.title} poster must stay inside the 8dp mount: poster=$poster",
-                poster.left >= tile.left + pxOf(EDITORIAL_POSTER_MOUNT_INSET_DP.toFloat()) -
-                    pxOf(1f) &&
-                    poster.right <= tile.right - pxOf(EDITORIAL_POSTER_MOUNT_INSET_DP.toFloat()) +
-                    pxOf(1f))
-            // A portrait slot has no approved vertical artwork yet: it is marked
-            // instead of faking a crop.
-            val pending = rule.onAllNodesWithTag(
-                "genre_editorial_pending_vertical_${genre.id}", useUnmergedTree = true,
-            ).fetchSemanticsNodes()
-            if (treatment == GenreEditorialTreatment.COVER) {
-                assertEquals("${genre.title} cover must not claim a pending vertical asset",
-                    0, pending.size)
-            } else {
-                assertEquals("${genre.title} portrait slot must be marked pending",
-                    1, pending.size)
-            }
-            // No second Compose title and no external counter: the approved
-            // poster already contains title and frame, the chip sits in the card.
+            assertNear("${genre.title} poster starts at the 8dp top mount",
+                tile.top + pxOf(EDITORIAL_POSTER_MOUNT_INSET_DP.toFloat()), poster.top, pxOf(1f))
+            // The compact card is exactly the poster + 4dp + count row + 8dp:
+            // there is no large empty vertical band between them.
+            assertNear("${genre.title} poster uses the full inner width",
+                tile.width - pxOf(2f * EDITORIAL_POSTER_MOUNT_INSET_DP), poster.width, pxOf(1.5f))
+            assertNear("${genre.title} poster band height",
+                pxOf(posterWidthDp / ratio), poster.height, pxOf(1.5f))
+            // Inventory gap is technical only: no pending warning on the card.
+            assertTrue("${genre.title} must not render pending-resource technical text",
+                rule.onAllNodesWithTag(
+                    "genre_editorial_pending_vertical_${genre.id}", useUnmergedTree = true,
+                ).fetchSemanticsNodes().isEmpty())
+            // No second Compose title: the approved poster already contains it.
             rule.onAllNodesWithText(genre.title, useUnmergedTree = true).assertCountEquals(0)
             val counter = rule.onNodeWithTag("genre_counter_${genre.id}", useUnmergedTree = true)
             counter.assertIsDisplayed()
             val counterBounds = counter.fetchSemanticsNode().boundsInRoot
-            assertNear("${genre.title} counter is 12dp from the card bottom",
-                tile.bottom - pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counterBounds.bottom,
-                pxOf(1f))
+            assertNear("${genre.title} counter follows its poster after 4dp",
+                poster.bottom + pxOf(EDITORIAL_POSTER_COUNTER_GAP_DP.toFloat()),
+                counterBounds.top, pxOf(1f))
+            assertNear("${genre.title} counter keeps the 8dp bottom mount",
+                tile.bottom - pxOf(EDITORIAL_POSTER_MOUNT_INSET_DP.toFloat()),
+                counterBounds.bottom, pxOf(1f))
+            assertEquals("${genre.title} card has exactly one continuous surface",
+                0, rule.onAllNodesWithTag("genre_editorial_footer_${genre.id}",
+                    useUnmergedTree = true).fetchSemanticsNodes().size)
             assertTrue("${genre.title} counter must sit inside the poster card: " +
                 "counter=$counterBounds tile=$tile",
                 counterBounds.left >= tile.left && counterBounds.right <= tile.right &&
                     counterBounds.top >= tile.top && counterBounds.bottom <= tile.bottom)
             if (treatment == GenreEditorialTreatment.PORTRAIT_RIGHT) {
                 assertNear("${genre.title} trailing pair counter is mirrored",
-                    tile.right - pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counterBounds.right,
-                    pxOf(1f))
+                    tile.right - pxOf(EDITORIAL_POSTER_MOUNT_INSET_DP.toFloat()),
+                    counterBounds.right, pxOf(1f))
             } else {
                 assertNear("${genre.title} counter keeps the leading anchor",
-                    tile.left + pxOf(GENRE_COUNTER_INSET_DP.toFloat()), counterBounds.left,
-                    pxOf(1f))
+                    tile.left + pxOf(EDITORIAL_POSTER_MOUNT_INSET_DP.toFloat()),
+                    counterBounds.left, pxOf(1f))
             }
             record("editorial ${genre.title} treatment=$treatment " +
                 "tile=${dpOf(tile.width)}x${dpOf(tile.height)}dp ratio=$ratio")
@@ -605,7 +637,9 @@ class GenreLibraryPanelComposeTest {
         }
         assertEquals(11, records.size)
 
-        // Equal exterior heights inside every pair, aligned top and bottom.
+        // Pair rhythm: equal cell width and top alignment, but each historical
+        // poster keeps its own compact height. No shared 246dp padding and no
+        // bottom-aligned black block.
         val pairHeights = fixture.ordered.chunked(3).mapNotNull { chunk ->
             if (chunk.size < 3) null else {
                 // The lazy list keeps only the visible rows composed: bring the
@@ -619,10 +653,13 @@ class GenreLibraryPanelComposeTest {
             }
         }
         pairHeights.forEach { (left, right) ->
-            assertNear("paired cards must share one exterior height",
-                left.height, right.height, pxOf(1f))
+            assertNear("paired cards must share one width", left.width, right.width, pxOf(1f))
             assertNear("paired cards must be top-aligned", left.top, right.top, pxOf(1f))
-            assertNear("paired cards must be bottom-aligned", left.bottom, right.bottom, pxOf(1f))
+            assertTrue("paired historical posters keep different compact heights: " +
+                "left=${dpOf(left.height)}dp right=${dpOf(right.height)}dp",
+                abs(dpOf(left.height) - dpOf(right.height)) > 0.5f)
+            assertTrue("paired cards must not be padded to one 246dp exterior",
+                dpOf(left.height) < 246f && dpOf(right.height) < 246f)
         }
 
         // Only the three COVER rows are full width; the eight portrait cells are
@@ -818,8 +855,10 @@ class GenreLibraryPanelComposeTest {
         rule.onNodeWithTag(mosaicTileTag("New Wave")).assertIsDisplayed()
         val pop = bounds(mosaicTileTag("Pop"))
         val ambient = bounds(mosaicTileTag("Ambient"))
-        assertNear("[$width/$fontScale] compact height",
-            pxOf(genreMosaicSecondaryHeightDp(fontScale).toFloat()), pop.height, pxOf(1.5f))
+        val popAsset = mosaicAsset("Pop")
+        assertNear("[$width/$fontScale] compact height is artwork-driven",
+            pxOf(mosaicExpectedCardHeightDp(dpOf(pop.width), popAsset.ratio)),
+            pop.height, pxOf(2f))
         assertTrue("[$width/$fontScale] compact card must stay >=156dp: ${dpOf(pop.width)}dp",
             pop.width >= pxOf(GENRE_COMPACT_TILE_MIN_WIDTH_DP.toFloat()) - pxOf(1f))
         assertTrue("[$width/$fontScale] every card must stay inside the panel: " +
@@ -833,16 +872,17 @@ class GenreLibraryPanelComposeTest {
             assertTrue("[$width/$fontScale] stacked cells keep the 10dp gap",
                 ambient.top >= pop.bottom + pxOf(GENRE_GRID_GAP_DP.toFloat()) - pxOf(1f))
         }
-        val popArt = bounds(mosaicArtworkTag("Pop"), unmergedTree = true)
+        val popArt = mosaicArtworkBounds(pop, popAsset.ratio)
         val counter = bounds("genre_counter_pop", unmergedTree = true)
         assertTrue("[$width/$fontScale] counter must stay inside its card: " +
             "counter=$counter card=$pop",
             counter.left >= pop.left && counter.right <= pop.right &&
                 counter.top >= pop.top && counter.bottom <= pop.bottom)
-        assertTrue("[$width/$fontScale] counter must be 8dp clear of the artwork",
-            counter.top >= popArt.bottom + pxOf(GENRE_COUNTER_BREATHING_DP.toFloat()) - pxOf(1f))
-        // The 218/166dp cards are independent of the measured width; only the
-        // column count adapts, so no font is reduced and no title is truncated.
+        assertTrue("[$width/$fontScale] counter is an overlay over the crop, not a footer",
+            counter.top < popArt.bottom && counter.bottom > popArt.top &&
+                counter.top <= pop.top + pop.height * 0.55f)
+        // The crop owns the card's proportion; only the column count adapts, so
+        // no font is reduced and no title is truncated.
         record("[$width/$fontScale] mosaic columns=$columns cell=${dpOf(pop.width)}dp " +
             "hero=${dpOf(hero.width)}x${dpOf(hero.height)}dp card=${dpOf(pop.height)}dp")
     }
@@ -851,6 +891,7 @@ class GenreLibraryPanelComposeTest {
         rule.onNodeWithTag("genres_editorial").assertIsDisplayed()
         val grid = bounds("genres_editorial")
         val contentWidth = grid.width - pxOf(2f * GENRE_GRID_SIDE_PADDING_DP)
+        val posters = approvedPosters()
         // Anchor the first row at the viewport top so the rhythm reads below all
         // describe the same scroll position.
         rule.onNodeWithTag("genres_editorial")
@@ -860,23 +901,30 @@ class GenreLibraryPanelComposeTest {
         val pairLeft = bounds(editorialTileTag("Pop"))
         val pairRight = bounds(editorialTileTag("Ambient"))
         // The Editorial rhythm shares the measured column policy with Mosaico:
-        // one column at 320/360dp renders every genre as its own 200dp cover.
+        // one column at 320/360dp renders every genre as its own compact cover.
         val columns = if (abs(pairLeft.top - pairRight.top) <= pxOf(1f)) 2 else 1
-        assertNear("[$width/$fontScale] editorial cover height",
-            pxOf(genreEditorialHeightDp(GenreEditorialTreatment.COVER, columns, fontScale)
-                .toFloat()), cover.height, pxOf(1.5f))
+        fun expectedHeight(title: String, widthDp: Float): Float {
+            val ratio = editorialPosterForTitle(title, posters)!!.ratio
+            return editorialExpectedCardHeightDp(widthDp, ratio, fontScale)
+        }
+        assertNear("[$width/$fontScale] editorial cover height is compact/proportional",
+            pxOf(expectedHeight("New Wave", dpOf(cover.width))), cover.height, pxOf(2f))
         assertNear("[$width/$fontScale] cover must be full width", contentWidth, cover.width,
             pxOf(1.5f))
         if (columns == 2) {
-            assertNear("[$width/$fontScale] pair heights are treatment heights",
-                pxOf(genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, columns,
-                    fontScale).toFloat()), pairLeft.height, pxOf(1.5f))
-            assertNear("[$width/$fontScale] paired cards share one exterior height",
-                pairLeft.height, pairRight.height, pxOf(1f))
+            val halfCellDp = dpOf(pairLeft.width)
+            assertNear("[$width/$fontScale] Pop pair height is compact/proportional",
+                pxOf(expectedHeight("Pop", halfCellDp)), pairLeft.height, pxOf(2f))
+            assertNear("[$width/$fontScale] Ambient pair height is compact/proportional",
+                pxOf(expectedHeight("Ambient", dpOf(pairRight.width))), pairRight.height, pxOf(2f))
+            assertNear("[$width/$fontScale] paired cards share one width",
+                pairLeft.width, pairRight.width, pxOf(1f))
             assertNear("[$width/$fontScale] paired cards are top-aligned",
                 pairLeft.top, pairRight.top, pxOf(1f))
-            assertNear("[$width/$fontScale] paired cards are bottom-aligned",
-                pairLeft.bottom, pairRight.bottom, pxOf(1f))
+            // Different historical ratios keep different compact heights. They
+            // must not be padded to a shared 246dp or aligned by a black block.
+            assertTrue("[$width/$fontScale] pair must not force a shared tall height",
+                abs(dpOf(pairLeft.height) - dpOf(pairRight.height)) > 0.5f)
             assertTrue("[$width/$fontScale] cover and pair must not intersect",
                 !cover.overlaps(pairLeft))
             assertTrue("[$width/$fontScale] pair must keep the 10dp gap",
@@ -884,36 +932,31 @@ class GenreLibraryPanelComposeTest {
             assertTrue("[$width/$fontScale] editorial rows must not overlap",
                 pairLeft.top >= cover.bottom + pxOf(GENRE_GRID_GAP_DP.toFloat()) - pxOf(1f))
         } else {
-            // One column: no pair exists, so Pop/Ambient must be full-width
-            // one-column covers at the 200dp treatment, stacked below the cover.
+            // One column: Pop/Ambient are full-width compact covers, stacked.
             assertTrue("[$width/$fontScale] one-column Pop must not intersect the cover",
                 !cover.overlaps(pairLeft))
             assertTrue("[$width/$fontScale] one-column Ambient must not intersect the cover",
                 !cover.overlaps(pairRight))
             assertTrue("[$width/$fontScale] one-column rows must stack",
                 pairRight.top >= pairLeft.bottom + pxOf(GENRE_GRID_GAP_DP.toFloat()) - pxOf(1f))
-            // A tile that only pokes into the viewport is measured clamped to the
-            // remaining space, so each card is scrolled to the viewport start
-            // before its treatment box is measured.
             listOf("Pop", "Ambient").forEach { title ->
                 rule.onNodeWithTag("genres_editorial")
                     .performScrollToNode(hasTestTag(editorialTileTag(title)))
                 rule.waitForIdle()
                 val tile = bounds(editorialTileTag(title))
-                assertNear("[$width/$fontScale] one-column $title height",
-                    pxOf(genreEditorialHeightDp(GenreEditorialTreatment.COVER, columns,
-                        fontScale).toFloat()), tile.height, pxOf(1.5f))
+                assertNear("[$width/$fontScale] one-column $title compact height",
+                    pxOf(expectedHeight(title, dpOf(tile.width))), tile.height, pxOf(2f))
                 assertNear("[$width/$fontScale] one-column $title must be full width",
                     contentWidth, tile.width, pxOf(1.5f))
             }
         }
-        // Measure the pair-leading card, its poster and its chip in one frame.
+        // Measure a pair card, its poster and its chip in one frame.
         rule.onNodeWithTag("genres_editorial")
             .performScrollToNode(hasTestTag(editorialTileTag("Pop")))
         rule.waitForIdle()
         val popCard = bounds(editorialTileTag("Pop"))
         val poster = bounds(editorialPosterTag("Pop"), unmergedTree = true)
-        val ratio = approvedPosters().let { editorialPosterForTitle("Pop", it)!!.ratio }
+        val ratio = posters.let { editorialPosterForTitle("Pop", it)!!.ratio }
         assertNear("[$width/$fontScale] poster keeps its approved aspect", ratio,
             dpOf(poster.width) / dpOf(poster.height), 0.02f)
         val counter = bounds("genre_counter_pop", unmergedTree = true)
@@ -921,6 +964,11 @@ class GenreLibraryPanelComposeTest {
             "counter=$counter card=$popCard",
             counter.left >= popCard.left && counter.right <= popCard.right &&
                 counter.top >= popCard.top && counter.bottom <= popCard.bottom)
+        assertNear("[$width/$fontScale] editorial counter follows the poster after 4dp",
+            dpOf(poster.bottom) + EDITORIAL_POSTER_COUNTER_GAP_DP, dpOf(counter.top), 1f)
+        assertTrue("[$width/$fontScale] no pending-resource technical text on cards",
+            rule.onAllNodesWithTag("genre_editorial_pending_vertical_pop",
+                useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         // No second title and no detached footer: the chip is the only extra ink.
         rule.onAllNodesWithText("Pop", useUnmergedTree = true).assertCountEquals(0)
         record("[$width/$fontScale] editorial columns=$columns " +
