@@ -19,39 +19,40 @@ class GenreEditorialPosterPolicyTest {
         assertNull(editorialPosterForTitle("No existe", posters))
         assertNull(editorialPosterForTitle("Sin clasificar", posters))
     }
-    @Test fun originalRatioDeterminesSpanWithoutReinterpretingPortraits() {
+    @Test fun originalRatioIsDeclaredButNeverWidensACell() {
+        // The approved poster keeps its declared aspect; the layout never widens
+        // a cell from that ratio, so Editorial stays a cover/pair rhythm instead
+        // of becoming a wall of full-width panoramic banners.
         val panoramic = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280)
         val compact = EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327)
-        assertEquals(2, editorialPosterSpan(2, panoramic))
-        assertEquals(1, editorialPosterSpan(2, compact))
-        assertEquals(1, editorialPosterSpan(1, panoramic))
-        assertEquals(1, editorialPosterSpan(2, null))
+        assertTrue(panoramic.ratio > compact.ratio)
+        assertEquals(192, editorialSlotFor(GenreEditorialTreatment.COVER, 2).heightDp)
+        assertEquals(246, editorialSlotFor(GenreEditorialTreatment.PORTRAIT_LEFT, 2).heightDp)
+        assertEquals(1, editorialSlotFor(GenreEditorialTreatment.PORTRAIT_RIGHT, 2).span)
+        assertEquals(200, editorialSlotFor(GenreEditorialTreatment.COVER, 1).heightDp)
     }
 
     /**
-     * The Editorial grid must widen a cell from the approved poster ratio, not
-     * from the positional COVER/LEFT/RIGHT rhythm. A panoramic poster sitting in
-     * a one-column PORTRAIT slot becomes full width; a compact poster in a COVER
-     * slot keeps the canonical two-column cover instead of being narrowed.
+     * Clásica/Metal are approved ~1032x255 (4.05:1) panoramic sheets. Inside a
+     * half-width portrait slot (180.5dp at a 411dp panel, 155dp at 360dp) their
+     * truthful aspect height is 38-45dp, below the 48dp touch floor. The cell
+     * must keep the aspect for compact posters and only raise the smallest ones.
      */
-    @Test fun editorialSlotSpanWidensOnlyForPanoramicPosters() {
-        val wide = EditorialPosterAsset("clasica", "genre_clasica_editorial.webp", 1032, 255)
-        val compact = EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327)
-        val almostWide = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 239, 100)
-        // Real catalogue geometry: Clásica is 4.05:1 and lands on index 2
-        // (PORTRAIT_RIGHT), which used to force a one-column strip.
-        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(2, 2), wide))
-        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(1, 2), wide))
-        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(0, 2), wide))
-        // Normal posters keep the canonical rhythm.
-        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(0, 2), compact))
-        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(1, 2), compact))
-        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(2, 2), compact))
-        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(1, 2), almostWide))
-        // Single-column layouts cannot widen, and a missing poster keeps the slot.
-        assertEquals(1, editorialPosterSlotSpan(1, editorialSlot(1, 1), wide))
-        assertEquals(2, editorialPosterSlotSpan(2, editorialSlot(0, 2), null))
-        assertEquals(1, editorialPosterSlotSpan(2, editorialSlot(1, 2), null))
+    @Test fun panoramicPosterCellsNeverFallBelowTheTouchFloor() {
+        fun assertNear(expected: Float, actual: Float) {
+            assertTrue("expected=$expected actual=$actual",
+                kotlin.math.abs(expected - actual) <= 0.05f)
+        }
+        val clasicaRatio = 1032f / 255f
+        val metalRatio = 1033f / 255f
+        assertNear(48f, editorialPosterCellHeightDp(180.5f, clasicaRatio))
+        assertNear(48f, editorialPosterCellHeightDp(155f, metalRatio))
+        // Compact posters keep their real aspect: 514x268 at a 180.5dp cell.
+        assertNear(180.5f / (514f / 268f), editorialPosterCellHeightDp(180.5f, 514f / 268f))
+        assertNear(280f / 1.4f, editorialPosterCellHeightDp(280f, 1.4f))
+        // Invalid geometry fails closed to the touch floor, never to a broken cell.
+        assertNear(48f, editorialPosterCellHeightDp(0f, 2f))
+        assertNear(48f, editorialPosterCellHeightDp(180f, Float.NaN))
     }
     @Test fun invalidPosterCatalogFailsClosed() {
         val name = "genre_new_wave_editorial.webp"

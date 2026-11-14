@@ -2,7 +2,7 @@ package org.michimusic.mobile.ui.screens
 
 import org.michimusic.core.models.Track
 import java.util.Locale
-import java.text.Normalizer
+import kotlin.math.roundToInt
 
 /** A genre is an index into the authoritative scoped tracks, never a new audio owner. */
 data class LibraryGenre(
@@ -118,36 +118,22 @@ fun genresByTrackCount(genres: List<LibraryGenre>): List<LibraryGenre> =
     genres.sortedWith(compareBy<LibraryGenre>({ it.id == UNKNOWN_GENRE_ID },
         { -it.tracks.size }, { it.title.lowercase(Locale.ROOT) }))
 
-/** Local, accent-insensitive label search; never queries files or remote catalogs. */
-fun filterLibraryGenres(genres: List<LibraryGenre>, query: String): List<LibraryGenre> {
-    val term = normalizedGenreSearch(query)
-    if (term.isEmpty()) return genres
-    return genres.filter { normalizedGenreSearch(it.title).contains(term) }
-}
-
-private fun normalizedGenreSearch(value: String): String =
-    Normalizer.normalize(value.trim().lowercase(Locale.ROOT), Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
-        .replace(Regex("\\s+"), " ")
-
-/** Search is visible only when discovery benefits from it. */
-fun showGenreSearch(totalGenres: Int, query: String): Boolean =
-    totalGenres >= 8 || query.isNotEmpty()
-
 /**
- * Columns account for actual 20dp side gutters and 10dp gap. Two cards must
- * each retain at least 170dp; layout uses the available pane, not device width.
+ * Hero height from the card's real width (grid width minus the 20dp gutters):
+ * the canonical 218dp focal card, but never shorter than the approved frame
+ * (which would reintroduce lateral bands). Capped at 300dp because a wider
+ * panel keeps a card, not a billboard.
  */
-fun genreGridColumns(availableWidthDp: Int, fontScale: Float): Int {
-    val textBudget = fontScale.coerceIn(1f, 3f)
-    val minimumTileDp = (170 * textBudget).toInt()
-    return if (availableWidthDp >= 40 + 10 + 2 * minimumTileDp) 2 else 1
+fun genreMosaicHeroHeightDp(cardWidthDp: Float, fontScale: Float): Int {
+    val textDriven = 218 + ((fontScale.coerceIn(1f, 3f) - 1f) * 140).toInt()
+    val frameDriven = (cardWidthDp / GENRE_ARTWORK_FRAME_RATIO)
+        .coerceIn(198f, 300f).roundToInt()
+    return maxOf(textDriven, frameDriven)
 }
 
-/** Conservative static height budget at 100%-300% text scale; no animated layout. */
-fun genreMosaicHeightDp(featured: Boolean, fontScale: Float): Int =
-    (if (featured) 218 else 166) +
-        ((fontScale.coerceIn(1f, 3f) - 1f) * (if (featured) 140 else 125)).toInt()
+/** Caption band that holds the real track count under a secondary card. */
+fun genreMosaicFooterHeightDp(fontScale: Float): Int =
+    56 + ((fontScale.coerceIn(1f, 3f) - 1f) * 28).toInt()
 
 fun genreEditorialHeightDp(slot: GenreEditorialSlot, fontScale: Float): Int =
     slot.heightDp + ((fontScale.coerceIn(1f, 3f) - 1f) * 160).toInt()
@@ -169,8 +155,24 @@ fun editorialSlot(index: Int, columns: Int): GenreEditorialSlot {
         1 -> GenreEditorialTreatment.PORTRAIT_LEFT
         else -> GenreEditorialTreatment.PORTRAIT_RIGHT
     }
+    return editorialSlotFor(treatment, columns)
+}
+
+/**
+ * Canonical cell geometry for one Editorial treatment: a 192dp cover spanning
+ * the row, a 246dp one-column portrait, and a 200dp single-column card.
+ * Poster cells keep the approved asset aspect instead; these heights are the
+ * contract for Compose-drawn cells and for the rhythm's minimum rhythm slot.
+ */
+fun editorialSlotFor(
+    treatment: GenreEditorialTreatment,
+    columns: Int,
+): GenreEditorialSlot {
+    require(columns >= 1)
     if (columns == 1) return GenreEditorialSlot(1, 200, treatment)
-    return if (treatment == GenreEditorialTreatment.COVER)
+    return if (treatment == GenreEditorialTreatment.COVER) {
         GenreEditorialSlot(columns, 192, treatment)
-    else GenreEditorialSlot(1, 246, treatment)
+    } else {
+        GenreEditorialSlot(1, 246, treatment)
+    }
 }

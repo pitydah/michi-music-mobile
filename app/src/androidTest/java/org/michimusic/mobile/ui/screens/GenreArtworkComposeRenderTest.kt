@@ -147,6 +147,10 @@ class GenreArtworkComposeRenderTest {
                     })
             }
         }
+        // The panel publishes its approved catalog from produceState after the
+        // first composition; drain that continuation before polling so the
+        // recomposition is not starved in a warm process.
+        rule.waitForIdle()
         rule.waitUntil(20_000) {
             receipts.containsKey("FEATURED:rock") && receipts.containsKey("FEATURED:jazz")
         }
@@ -154,6 +158,7 @@ class GenreArtworkComposeRenderTest {
         assertEquals("Mosaico Jazz failed inside GenreLibraryPanel", true, receipts["FEATURED:jazz"])
         rule.onNodeWithTag("genre_view_selector").performClick()
         rule.onNodeWithTag("genre_view_editorial").performClick()
+        rule.waitForIdle()
         rule.waitUntil(20_000) {
             receipts.containsKey("EDITORIAL:rock") && receipts.containsKey("EDITORIAL:jazz")
         }
@@ -175,11 +180,13 @@ class GenreArtworkComposeRenderTest {
                 Box(Modifier.width(350.dp)) {
                     GenreEditorialPosterTile(rock,
                         EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280),
+                        treatment = GenreEditorialTreatment.COVER,
                         onOpen = {})
                 }
                 Box(Modifier.width(170.dp)) {
                     GenreEditorialPosterTile(jazz,
                         EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327),
+                        treatment = GenreEditorialTreatment.PORTRAIT_LEFT,
                         onOpen = {})
                 }
             }

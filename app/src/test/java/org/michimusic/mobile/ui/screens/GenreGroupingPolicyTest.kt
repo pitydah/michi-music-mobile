@@ -117,39 +117,40 @@ class GenreGroupingPolicyTest {
         assertEquals(1, editorialSlot(2, 1).span)
     }
 
-    @Test fun accentInsensitiveSearchStaysWithinGivenLibrary() {
-        val genres = genresByTrackCount(groupLibraryGenres(listOf(
-            song("a", "Clásica"), song("b", "Electronica"),
-            song("c", "New Wave"), song("d", "R&B/Soul"))))
-        assertEquals(listOf("Clásica"), filterLibraryGenres(genres, "clasica").map { it.title })
-        assertEquals(listOf("Electronica"), filterLibraryGenres(genres, "ELÉCTRONICA").map { it.title })
-        assertEquals(listOf("New Wave"), filterLibraryGenres(genres, "  new   wave ").map { it.title })
-        assertEquals(listOf("R&B/Soul"), filterLibraryGenres(genres, "R&B/").map { it.title })
-        assertEquals(genres, filterLibraryGenres(genres, "   "))
-        assertTrue(filterLibraryGenres(genres, "no existe").isEmpty())
-    }
-
-    @Test fun searchIsNotShownForSmallLibrariesUnlessQueryActive() {
-        assertTrue(showGenreSearch(31, ""))
-        assertTrue(showGenreSearch(2, "jazz"))
-        assertEquals(false, showGenreSearch(2, ""))
-        assertEquals(false, showGenreSearch(0, ""))
-    }
-
-    @Test fun geometryReservesRealCardWidthAndLargeTextSpace() {
-        assertEquals(1, genreGridColumns(320, 1f))
-        assertEquals(1, genreGridColumns(360, 1f))
-        assertEquals(1, genreGridColumns(389, 1f))
-        assertEquals(2, genreGridColumns(390, 1f))
-        assertEquals(2, genreGridColumns(411, 1f))
-        assertEquals(2, genreGridColumns(600, 1.5f))
-        assertEquals(1, genreGridColumns(600, 2f))
-        assertEquals(218, genreMosaicHeightDp(true, 1f))
-        assertEquals(166, genreMosaicHeightDp(false, 1f))
-        assertEquals(358, genreMosaicHeightDp(true, 2f))
-        assertEquals(291, genreMosaicHeightDp(false, 2f))
+    @Test fun geometryReservesRealCardWidthAndMeasuredTextSpace() {
+        // Pure arithmetic: 20dp gutters + 10dp gap are fixed, only the measured
+        // minimum tile width changes the column count.
+        assertEquals(1, genreGridColumns(320, 148))
+        assertEquals(2, genreGridColumns(360, 148))
+        assertEquals(2, genreGridColumns(390, 148))
+        assertEquals(2, genreGridColumns(411, 148))
+        assertEquals(2, genreGridColumns(480, 148))
+        // A wider measured label must downgrade to one column instead of
+        // squeezing two unreadable cards.
+        assertEquals(1, genreGridColumns(360, 160))
+        assertEquals(1, genreGridColumns(390, 175))
+        assertEquals(2, genreGridColumns(480, 200))
+        assertEquals(1, genreGridColumns(320, 200))
+        // Fixed rhythm remains 192/246/200 for Compose-drawn cells.
         assertEquals(352, genreEditorialHeightDp(editorialSlot(0, 2), 2f))
         assertEquals(406, genreEditorialHeightDp(editorialSlot(1, 2), 2f))
+    }
+
+    @Test fun heroAndFooterHeightsAdaptToPanelWidthAndTextScale() {
+        // Card widths after the fixed 20dp gutters (320/360/390/411/480 panels).
+        // 320dp panel: the 198dp frame is raised to the canonical 218dp focal card.
+        assertEquals(218, genreMosaicHeroHeightDp(280f, 1f))
+        // 360/390/411 panels: frame height keeps the 1.41:1 artwork bandless.
+        assertEquals(227, genreMosaicHeroHeightDp(320f, 1f))
+        assertEquals(248, genreMosaicHeroHeightDp(350f, 1f))
+        assertEquals(263, genreMosaicHeroHeightDp(371f, 1f))
+        // Wide panels cap the focal card instead of turning it into a billboard.
+        assertEquals(300, genreMosaicHeroHeightDp(440f, 1f))
+        // Large text grows the caption band, never the artwork crop.
+        assertEquals(56, genreMosaicFooterHeightDp(1f))
+        assertEquals(64, genreMosaicFooterHeightDp(1.3f))
+        assertEquals(84, genreMosaicFooterHeightDp(2f))
+        assertEquals(358, genreMosaicHeroHeightDp(320f, 2f))
     }
 
     @Test fun compilationGuestsDoNotInflateRealAlbumCount() {
@@ -192,11 +193,13 @@ class GenreGroupingPolicyTest {
         assertEquals(false, genrePlaybackIdentityMatches(a,null))
     }
 
-    @Test fun adaptiveColumnsOnTabletHonorScaledCellBudget() {
-        assertEquals(2, genreGridColumns(600, 1.5f))
-        assertEquals(1, genreGridColumns(520, 1.5f))
-        assertEquals(1, genreGridColumns(390, 1.3f))
-        assertEquals(1, genreGridColumns(320, 3f))
+    @Test fun adaptiveColumnsOnTabletHonorMeasuredCellBudget() {
+        // A foldable/tablet pane can still pair two cards with a large measured
+        // label, and stops pairing when the measured label no longer fits.
+        assertEquals(2, genreGridColumns(600, 200))
+        assertEquals(1, genreGridColumns(520, 260))
+        assertEquals(1, genreGridColumns(390, 180))
+        assertEquals(1, genreGridColumns(320, 148))
     }
 
     @Test fun duplicateTrackIdentityRespectsLibraryOwner() {

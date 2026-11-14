@@ -26,22 +26,30 @@ internal fun editorialPosterForTitle(
     posters: Map<String, EditorialPosterAsset>,
 ): EditorialPosterAsset? = editorialPosterSlug(genreTitle)?.let(posters::get)
 
-/** Posters >= 2.4:1 span both columns; compact horizontal posters occupy one. */
-internal fun editorialPosterSpan(columns: Int, poster: EditorialPosterAsset?): Int {
-    require(columns >= 1)
-    return if (columns > 1 && poster != null && poster.ratio >= 2.4f) columns else 1
+/** Minimum interactive height for one Editorial poster cell. */
+internal const val EDITORIAL_POSTER_MIN_HEIGHT_DP = 48f
+
+/**
+ * Poster cell height from the measured column width.
+ *
+ * The approved pack contains panoramic sheets (~4:1). In a half-width portrait
+ * slot their truthful height is only 38-45dp, which would leave the card under
+ * the 48dp touch floor. The cell therefore keeps the approved aspect but never
+ * drops below [EDITORIAL_POSTER_MIN_HEIGHT_DP]; the extra surface belongs to
+ * the card's own background (the bitmap stays `Fit`, never cropped/stretched).
+ * Invalid geometry falls back to the touch floor instead of a broken cell.
+ */
+internal fun editorialPosterCellHeightDp(widthDp: Float, posterRatio: Float): Float {
+    if (!widthDp.isFinite() || !posterRatio.isFinite() || widthDp <= 0f || posterRatio <= 0f) {
+        return EDITORIAL_POSTER_MIN_HEIGHT_DP
+    }
+    return maxOf(widthDp / posterRatio, EDITORIAL_POSTER_MIN_HEIGHT_DP)
 }
 
-/** Final Editorial span: the approved poster ratio can only widen a cell.
- * A panoramic poster in a PORTRAIT slot takes the whole row (a single column
- * renders it as a short strip); a compact poster never narrows a canonical
- * COVER cell, so the ONE/COVER/LEFT/RIGHT rhythm stays intact for normal art.
+/** Posters >= 2.4:1 are the approved panoramic sheets; the layout keeps them in
+ * their positional slot (a poster never widens a cell on its own) so Editorial
+ * cannot drift into a wall of full-width banners.
  */
-internal fun editorialPosterSlotSpan(
-    columns: Int,
-    slot: GenreEditorialSlot,
-    poster: EditorialPosterAsset?,
-): Int = maxOf(slot.span, editorialPosterSpan(columns, poster))
 
 /** Fail closed atomically: a malformed row invalidates the whole poster catalog.
  * File bytes and SHA-256 are checked at Android build time, not on UI thread.
