@@ -51,6 +51,63 @@ class GenreArtworkInventory312Test {
         })
     }
 
+    @Test fun bothOpticalTablesCoverTheSame312AssetsWithMeasuredCorners() {
+        val mosaicOptical = rows(File(mosaicDir, "optical.tsv"))
+        val posterOptical = rows(File(posterDir, "optical.tsv"))
+        assertEquals("Mosaico optical rows", 312, mosaicOptical.size)
+        assertEquals("Editorial optical rows", 312, posterOptical.size)
+        val mosaicManifest = rows(File(mosaicDir, "manifest.tsv")).associateBy { it[1] }
+        val posterManifest = rows(File(posterDir, "manifest.tsv")).associateBy { it[1] }
+        fun checkRows(optical: List<List<String>>, manifest: Map<String, List<String>>) {
+            optical.forEach { row ->
+                assertEquals("optical columns for ${row[0]}", 12, row.size)
+                val declared = manifest.getValue(row[0])
+                assertEquals("width for ${row[0]}", declared[3], row[1])
+                assertEquals("height for ${row[0]}", declared[4], row[2])
+                val width = row[1].toInt()
+                val height = row[2].toInt()
+                // Four insets and four corner radii are always recorded.
+                (3..6).forEach { column ->
+                    val inset = row[column].toFloat()
+                    assertTrue("inset $column for ${row[0]}", inset >= 0f && inset < minOf(width, height) / 2f)
+                }
+                (7..10).forEach { column ->
+                    val radius = row[column].toFloat()
+                    assertTrue("radius $column for ${row[0]}", radius >= 0f && radius < minOf(width, height))
+                }
+                assertTrue("verified flag for ${row[0]}", row[11] == "0" || row[11] == "1")
+            }
+        }
+        checkRows(mosaicOptical, mosaicManifest)
+        checkRows(posterOptical, posterManifest)
+        assertEquals("verified Mosaico rows", 298, mosaicOptical.count { it[11] == "1" })
+        assertEquals("verified Editorial rows", 227, posterOptical.count { it[11] == "1" })
+    }
+
+    @Test fun everyOpticalRowAttachesOnlyToTheAssetItMeasured() {
+        val mosaicOptical = parseUi7OpticalMasks(text(File(mosaicDir, "optical.tsv")))
+        val posterOptical = parseUi7OpticalMasks(text(File(posterDir, "optical.tsv")))
+        assertEquals(312, mosaicOptical.size)
+        assertEquals(312, posterOptical.size)
+        val mosaicFiles = mosaicDir.listFiles().orEmpty().map { it.name }.toSet()
+        val posterFiles = posterDir.listFiles().orEmpty().map { it.name }.toSet()
+        val mosaic = mosaicApprovedArtwork(
+            text(File(mosaicDir, "manifest.tsv")), mosaicFiles, opticalMasks = mosaicOptical,
+        )
+        val posters = editorialApprovedPosters(
+            text(File(posterDir, "manifest.tsv")), posterFiles, opticalMasks = posterOptical,
+        )
+        assertEquals(312, mosaic.size)
+        assertEquals(312, posters.size)
+        assertEquals("every Mosaico row keeps its measured mask", 312,
+            mosaic.values.count { it.opticalMask != null })
+        assertEquals("every Editorial row keeps its measured mask", 312,
+            posters.values.count { it.opticalMask != null })
+        // An unverified row stays on the fallback path instead of guessing a frame.
+        assertEquals(298, mosaic.values.count { it.opticalMask?.verified == true })
+        assertEquals(227, posters.values.count { it.opticalMask?.verified == true })
+    }
+
     @Test fun existing216KeepTheirIdentitiesAndTheNew96AppendAfterThem() {
         val mosaic = rows(File(mosaicDir, "manifest.tsv"))
         val numbers = mosaic.map { it[1].substring(12, 15).toInt() }
@@ -80,7 +137,8 @@ class GenreArtworkInventory312Test {
         val mosaic = mosaicApprovedArtwork(
             text(File(mosaicDir, "manifest.tsv")),
             mosaicDir.listFiles().orEmpty().map { it.name }.toSet(),
-        ) { mosaicRejection = it }
+            onRejected = { mosaicRejection = it },
+        )
         assertNull("Mosaico rejected: $mosaicRejection", mosaicRejection)
         assertEquals(312, mosaic.size)
 
@@ -88,7 +146,8 @@ class GenreArtworkInventory312Test {
         val posters = editorialApprovedPosters(
             text(File(posterDir, "manifest.tsv")),
             posterDir.listFiles().orEmpty().map { it.name }.toSet(),
-        ) { posterRejection = it }
+            onRejected = { posterRejection = it },
+        )
         assertNull("Editorial rejected: $posterRejection", posterRejection)
         assertEquals(312, posters.size)
     }

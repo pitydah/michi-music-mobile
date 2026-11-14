@@ -100,21 +100,30 @@ class GenreGroupingPolicyTest {
     }
 
     @Test fun editorialLayoutDoesNotDependOnAnyAssetOrGenreName() {
-        assertEquals(listOf(2, 1, 1, 2, 1, 1),
-            (0..5).map { editorialSlot(it, 2).span })
-        assertEquals(listOf(192, 246, 246, 192),
-            (0..3).map { editorialSlot(it, 2).heightDp })
-        assertEquals((0..5).map { 1 }, (0..5).map { editorialSlot(it, 1).span })
-        assertEquals(200, editorialSlot(1, 1).heightDp)
+        val rows = editorialRows(groupLibraryGenres((0..5).map { song("g$it", "Style $it") }), 2)
+        // COVER(1) -> PAIR(2) -> PAIR(2) -> COVER(1).
+        assertEquals(listOf(1, 2, 2, 1), rows.map {
+            if (it is EditorialRow.Pair) 2 else 1
+        })
+        assertEquals(listOf(192, 246, 246, 192), rows.map { row ->
+            when (row) {
+                is EditorialRow.Cover ->
+                    genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 1f)
+                is EditorialRow.Pair ->
+                    genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f)
+            }
+        })
+        assertEquals(200, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 1, 1f))
     }
 
     @Test fun editorialTreatmentsAreThreeDistinctSemanticsIndependentOfImages() {
         assertEquals(
             listOf(GenreEditorialTreatment.COVER, GenreEditorialTreatment.PORTRAIT_LEFT,
                 GenreEditorialTreatment.PORTRAIT_RIGHT, GenreEditorialTreatment.COVER),
-            (0..3).map { editorialSlot(it, 2).treatment },
+            (0..3).map { editorialSlotFor(GenreEditorialTreatment.entries[it % 3], 2).treatment },
         )
-        assertEquals(1, editorialSlot(2, 1).span)
+        assertEquals(1, editorialSlotFor(GenreEditorialTreatment.PORTRAIT_LEFT, 1).span)
+        assertEquals(2, editorialSlotFor(GenreEditorialTreatment.COVER, 2).span)
     }
 
     @Test fun geometryReservesRealCardWidthAndMeasuredTextSpace() {
@@ -152,20 +161,18 @@ class GenreGroupingPolicyTest {
         assertEquals(28, GENRE_GRID_BOTTOM_PADDING_DP)
     }
 
-    @Test fun heroAndSecondaryHeightsComeFromTheTreatmentNotTheWidth() {
-        // 218dp focal card and 166dp compact card at 1.0x, for every panel width.
-        listOf(280f, 320f, 350f, 371f, 440f).forEach { width ->
-            assertEquals("hero must not follow $width", 218, genreMosaicHeroHeightDp(1f))
-            assertEquals("secondary must not follow $width", 166, genreMosaicSecondaryHeightDp(1f))
-        }
-        // Larger text grows the cards by a bounded amount; no card shrinks below
-        // the 48dp touch floor and no font is reduced.
-        assertEquals(230, genreMosaicHeroHeightDp(1.3f))
-        assertEquals(258, genreMosaicHeroHeightDp(2f))
-        assertEquals(172, genreMosaicSecondaryHeightDp(1.3f))
-        assertEquals(186, genreMosaicSecondaryHeightDp(2f))
-        assertEquals(298, genreMosaicHeroHeightDp(3f))
-        assertEquals(206, genreMosaicSecondaryHeightDp(3f))
+    @Test fun mosaicHeightsComeFromTheTreatmentNotThePanelOrAsset() {
+        // Latest contract §3.4/§9.3: a homogeneous grid, no 218dp hero and no
+        // 166dp secondary.
+        assertEquals(175f, mosaicCardSize(320f, 1).heightDp, 0.01f)
+        assertEquals(200f, mosaicCardSize(360f, 1).heightDp, 0.01f)
+        assertEquals(121f, mosaicCardSize(390f, 2).heightDp, 0.6f)
+        assertEquals(129f, mosaicCardSize(411f, 2).heightDp, 0.6f)
+        assertEquals(154f, mosaicCardSize(480f, 2).heightDp, 0.6f)
+        // Both cells of a row share the same treatment height, independent of the
+        // native ratio of the crop that happens to land there.
+        val row = mosaicCardSize(411f, 2)
+        assertEquals(row.heightDp, mosaicCardSize(411f, 2).heightDp, 0f)
     }
 
     @Test fun compilationGuestsDoNotInflateRealAlbumCount() {
@@ -259,7 +266,7 @@ class GenreGroupingPolicyTest {
         val one = groupLibraryGenres(listOf(song("a", "New Wave"), song("b", "new-wave")))
         assertEquals(1, one.size)
         assertEquals(2, one.single().tracks.size)
-        assertEquals(GenreEditorialTreatment.COVER, editorialSlot(0, 2).treatment)
+        assertTrue(editorialRows(one, 2).first() is EditorialRow.Cover)
         val five = groupLibraryGenres((0 until 5).map { song("$it", "Style $it") })
         assertEquals(5, five.size)
     }

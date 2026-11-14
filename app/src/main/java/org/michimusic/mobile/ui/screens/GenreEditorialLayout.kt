@@ -1,8 +1,11 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,34 +18,42 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.michimusic.mobile.ui.components.AeroCard
+import org.michimusic.mobile.ui.theme.AeroGraphiteRaised
 import org.michimusic.mobile.ui.theme.LocalVisualPreferences
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TextSecondary
 
 /**
- * One Editorial row: a full-width COVER or an asymmetric PORTRAIT_LEFT /
- * PORTRAIT_RIGHT pair.
+ * Editorial wall: `COVER(1) → PAIR(2) → PAIR(2) → COVER(1)` and repeat.
  *
- * The grid is a grouped lazy list, not a generic masonry: two row shapes keep
- * stable keys, scroll restoration, lazy image composition, one-column
- * adaptation and per-card accessibility. Approved posters keep their own
- * proportional compact height, so a horizontal sheet is never stretched into a
- * 246dp portrait slot; explicit rows keep the cover/pair contract and the
- * promoted tail card unambiguous.
+ * Each card is independent and has one click target, one title and one numeric
+ * chip. A trailing single genre is promoted to COVER instead of leaving a half
+ * empty row. Pairs always share the same exterior height; no asset ratio can make
+ * one half taller than the other.
  */
 internal sealed interface EditorialRow {
     val key: String
@@ -56,33 +67,26 @@ internal sealed interface EditorialRow {
     }
 }
 
-/**
- * Canonical COVER / pair / pair rhythm. A trailing group of two becomes a pair
- * instead of a cover plus an orphan, so the wall never ends on a half-empty
- * row. Single-column panels render every genre as its own cover.
- */
+/** Canonical `[1,2,2,1]` rhythm. One-column panels show every genre as a cover. */
 internal fun editorialRows(genres: List<LibraryGenre>, columns: Int): List<EditorialRow> {
     require(columns >= 1)
     if (genres.isEmpty()) return emptyList()
     if (columns == 1) return genres.map { EditorialRow.Cover(it) }
+    val pattern = intArrayOf(1, 2, 2, 1)
     val rows = ArrayList<EditorialRow>((genres.size + 1) / 2)
-    var index = 0
-    while (index < genres.size) {
-        when (genres.size - index) {
-            1 -> {
-                rows += EditorialRow.Cover(genres[index])
-                index += 1
-            }
-            2 -> {
-                rows += EditorialRow.Pair(genres[index], genres[index + 1])
-                index += 2
-            }
-            else -> {
-                rows += EditorialRow.Cover(genres[index])
-                rows += EditorialRow.Pair(genres[index + 1], genres[index + 2])
-                index += 3
-            }
+    var genreIndex = 0
+    var phase = 0
+    while (genreIndex < genres.size) {
+        val wanted = pattern[phase % pattern.size]
+        val remaining = genres.size - genreIndex
+        val take = minOf(wanted, remaining)
+        if (take == 2) {
+            rows += EditorialRow.Pair(genres[genreIndex], genres[genreIndex + 1])
+        } else {
+            rows += EditorialRow.Cover(genres[genreIndex])
         }
+        genreIndex += take
+        phase++
     }
     return rows
 }
@@ -91,190 +95,234 @@ internal fun editorialRows(genres: List<LibraryGenre>, columns: Int): List<Edito
 internal fun GenreEditorialGrid(
     genres: List<LibraryGenre>,
     columns: Int,
+    availableWidthDp: Float,
     state: LazyListState,
     posterAssets: Map<String, EditorialPosterAsset>,
-    productionAssets: Set<String>,
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)?,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val rows = remember(genres, columns) { editorialRows(genres, columns) }
+    val fontScale = LocalConfiguration.current.fontScale
+    val sizes = remember(availableWidthDp, columns, fontScale) {
+        editorialCardSize(availableWidthDp, columns, fontScale)
+    }
     LazyColumn(
         state = state,
         modifier = modifier.fillMaxSize().testTag("genres_editorial"),
         contentPadding = PaddingValues(
             start = GENRE_GRID_SIDE_PADDING_DP.dp,
             end = GENRE_GRID_SIDE_PADDING_DP.dp,
-            top = 4.dp,
-            bottom = 28.dp,
+            top = GENRE_GRID_TOP_PADDING_DP.dp,
+            bottom = GENRE_GRID_BOTTOM_PADDING_DP.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(GENRE_GRID_GAP_DP.dp),
     ) {
-        items(rows, key = { it.key }) { row ->
+        // `contentType` includes the viewport decisions that change the item
+        // lambda, so a split-screen/font-scale change rebuilds the row content
+        // instead of reusing the previous card geometry.
+        items(rows, key = { it.key }, contentType = { "$columns:$fontScale" }) { row ->
             when (row) {
-                is EditorialRow.Cover -> EditorialCell(
-                    genre = row.genre,
-                    treatment = GenreEditorialTreatment.COVER,
-                    columns = columns,
-                    modifier = Modifier.fillMaxWidth(),
-                    posterAssets = posterAssets,
-                    productionAssets = productionAssets,
-                    onArtworkLoad = onArtworkLoad,
-                    onOpen = onOpen,
-                )
+                is EditorialRow.Cover -> BoxWithConstraints(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(
+                            if (columns == 1) sizes.singleHeightDp.dp else sizes.coverHeightDp.dp,
+                        ),
+                ) {
+                    EditorialCell(
+                        genre = row.genre,
+                        treatment = GenreEditorialTreatment.COVER,
+                        columns = columns,
+                        cardWidthDp = maxWidth.value,
+                        cardHeightDp = maxHeight.value,
+                        posterAssets = posterAssets,
+                        onArtworkLoad = onArtworkLoad,
+                        onOpen = onOpen,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
                 is EditorialRow.Pair -> Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(sizes.portraitHeightDp.dp),
                     horizontalArrangement = Arrangement.spacedBy(GENRE_GRID_GAP_DP.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    EditorialCell(
-                        genre = row.leading,
-                        treatment = GenreEditorialTreatment.PORTRAIT_LEFT,
-                        columns = columns,
-                        modifier = Modifier.weight(1f),
-                        posterAssets = posterAssets,
-                        productionAssets = productionAssets,
-                        onArtworkLoad = onArtworkLoad,
-                        onOpen = onOpen,
-                    )
-                    EditorialCell(
-                        genre = row.trailing,
-                        treatment = GenreEditorialTreatment.PORTRAIT_RIGHT,
-                        columns = columns,
-                        modifier = Modifier.weight(1f),
-                        posterAssets = posterAssets,
-                        productionAssets = productionAssets,
-                        onArtworkLoad = onArtworkLoad,
-                        onOpen = onOpen,
-                    )
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                        EditorialCell(
+                            genre = row.leading,
+                            treatment = GenreEditorialTreatment.PORTRAIT_LEFT,
+                            columns = columns,
+                            cardWidthDp = maxWidth.value,
+                            cardHeightDp = maxHeight.value,
+                            posterAssets = posterAssets,
+                                onArtworkLoad = onArtworkLoad,
+                            onOpen = onOpen,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                        EditorialCell(
+                            genre = row.trailing,
+                            treatment = GenreEditorialTreatment.PORTRAIT_RIGHT,
+                            columns = columns,
+                            cardWidthDp = maxWidth.value,
+                            cardHeightDp = maxHeight.value,
+                            posterAssets = posterAssets,
+                                onArtworkLoad = onArtworkLoad,
+                            onOpen = onOpen,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/** Approved finished poster wins; the Compose-drawn treatment is the fallback. */
 @Composable
 private fun EditorialCell(
     genre: LibraryGenre,
     treatment: GenreEditorialTreatment,
     columns: Int,
-    modifier: Modifier,
+    cardWidthDp: Float,
+    cardHeightDp: Float,
     posterAssets: Map<String, EditorialPosterAsset>,
-    productionAssets: Set<String>,
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)?,
     onOpen: (String) -> Unit,
+    modifier: Modifier,
 ) {
+    val chip = rememberGenreCounterSize(genre.tracks.size)
     val poster = editorialPosterForTitle(genre.title, posterAssets)
-    if (poster != null) {
+    val spec = editorialVisualSpec(poster, treatment)
+    val treatmentKey = treatment.toUi7Treatment()
+    val outcome = ui7RenderOutcome(
+        spec = spec,
+        treatment = treatmentKey,
+        cardWidthDp = cardWidthDp,
+        cardHeightDp = cardHeightDp,
+        sourceRatio = poster?.ratio ?: 1f,
+        chipWidthDp = chip.widthDp,
+        chipHeightDp = chip.heightDp,
+    )
+    val compatible = outcome == Ui7RenderOutcome.ASSET
+    LaunchedEffect(poster?.filename, outcome, treatmentKey) {
+        if (poster != null && !compatible) {
+            GenreArtworkDiagnostics.unsupportedAspect(
+                view = "EDITORIAL",
+                filename = poster.filename,
+                sourceRatio = poster.ratio,
+                targetWidthDp = cardWidthDp,
+                targetHeightDp = cardHeightDp,
+            )
+            GenreArtworkDiagnostics.renderOutcome("EDITORIAL", poster.filename, outcome)
+        }
+    }
+    if (!compatible || poster == null || spec == null) {
+        GenreEditorialFallbackTile(
+            genre = genre,
+            treatment = treatment,
+            columns = columns,
+            modifier = modifier,
+            onOpen = { onOpen(genre.id) },
+        )
+    } else {
         GenreEditorialPosterTile(
             genre = genre,
             poster = poster,
+            spec = spec,
             treatment = treatment,
             columns = columns,
             modifier = modifier,
             onArtworkLoad = onArtworkLoad,
             onOpen = { onOpen(genre.id) },
         )
-    } else {
-        GenreEditorialDrawnTile(
-            genre = genre,
-            treatment = treatment,
-            columns = columns,
-            modifier = modifier,
-            productionAssetNames = productionAssets,
-            onOpen = { onOpen(genre.id) },
-        )
     }
 }
 
-/** Three different editorial compositions; no false rankings and no invented art. */
+/**
+ * Compose fallback for an Editorial slot without an approved vertical/cover
+ * variant. It keeps the treatment geometry (192/246/200), uses one Compose
+ * border because no rasterized border exists, and shows the real title plus the
+ * numeric chip only. No horizontal historical poster is forced into the slot and
+ * no "PENDIENTE" text is ever visible.
+ */
 @Composable
-private fun GenreEditorialDrawnTile(
+internal fun GenreEditorialFallbackTile(
     genre: LibraryGenre,
     treatment: GenreEditorialTreatment,
     columns: Int,
-    modifier: Modifier,
-    productionAssetNames: Set<String>,
+    modifier: Modifier = Modifier,
     onOpen: () -> Unit,
 ) {
-    val accent = if (LocalVisualPreferences.current.highContrast) PureWhite else genreAccent(genre)
-    val count = genre.tracks.size
-    val itemLabel = "Abrir género ${genre.title}, $count ${if (count == 1) "pista" else "pistas"}"
-    val height = genreEditorialHeightDp(treatment, columns, LocalConfiguration.current.fontScale)
-    AeroCard(
-        modifier = modifier.height(height.dp)
-            .testTag("genre_editorial_${genre.id}")
-            .semantics { contentDescription = itemLabel },
-        onClick = onOpen,
-    ) {
-        Box(Modifier.fillMaxSize()) {
-            GenreVisualPlane(genre.id, accent, mode = GenreViewMode.EDITORIAL,
-                treatment = treatment)
-            // The source keys never drive tile creation. Only validated,
-            // text-free and frame-free derived assets may cover this plane.
-            // Missing/decoding-failed images leave the original geometry below.
-            GenreEditorialArtwork(genre.title, treatment, columns, productionAssetNames)
-            when (treatment) {
-                GenreEditorialTreatment.COVER -> {
-                    Box(Modifier.align(Alignment.CenterStart).width(3.dp).fillMaxHeight()
-                        .background(accent.copy(alpha = .72f)))
-                    Column(Modifier.fillMaxSize().padding(start = 22.dp, end = 20.dp,
-                        top = 21.dp, bottom = 19.dp),
-                        verticalArrangement = Arrangement.SpaceBetween) {
-                        Text("MICHI   /   ARCHIVO MUSICAL", style = MichiTypography.microLabel,
-                            color = TextSecondary, maxLines = 1)
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(genre.title, style = MichiTypography.sectionTitle.copy(fontSize = 30.sp,
-                                lineHeight = 33.sp), color = PureWhite,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Row(verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(Modifier.width(28.dp).height(2.dp).background(accent))
-                                Text("$count ${if (count == 1) "pista" else "pistas"}",
-                                    style = MichiTypography.metadata, color = TextSecondary)
-                            }
-                        }
-                    }
-                }
-                GenreEditorialTreatment.PORTRAIT_LEFT -> {
-                    Column(Modifier.fillMaxSize().padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween) {
-                        Text("MICHI / GÉNEROS", style = MichiTypography.microLabel,
-                            color = TextSecondary, maxLines = 1)
-                        Box(Modifier.fillMaxWidth().height(2.dp).background(accent.copy(alpha = .8f)))
-                        Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                            Text(genre.title, style = MichiTypography.sectionTitle.copy(
-                                fontSize = 22.sp, lineHeight = 26.sp), color = PureWhite,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("$count ${if (count == 1) "PISTA" else "PISTAS"}",
-                                style = MichiTypography.microLabel,
-                                color = TextSecondary, maxLines = 1)
-                        }
-                    }
-                }
-                GenreEditorialTreatment.PORTRAIT_RIGHT -> {
-                    Column(Modifier.fillMaxSize().padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Box(Modifier.width(26.dp).height(3.dp).background(accent))
-                            Text("M / M", style = MichiTypography.microLabel,
-                                color = TextSecondary)
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(genre.title, style = MichiTypography.sectionTitle.copy(
-                                fontSize = 22.sp, lineHeight = 26.sp), color = PureWhite,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Box(Modifier.fillMaxWidth().height(1.dp)
-                                .background(accent.copy(alpha = .35f)))
-                            Text("$count ${if (count == 1) "pista" else "pistas"}",
-                                style = MichiTypography.metadata, color = TextSecondary,
-                                maxLines = 1)
-                        }
-                    }
-                }
+    val highContrast = LocalVisualPreferences.current.highContrast
+    val accent = if (highContrast) PureWhite else genreAccent(genre)
+    val shape = RoundedCornerShape(14.dp)
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier
+            .clip(shape)
+            .clickable(role = Role.Button, onClick = onOpen)
+            .onFocusChanged { focused = it.isFocused }
+            .semantics(mergeDescendants = true) {
+                contentDescription = genreCardLabel(genre)
             }
+            .testTag("genre_editorial_${genre.id}"),
+    ) {
+        GenreArtworkPlaceholder(
+            accent,
+            Modifier.fillMaxSize().testTag("genre_editorial_fallback_${genre.id}"),
+        )
+        Box(Modifier.fillMaxSize().border(1.dp, accent.copy(alpha = 0.62f), shape))
+        val titleSize = when (treatment) {
+            GenreEditorialTreatment.COVER -> 28.sp
+            GenreEditorialTreatment.PORTRAIT_LEFT,
+            GenreEditorialTreatment.PORTRAIT_RIGHT -> 22.sp
+        }
+        val titleLine = when (treatment) {
+            GenreEditorialTreatment.COVER -> 32.sp
+            else -> 26.sp
+        }
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    start = if (columns == 1) 22.dp else 16.dp,
+                    end = 14.dp,
+                    top = 18.dp,
+                    bottom = 16.dp,
+                ),
+            verticalArrangement = Arrangement.Bottom,
+        ) {
+            Box(Modifier.width(30.dp).height(2.dp).background(accent.copy(alpha = 0.85f)))
+            Text(
+                text = genre.title,
+                style = MichiTypography.sectionTitle.copy(
+                    fontSize = titleSize,
+                    lineHeight = titleLine,
+                ),
+                color = PureWhite,
+                // A portrait cell is 170dp wide: three lines keep the real name
+                // ("Afro-Cuban Jazz") visible instead of truncating it to two.
+                maxLines = when (treatment) {
+                    GenreEditorialTreatment.COVER -> 2
+                    else -> 3
+                },
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 10.dp, end = 52.dp),
+            )
+        }
+        GenreCounterChip(
+            count = genre.tracks.size,
+            testTag = "genre_counter_${genre.id}",
+            modifier = Modifier.align(Alignment.BottomEnd).padding(
+                end = GENRE_COUNTER_INSET_DP.dp,
+                bottom = GENRE_COUNTER_INSET_DP.dp,
+            ),
+        )
+        if (focused) {
+            Box(Modifier.fillMaxSize().border(2.dp, PureWhite, shape))
         }
     }
 }

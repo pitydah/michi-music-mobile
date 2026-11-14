@@ -15,6 +15,10 @@ internal data class MosaicArtworkAsset(
     val filename: String,
     val widthPx: Int,
     val heightPx: Int,
+    /** Offline-measured baked frame; null when the optical table has no row. */
+    val opticalMask: Ui7OpticalMask? = null,
+    /** Verified bottom-end chip region for this resource, when recorded. */
+    val counterSafeRect: NormalizedRect? = null,
 ) {
     /** Declared source proportions; the renderer never distorts the artwork. */
     val ratio: Float get() = widthPx.toFloat() / heightPx.toFloat()
@@ -99,6 +103,7 @@ internal fun mosaicApprovedArtwork(
     manifest: String,
     installed: Set<String>,
     onRejected: (String) -> Unit = {},
+    opticalMasks: Map<String, Ui7OpticalMask> = emptyMap(),
 ): Map<String, MosaicArtworkAsset> {
     fun reject(reason: String): Map<String, MosaicArtworkAsset> {
         onRejected(reason)
@@ -131,7 +136,17 @@ internal fun mosaicApprovedArtwork(
         if (filename !in installed) return reject("line_${lineNumber}_asset_missing")
         if (!usedFiles.add(filename) || !usedIndexes.add(index))
             return reject("line_${lineNumber}_duplicate")
-        artwork[index] = MosaicArtworkAsset(key, filename, width, height)
+        val mask = opticalMasks[filename]?.takeIf {
+            it.sourceWidthPx == width && it.sourceHeightPx == height
+        }
+        artwork[index] = MosaicArtworkAsset(
+            genreKey = key,
+            filename = filename,
+            widthPx = width,
+            heightPx = height,
+            opticalMask = mask,
+            counterSafeRect = if (mask?.verified == true) ui7MosaicCounterSafeRegion else null,
+        )
     }
     // A single stray WebP must not silently publish an incomplete approved pack.
     if (installed.any { it.endsWith(".webp") && it !in usedFiles }) return reject("unexpected_webp")

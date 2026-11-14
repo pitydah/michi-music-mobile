@@ -2,6 +2,7 @@ package org.michimusic.mobile.ui.screens
 
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -15,6 +16,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -130,7 +132,9 @@ class GenreArtworkInventory312ComposeTest {
                 LocalDensity provides density,
             ) {
                 MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
-                    Box(Modifier.width(widthDp.value.dp).fillMaxHeight().testTag("ui7_312_root")) {
+                    Box(Modifier.width(widthDp.value.dp).fillMaxHeight()
+                        .background(androidx.compose.ui.graphics.Color(0xFF090B11))
+                        .testTag("ui7_312_root")) {
                         GenreLibraryPanel(
                             genres = genres,
                             playableTrackIds = genres.flatMap { it.tracks }.map { it.id }.toSet(),
@@ -210,13 +214,12 @@ class GenreArtworkInventory312ComposeTest {
         assertEquals("timba", manifestKeys.last())
 
         // The panel is not the manifest: it renders genresByTrackCount (most tracks
-        // first, then title). With one track each that is title order, so the hero
-        // and the final reachable card must come from the production ordering.
+        // first, then title). With one track each that is title order.
         val ordered = genresByTrackCount(genres)
         val hero = ordered.first()
         val last = ordered.last()
         assertEquals("panel genre count", 312, ordered.size)
-        assertEquals("hero is the alphabetical first genre", "acid house", hero.id)
+        assertEquals("first genre in panel order", "acid house", hero.id)
         assertEquals("last genre in panel order", "zouk", last.id)
 
         setPanel()
@@ -224,24 +227,114 @@ class GenreArtworkInventory312ComposeTest {
         rule.onNodeWithTag("genres_header_count").assertIsDisplayed().assertTextEquals("312 géneros")
         waitForNode(mosaicTileTag(hero.title))
         rule.onNodeWithTag(mosaicTileTag(hero.title)).assertIsDisplayed()
-        rule.waitUntil(20_000) { artworkReceipts["FEATURED:${hero.id}"] == true }
+        rule.onNodeWithTag(mosaicTileTag(hero.title))
+            .assertContentDescriptionEquals("Abrir género ${hero.title}, 1 pista")
         rule.onNodeWithTag("genres_featured")
             .performScrollToNode(hasTestTag(mosaicTileTag(last.title)))
         rule.waitForIdle()
         rule.onNodeWithTag(mosaicTileTag(last.title)).assertIsDisplayed()
-        rule.waitUntil(20_000) { artworkReceipts["FEATURED:${last.id}"] == true }
+        rule.onNodeWithTag(mosaicTileTag(last.title))
+            .assertContentDescriptionEquals("Abrir género ${last.title}, 1 pista")
 
+        // Editorial: the historical pack has no authentic vertical variant, so all
+        // 312 genres are present as honest Editorial fallbacks, never fake portraits.
         selectMode(GenreViewMode.EDITORIAL)
         waitForNode(editorialTileTag(hero.title))
         rule.onNodeWithTag(editorialTileTag(hero.title)).assertIsDisplayed()
-        rule.waitUntil(20_000) { artworkReceipts["EDITORIAL:${hero.id}"] == true }
+        assertTrue("first Editorial genre must expose a fallback",
+            rule.onAllNodesWithTag("genre_editorial_fallback_${hero.id}", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty())
+        assertTrue("no horizontal poster may be painted in Editorial",
+            rule.onAllNodesWithTag("genre_editorial_poster_${hero.id}", useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty())
         rule.onNodeWithTag("genres_editorial")
             .performScrollToNode(hasTestTag(editorialTileTag(last.title)))
         rule.waitForIdle()
         rule.onNodeWithTag(editorialTileTag(last.title)).assertIsDisplayed()
-        rule.waitUntil(20_000) { artworkReceipts["EDITORIAL:${last.id}"] == true }
-        assertEquals(true, artworkReceipts["FEATURED:${hero.id}"])
-        assertEquals(true, artworkReceipts["EDITORIAL:${last.id}"])
+        assertTrue("last Editorial genre must expose a fallback",
+            rule.onAllNodesWithTag("genre_editorial_fallback_${last.id}", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test fun mosaicCompatibilityIsOpticalMetadataNotAGuess() {
+        val files = context.assets.list(mosaicFolder).orEmpty().toSet()
+        val manifest = context.assets.open("$mosaicFolder/manifest.tsv")
+            .bufferedReader().use { it.readText() }
+        val optical = parseUi7OpticalMasks(
+            context.assets.open("$mosaicFolder/optical.tsv")
+                .bufferedReader().use { it.readText() },
+        )
+        val assets = mosaicApprovedArtwork(manifest, files, opticalMasks = optical)
+        assertEquals(312, assets.size)
+        assertEquals("verified optical rows", 298, assets.values.count { it.opticalMask?.verified == true })
+        assertEquals("unverified rows must never be approved", 14,
+            assets.values.count { it.opticalMask?.verified == false })
+        val size = mosaicCardSize(390f, columns = 2)
+        val outcomes = assets.values.groupingBy { asset ->
+            ui7RenderOutcome(
+                mosaicVisualSpec(asset, Ui7Treatment.MOSAIC_GRID),
+                Ui7Treatment.MOSAIC_GRID,
+                size.widthDp,
+                size.heightDp,
+                asset.ratio,
+                46f,
+                28f,
+            )
+        }.eachCount()
+        assertEquals("no asset may be silently missing", 0, outcomes[Ui7RenderOutcome.NO_ASSET] ?: 0)
+        assertEquals("unverified contours stay on fallback", 14,
+            outcomes[Ui7RenderOutcome.UNVERIFIED_CONTOUR] ?: 0)
+        assertTrue("at least one crop is compatible at 390dp: $outcomes",
+            (outcomes[Ui7RenderOutcome.ASSET] ?: 0) > 0)
+        assertTrue("and some crops still need an approved variant: $outcomes",
+            (outcomes[Ui7RenderOutcome.UNSUPPORTED_ASPECT] ?: 0) > 0)
+        // The count is a deterministic property of the packaged pack at this width.
+        println("UI7_MOSAIC_COMPAT $outcomes")
+    }
+
+    @Test fun editorialPackHasNoAuthenticVerticalVariant() {
+        val files = context.assets.list(editorialPosterFolder).orEmpty().toSet()
+        val manifest = context.assets.open("$editorialPosterFolder/manifest.tsv")
+            .bufferedReader().use { it.readText() }
+        val optical = parseUi7OpticalMasks(
+            context.assets.open("$editorialPosterFolder/optical.tsv")
+                .bufferedReader().use { it.readText() },
+        )
+        val posters = editorialApprovedPosters(manifest, files, opticalMasks = optical)
+        assertEquals(312, posters.size)
+        assertEquals("no portrait source exists in the approved pack", 0,
+            posters.values.count { it.isVertical })
+        val size = editorialCardSize(411f, columns = 2, fontScale = 1f)
+        val portraitOutcomes = posters.values.groupingBy { poster ->
+            ui7RenderOutcome(
+                editorialVisualSpec(poster, GenreEditorialTreatment.PORTRAIT_LEFT),
+                Ui7Treatment.EDITORIAL_PORTRAIT_LEFT,
+                size.portraitWidthDp,
+                size.portraitHeightDp,
+                poster.ratio,
+                46f,
+                28f,
+            )
+        }.eachCount()
+        assertEquals("every verified portrait slot is NEEDS_APPROVED_PORTRAIT", 227,
+            portraitOutcomes[Ui7RenderOutcome.NEEDS_APPROVED_PORTRAIT] ?: 0)
+        assertEquals("unmeasured contours stay unverified", 85,
+            portraitOutcomes[Ui7RenderOutcome.UNVERIFIED_CONTOUR] ?: 0)
+        assertEquals("no portrait slot may be approved", 0,
+            portraitOutcomes[Ui7RenderOutcome.ASSET] ?: 0)
+        val coverOutcomes = posters.values.groupingBy { poster ->
+            ui7RenderOutcome(
+                editorialVisualSpec(poster, GenreEditorialTreatment.COVER),
+                Ui7Treatment.EDITORIAL_COVER,
+                size.coverWidthDp,
+                size.coverHeightDp,
+                poster.ratio,
+                46f,
+                28f,
+            )
+        }.eachCount()
+        assertEquals("no cover may be approved without a prepared variant", 0,
+            coverOutcomes[Ui7RenderOutcome.ASSET] ?: 0)
     }
 
     @Test fun captureBothViewsAtFivePhoneWidths() {
@@ -261,18 +354,19 @@ class GenreArtworkInventory312ComposeTest {
             // so bring the first row back into composition before proving it.
             scrollToTile("genres_featured", mosaicTileTag(hero.title))
             rule.onNodeWithTag(mosaicTileTag(hero.title)).assertIsDisplayed()
-            rule.waitUntil(20_000) { artworkReceipts["FEATURED:${hero.id}"] == true }
-            capture("genres_overview", "mosaico-${width}dp$scaleSuffix")
+            capture("ui7_312_root", "mosaico-${width}dp$scaleSuffix")
             record("mosaico-${width}dp${scaleSuffix} fontScale=$fontScale " +
                 "receipts=" + artworkReceipts.count { it.value })
 
             selectMode(GenreViewMode.EDITORIAL)
             scrollToTile("genres_editorial", editorialTileTag(hero.title))
             rule.onNodeWithTag(editorialTileTag(hero.title)).assertIsDisplayed()
-            rule.waitUntil(20_000) { artworkReceipts["EDITORIAL:${hero.id}"] == true }
-            capture("genres_overview", "editorial-${width}dp$scaleSuffix")
+            // Editorial has no authentic vertical asset: the capture is the honest
+            // Editorial fallback wall, not a fake portrait of a horizontal sheet.
+            capture("ui7_312_root", "editorial-${width}dp$scaleSuffix")
             record("editorial-${width}dp${scaleSuffix} fontScale=$fontScale " +
-                "receipts=" + artworkReceipts.count { it.value })
+                "fallbacks=" + rule.onAllNodesWithTag("genre_editorial_fallback_${hero.id}",
+                    useUnmergedTree = true).fetchSemanticsNodes().size)
 
             // Prove the 312th approved genre is reachable at this width too.
             rule.onNodeWithTag("genres_editorial")
@@ -284,8 +378,10 @@ class GenreArtworkInventory312ComposeTest {
         writeIndex()
         assertTrue("expected at least one decoded Mosaico receipt",
             artworkReceipts.any { it.key.startsWith("FEATURED:") && it.value })
-        assertTrue("expected at least one decoded Editorial receipt",
-            artworkReceipts.any { it.key.startsWith("EDITORIAL:") && it.value })
+        // Editorial portraits are still NO-GO, but a cover whose approved sheet
+        // fills the 192dp box may legitimately decode; only the fallback wall is
+        // evaluated by the dedicated contract tests.
+        record("editorial receipts=" + artworkReceipts.count { it.key.startsWith("EDITORIAL:") })
     }
 
     private fun record(line: String) {

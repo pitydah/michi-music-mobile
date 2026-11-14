@@ -97,26 +97,7 @@ fun GenreLibraryPanel(
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     // Save across detail navigation; state inside the overview branch would reset.
     var viewMode by rememberSaveable { mutableStateOf(GenreViewMode.FEATURED) }
-    // One bounded I/O pass only while Editorial is visible: do not publish
-    // loose, unapproved WebPs by filename alone. Invalid manifest fails closed.
     val context = LocalContext.current
-    val productionAssets by produceState(initialValue = emptySet<String>(), key1 = viewMode) {
-        if (viewMode == GenreViewMode.EDITORIAL) {
-            value = withContext(Dispatchers.IO) {
-                try {
-                    val directory = "ui7/editorial/production"
-                    val files = context.assets.list(directory).orEmpty().toSet()
-                    val manifest = context.assets.open("$directory/manifest.tsv")
-                        .bufferedReader().use { it.readText() }
-                    editorialApprovedAssetNames(manifest, files)
-                } catch (cancel: CancellationException) {
-                    throw cancel // Navigating away must stop Editorial's one-shot load.
-                } catch (_: Exception) {
-                    emptySet() // Invalid package never blocks or invents genre cards.
-                }
-            }
-        }
-    }
     // Source Editorial posters already include titles and frames. Read their complete
     // bounded manifest once per Editorial entry; never enumerate media or decode 312 bitmaps.
     val posterAssets by produceState(
@@ -128,9 +109,18 @@ fun GenreLibraryPanel(
                     val files = context.assets.list(editorialPosterFolder).orEmpty().toSet()
                     val text = context.assets.open("$editorialPosterFolder/manifest.tsv")
                         .bufferedReader().use { it.readText() }
-                    val approved = editorialApprovedPosters(text, files) { reason ->
-                        GenreArtworkDiagnostics.catalogRejected("EDITORIAL", reason)
-                    }
+                    val optical = runCatching {
+                        context.assets.open("$editorialPosterFolder/optical.tsv")
+                            .bufferedReader().use { parseUi7OpticalMasks(it.readText()) }
+                    }.getOrDefault(emptyMap())
+                    val approved = editorialApprovedPosters(
+                        manifest = text,
+                        installed = files,
+                        onRejected = { reason ->
+                            GenreArtworkDiagnostics.catalogRejected("EDITORIAL", reason)
+                        },
+                        opticalMasks = optical,
+                    )
                     if (approved.isNotEmpty()) {
                         GenreArtworkDiagnostics.catalogLoaded("EDITORIAL", approved.size,
                             files.count { it.endsWith(".webp") })
@@ -156,9 +146,18 @@ fun GenreLibraryPanel(
                     val files = context.assets.list(mosaicFolder).orEmpty().toSet()
                     val text = context.assets.open("$mosaicFolder/manifest.tsv")
                         .bufferedReader().use { it.readText() }
-                    val approved = mosaicApprovedArtwork(text, files) { reason ->
-                        GenreArtworkDiagnostics.catalogRejected("MOSAIC", reason)
-                    }
+                    val optical = runCatching {
+                        context.assets.open("$mosaicFolder/optical.tsv")
+                            .bufferedReader().use { parseUi7OpticalMasks(it.readText()) }
+                    }.getOrDefault(emptyMap())
+                    val approved = mosaicApprovedArtwork(
+                        manifest = text,
+                        installed = files,
+                        onRejected = { reason ->
+                            GenreArtworkDiagnostics.catalogRejected("MOSAIC", reason)
+                        },
+                        opticalMasks = optical,
+                    )
                     if (approved.isNotEmpty()) {
                         GenreArtworkDiagnostics.catalogLoaded("MOSAIC", approved.size,
                             files.count { it.endsWith(".webp") })
@@ -205,7 +204,6 @@ fun GenreLibraryPanel(
         // never recomposed. Reading the states here restarts the panel reliably.
         val mosaicArtwork = mosaicAssets
         val editorialPosters = posterAssets
-        val editorialProduction = productionAssets
         Column(Modifier.fillMaxSize().testTag("genres_overview")) {
             GenreModeToolbar(
                 totalGenres = genres.size,
@@ -221,6 +219,7 @@ fun GenreLibraryPanel(
                     GenreViewMode.FEATURED -> GenreMosaicGrid(
                         genres = ordered,
                         columns = columns,
+                        availableWidthDp = maxWidth.value,
                         state = featuredGridState,
                         artwork = mosaicArtwork,
                         onArtworkLoad = onArtworkLoad,
@@ -229,9 +228,9 @@ fun GenreLibraryPanel(
                     GenreViewMode.EDITORIAL -> GenreEditorialGrid(
                         genres = ordered,
                         columns = columns,
+                        availableWidthDp = maxWidth.value,
                         state = editorialListState,
                         posterAssets = editorialPosters,
-                        productionAssets = editorialProduction,
                         onArtworkLoad = onArtworkLoad,
                         onOpen = openGenre,
                     )

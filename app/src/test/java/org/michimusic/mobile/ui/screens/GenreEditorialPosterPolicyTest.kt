@@ -2,15 +2,40 @@ package org.michimusic.mobile.ui.screens
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * Editorial catalog + treatment policy.
+ *
+ * The approved pack is made of horizontal finished posters (1.4..4.5:1). A
+ * horizontal sheet is never promoted to a portrait slot and never cropped into
+ * one: the portrait treatment stays `NEEDS_APPROVED_PORTRAIT` until an authentic
+ * vertical variant exists. Cover sheets are used only when they fill the 192dp
+ * box intact; otherwise they stay `NEEDS_APPROVED_COVER` and the Editorial
+ * Compose fallback covers the rhythm.
+ */
 class GenreEditorialPosterPolicyTest {
     private fun record(slug: String = "new_wave", width: Int = 1030, height: Int = 254): String =
         listOf(slug, "genre_${slug}_editorial.webp", "a".repeat(64), width.toString(),
             height.toString(), "UI7_EDITORIAL_LAMINA_03_NewWave_ItaloDisco.png",
             "USER_CONFIRMED_COMPLETE", "POSTER_COMPLETE").joinToString("\t")
+
+    private fun mask(width: Int, height: Int, verified: Boolean = true) = Ui7OpticalMask(
+        sourceWidthPx = width,
+        sourceHeightPx = height,
+        leftInsetPx = 3f,
+        topInsetPx = 2f,
+        rightInsetPx = 3f,
+        bottomInsetPx = 2f,
+        topLeftRadiusPx = 22f,
+        topRightRadiusPx = 19f,
+        bottomRightRadiusPx = 19f,
+        bottomLeftRadiusPx = 18f,
+        verified = verified,
+    )
 
     @Test fun completedPostersMapByRealGenreNotCatalogOrder() {
         val manifest = editorialPosterManifestHeader + "\n" + record() + "\n"
@@ -20,27 +45,30 @@ class GenreEditorialPosterPolicyTest {
         assertNull(editorialPosterForTitle("No existe", posters))
         assertNull(editorialPosterForTitle("Sin clasificar", posters))
     }
-    @Test fun originalRatioIsDeclaredButNeverWidensACell() {
-        // The approved poster keeps its declared aspect; the layout never widens
-        // a cell from that ratio, so Editorial stays a cover/pair rhythm instead
-        // of becoming a wall of full-width panoramic banners.
-        val panoramic = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280)
-        val compact = EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327)
-        assertTrue(panoramic.ratio > compact.ratio)
-        assertEquals(192, editorialSlotFor(GenreEditorialTreatment.COVER, 2).heightDp)
-        assertEquals(246, editorialSlotFor(GenreEditorialTreatment.PORTRAIT_LEFT, 2).heightDp)
-        assertEquals(1, editorialSlotFor(GenreEditorialTreatment.PORTRAIT_RIGHT, 2).span)
-        assertEquals(200, editorialSlotFor(GenreEditorialTreatment.COVER, 1).heightDp)
+
+    @Test fun aVerifiedOpticalRowGetsTheBottomEndSafeRegion() {
+        val name = "genre_new_wave_editorial.webp"
+        val manifest = editorialPosterManifestHeader + "\n" + record() + "\n"
+        val verified = editorialApprovedPosters(
+            manifest, setOf(name), opticalMasks = mapOf(name to mask(1030, 254)),
+        )
+        assertNotNull(verified.getValue("new_wave").opticalMask)
+        assertNotNull(verified.getValue("new_wave").counterSafeRect)
+        val unverified = editorialApprovedPosters(
+            manifest, setOf(name), opticalMasks = mapOf(name to mask(1030, 254, verified = false)),
+        )
+        assertNotNull("an unmeasured frame still records the row", unverified["new_wave"])
+        assertNull("but no fake safe region", unverified.getValue("new_wave").counterSafeRect)
+        assertEquals(
+            Ui7RenderOutcome.UNVERIFIED_CONTOUR,
+            ui7RenderOutcome(
+                editorialVisualSpec(unverified["new_wave"], GenreEditorialTreatment.COVER),
+                Ui7Treatment.EDITORIAL_COVER, 350f, 192f, 1030f / 254f, 28f, 28f,
+            ),
+        )
     }
 
-    /**
-     * Historical posters are horizontal, so they must keep their own compact
-     * proportional height. A paired Pop (514x268) is ~132dp and Rock (1027x280)
-     * ~91dp at a 180.5dp half cell, never a forced 246dp column with a large
-     * empty band below the sheet. The 246dp treatment remains the *cap* for a
-     * genuinely vertical asset, and still sizes Compose-drawn cells.
-     */
-    @Test fun horizontalPosterCardsTakeCompactProportionalHeightsNot246dp() {
+    @Test fun editorialHeightsAreTreatmentsNeverAssetRatios() {
         assertEquals(192, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 1f))
         assertEquals(246, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f))
         assertEquals(246, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_RIGHT, 2, 1f))
@@ -49,59 +77,77 @@ class GenreEditorialPosterPolicyTest {
             genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 1f),
             genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_RIGHT, 2, 1f),
         )
-        // Text scale may grow a Compose-drawn card, never the poster ratio.
+        // Text scale may grow the Compose content; both halves grow identically.
         assertEquals(216, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 2f))
         assertEquals(270, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 2f))
-        val inner = 180.5f - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP
-        val chip = 26f
-        val popBand = editorialPosterBandHeightDp(inner, 10_000f, 514f / 268f)
-        val rockBand = editorialPosterBandHeightDp(inner, 10_000f, 1027f / 280f)
-        val popCard = editorialPosterCardHeightDp(popBand, chip)
-        val rockCard = editorialPosterCardHeightDp(rockBand, chip)
-        assertTrue("Pop must be a compact poster card, not 246dp: $popCard", popCard < 246f)
-        assertTrue("Rock must be a compact poster card, not 246dp: $rockCard", rockCard < 246f)
-        assertEquals(16f + popBand + 4f + chip, popCard, 0.05f)
-        assertEquals(16f + rockBand + 4f + chip, rockCard, 0.05f)
-        // The compact cards keep the approved poster ratio and their full band.
-        assertTrue(popBand > rockBand + 30f)
+        assertEquals(
+            genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 2f),
+            genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_RIGHT, 2, 2f),
+        )
     }
 
-    @Test fun posterBandKeepsTheWholePosterAndOnlyAVerticalAssetUsesTheSlot() {
-        fun assertNear(expected: Float, actual: Float) {
-            assertTrue("expected=$expected actual=$actual",
-                kotlin.math.abs(expected - actual) <= 0.05f)
+    @Test fun editorialCardSizeMatrixMatchesTheContractTable() {
+        listOf(
+            Triple(390, 350f, 170f),
+            Triple(411, 371f, 180.5f),
+            Triple(480, 440f, 215f),
+        ).forEach { (width, cover, portrait) ->
+            val size = editorialCardSize(width.toFloat(), columns = 2, fontScale = 1f)
+            assertEquals("cover width @$width", cover, size.coverWidthDp, 0.01f)
+            assertEquals("portrait width @$width", portrait, size.portraitWidthDp, 0.01f)
+            assertEquals("cover height @$width", 192f, size.coverHeightDp, 0.01f)
+            assertEquals("portrait height @$width", 246f, size.portraitHeightDp, 0.01f)
         }
-        // 180.5dp half cell: the inner mount leaves 164.5dp for the poster.
-        val inner = 180.5f - 2 * EDITORIAL_POSTER_MOUNT_INSET_DP
-        assertNear(inner * 268f / 514f, editorialPosterBandHeightDp(inner, 10_000f, 514f / 268f))
-        assertNear(inner * 280f / 1027f, editorialPosterBandHeightDp(inner, 10_000f, 1027f / 280f))
-        // Only a vertical asset is capped by the treatment slot (246 - 16 - 4 - 26).
-        val verticalMax = editorialPosterTreatmentBandMaxDp(246f, 26f)
-        assertNear(200f, verticalMax)
-        assertNear(200f, editorialPosterBandHeightDp(154f, verticalMax, 0.75f))
-        // Nothing is cropped: a 1.9:1 sheet in a 154dp inner width keeps 80.3dp.
-        assertNear(154f / (514f / 268f), editorialPosterBandHeightDp(154f, verticalMax, 514f / 268f))
-        // Invalid geometry falls back to the caller's cap, never a negative or
-        // broken band; a zero cap keeps the cell at zero.
-        assertNear(200f, editorialPosterBandHeightDp(0f, 200f, 2f))
-        assertNear(200f, editorialPosterBandHeightDp(355f, 200f, Float.NaN))
-        assertNear(0f, editorialPosterBandHeightDp(355f, 0f, 2f))
+        listOf(320, 360).forEach { width ->
+            val size = editorialCardSize(width.toFloat(), columns = 1, fontScale = 1f)
+            assertEquals("one-column width @$width", (width - 40).toFloat(), size.coverWidthDp, 0.01f)
+            assertEquals("one-column height @$width", 200f, size.singleHeightDp, 0.01f)
+        }
     }
 
-    @Test fun mountInsetClearsTheCardClipSoTheBakedFrameIsNeverCut() {
-        val cardRadiusDp = 16f
-        val required = cardRadiusDp * (1f - 1f / kotlin.math.sqrt(2f))
-        assertTrue("mount=$EDITORIAL_POSTER_MOUNT_INSET_DP required=$required",
-            EDITORIAL_POSTER_MOUNT_INSET_DP >= required)
-    }
-
-    @Test fun approvedPostersAreHorizontalSoPortraitSlotsStayPending() {
-        val panoramic = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280)
-        val compact = EditorialPosterAsset("pop", "genre_pop_editorial.webp", 514, 268)
+    @Test fun horizontalPostersNeverBecomePortraits() {
+        val panoramic = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280,
+            opticalMask = mask(1027, 280))
+        val compact = EditorialPosterAsset("pop", "genre_pop_editorial.webp", 514, 268,
+            opticalMask = mask(514, 268))
         assertTrue(panoramic.ratio > compact.ratio)
         assertFalse(panoramic.isVertical)
         assertFalse(compact.isVertical)
+        listOf(panoramic, compact).forEach { poster ->
+            assertEquals(
+                emptySet<Ui7Treatment>(),
+                editorialVisualSpec(poster, GenreEditorialTreatment.PORTRAIT_LEFT)!!.approvedTreatments,
+            )
+            assertEquals(
+                emptySet<Ui7Treatment>(),
+                editorialVisualSpec(poster, GenreEditorialTreatment.PORTRAIT_RIGHT)!!.approvedTreatments,
+            )
+        }
     }
+
+    @Test fun aCoverIsAcceptedOnlyWhenItFillsTheBoxIntact() {
+        // 1030x566 = 1.82:1 fills the 350x192 cover without a visible band.
+        val prepared = EditorialPosterAsset("new_wave", "genre_new_wave_editorial.webp",
+            1030, 566, opticalMask = mask(1030, 566))
+        assertEquals(
+            Ui7RenderOutcome.ASSET,
+            ui7RenderOutcome(
+                editorialVisualSpec(prepared, GenreEditorialTreatment.COVER),
+                Ui7Treatment.EDITORIAL_COVER, 350f, 192f, prepared.ratio, 28f, 28f,
+            ),
+        )
+        // The real Rock sheet is 3.67:1 and must not be used as a 192dp cover.
+        val rock = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280,
+            opticalMask = mask(1027, 280))
+        assertEquals(
+            Ui7RenderOutcome.NEEDS_APPROVED_COVER,
+            ui7RenderOutcome(
+                editorialVisualSpec(rock, GenreEditorialTreatment.COVER),
+                Ui7Treatment.EDITORIAL_COVER, 350f, 192f, rock.ratio, 28f, 28f,
+            ),
+        )
+    }
+
     @Test fun invalidPosterCatalogFailsClosed() {
         val name = "genre_new_wave_editorial.webp"
         val valid = editorialPosterManifestHeader + "\n" + record() + "\n"
@@ -112,6 +158,7 @@ class GenreEditorialPosterPolicyTest {
         assertTrue(editorialApprovedPosters(valid.replace("1030", "4000"), setOf(name)).isEmpty())
         assertTrue(editorialApprovedPosters("# OLD\n" + record(), setOf(name)).isEmpty())
     }
+
     @Test fun noSlideFictionForMetadataNames() {
         assertEquals("hip_hop", editorialPosterSlug("HipHop"))
         assertEquals("synth_pop", editorialPosterSlug("Synth-Pop"))

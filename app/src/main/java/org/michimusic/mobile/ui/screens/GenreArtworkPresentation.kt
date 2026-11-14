@@ -1,38 +1,39 @@
 package org.michimusic.mobile.ui.screens
 
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import kotlin.math.max
+import kotlin.math.min
+
 /**
- * Shared presentation contract for the two approved UI7 genre views.
+ * UI7 visual contract model — one artwork, one silhouette, one frame.
  *
- * Both views render the same approved inventory (312 crops + 312 complete
- * posters), but they are two different visual identities and must not be reduced
- * to a single treatment:
+ * The approved WebP is the finished artwork: its baked frame and title are the
+ * authority. Compose owns the click target, the real genre name/count and the
+ * numeric chip; it must not add a second border, matte or title around a
+ * [Ui7ArtworkKind.LEGACY_COMPLETE] resource.
  *
- * - [GenreArtworkPresentation.LEGACY_COMPLETE]: the approved WebP is a *finished*
- *   artwork. Its baked title, frame and composition are the authority, so Compose
- *   draws neither a second title nor a border, and the bitmap is never cropped.
- * - [GenreArtworkPresentation.COMPOSE_READY]: a verified text-free/frame-free
- *   derivative (the offline Editorial production pack). Compose owns the title and
- *   the border because the asset provably does not contain them.
- * - [GenreArtworkPresentation.FALLBACK]: no verified artwork, or unverified
- *   metadata. The card keeps its accessible name/count and draws a live Compose
- *   title; it never infers a title from a filename or a pixel size.
- *
- * [GenreTitlePresentation.EMBEDDED_TITLE] is only selected from verified catalog
- * metadata (the manifest's `USER_CONFIRMED_COMPLETE` / `POSTER_COMPLETE` approval
- * recorded by the user), never from a filename or a width/height guess.
- *
- * Geometry here is intentionally *not* derived from an asset's native ratio:
- * artwork ratios range 1.15..4.5:1, so ratio-driven cells produced 88.6dp next to
- * 46.3dp cards in the same Editorial pair. Heights come from the treatment; the
- * artwork keeps its whole frame inside that treatment.
+ * All regions are normalized to the source image. The renderer converts them to
+ * the displayed artwork rect from the real layout size, never from a screen-wide
+ * assumption.
  */
-internal enum class GenreArtworkPresentation { LEGACY_COMPLETE, COMPOSE_READY, FALLBACK }
+internal enum class Ui7ArtworkKind { LEGACY_COMPLETE, COMPOSE_READY, MISSING }
 
-internal enum class GenreTitlePresentation { EMBEDDED_TITLE, COMPOSE_TITLE }
+internal enum class Ui7Treatment {
+    MOSAIC_GRID,
+    EDITORIAL_COVER,
+    EDITORIAL_PORTRAIT_LEFT,
+    EDITORIAL_PORTRAIT_RIGHT,
+    SINGLE_COLUMN,
+}
 
-internal enum class GenreOverlayAnchor { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
+internal enum class Ui7AssetApproval { APPROVED, PROVISIONAL, NOT_APPROVED }
 
-/** Rectangle in the 0..1 coordinate space of the *displayed* artwork. */
+/** Rectangle in the 0..1 coordinate space of the displayed artwork. */
 internal data class NormalizedRect(
     val left: Float,
     val top: Float,
@@ -58,159 +59,269 @@ internal data class NormalizedRect(
     fun intersects(other: NormalizedRect): Boolean =
         left < other.right && other.left < right && top < other.bottom && other.top < bottom
 
+    /** Safety margin expressed as a normalized inset, used by counter collision checks. */
+    fun insetBy(leftFraction: Float, topFraction: Float, rightFraction: Float,
+                bottomFraction: Float): NormalizedRect? {
+        val l = left + leftFraction
+        val t = top + topFraction
+        val r = right - rightFraction
+        val b = bottom - bottomFraction
+        if (l > r || t > b) return null
+        return NormalizedRect(l, t, r, b)
+    }
+
     companion object {
         val FULL = NormalizedRect(0f, 0f, 1f, 1f)
     }
 }
 
 /**
- * Per-card presentation decision. [opticalFrame] is the part of the displayed
- * artwork that a clip/mount must preserve; [safeCounterRegion] is the verified
- * area where the count chip may sit without covering the face, instrument,
- * baked title or frame.
+ * Offline-measured optical frame. The values are source-image pixels, produced by
+ * the read-only analyser documented in the technical report. The renderer uses a
+ * quadratic-corner outline (the source frame is a rounded square, not a circular
+ * arc) so the baked stroke is preserved instead of being cut by an arbitrary
+ * `RoundedCornerShape` radius.
+ *
+ * [verified] is false when the offline inspection could not establish four
+ * plausible radii/insets; the caller must fall back rather than guess.
  */
-internal data class GenreArtworkPresentationSpec(
-    val presentation: GenreArtworkPresentation,
-    val title: GenreTitlePresentation,
-    val counterAnchor: GenreOverlayAnchor,
-    val opticalFrame: NormalizedRect = NormalizedRect.FULL,
-    val safeCounterRegion: NormalizedRect = NormalizedRect.FULL,
-    /**
-     * Technical inventory state only: the portrait slot has no approved vertical
-     * artwork yet. It is reported by tests/diagnostics and is never rendered as a
-     * visible warning, label or placeholder inside a card.
-     */
-    val pendingVerticalAsset: Boolean = false,
+internal data class Ui7OpticalMask(
+    val sourceWidthPx: Int,
+    val sourceHeightPx: Int,
+    val leftInsetPx: Float,
+    val topInsetPx: Float,
+    val rightInsetPx: Float,
+    val bottomInsetPx: Float,
+    val topLeftRadiusPx: Float,
+    val topRightRadiusPx: Float,
+    val bottomRightRadiusPx: Float,
+    val bottomLeftRadiusPx: Float,
+    val verified: Boolean,
 )
 
 /**
- * Counter chip tokens. The chip is metadata (one line), 8dp/4dp padding, 7dp
- * radius, translucent obsidian and 12dp from the optical border; it is never a
- * detached footer band with its own background or separator.
+ * The single presentation record for one approved asset. It never creates a
+ * second source of truth: dimensions and hashes still come from the manifest,
+ * while framing/regions come from the static optical metadata.
  */
-internal const val GENRE_COUNTER_INSET_DP = 12
-internal const val GENRE_COUNTER_RADIUS_DP = 7
-internal const val GENRE_COUNTER_HORIZONTAL_PADDING_DP = 8
-internal const val GENRE_COUNTER_VERTICAL_PADDING_DP = 4
+internal data class Ui7VisualAssetSpec(
+    val genreKey: String,
+    val fileName: String,
+    val widthPx: Int,
+    val heightPx: Int,
+    val kind: Ui7ArtworkKind,
+    val approvedTreatments: Set<Ui7Treatment>,
+    val embeddedTitleVerified: Boolean,
+    val frameIncluded: Boolean,
+    val opticalMask: Ui7OpticalMask?,
+    val protectedRects: List<NormalizedRect>,
+    val counterSafeRect: NormalizedRect?,
+    val approval: Ui7AssetApproval,
+) {
+    val hasVerifiedContour: Boolean
+        get() = frameIncluded && opticalMask?.verified == true
+}
 
-/** `MichiTypography.metadata` lineHeight is 16sp; two extra dp absorb font metrics. */
-internal fun genreCounterHeightDp(fontScale: Float): Float =
-    16f * fontScale.coerceIn(1f, 3f) + 2f * GENRE_COUNTER_VERTICAL_PADDING_DP + 2f
+/** Bottom-end chip region documented for the Mosaico crop family. */
+internal val ui7MosaicCounterSafeRegion = NormalizedRect(0.55f, 0.35f, 0.985f, 0.985f)
 
-/**
- * Matte inset shared by both approved packs. It keeps the card's rounded clip
- * outside the baked frame so no card corner can cut the approved artwork. The
- * leftover surface is the card's one continuous background, never a footer.
- */
-internal const val GENRE_ARTWORK_MOUNT_INSET_DP = 8
+/** Bottom-end chip region for a finished Editorial poster. */
+internal val ui7EditorialCounterSafeRegion = NormalizedRect(0.55f, 0.35f, 0.985f, 0.985f)
 
-/** Minimum touch height for an artwork-driven compact card. */
-internal const val GENRE_ARTWORK_MIN_CARD_HEIGHT_DP = 48
+/** The visible baked title of a Mosaico crop sits bottom-start. */
+private val mosaicEmbeddedTitleRect = NormalizedRect(0f, 0.72f, 0.58f, 0.99f)
 
-/**
- * Verified Mosaico counter region for the approved crop family.
- *
- * The 312 approved crops place their baked genre title bottom-left and their
- * subject (face, ears, instrument) across the centre. The top-right band is
- * background in every inspected card, including the calibration set
- * (Rock/Pop/New Wave/Soft Rock). The region is the documented family policy;
- * per-asset OCR/pixel probing at runtime is forbidden, so an asset that is not
- * covered by this policy keeps the conservative fallback placement instead.
- */
-private val mosaicFamilySafeCounterRegion = NormalizedRect(0.40f, 0.04f, 0.97f, 0.34f)
-
-/**
- * Measured optical inset of the approved Editorial poster family.
- *
- * Offline inspection of the calibration sheets (New Wave 1030x254, Pop 514x268,
- * Rock 1027x280, Soft Rock 518x305) found the baked frame line 2..10px inside the
- * bitmap edge, i.e. 0.4%..2.0% of the width. 1.2% is the family value used to
- * keep any mount/clip outside the approved frame; the renderer also mounts the
- * poster 8dp inside the card, which removes the corner region entirely.
- */
-private val editorialFamilyOpticalFrame = NormalizedRect(0.012f, 0.012f, 0.988f, 0.988f)
-
-/**
- * Mosaico: an approved crop is a complete artwork (baked title + frame), so the
- * card never draws a second title. A missing asset is a conservative fallback
- * with a live Compose title. The count sits top-right inside the artwork.
- */
-internal fun mosaicPresentationSpec(asset: MosaicArtworkAsset?): GenreArtworkPresentationSpec =
-    if (asset == null) {
-        GenreArtworkPresentationSpec(
-            presentation = GenreArtworkPresentation.FALLBACK,
-            title = GenreTitlePresentation.COMPOSE_TITLE,
-            counterAnchor = GenreOverlayAnchor.BOTTOM_START,
-        )
+/** Mosaico crop approved for the homogeneous grid. */
+internal fun mosaicVisualSpec(
+    asset: MosaicArtworkAsset?,
+    treatment: Ui7Treatment,
+): Ui7VisualAssetSpec? {
+    if (asset == null) return null
+    val mask = asset.opticalMask
+    val verified = mask?.verified == true
+    val treatments = if (verified) {
+        when (treatment) {
+            Ui7Treatment.MOSAIC_GRID, Ui7Treatment.SINGLE_COLUMN ->
+                setOf(Ui7Treatment.MOSAIC_GRID, Ui7Treatment.SINGLE_COLUMN)
+            else -> emptySet()
+        }
     } else {
-        GenreArtworkPresentationSpec(
-            presentation = GenreArtworkPresentation.LEGACY_COMPLETE,
-            title = GenreTitlePresentation.EMBEDDED_TITLE,
-            counterAnchor = GenreOverlayAnchor.TOP_END,
-            safeCounterRegion = mosaicFamilySafeCounterRegion,
-        )
+        emptySet()
     }
+    return Ui7VisualAssetSpec(
+        genreKey = asset.genreKey,
+        fileName = asset.filename,
+        widthPx = asset.widthPx,
+        heightPx = asset.heightPx,
+        kind = Ui7ArtworkKind.LEGACY_COMPLETE,
+        approvedTreatments = treatments,
+        embeddedTitleVerified = true,
+        frameIncluded = true,
+        opticalMask = mask,
+        protectedRects = listOf(mosaicEmbeddedTitleRect),
+        counterSafeRect = if (verified) {
+            asset.counterSafeRect ?: ui7MosaicCounterSafeRegion
+        } else {
+            null
+        },
+        approval = if (verified) Ui7AssetApproval.APPROVED else Ui7AssetApproval.PROVISIONAL,
+    )
+}
 
-/**
- * Editorial: an approved poster is a complete poster, so Compose draws no title
- * and no border. Paired portrait slots currently hold a landscape sheet because
- * the approved pack contains no vertical artwork. That incompatibility is
- * recorded in [GenreArtworkPresentationSpec.pendingVerticalAsset] for the
- * technical report/tests, never as visible card text: the UI keeps the whole
- * poster at a compact, proportional size instead of forcing a portrait slot.
- */
-internal fun editorialPresentationSpec(
+/** Editorial poster approved for its target treatment, when compatible. */
+internal fun editorialVisualSpec(
     poster: EditorialPosterAsset?,
     treatment: GenreEditorialTreatment,
-): GenreArtworkPresentationSpec =
-    if (poster == null) {
-        GenreArtworkPresentationSpec(
-            presentation = GenreArtworkPresentation.FALLBACK,
-            title = GenreTitlePresentation.COMPOSE_TITLE,
-            counterAnchor = GenreOverlayAnchor.BOTTOM_START,
-        )
+): Ui7VisualAssetSpec? {
+    if (poster == null) return null
+    val mask = poster.opticalMask
+    val verified = mask?.verified == true
+    val ui7Treatment = treatment.toUi7Treatment()
+    val portrait = ui7Treatment == Ui7Treatment.EDITORIAL_PORTRAIT_LEFT ||
+        ui7Treatment == Ui7Treatment.EDITORIAL_PORTRAIT_RIGHT
+    val approved = if (!verified || (portrait && !poster.isVertical)) {
+        emptySet()
     } else {
-        GenreArtworkPresentationSpec(
-            presentation = GenreArtworkPresentation.LEGACY_COMPLETE,
-            title = GenreTitlePresentation.EMBEDDED_TITLE,
-            counterAnchor = if (treatment == GenreEditorialTreatment.PORTRAIT_RIGHT) {
-                GenreOverlayAnchor.BOTTOM_END
-            } else {
-                GenreOverlayAnchor.BOTTOM_START
-            },
-            opticalFrame = editorialFamilyOpticalFrame,
-            pendingVerticalAsset = treatment != GenreEditorialTreatment.COVER &&
-                !poster.isVertical,
-        )
+        setOf(ui7Treatment)
     }
+    return Ui7VisualAssetSpec(
+        genreKey = poster.slug,
+        fileName = poster.filename,
+        widthPx = poster.widthPx,
+        heightPx = poster.heightPx,
+        kind = Ui7ArtworkKind.LEGACY_COMPLETE,
+        approvedTreatments = approved,
+        embeddedTitleVerified = true,
+        frameIncluded = true,
+        opticalMask = mask,
+        protectedRects = emptyList(),
+        counterSafeRect = if (verified) {
+            poster.counterSafeRect ?: ui7EditorialCounterSafeRegion
+        } else {
+            null
+        },
+        approval = if (verified) Ui7AssetApproval.APPROVED else Ui7AssetApproval.PROVISIONAL,
+    )
+}
+
+internal fun GenreEditorialTreatment.toUi7Treatment(): Ui7Treatment = when (this) {
+    GenreEditorialTreatment.COVER -> Ui7Treatment.EDITORIAL_COVER
+    GenreEditorialTreatment.PORTRAIT_LEFT -> Ui7Treatment.EDITORIAL_PORTRAIT_LEFT
+    GenreEditorialTreatment.PORTRAIT_RIGHT -> Ui7Treatment.EDITORIAL_PORTRAIT_RIGHT
+}
 
 /**
- * True when a [chipWidthDp] x [chipHeightDp] chip placed at the spec's anchor
- * stays inside the documented safe region. Callers use this to decide between
- * the in-artwork placement and the conservative continuous-surface placement.
- *
- * The probe uses exactly the inset [genreCounterPlacement] applies (12dp from
- * the artwork border). It must not add a second margin of its own: a stricter
- * probe than the placement makes the same chip flip between the artwork anchor
- * and the card surface as the card width changes.
+ * Normative decision of §8.1: the single place that decides between the approved
+ * asset and the view-specific Compose fallback. It never inspects pixels; it
+ * consults the offline optical metadata, the approved treatments and the pure
+ * fit/counter arithmetic.
  */
-internal fun counterFitsSafeRegion(
-    spec: GenreArtworkPresentationSpec,
-    artworkWidthDp: Float,
-    artworkHeightDp: Float,
+internal enum class Ui7RenderOutcome {
+    /** Exact approved asset: draw the single optical contour plus the numeric chip. */
+    ASSET,
+
+    /** No catalog row for this genre: the library still shows a fallback card. */
+    NO_ASSET,
+
+    /** Row exists but the optical contour was not measured: never guess a frame. */
+    UNVERIFIED_CONTOUR,
+
+    /** Editorial portrait slot without an authentic vertical variant. */
+    NEEDS_APPROVED_PORTRAIT,
+
+    /** Editorial cover whose approved sheet cannot fill the 192dp box intact. */
+    NEEDS_APPROVED_COVER,
+
+    /** Mosaico source whose ratio cannot fill the 7:5 / 8:5 cell without a band. */
+    UNSUPPORTED_ASPECT,
+
+    /** The chip would leave the verified bottom-end region or touch protected art. */
+    COUNTER_COLLISION,
+}
+
+/** §8.1 decision tree, shared by both views and by the pure tests. */
+internal fun ui7RenderOutcome(
+    spec: Ui7VisualAssetSpec?,
+    treatment: Ui7Treatment,
+    cardWidthDp: Float,
+    cardHeightDp: Float,
+    sourceRatio: Float,
     chipWidthDp: Float,
     chipHeightDp: Float,
-): Boolean {
-    if (!artworkWidthDp.isFinite() || !artworkHeightDp.isFinite() ||
-        artworkWidthDp <= 0f || artworkHeightDp <= 0f ||
-        !chipWidthDp.isFinite() || !chipHeightDp.isFinite()
-    ) return false
-    val insetDp = GENRE_COUNTER_INSET_DP.toFloat()
-    val right = (artworkWidthDp - insetDp) / artworkWidthDp
-    val left = (artworkWidthDp - insetDp - chipWidthDp) / artworkWidthDp
-    val top = insetDp / artworkHeightDp
-    val bottom = (insetDp + chipHeightDp) / artworkHeightDp
-    if (left < 0f || top < 0f || right > 1f || bottom > 1f) return false
-    val chip = NormalizedRect(left, top, right, bottom)
-    return spec.safeCounterRegion.contains(chip)
+): Ui7RenderOutcome {
+    if (spec == null) return Ui7RenderOutcome.NO_ASSET
+    if (!spec.frameIncluded || spec.opticalMask?.verified != true) {
+        return Ui7RenderOutcome.UNVERIFIED_CONTOUR
+    }
+    val portrait = treatment == Ui7Treatment.EDITORIAL_PORTRAIT_LEFT ||
+        treatment == Ui7Treatment.EDITORIAL_PORTRAIT_RIGHT
+    if (!spec.approvedTreatments.contains(treatment)) {
+        return if (portrait) {
+            Ui7RenderOutcome.NEEDS_APPROVED_PORTRAIT
+        } else {
+            Ui7RenderOutcome.NEEDS_APPROVED_COVER
+        }
+    }
+    if (!genreArtworkFitsWithoutDamage(cardWidthDp, cardHeightDp, sourceRatio)) {
+        return when {
+            portrait -> Ui7RenderOutcome.NEEDS_APPROVED_PORTRAIT
+            treatment == Ui7Treatment.EDITORIAL_COVER -> Ui7RenderOutcome.NEEDS_APPROVED_COVER
+            else -> Ui7RenderOutcome.UNSUPPORTED_ASPECT
+        }
+    }
+    if (!counterPlacementIsSafe(spec, cardWidthDp, cardHeightDp, chipWidthDp, chipHeightDp)) {
+        return Ui7RenderOutcome.COUNTER_COLLISION
+    }
+    return Ui7RenderOutcome.ASSET
+}
+
+/**
+ * Quadratic-corner outline. The source packs are a rounded square: a circular
+ * `RoundedCornerShape` either cuts the baked stroke at the four corners or leaves
+ * opaque wedges outside it. The quadratic control point at the actual corner
+ * reproduces the measured intercepts.
+ */
+internal class Ui7OpticalFrameShape(
+    private val sourceWidthPx: Int,
+    private val sourceHeightPx: Int,
+    private val mask: Ui7OpticalMask,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val width = size.width
+        val height = size.height
+        if (width <= 0f || height <= 0f || sourceWidthPx <= 0 || sourceHeightPx <= 0) {
+            return Outline.Rectangle(androidx.compose.ui.geometry.Rect(0f, 0f, width, height))
+        }
+        val sx = width / sourceWidthPx.toFloat()
+        val sy = height / sourceHeightPx.toFloat()
+        val left = (mask.leftInsetPx * sx).coerceIn(0f, width / 2f)
+        val top = (mask.topInsetPx * sy).coerceIn(0f, height / 2f)
+        val right = (width - mask.rightInsetPx * sx).coerceIn(width / 2f, width)
+        val bottom = (height - mask.bottomInsetPx * sy).coerceIn(height / 2f, height)
+        val maxRadiusX = max(0f, (right - left) / 2f)
+        val maxRadiusY = max(0f, (bottom - top) / 2f)
+        val limit = min(maxRadiusX, maxRadiusY)
+        fun radius(px: Float): Float = px.coerceIn(0f, max(2f, limit))
+        val rtl = radius(mask.topLeftRadiusPx * sx)
+        val rtr = radius(mask.topRightRadiusPx * sx)
+        val rbr = radius(mask.bottomRightRadiusPx * sx)
+        val rbl = radius(mask.bottomLeftRadiusPx * sx)
+        val path = Path().apply {
+            moveTo(left + rtl, top)
+            lineTo(right - rtr, top)
+            quadraticTo(right, top, right, top + rtr)
+            lineTo(right, bottom - rbr)
+            quadraticTo(right, bottom, right - rbr, bottom)
+            lineTo(left + rbl, bottom)
+            quadraticTo(left, bottom, left, bottom - rbl)
+            lineTo(left, top + rtl)
+            quadraticTo(left, top, left + rtl, top)
+            close()
+        }
+        return Outline.Generic(path)
+    }
 }

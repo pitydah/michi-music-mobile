@@ -8,6 +8,8 @@ internal data class EditorialPosterAsset(
     val filename: String,
     val widthPx: Int,
     val heightPx: Int,
+    val opticalMask: Ui7OpticalMask? = null,
+    val counterSafeRect: NormalizedRect? = null,
 ) {
     val ratio: Float get() = widthPx.toFloat() / heightPx
 }
@@ -35,80 +37,6 @@ internal fun editorialPosterForTitle(
 internal val EditorialPosterAsset.isVertical: Boolean
     get() = widthPx.toFloat() / heightPx.toFloat() < 1f
 
-/** Minimum interactive height for one Editorial poster cell. */
-internal const val EDITORIAL_POSTER_MIN_HEIGHT_DP = 48f
-
-/**
- * Mount inset that keeps the approved baked frame away from the card's own clip.
- *
- * A card clipped with radius `r` needs its content inset by at least
- * `r * (1 - 1/sqrt(2))` (4.69dp for the 16dp MichiShapes.md radius) so the clip
- * never cuts the artwork. 8dp gives 1.7x clearance. The approved poster's frame
- * line is 2..10px inside its bitmap, so the mount also hides the near-black
- * bitmap corner that would otherwise read as a wedge on a lighter surface.
- */
-internal const val EDITORIAL_POSTER_MOUNT_INSET_DP = 8
-
-/** Breathing room between the poster and its integrated count row. */
-internal const val EDITORIAL_POSTER_COUNTER_GAP_DP = 4
-
-/**
- * Height of the poster band inside an Editorial poster card.
- *
- * A historical horizontal poster keeps its whole frame (`Fit`, never a false
- * vertical crop) at the proportional height `innerWidth / ratio`. Only an
- * actually vertical asset may use [maxBandHeightDp], which the renderer derives
- * from the 192/246 treatment slot. The old forced 246dp surface for a horizontal
- * sheet is therefore not reproduced.
- */
-internal fun editorialPosterBandHeightDp(
-    innerWidthDp: Float,
-    maxBandHeightDp: Float,
-    posterRatio: Float,
-): Float {
-    if (!maxBandHeightDp.isFinite() || maxBandHeightDp <= 0f) return 0f
-    if (!innerWidthDp.isFinite() || innerWidthDp <= 0f) return maxBandHeightDp
-    if (!posterRatio.isFinite() || posterRatio <= 0f) return maxBandHeightDp
-    return minOf(innerWidthDp / posterRatio, maxBandHeightDp)
-}
-
-/**
- * Compact poster card height: the two 8dp mounts, the uncropped poster band, a
- * 4dp association gap and the count row. It is deliberately driven by the
- * approved poster ratio, so a landscape sheet never sits inside a 246dp column
- * with a large empty band above its counter.
- */
-internal fun editorialPosterCardHeightDp(
-    bandHeightDp: Float,
-    chipHeightDp: Float,
-    mountInsetDp: Int = EDITORIAL_POSTER_MOUNT_INSET_DP,
-    counterGapDp: Int = EDITORIAL_POSTER_COUNTER_GAP_DP,
-): Float {
-    if (!bandHeightDp.isFinite() || bandHeightDp <= 0f || !chipHeightDp.isFinite() ||
-        chipHeightDp <= 0f
-    ) return EDITORIAL_POSTER_MIN_HEIGHT_DP
-    return (2 * mountInsetDp + bandHeightDp + counterGapDp + chipHeightDp)
-        .coerceAtLeast(EDITORIAL_POSTER_MIN_HEIGHT_DP)
-}
-
-/**
- * Maximum band height available inside a treatment slot, after its mounts, the
- * association gap and the count row. Used only to cap an authentic vertical
- * asset; a horizontal poster is never forced into this slot.
- */
-internal fun editorialPosterTreatmentBandMaxDp(
-    treatmentHeightDp: Float,
-    chipHeightDp: Float,
-    mountInsetDp: Int = EDITORIAL_POSTER_MOUNT_INSET_DP,
-    counterGapDp: Int = EDITORIAL_POSTER_COUNTER_GAP_DP,
-): Float {
-    if (!treatmentHeightDp.isFinite() || treatmentHeightDp <= 0f ||
-        !chipHeightDp.isFinite() || chipHeightDp <= 0f
-    ) return EDITORIAL_POSTER_MIN_HEIGHT_DP
-    return (treatmentHeightDp - 2 * mountInsetDp - counterGapDp - chipHeightDp)
-        .coerceAtLeast(EDITORIAL_POSTER_MIN_HEIGHT_DP)
-}
-
 /** Posters >= 2.4:1 are the approved panoramic sheets; the layout keeps them in
  * their positional slot (a poster never widens a cell on its own) so Editorial
  * cannot drift into a wall of full-width banners.
@@ -121,6 +49,7 @@ internal fun editorialApprovedPosters(
     manifest: String,
     installed: Set<String>,
     onRejected: (String) -> Unit = {},
+    opticalMasks: Map<String, Ui7OpticalMask> = emptyMap(),
 ): Map<String, EditorialPosterAsset> {
     fun reject(reason: String): Map<String, EditorialPosterAsset> {
         onRejected(reason)
@@ -151,7 +80,17 @@ internal fun editorialApprovedPosters(
             w.toDouble() / h !in 1.4..4.5) return reject("line_${lineNumber}_geometry")
         if (filename !in installed) return reject("line_${lineNumber}_asset_missing")
         if (!used.add(filename) || result.containsKey(slug)) return reject("line_${lineNumber}_duplicate")
-        result[slug] = EditorialPosterAsset(slug, filename, w, h)
+        val mask = opticalMasks[filename]?.takeIf {
+            it.sourceWidthPx == w && it.sourceHeightPx == h
+        }
+        result[slug] = EditorialPosterAsset(
+            slug = slug,
+            filename = filename,
+            widthPx = w,
+            heightPx = h,
+            opticalMask = mask,
+            counterSafeRect = if (mask?.verified == true) ui7EditorialCounterSafeRegion else null,
+        )
     }
     if (installed.any { it.endsWith(".webp") && it !in used }) return reject("unexpected_webp")
     if (result.isEmpty()) return reject("empty_catalog")

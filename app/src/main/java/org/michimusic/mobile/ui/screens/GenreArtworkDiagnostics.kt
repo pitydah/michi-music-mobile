@@ -26,4 +26,33 @@ internal object GenreArtworkDiagnostics {
     fun imageFailure(view: String, filename: String, error: Throwable) {
         if (BuildConfig.DEBUG) Log.e(TAG, "$view decode_failed=$filename", error)
     }
+
+    fun unsupportedAspect(
+        view: String,
+        filename: String,
+        sourceRatio: Float,
+        targetWidthDp: Float,
+        targetHeightDp: Float,
+    ) {
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "$view unsupported_aspect=$filename source=$sourceRatio " +
+                "target=${targetWidthDp}x${targetHeightDp} -> fallback")
+        }
+    }
+
+    fun counterPlacement(view: String, filename: String, safe: Boolean) {
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "$view counter_placement=$filename safe=$safe")
+        }
+    }
+
+    /**
+     * §8.1 technical outcome of the asset decision. Debug-only: it never reaches
+     * the UI and never names a genre or a file on screen.
+     */
+    fun renderOutcome(view: String, filename: String, outcome: Ui7RenderOutcome) {
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "$view render_outcome=$filename $outcome")
+        }
+    }
 }

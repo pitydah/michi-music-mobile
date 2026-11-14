@@ -119,32 +119,12 @@ fun genresByTrackCount(genres: List<LibraryGenre>): List<LibraryGenre> =
         { -it.tracks.size }, { it.title.lowercase(Locale.ROOT) }))
 
 /**
- * Mosaico focal card: the canonical 218dp hero. Larger text scales grow the card
- * by a bounded amount so the live counter (and the fallback Compose title) never
- * has to shrink below the theme's metadata/card-title size.
+ * Editorial card height for one treatment, growing only with the live text.
+ *
+ * The historical 218dp Mosaico hero and 166dp secondary are deliberately gone:
+ * the homogeneous grid derives every cell from the current panel width and the
+ * 7:5 / 8:5 treatment ratio instead.
  */
-internal const val GENRE_MOSAIC_HERO_HEIGHT_DP = 218
-
-/** Mosaico compact card: the canonical 166dp secondary. */
-internal const val GENRE_MOSAIC_SECONDARY_HEIGHT_DP = 166
-
-/** Bounded per-scale growth for live text inside the fixed artwork cards. */
-private const val GENRE_MOSAIC_TEXT_GROWTH_DP = 40
-
-fun genreMosaicHeroHeightDp(fontScale: Float): Int =
-    GENRE_MOSAIC_HERO_HEIGHT_DP +
-        ((fontScale.coerceIn(1f, 3f) - 1f) * GENRE_MOSAIC_TEXT_GROWTH_DP).roundToInt()
-
-/**
- * Compact card height used only when no approved crop is available. A real
- * approved crop drives its own proportional card height instead, so the image
- * fills the visual area and no reserved counter band is created.
- */
-fun genreMosaicSecondaryHeightDp(fontScale: Float): Int =
-    GENRE_MOSAIC_SECONDARY_HEIGHT_DP +
-        ((fontScale.coerceIn(1f, 3f) - 1f) * GENRE_MOSAIC_TEXT_GROWTH_DP / 2).roundToInt()
-
-/** Editorial card height for one treatment, growing only with the live text. */
 fun genreEditorialHeightDp(
     treatment: GenreEditorialTreatment,
     columns: Int,
@@ -162,17 +142,6 @@ data class GenreEditorialSlot(
     val heightDp: Int,
     val treatment: GenreEditorialTreatment,
 )
-
-/** Cover / double column / double column rhythm. Never implies a popularity ranking. */
-fun editorialSlot(index: Int, columns: Int): GenreEditorialSlot {
-    require(index >= 0 && columns >= 1)
-    val treatment = when (index % 3) {
-        0 -> GenreEditorialTreatment.COVER
-        1 -> GenreEditorialTreatment.PORTRAIT_LEFT
-        else -> GenreEditorialTreatment.PORTRAIT_RIGHT
-    }
-    return editorialSlotFor(treatment, columns)
-}
 
 /**
  * Canonical cell geometry for one Editorial treatment: a 192dp cover spanning

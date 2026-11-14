@@ -1,20 +1,15 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.Alignment
+import kotlin.math.abs
 
 /**
- * Artwork geometry for the approved UI7 packs.
+ * Artwork geometry for the UI7 contract.
  *
- * Every approved asset is drawn with [androidx.compose.ui.layout.ContentScale.Fit]:
- * the packs are complete artworks whose baked frame, title and subject reach the
- * bitmap edges, so any crop would cut a protected region. The leftover area is
- * the card's own continuous surface (a deliberate matte), never a stretched,
- * zoomed, blurred or `FillBounds` bitmap.
- *
- * [genreArtworkFitRect] is pure arithmetic: it reports where Compose will paint
- * the bitmap inside a container, so overlays (the count chip) can be anchored to
- * the *artwork* border rather than to the card, and so layout tests can assert it
- * without decoding pixels.
+ * Compatible assets fill their treatment exactly. This file reports where a
+ * `ContentScale.Fit` bitmap lands so the renderer can reject a source that would
+ * leave a visible matte or require a destructive crop, and so the numeric chip can
+ * be anchored to the *artwork* border rather than to a larger box.
  */
 internal data class GenreArtworkRect(
     val left: Float,
@@ -55,10 +50,29 @@ internal fun GenreArtworkRect.offsetBy(dxDp: Float, dyDp: Float): GenreArtworkRe
 /** Fit always: no approved UI7 artwork may be cropped. */
 internal const val GENRE_ARTWORK_CONTENT_SCALE_FIT = true
 
+/** Maximum tolerated empty band (dp) before an asset is incompatible. */
+internal const val GENRE_ARTWORK_FIT_TOLERANCE_DP = 1.5f
+
 /**
- * Padding (dp) that places the count chip at [anchor] of the *artwork* border,
- * [GENRE_COUNTER_INSET_DP] inside it, clamped so the chip can never leave the
- * card. A null [artworkRect] means the artwork fills the card.
+ * True when a finished asset can fill [targetWidthDp] x [targetHeightDp] without
+ * a destructive crop and without a visible empty band. The check is pure: it uses
+ * the declared source ratio, never a runtime pixel scan.
+ */
+internal fun genreArtworkFitsWithoutDamage(
+    targetWidthDp: Float,
+    targetHeightDp: Float,
+    assetRatio: Float?,
+    toleranceDp: Float = GENRE_ARTWORK_FIT_TOLERANCE_DP,
+): Boolean {
+    val rect = genreArtworkFitRect(targetWidthDp, targetHeightDp, assetRatio) ?: return false
+    return abs(rect.width - targetWidthDp) <= toleranceDp &&
+        abs(rect.height - targetHeightDp) <= toleranceDp
+}
+
+/**
+ * Padding (dp) that places the count chip at the bottom-end of the *artwork*
+ * border, 12dp inside it, clamped so the chip can never leave the card. A null
+ * [artworkRect] means the artwork fills the card.
  */
 internal data class GenreCounterPlacement(
     val startDp: Float = 0f,
@@ -68,11 +82,11 @@ internal data class GenreCounterPlacement(
 )
 
 internal fun genreCounterPlacement(
-    anchor: GenreOverlayAnchor,
     containerWidthDp: Float,
     containerHeightDp: Float,
     artworkRect: GenreArtworkRect?,
     chip: GenreCounterSize,
+    anchor: GenreOverlayAnchor = GenreOverlayAnchor.BOTTOM_END,
 ): GenreCounterPlacement {
     if (!containerWidthDp.isFinite() || !containerHeightDp.isFinite() ||
         containerWidthDp <= 0f || containerHeightDp <= 0f
@@ -96,19 +110,75 @@ internal fun genreCounterPlacement(
         )
         GenreOverlayAnchor.BOTTOM_START -> GenreCounterPlacement(
             startDp = desiredStart.coerceIn(0f, maxStart),
-            bottomDp = desiredBottom.coerceIn(0f, (containerHeightDp - chip.heightDp).coerceAtLeast(0f)),
+            bottomDp = desiredBottom.coerceIn(0f,
+                (containerHeightDp - chip.heightDp).coerceAtLeast(0f)),
         )
         GenreOverlayAnchor.BOTTOM_END -> GenreCounterPlacement(
             endDp = desiredEnd.coerceIn(0f, (containerWidthDp - chip.widthDp).coerceAtLeast(0f)),
-            bottomDp = desiredBottom.coerceIn(0f, (containerHeightDp - chip.heightDp).coerceAtLeast(0f)),
+            bottomDp = desiredBottom.coerceIn(0f,
+                (containerHeightDp - chip.heightDp).coerceAtLeast(0f)),
         )
     }
 }
 
-/** Compose alignment matching the presentation anchor. */
+internal enum class GenreOverlayAnchor { TOP_START, TOP_END, BOTTOM_START, BOTTOM_END }
+
+/** Compose alignment matching the chip anchor. */
 internal fun GenreOverlayAnchor.toAlignment(): Alignment = when (this) {
     GenreOverlayAnchor.TOP_START -> Alignment.TopStart
     GenreOverlayAnchor.TOP_END -> Alignment.TopEnd
     GenreOverlayAnchor.BOTTOM_START -> Alignment.BottomStart
     GenreOverlayAnchor.BOTTOM_END -> Alignment.BottomEnd
+}
+
+/**
+ * Normalized chip box for the bottom-end anchor, used by pure collision tests.
+ * Returns null when the chip cannot fit inside the artwork.
+ */
+internal fun normalizedBottomEndChipBox(
+    artworkWidthDp: Float,
+    artworkHeightDp: Float,
+    chipWidthDp: Float,
+    chipHeightDp: Float,
+): NormalizedRect? {
+    if (!artworkWidthDp.isFinite() || !artworkHeightDp.isFinite() ||
+        artworkWidthDp <= 0f || artworkHeightDp <= 0f
+    ) return null
+    val inset = GENRE_COUNTER_INSET_DP.toFloat()
+    val right = (artworkWidthDp - inset) / artworkWidthDp
+    val left = (artworkWidthDp - inset - chipWidthDp) / artworkWidthDp
+    val top = (artworkHeightDp - inset - chipHeightDp) / artworkHeightDp
+    val bottom = (artworkHeightDp - inset) / artworkHeightDp
+    if (left < 0f || top < 0f || right > 1f || bottom > 1f) return null
+    return NormalizedRect(left, top, right, bottom)
+}
+
+/**
+ * Checks the chip against the asset's verified bottom-end region and every
+ * protected rect, with an additional 4dp safety margin around faces/titles.
+ */
+internal fun counterPlacementIsSafe(
+    spec: Ui7VisualAssetSpec,
+    artworkWidthDp: Float,
+    artworkHeightDp: Float,
+    chipWidthDp: Float,
+    chipHeightDp: Float,
+): Boolean {
+    val safe = spec.counterSafeRect ?: return false
+    val box = normalizedBottomEndChipBox(
+        artworkWidthDp, artworkHeightDp, chipWidthDp, chipHeightDp,
+    ) ?: return false
+    if (!safe.contains(box)) return false
+    val marginX = 4f / artworkWidthDp
+    val marginY = 4f / artworkHeightDp
+    return spec.protectedRects.none { protected ->
+        protected.intersects(
+            NormalizedRect(
+                (box.left - marginX).coerceIn(0f, 1f),
+                (box.top - marginY).coerceIn(0f, 1f),
+                (box.right + marginX).coerceIn(0f, 1f),
+                (box.bottom + marginY).coerceIn(0f, 1f),
+            ),
+        )
+    }
 }

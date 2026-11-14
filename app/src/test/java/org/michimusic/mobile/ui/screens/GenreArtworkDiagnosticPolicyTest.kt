@@ -9,23 +9,25 @@ class GenreArtworkDiagnosticPolicyTest {
     @Test fun mosaicRejectsFirstBadRowWithItsLine() {
         val bad = mosaicManifestHeader + "\nrock\tbroken_line\n"
         var reason: String? = null
-        assertTrue(mosaicApprovedArtwork(bad, emptySet()) { reason = it }.isEmpty())
+        assertTrue(mosaicApprovedArtwork(
+            bad, emptySet(), onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("line_2_columns", reason)
     }
 
     @Test fun mosaicRejectsEmptyApprovedCatalog() {
         var reason: String? = null
-        assertTrue(mosaicApprovedArtwork(mosaicManifestHeader + "\n", emptySet()) {
-            reason = it
-        }.isEmpty())
+        assertTrue(mosaicApprovedArtwork(
+            mosaicManifestHeader + "\n", emptySet(), onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("empty_catalog", reason)
     }
 
     @Test fun editorialRejectsInvalidHeaderWithCause() {
         var reason: String? = null
-        assertTrue(editorialApprovedPosters("# WRONG\n", emptySet()) {
-            reason = it
-        }.isEmpty())
+        assertTrue(editorialApprovedPosters(
+            "# WRONG\n", emptySet(), onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("invalid_header", reason)
     }
 
@@ -38,9 +40,9 @@ class GenreArtworkDiagnosticPolicyTest {
         val files = setOf("UI7_MOSAICO_001_Rock.webp", "UI7_MOSAICO_002_Jazz.webp")
         var reject: String? = null
         val result = mosaicApprovedArtwork(
-            mosaicManifestHeader + "\n" + rockMosaic + "\n" + jazzMosaic + "\n", files) {
-            reject = it
-        }
+            mosaicManifestHeader + "\n" + rockMosaic + "\n" + jazzMosaic + "\n", files,
+            onRejected = { reject = it },
+        )
         assertEquals(2, result.size)
         assertEquals("UI7_MOSAICO_001_Rock.webp", result["rock"]?.filename)
         assertEquals(null, reject)
@@ -49,9 +51,10 @@ class GenreArtworkDiagnosticPolicyTest {
     @Test fun oneStrayWebpRejectsEntireCatalogInsteadOfInventingGenres() {
         var reason: String? = null
         val files = setOf("UI7_MOSAICO_001_Rock.webp", "UI7_MOSAICO_999_Fake.webp")
-        val result = mosaicApprovedArtwork(mosaicManifestHeader + "\n" + rockMosaic + "\n", files) {
-            reason = it
-        }
+        val result = mosaicApprovedArtwork(
+            mosaicManifestHeader + "\n" + rockMosaic + "\n", files,
+            onRejected = { reason = it },
+        )
         assertTrue(result.isEmpty())
         assertEquals("unexpected_webp", reason)
     }
@@ -60,26 +63,28 @@ class GenreArtworkDiagnosticPolicyTest {
         var reason: String? = null
         val files = setOf("UI7_MOSAICO_001_Rock.webp")
         val row = rockMosaic.replace("USER_CONFIRMED_COMPLETE", "PLANNED")
-        assertTrue(mosaicApprovedArtwork(mosaicManifestHeader + "\n" + row + "\n", files) {
-            reason = it
-        }.isEmpty())
+        assertTrue(mosaicApprovedArtwork(
+            mosaicManifestHeader + "\n" + row + "\n", files, onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("line_2_integrity_or_approval", reason)
         val wrong = rockMosaic.replace("UI7_MOSAICO_001_Rock.webp", "UI7_MOSAICO_001_Jazz.webp")
-        assertTrue(mosaicApprovedArtwork(mosaicManifestHeader + "\n" + wrong + "\n", files) {
-            reason = it
-        }.isEmpty())
+        assertTrue(mosaicApprovedArtwork(
+            mosaicManifestHeader + "\n" + wrong + "\n", files, onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("line_2_genre_identity", reason)
     }
 
     @Test fun editorialApprovedIdentityRefusesMissingAssetAndStrayFile() {
         var reason: String? = null
         val manifest = editorialPosterManifestHeader + "\n" + rockPoster + "\n"
-        assertTrue(editorialApprovedPosters(manifest, emptySet()) { reason = it }.isEmpty())
+        assertTrue(editorialApprovedPosters(
+            manifest, emptySet(), onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("line_2_asset_missing", reason)
-        assertTrue(editorialApprovedPosters(manifest,
-            setOf("genre_rock_editorial.webp", "genre_fake_editorial.webp")) {
-            reason = it
-        }.isEmpty())
+        assertTrue(editorialApprovedPosters(
+            manifest, setOf("genre_rock_editorial.webp", "genre_fake_editorial.webp"),
+            onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("unexpected_webp", reason)
         val approved = editorialApprovedPosters(manifest, setOf("genre_rock_editorial.webp"))
         assertEquals("genre_rock_editorial.webp", approved["rock"]?.filename)
@@ -87,9 +92,22 @@ class GenreArtworkDiagnosticPolicyTest {
 
     @Test fun editorialRejectsEmptyApprovedCatalog() {
         var reason: String? = null
-        assertTrue(editorialApprovedPosters(editorialPosterManifestHeader + "\n", emptySet()) {
-            reason = it
-        }.isEmpty())
+        assertTrue(editorialApprovedPosters(
+            editorialPosterManifestHeader + "\n", emptySet(), onRejected = { reason = it },
+        ).isEmpty())
         assertEquals("empty_catalog", reason)
+    }
+
+    @Test fun aMalformedOpticalTableLeavesRowsUnverifiedButKeepsTheCatalog() {
+        val files = setOf("UI7_MOSAICO_001_Rock.webp")
+        val manifest = mosaicManifestHeader + "\n" + rockMosaic + "\n"
+        val masks = runCatching {
+            parseUi7OpticalMasks("# WRONG\nUI7_MOSAICO_001_Rock.webp\t506\t352\t2\t1\t2\t2\t28\t27\t26\t30\t1\n")
+        }.getOrDefault(emptyMap())
+        val art = mosaicApprovedArtwork(manifest, files, opticalMasks = masks)
+        assertEquals("the approved catalog still loads", 1, art.size)
+        assertEquals("no invented frame", null, art["rock"]?.opticalMask)
+        // The same malformed row cannot be parsed as an approved optical table.
+        assertTrue(masks.isEmpty())
     }
 }
