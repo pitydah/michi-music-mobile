@@ -954,6 +954,12 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
+        rule.waitForIdle()
+        // Phase C's detail header can push the first row outside the initial
+        // viewport; compose it before asserting its disabled state.
+        rule.onNodeWithTag("genre_detail")
+            .performScrollToNode(hasTestTag("genre_track_a"))
+        rule.waitForIdle()
         rule.onNodeWithTag("genre_track_a").assertIsNotEnabled()
         rule.onNodeWithTag("genre_track_b").performClick()
         rule.runOnIdle {
