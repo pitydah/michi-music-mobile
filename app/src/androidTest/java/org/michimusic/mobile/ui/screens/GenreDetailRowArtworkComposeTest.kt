@@ -228,6 +228,11 @@ class GenreDetailRowArtworkComposeTest {
         }
         setPanel(mutableStateOf(tracks))
         openPop()
+        // Phase C's detail header can push the first row outside the initial
+        // viewport; scroll to it before waiting for its lazy artwork slot.
+        rule.onNodeWithTag("genre_detail")
+            .performScrollToNode(hasTestTag("genre_track_long-0"))
+        rule.waitForIdle()
         waitForTag("genre_track_art_long-0")
         rule.onNodeWithTag("genre_track_art_long-0", useUnmergedTree = true)
             .assertIsDisplayed()
