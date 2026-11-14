@@ -50,6 +50,8 @@ class AeroMotionComposeTest {
 
     @After
     fun removeGeneratedArtwork() {
+        // Compose's test clock is process-wide; never leak a frozen clock to the next test.
+        rule.mainClock.autoAdvance = true
         generatedArtwork.forEach(File::delete)
         generatedArtwork.clear()
     }
