@@ -262,7 +262,7 @@ val verifyUi7EditorialPosters = tasks.register<Exec>("verifyUi7EditorialPosters"
 }
 tasks.named("preBuild").configure { dependsOn(verifyUi7EditorialPosters) }
 
-// UI7 Mosaico destacado: the 216 approved local crops are byte-verified on every
+// UI7 Mosaico destacado: the 312 approved local crops are byte-verified on every
 // build, and the manifest must remain the deterministic derivative of the pack.
 val verifyUi7MosaicAssets = tasks.register<Exec>("verifyUi7MosaicAssets") {
     group = "verification"

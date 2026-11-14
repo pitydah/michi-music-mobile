@@ -24,9 +24,12 @@ class GenreArtworkRuntimeTest {
         var mosaicFailure: String? = null
         val mosaic = mosaicApprovedArtwork(mosaicText, mosaicFiles) { mosaicFailure = it }
         assertNull("Mosaico rejected: $mosaicFailure", mosaicFailure)
-        assertEquals("Mosaico published entries", 216, mosaic.size)
+        assertEquals("Mosaico published entries", 312, mosaic.size)
         assertEquals("UI7_MOSAICO_001_Rock.webp", mosaicArtworkForGenre("rock", mosaic)?.filename)
         assertEquals("UI7_MOSAICO_002_Jazz.webp", mosaicArtworkForGenre("jazz", mosaic)?.filename)
+        assertEquals("UI7_MOSAICO_312_Timba.webp", mosaicArtworkForGenre("timba", mosaic)?.filename)
+        assertEquals("UI7_MOSAICO_275_VisualKei.webp",
+            mosaicArtworkForGenre("visual kei", mosaic)?.filename)
 
         val posterFiles = context.assets.list(editorialPosterFolder).orEmpty().toSet()
         val posterText = context.assets.open("$editorialPosterFolder/manifest.tsv")
@@ -34,9 +37,12 @@ class GenreArtworkRuntimeTest {
         var posterFailure: String? = null
         val posters = editorialApprovedPosters(posterText, posterFiles) { posterFailure = it }
         assertNull("Editorial rejected: $posterFailure", posterFailure)
-        assertEquals("Editorial published entries", 216, posters.size)
+        assertEquals("Editorial published entries", 312, posters.size)
         assertEquals("genre_rock_editorial.webp", editorialPosterForTitle("Rock", posters)?.filename)
         assertEquals("genre_jazz_editorial.webp", editorialPosterForTitle("Jazz", posters)?.filename)
+        assertEquals("genre_timba_editorial.webp", editorialPosterForTitle("Timba", posters)?.filename)
+        assertEquals("genre_visual_kei_editorial.webp",
+            editorialPosterForTitle("Visual Kei", posters)?.filename)
     }
 
     @Test fun coilDecodesInstalledWebpsFromBothViews() = runBlocking {

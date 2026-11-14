@@ -46,6 +46,20 @@ class GenreMosaicArtworkPolicyTest {
             "UI7_MOSAICO_189_IDM.webp" to "idm",
             "UI7_MOSAICO_215_MusicaDeCamara.webp" to "musica de camara",
             jRock to "j rock",
+            "UI7_MOSAICO_217_ArtRock.webp" to "art rock",
+            "UI7_MOSAICO_218_NDW.webp" to "ndw",
+            "UI7_MOSAICO_225_Rai.webp" to "rai",
+            "UI7_MOSAICO_233_RussianRock.webp" to "russian rock",
+            "UI7_MOSAICO_241_Qawwali.webp" to "qawwali",
+            "UI7_MOSAICO_249_Klezmer.webp" to "klezmer",
+            "UI7_MOSAICO_262_Gqom.webp" to "gqom",
+            "UI7_MOSAICO_275_VisualKei.webp" to "visual kei",
+            "UI7_MOSAICO_281_Chiptune.webp" to "chiptune",
+            "UI7_MOSAICO_290_Chacarera.webp" to "chacarera",
+            "UI7_MOSAICO_297_ModalJazz.webp" to "modal jazz",
+            "UI7_MOSAICO_305_GuajiraCubana.webp" to "guajira cubana",
+            "UI7_MOSAICO_311_ChaChaCha.webp" to "cha cha cha",
+            "UI7_MOSAICO_312_Timba.webp" to "timba",
         )
         expected.forEach { (filename, key) ->
             assertEquals(filename, key, mosaicGenreKeyFromFilename(filename))
@@ -84,6 +98,27 @@ class GenreMosaicArtworkPolicyTest {
             mosaicArtworkForGenre("rock", artwork)?.filename,
             mosaicArtworkForGenre("rock roll", artwork)?.filename,
         )
+    }
+
+    @Test fun multiTagTracksResolveEachApprovedGenreToItsOwnCrop() {
+        val artRock = "UI7_MOSAICO_217_ArtRock.webp"
+        val timba = "UI7_MOSAICO_312_Timba.webp"
+        val gaia = "UI7_MOSAICO_262_Gqom.webp"
+        val artwork = mosaicApprovedArtwork(
+            manifest(
+                row(key = "art rock", filename = artRock),
+                row(key = "gqom", filename = gaia),
+                row(key = "timba", filename = timba),
+            ),
+            setOf(artRock, gaia, timba),
+        )
+        // One track may carry several tags; each tag keeps its own approved crop.
+        assertEquals(listOf(artRock, gaia, timba), listOf("art rock", "gqom", "timba")
+            .map { mosaicArtworkForGenre(it, artwork)?.filename })
+        // Case/diacritic tolerance never merges two different approved genres.
+        assertEquals(gaia, mosaicArtworkForGenre("Gqom", artwork)?.filename)
+        assertEquals(timba, mosaicArtworkForGenre("TIMBA", artwork)?.filename)
+        assertNull(mosaicArtworkForGenre("chacarera", artwork))
     }
 
     @Test fun incompleteOrUnsafeCatalogFailsClosed() {

@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -62,6 +64,13 @@ class GenreArtworkComposeRenderTest {
         val (changed, sampled) = changedSamples(before, after)
         assertTrue("No visible artwork pixels: $changed of $sampled samples changed",
             changed > sampled / 20)
+    }
+
+    private fun dpOf(pxValue: Float): Float = pxValue / rule.density.density
+
+    private fun assertNear(message: String, expected: Float, actual: Float, tolerance: Float) {
+        assertTrue("$message (expected=$expected actual=$actual tolerance=$tolerance)",
+            abs(expected - actual) <= tolerance)
     }
 
     @Test fun realMosaicHeroAndSecondaryPaintDifferentFromFallback() {
@@ -167,48 +176,81 @@ class GenreArtworkComposeRenderTest {
     }
 
     /**
-     * Completed posters are horizontal assets. A fixed canonical height forced the
-     * bitmap to letterbox inside tall/wide cells (large empty bands). The cell now
-     * derives its height from the approved asset ratio while ContentScale.Fit keeps
-     * the cat/lettering undeformed. This check fails on the fixed-height layout.
+     * P0 regression: the old cell height came from the approved asset ratio, so a
+     * paired Pop (514x268) rendered 88.6dp next to a Rock (1027x280) at 46.3dp in
+     * the same 170dp slot. Heights must come from the treatment (cover 192dp,
+     * portrait pair 246dp) while the whole poster stays uncropped inside the card.
      */
-    @Test fun editorialPosterTilesTakeTheirAssetAspectWithoutEmptyBands() {
+    @Test fun editorialPosterCardsUseTreatmentHeightsAndKeepTheWholePoster() {
         val rock = LibraryGenre("rock", "Rock", emptyList(), albumCount = 0)
-        val jazz = LibraryGenre("jazz", "Jazz", emptyList(), albumCount = 0)
+        val pop = LibraryGenre("pop", "Pop", emptyList(), albumCount = 0)
+        val rockPoster = EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280)
+        val popPoster = EditorialPosterAsset("pop", "genre_pop_editorial.webp", 514, 268)
         rule.setContent {
             Column {
-                Box(Modifier.width(350.dp)) {
-                    GenreEditorialPosterTile(rock,
-                        EditorialPosterAsset("rock", "genre_rock_editorial.webp", 1027, 280),
-                        treatment = GenreEditorialTreatment.COVER,
-                        onOpen = {})
+                // Rock appears twice in this fixture (cover + portrait pair), so
+                // each slot gets its own wrapper tag: the production tile tag
+                // alone would resolve to two nodes.
+                Box(Modifier.width(350.dp).testTag("rock_cover")) {
+                    GenreEditorialPosterTile(rock, rockPoster,
+                        treatment = GenreEditorialTreatment.COVER, columns = 2, onOpen = {})
                 }
-                Box(Modifier.width(170.dp)) {
-                    GenreEditorialPosterTile(jazz,
-                        EditorialPosterAsset("jazz", "genre_jazz_editorial.webp", 513, 327),
-                        treatment = GenreEditorialTreatment.PORTRAIT_LEFT,
-                        onOpen = {})
+                Box(Modifier.width(170.dp).testTag("rock_pair")) {
+                    GenreEditorialPosterTile(rock, rockPoster,
+                        treatment = GenreEditorialTreatment.PORTRAIT_LEFT, columns = 2, onOpen = {})
+                }
+                Box(Modifier.width(170.dp).testTag("pop_pair")) {
+                    GenreEditorialPosterTile(pop, popPoster,
+                        treatment = GenreEditorialTreatment.PORTRAIT_RIGHT, columns = 2, onOpen = {})
                 }
             }
         }
         rule.waitForIdle()
         val oneDp = with(rule.density) { 1.dp.toPx() }
-        fun assertCellMatchesAsset(tileTag: String, posterTag: String, ratio: Float) {
-            val tile = rule.onNodeWithTag(tileTag).fetchSemanticsNode().boundsInRoot
-            val image = rule.onNodeWithTag(posterTag, useUnmergedTree = true)
-                .fetchSemanticsNode().boundsInRoot
-            val emptyVertical = (image.height - image.width / ratio).coerceAtLeast(0f)
-            val emptyHorizontal = (image.width - image.height * ratio).coerceAtLeast(0f)
-            assertTrue("$posterTag does not fill its cell width: tile=$tile image=$image",
-                abs(image.width - tile.width) <= oneDp)
-            assertTrue("$posterTag has empty bands: vertical=" +
-                "${emptyVertical / rule.density.density}dp horizontal=" +
-                "${emptyHorizontal / rule.density.density}dp in $image",
-                emptyVertical <= oneDp && emptyHorizontal <= oneDp)
-            assertTrue("$posterTag aspect ${image.width / image.height} != $ratio",
-                abs(image.width / image.height - ratio) <= 0.02f)
+        fun slotNode(wrapper: String, tag: String) = rule.onNode(
+            hasTestTag(tag) and hasAnyAncestor(hasTestTag(wrapper)),
+            useUnmergedTree = true,
+        ).fetchSemanticsNode().boundsInRoot
+        fun posterOf(wrapper: String, genreId: String) =
+            slotNode(wrapper, "genre_editorial_poster_$genreId")
+        fun tileOf(wrapper: String, genreId: String) =
+            slotNode(wrapper, "genre_editorial_$genreId")
+
+        val cover = tileOf("rock_cover", "rock")
+        assertEquals("cover must be the 192dp treatment", 192f, dpOf(cover.height), 0.5f)
+        val left = tileOf("rock_pair", "rock")
+        assertEquals("portrait must be the 246dp treatment", 246f, dpOf(left.height), 0.5f)
+        assertNear("cover must stay wider than a paired cell", 0f, dpOf(cover.width) - 350f, 0.5f)
+        assertNear("paired cells must keep the 170dp slot", 0f, dpOf(left.width) - 170f, 0.5f)
+        // The same genre in a 170dp pair cell must not shrink to its asset ratio.
+        val pairRock = tileOf("rock_pair", "rock")
+        val pairPop = tileOf("pop_pair", "pop")
+        assertNear("paired cards must share one exterior height", pairRock.height,
+            pairPop.height, oneDp)
+
+        // The whole poster is preserved: its displayed box keeps the asset ratio
+        // and never exceeds the card's mount.
+        data class Slot(val wrapper: String, val genreId: String, val ratio: Float)
+        listOf(
+            Slot("rock_cover", "rock", rockPoster.ratio),
+            Slot("rock_pair", "rock", rockPoster.ratio),
+            Slot("pop_pair", "pop", popPoster.ratio),
+        ).forEach { slot ->
+            val poster = posterOf(slot.wrapper, slot.genreId)
+            assertEquals("${slot.wrapper} poster must keep its approved aspect",
+                slot.ratio, poster.width / poster.height, 0.02f)
+            val tile = tileOf(slot.wrapper, slot.genreId)
+            assertTrue(
+                "${slot.wrapper} poster must fit inside the mounted card: poster=$poster tile=$tile",
+                poster.width <= tile.width - 2 * oneDp * EDITORIAL_POSTER_MOUNT_INSET_DP + oneDp,
+            )
+            assertTrue("${slot.wrapper} poster must stay inside the card mount: poster=$poster tile=$tile",
+                poster.left >= tile.left - oneDp && poster.right <= tile.right + oneDp)
         }
-        assertCellMatchesAsset("genre_editorial_rock", "genre_editorial_poster_rock", 1027f / 280f)
-        assertCellMatchesAsset("genre_editorial_jazz", "genre_editorial_poster_jazz", 513f / 327f)
+        // The Pop poster must be about 85dp tall, not the old 88.6dp exterior.
+        assertTrue("Pop poster band must keep its truthful height",
+            dpOf(posterOf("pop_pair", "pop").height) < 120f)
+        assertEquals("Pop card must not become an 88.6dp exterior",
+            246f, dpOf(pairPop.height), 0.5f)
     }
 }

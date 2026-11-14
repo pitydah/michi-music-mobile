@@ -58,12 +58,38 @@ class GenreEditorialArtworkPolicyTest {
         assertTrue(!editorialProductionGeometryValid("cover", 4096, 4096))
     }
 
-    @Test fun inventoryContainsOnlyThe216VerifiedEditorialSources() {
+    @Test fun inventoryContainsOnlyThe312VerifiedEditorialSources() {
         // The reconciled UI7 editorial pack ships one verified source per Mosaico genre.
-        assertEquals(216, editorialSourceKeys.size)
+        assertEquals(312, editorialSourceKeys.size)
         assertTrue("new_wave" in editorialSourceKeys)
         assertTrue("afrobeat" in editorialSourceKeys)
         assertTrue("afrobeats" in editorialSourceKeys)
+        listOf(
+            "art_rock", "ndw", "rai", "qawwali", "russian_rock", "klezmer",
+            "gqom", "visual_kei", "chiptune", "chacarera", "modal_jazz",
+            "guajira_cubana", "cha_cha_cha", "timba",
+        ).forEach { assertTrue("missing approved slug $it", it in editorialSourceKeys) }
+    }
+
+    @Test fun theAddedGenresResolveToTheirOwnApprovedSlugs() {
+        assertEquals("art_rock", editorialArtworkSlug("Art Rock"))
+        assertEquals("ndw", editorialArtworkSlug("NDW"))
+        assertEquals("rai", editorialArtworkSlug("Raï"))
+        assertEquals("qawwali", editorialArtworkSlug("Qawwali"))
+        assertEquals("russian_rock", editorialArtworkSlug("Russian Rock"))
+        assertEquals("klezmer", editorialArtworkSlug("Klezmer"))
+        assertEquals("gqom", editorialArtworkSlug("Gqom"))
+        assertEquals("visual_kei", editorialArtworkSlug("Visual Kei"))
+        assertEquals("chiptune", editorialArtworkSlug("Chiptune"))
+        assertEquals("chacarera", editorialArtworkSlug("Chacarera"))
+        assertEquals("modal_jazz", editorialArtworkSlug("Modal Jazz"))
+        assertEquals("guajira_cubana", editorialArtworkSlug("Guajira Cubana"))
+        assertEquals("cha_cha_cha", editorialArtworkSlug("Cha-Cha-Chá"))
+        assertEquals("timba", editorialArtworkSlug("Timba"))
+        // Afrobeat and Afrobeats stay separate approved identities after the extension.
+        assertNotEquals(editorialArtworkSlug("Afrobeat"), editorialArtworkSlug("Afrobeats"))
+        // The extension must not turn an unapproved label into somebody else's art.
+        assertNull(editorialArtworkSlug("Some Unknown New Style"))
     }
 
     @Test fun imagePathUsesSlotAndNeverCreatesNewGenre() {

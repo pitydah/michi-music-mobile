@@ -26,24 +26,42 @@ internal fun editorialPosterForTitle(
     posters: Map<String, EditorialPosterAsset>,
 ): EditorialPosterAsset? = editorialPosterSlug(genreTitle)?.let(posters::get)
 
-/** Minimum interactive height for one Editorial poster cell. */
-internal const val EDITORIAL_POSTER_MIN_HEIGHT_DP = 48f
+/**
+ * A poster is an authentic *vertical* resource when its declared proportions are
+ * portrait. The approved pack is 1.4..4.5:1 (horizontal sheets only), so every
+ * portrait Editorial slot is currently `PENDIENTE DE RECURSO VERTICAL APROBADO`.
+ */
+internal val EditorialPosterAsset.isVertical: Boolean
+    get() = widthPx.toFloat() / heightPx.toFloat() < 1f
 
 /**
- * Poster cell height from the measured column width.
+ * Mount inset that keeps the approved baked frame away from the card's own clip.
  *
- * The approved pack contains panoramic sheets (~4:1). In a half-width portrait
- * slot their truthful height is only 38-45dp, which would leave the card under
- * the 48dp touch floor. The cell therefore keeps the approved aspect but never
- * drops below [EDITORIAL_POSTER_MIN_HEIGHT_DP]; the extra surface belongs to
- * the card's own background (the bitmap stays `Fit`, never cropped/stretched).
- * Invalid geometry falls back to the touch floor instead of a broken cell.
+ * A card clipped with radius `r` needs its content inset by at least
+ * `r * (1 - 1/sqrt(2))` (4.69dp for the 16dp MichiShapes.md radius) so the clip
+ * never cuts the artwork. 8dp gives 1.7x clearance. The approved poster's frame
+ * line is 2..10px inside its bitmap, so the mount also hides the near-black
+ * bitmap corner that would otherwise read as a wedge on a lighter surface.
  */
-internal fun editorialPosterCellHeightDp(widthDp: Float, posterRatio: Float): Float {
-    if (!widthDp.isFinite() || !posterRatio.isFinite() || widthDp <= 0f || posterRatio <= 0f) {
-        return EDITORIAL_POSTER_MIN_HEIGHT_DP
-    }
-    return maxOf(widthDp / posterRatio, EDITORIAL_POSTER_MIN_HEIGHT_DP)
+internal const val EDITORIAL_POSTER_MOUNT_INSET_DP = 8
+
+/**
+ * Height of the full-width poster band inside a treatment-height card.
+ *
+ * The band keeps the whole poster (`Fit`, never a false vertical crop) and never
+ * runs into the reserved count-chip surface. The *card* height comes from the
+ * treatment, not from this ratio: that is what keeps a paired Pop (514x268) and
+ * Rock (1027x280) at one equal exterior height instead of 88.6dp vs 46.3dp.
+ */
+internal fun editorialPosterBandHeightDp(
+    innerWidthDp: Float,
+    maxBandHeightDp: Float,
+    posterRatio: Float,
+): Float {
+    if (!maxBandHeightDp.isFinite() || maxBandHeightDp <= 0f) return 0f
+    if (!innerWidthDp.isFinite() || innerWidthDp <= 0f) return maxBandHeightDp
+    if (!posterRatio.isFinite() || posterRatio <= 0f) return maxBandHeightDp
+    return minOf(innerWidthDp / posterRatio, maxBandHeightDp)
 }
 
 /** Posters >= 2.4:1 are the approved panoramic sheets; the layout keeps them in

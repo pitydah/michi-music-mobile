@@ -3,7 +3,7 @@ package org.michimusic.mobile.ui.screens
 import java.util.Locale
 
 /**
- * UI7 "Mosaico destacado" local crops (216 approved WebP files).
+ * UI7 "Mosaico destacado" local crops (312 approved WebP files).
  *
  * The pack is a visual inventory, never a music taxonomy: a row can only claim the
  * genre that its own approved filename suffix spells, so a hand-edited manifest

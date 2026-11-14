@@ -171,6 +171,7 @@ private fun EditorialCell(
             genre = genre,
             poster = poster,
             treatment = treatment,
+            columns = columns,
             modifier = modifier,
             onArtworkLoad = onArtworkLoad,
             onOpen = { onOpen(genre.id) },
@@ -200,8 +201,7 @@ private fun GenreEditorialDrawnTile(
     val accent = if (LocalVisualPreferences.current.highContrast) PureWhite else genreAccent(genre)
     val count = genre.tracks.size
     val itemLabel = "Abrir género ${genre.title}, $count ${if (count == 1) "pista" else "pistas"}"
-    val slot = editorialSlotFor(treatment, columns)
-    val height = genreEditorialHeightDp(slot, LocalConfiguration.current.fontScale)
+    val height = genreEditorialHeightDp(treatment, columns, LocalConfiguration.current.fontScale)
     AeroCard(
         modifier = modifier.height(height.dp)
             .testTag("genre_editorial_${genre.id}")

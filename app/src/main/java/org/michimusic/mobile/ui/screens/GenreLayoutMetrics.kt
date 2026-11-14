@@ -12,17 +12,27 @@ import kotlin.math.roundToInt
 /**
  * Library > Genres grid metrics.
  *
- * The grid always reserves the same 20dp side gutters and 10dp gaps; only the
- * column count is adaptive. Two columns are chosen from a *measured* minimum
- * tile width, so a narrow phone (320dp) stays single-column while 360/390/411
- * and tablet panels can pair compact cards. Large text scales are not forced
- * into two columns when the measured label no longer fits.
+ * The grid always reserves the same 20dp side gutters, 10dp gaps, 4dp top and
+ * 28dp bottom padding; only the column count is adaptive. Two columns are chosen
+ * from a *measured* minimum tile width, so a narrow phone (320dp) and a 360dp
+ * phone stay single-column, while 390/411/480 pair compact cards. Large text
+ * scales are not forced into two columns when the measured label no longer fits.
  */
 internal const val GENRE_GRID_SIDE_PADDING_DP = 20
 internal const val GENRE_GRID_GAP_DP = 10
+internal const val GENRE_GRID_TOP_PADDING_DP = 4
+internal const val GENRE_GRID_BOTTOM_PADDING_DP = 28
 
-/** Artwork + baked-title legibility floor for a compact (two-column) card. */
-internal const val GENRE_COMPACT_TILE_MIN_WIDTH_DP = 148
+/**
+ * Artwork + baked-title legibility floor for a compact (two-column) card.
+ *
+ * 156dp (not 148dp) is the contract floor: a 360dp panel has 320dp of usable
+ * width, so two 156dp cards plus the 10dp gap (322dp) no longer fit and the panel
+ * stays single-column. 390dp (350dp usable) still pairs. Do not lower this to
+ * re-create the old 360dp two-column behaviour: that squeeze truncated the
+ * baked artwork titles.
+ */
+internal const val GENRE_COMPACT_TILE_MIN_WIDTH_DP = 156
 
 /** Horizontal breathing room inside a compact card caption/footer. */
 internal const val GENRE_CARD_TEXT_PADDING_DP = 12

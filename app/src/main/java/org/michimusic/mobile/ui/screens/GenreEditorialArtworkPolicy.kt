@@ -3,7 +3,7 @@ package org.michimusic.mobile.ui.screens
 /**
  * Source artwork inventory is not a music taxonomy. It never creates genre
  * groups or changes Track.genre; a missing/unfinished asset leaves Compose intact.
- * Names correspond to 176 individual WebP source cards in UI7/Editorial/recortadas.
+ * Names correspond to the 312 individual WebP source cards in UI7/Editorial/recortadas.
  */
 internal val editorialSourceKeys: Set<String> = setOf(
     "acid_house", "acid_jazz", "afro_house", "afrobeat", "afrobeats", "afropop", "alternative_rock", "alternativo", "amapiano",
@@ -67,6 +67,24 @@ internal val editorialSourceKeys: Set<String> = setOf(
     "tech_house",
     "tonada_chilena",
     "trap_latino",
+
+    // UI7 lamina 28-39 (indices 217-312): user-approved complete 2026-11-14.
+    "afro_cuban_jazz", "anatolian_rock", "arabic_pop", "art_pop", "art_rock", "azerbaijani_mugham",
+    "balkan_brass", "bard_song", "baul", "bhajan", "bhangra", "bitpop",
+    "bollywood", "calypso", "candombe", "cantopop", "carnatic_classical", "celtic",
+    "cha_cha_cha", "chacarera", "chamame", "changui", "chiptune", "coldwave",
+    "dabke", "dangdut", "danzon", "dark_ambient", "darkwave", "desert_blues",
+    "desi_hip_hop", "dhrupad", "ebm", "electro_tango", "enka", "ethio_jazz",
+    "folk_punk", "folktronica", "gamelan", "ghazal", "glitch", "gnawa",
+    "gqom", "guajira_cubana", "guaracha", "gypsy_jazz", "highlife", "hindustani_classical",
+    "indian_electronic", "jazz_funk", "jazztronica", "khaliji", "kizomba", "klezmer",
+    "kompa", "kuduro", "kurdish_folk", "mahraganat", "makossa", "mambo",
+    "mandopop", "mbalax", "minimal_wave", "modal_jazz", "ndw", "no_wave",
+    "noise_rock", "nu_jazz", "pansori", "persian_classical", "polka", "post_metal",
+    "post_punk_revival", "qawwali", "rai", "rebetiko", "rumba_cubana", "russian_chanson",
+    "russian_folk", "russian_post_punk", "russian_rock", "russian_romance", "sevdalinka", "soca",
+    "soukous", "soul_jazz", "soviet_pop", "sovietwave", "spiritual_jazz", "tarab",
+    "thai_luk_thung", "thumri", "timba", "turkish_classical", "visual_kei", "zouk",
 )
 
 private val approvedSlugPattern = Regex("[a-z0-9]+(?:_[a-z0-9]+)*")

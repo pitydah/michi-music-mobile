@@ -38,6 +38,20 @@ class MosaicGenreKeyTests(unittest.TestCase):
             "UI7_MOSAICO_214_Neoclasica.webp": "neoclasica",
             "UI7_MOSAICO_215_MusicaDeCamara.webp": "musica de camara",
             "UI7_MOSAICO_216_JRock.webp": "j rock",
+            "UI7_MOSAICO_217_ArtRock.webp": "art rock",
+            "UI7_MOSAICO_218_NDW.webp": "ndw",
+            "UI7_MOSAICO_225_Rai.webp": "rai",
+            "UI7_MOSAICO_233_RussianRock.webp": "russian rock",
+            "UI7_MOSAICO_241_Qawwali.webp": "qawwali",
+            "UI7_MOSAICO_249_Klezmer.webp": "klezmer",
+            "UI7_MOSAICO_262_Gqom.webp": "gqom",
+            "UI7_MOSAICO_275_VisualKei.webp": "visual kei",
+            "UI7_MOSAICO_281_Chiptune.webp": "chiptune",
+            "UI7_MOSAICO_290_Chacarera.webp": "chacarera",
+            "UI7_MOSAICO_297_ModalJazz.webp": "modal jazz",
+            "UI7_MOSAICO_305_GuajiraCubana.webp": "guajira cubana",
+            "UI7_MOSAICO_311_ChaChaCha.webp": "cha cha cha",
+            "UI7_MOSAICO_312_Timba.webp": "timba",
         }
         for filename, key in expected.items():
             self.assertEqual(key, gate.genre_key(filename), filename)
@@ -137,6 +151,16 @@ class MosaicInventoryGateTests(unittest.TestCase):
     def test_rejects_malformed_manifest_header(self):
         self.manifest.write_text("# UI7_MOSAICO_MANIFEST_V2\n", encoding="utf-8")
         self.assertTrue(any("header" in issue for issue in gate.validate(self.folder)))
+
+
+class ShippedMosaicPackTests(unittest.TestCase):
+    def test_shipped_pack_declares_the_approved_312_rows(self):
+        lines = [line for line in gate.MANIFEST.read_text(encoding="utf-8").splitlines()
+                 if line and not line.startswith("#")]
+        self.assertEqual(312, len(lines))
+        self.assertEqual(gate.EXPECTED_ASSETS, len(lines))
+        numbers = [int(line.split("\t")[1][12:15]) for line in lines]
+        self.assertEqual(list(range(1, 313)), numbers)
 
 
 if __name__ == "__main__":

@@ -118,7 +118,7 @@ fun GenreLibraryPanel(
         }
     }
     // Source Editorial posters already include titles and frames. Read their complete
-    // bounded manifest once per Editorial entry; never enumerate media or decode 216 bitmaps.
+    // bounded manifest once per Editorial entry; never enumerate media or decode 312 bitmaps.
     val posterAssets by produceState(
         initialValue = emptyMap<String, EditorialPosterAsset>(), key1 = viewMode,
     ) {
@@ -198,6 +198,14 @@ fun GenreLibraryPanel(
     }
     if (selected == null) {
         val ordered = remember(genres) { genresByTrackCount(genres) }
+        // Observe the one-shot catalog loads in the panel's own composition scope
+        // too. BoxWithConstraints composes its content in a subcomposition, and a
+        // load observed only there left the grid on the empty fail-closed map after
+        // the 312-item catalog arrived (reproduced on emulator-5554), so artwork
+        // never recomposed. Reading the states here restarts the panel reliably.
+        val mosaicArtwork = mosaicAssets
+        val editorialPosters = posterAssets
+        val editorialProduction = productionAssets
         Column(Modifier.fillMaxSize().testTag("genres_overview")) {
             GenreModeToolbar(
                 totalGenres = genres.size,
@@ -214,7 +222,7 @@ fun GenreLibraryPanel(
                         genres = ordered,
                         columns = columns,
                         state = featuredGridState,
-                        artwork = mosaicAssets,
+                        artwork = mosaicArtwork,
                         onArtworkLoad = onArtworkLoad,
                         onOpen = openGenre,
                     )
@@ -222,8 +230,8 @@ fun GenreLibraryPanel(
                         genres = ordered,
                         columns = columns,
                         state = editorialListState,
-                        posterAssets = posterAssets,
-                        productionAssets = productionAssets,
+                        posterAssets = editorialPosters,
+                        productionAssets = editorialProduction,
                         onArtworkLoad = onArtworkLoad,
                         onOpen = openGenre,
                     )

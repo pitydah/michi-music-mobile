@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed gate for the UI7 "Mosaico destacado" local artwork pack.
 
-The 216 WebP crops are copied byte-for-byte from the approved Mosaico source.
+The 312 WebP crops are copied byte-for-byte from the approved Mosaico source.
 This gate never re-crops, renames, re-encodes or reorders them: it only hashes,
 measures and cross-checks the checked-in manifest. Run with ``--write`` to
 regenerate ``manifest.tsv`` deterministically from the packaged files.
@@ -27,7 +27,7 @@ MANIFEST = ASSETS / "manifest.tsv"
 HEADER = "# UI7_MOSAICO_MANIFEST_V1"
 FIELDS = 6
 APPROVAL = "USER_CONFIRMED_COMPLETE"
-EXPECTED_ASSETS = 216
+EXPECTED_ASSETS = 312
 MAX_WEBP = 1_572_864
 MAX_PIXELS = 3_686_400
 MAX_MANIFEST_CHARS = 96_000

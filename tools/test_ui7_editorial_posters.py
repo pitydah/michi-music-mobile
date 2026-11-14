@@ -68,5 +68,21 @@ class CompletePosterContractTests(unittest.TestCase):
         self.assertEqual(b"untouched", output.read_bytes())
 
 
+class ShippedPosterPackTests(unittest.TestCase):
+    def test_shipped_pack_declares_312_complete_posters(self):
+        lines = [line for line in gate.POSTERS.joinpath("manifest.tsv")
+                 .read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+        self.assertEqual(312, len(lines))
+        rows = [line.split("\t") for line in lines]
+        self.assertEqual(312, len({row[0] for row in rows}))
+        self.assertEqual(312, len({row[1] for row in rows}))
+        for row in rows:
+            self.assertEqual("USER_CONFIRMED_COMPLETE", row[6])
+            self.assertEqual("POSTER_COMPLETE", row[7])
+        for row in rows[216:]:
+            self.assertTrue(row[5].startswith("UI7_EDITORIAL_LAMINA_"))
+            self.assertGreaterEqual(int(row[4]), 200)
+
+
 if __name__ == "__main__":
     unittest.main()

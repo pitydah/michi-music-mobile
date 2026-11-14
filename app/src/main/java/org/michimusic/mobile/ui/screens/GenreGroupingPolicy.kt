@@ -119,24 +119,40 @@ fun genresByTrackCount(genres: List<LibraryGenre>): List<LibraryGenre> =
         { -it.tracks.size }, { it.title.lowercase(Locale.ROOT) }))
 
 /**
- * Hero height from the card's real width (grid width minus the 20dp gutters):
- * the canonical 218dp focal card, but never shorter than the approved frame
- * (which would reintroduce lateral bands). Capped at 300dp because a wider
- * panel keeps a card, not a billboard.
+ * Mosaico focal card: the canonical 218dp hero. Larger text scales grow the card
+ * by a bounded amount so the live counter (and the fallback Compose title) never
+ * has to shrink below the theme's metadata/card-title size.
  */
-fun genreMosaicHeroHeightDp(cardWidthDp: Float, fontScale: Float): Int {
-    val textDriven = 218 + ((fontScale.coerceIn(1f, 3f) - 1f) * 140).toInt()
-    val frameDriven = (cardWidthDp / GENRE_ARTWORK_FRAME_RATIO)
-        .coerceIn(198f, 300f).roundToInt()
-    return maxOf(textDriven, frameDriven)
+internal const val GENRE_MOSAIC_HERO_HEIGHT_DP = 218
+
+/** Mosaico compact card: the canonical 166dp secondary. */
+internal const val GENRE_MOSAIC_SECONDARY_HEIGHT_DP = 166
+
+/** Bounded per-scale growth for live text inside the fixed artwork cards. */
+private const val GENRE_MOSAIC_TEXT_GROWTH_DP = 40
+
+fun genreMosaicHeroHeightDp(fontScale: Float): Int =
+    GENRE_MOSAIC_HERO_HEIGHT_DP +
+        ((fontScale.coerceIn(1f, 3f) - 1f) * GENRE_MOSAIC_TEXT_GROWTH_DP).roundToInt()
+
+/**
+ * Compact card height. It grows with the text scale because the crop keeps 166dp
+ * at 1.0x and the count chip + its gap + its inset live on the card's continuous
+ * surface below the artwork band (never in a detached footer).
+ */
+fun genreMosaicSecondaryHeightDp(fontScale: Float): Int =
+    GENRE_MOSAIC_SECONDARY_HEIGHT_DP +
+        ((fontScale.coerceIn(1f, 3f) - 1f) * GENRE_MOSAIC_TEXT_GROWTH_DP / 2).roundToInt()
+
+/** Editorial card height for one treatment, growing only with the live text. */
+fun genreEditorialHeightDp(
+    treatment: GenreEditorialTreatment,
+    columns: Int,
+    fontScale: Float,
+): Int {
+    val slot = editorialSlotFor(treatment, columns)
+    return slot.heightDp + ((fontScale.coerceIn(1f, 3f) - 1f) * 24).roundToInt()
 }
-
-/** Caption band that holds the real track count under a secondary card. */
-fun genreMosaicFooterHeightDp(fontScale: Float): Int =
-    56 + ((fontScale.coerceIn(1f, 3f) - 1f) * 28).toInt()
-
-fun genreEditorialHeightDp(slot: GenreEditorialSlot, fontScale: Float): Int =
-    slot.heightDp + ((fontScale.coerceIn(1f, 3f) - 1f) * 160).toInt()
 
 /** Editorial composition geometry, independent of any future image asset. */
 enum class GenreEditorialTreatment { COVER, PORTRAIT_LEFT, PORTRAIT_RIGHT }
@@ -161,8 +177,8 @@ fun editorialSlot(index: Int, columns: Int): GenreEditorialSlot {
 /**
  * Canonical cell geometry for one Editorial treatment: a 192dp cover spanning
  * the row, a 246dp one-column portrait, and a 200dp single-column card.
- * Poster cells keep the approved asset aspect instead; these heights are the
- * contract for Compose-drawn cells and for the rhythm's minimum rhythm slot.
+ * Poster cells use the same treatment heights instead of their own asset ratio,
+ * so two paired cards always share one exterior height.
  */
 fun editorialSlotFor(
     treatment: GenreEditorialTreatment,

@@ -132,25 +132,40 @@ class GenreGroupingPolicyTest {
         assertEquals(2, genreGridColumns(480, 200))
         assertEquals(1, genreGridColumns(320, 200))
         // Fixed rhythm remains 192/246/200 for Compose-drawn cells.
-        assertEquals(352, genreEditorialHeightDp(editorialSlot(0, 2), 2f))
-        assertEquals(406, genreEditorialHeightDp(editorialSlot(1, 2), 2f))
+        assertEquals(216, genreEditorialHeightDp(GenreEditorialTreatment.COVER, 2, 2f))
+        assertEquals(270, genreEditorialHeightDp(GenreEditorialTreatment.PORTRAIT_LEFT, 2, 2f))
     }
 
-    @Test fun heroAndFooterHeightsAdaptToPanelWidthAndTextScale() {
-        // Card widths after the fixed 20dp gutters (320/360/390/411/480 panels).
-        // 320dp panel: the 198dp frame is raised to the canonical 218dp focal card.
-        assertEquals(218, genreMosaicHeroHeightDp(280f, 1f))
-        // 360/390/411 panels: frame height keeps the 1.41:1 artwork bandless.
-        assertEquals(227, genreMosaicHeroHeightDp(320f, 1f))
-        assertEquals(248, genreMosaicHeroHeightDp(350f, 1f))
-        assertEquals(263, genreMosaicHeroHeightDp(371f, 1f))
-        // Wide panels cap the focal card instead of turning it into a billboard.
-        assertEquals(300, genreMosaicHeroHeightDp(440f, 1f))
-        // Large text grows the caption band, never the artwork crop.
-        assertEquals(56, genreMosaicFooterHeightDp(1f))
-        assertEquals(64, genreMosaicFooterHeightDp(1.3f))
-        assertEquals(84, genreMosaicFooterHeightDp(2f))
-        assertEquals(358, genreMosaicHeroHeightDp(320f, 2f))
+    @Test fun productionColumnContractIsOneColumnUpTo360() {
+        // Latest approved contract: 320 -> 1, 360 -> 1, 390/411/480 -> 2.
+        val floor = GENRE_COMPACT_TILE_MIN_WIDTH_DP
+        assertEquals(156, floor)
+        assertEquals(1, genreGridColumns(320, floor))
+        assertEquals(1, genreGridColumns(360, floor))
+        assertEquals(2, genreGridColumns(390, floor))
+        assertEquals(2, genreGridColumns(411, floor))
+        assertEquals(2, genreGridColumns(480, floor))
+        // The fixed gutters are 20dp and the gap is 10dp, never derived from width.
+        assertEquals(20, GENRE_GRID_SIDE_PADDING_DP)
+        assertEquals(10, GENRE_GRID_GAP_DP)
+        assertEquals(4, GENRE_GRID_TOP_PADDING_DP)
+        assertEquals(28, GENRE_GRID_BOTTOM_PADDING_DP)
+    }
+
+    @Test fun heroAndSecondaryHeightsComeFromTheTreatmentNotTheWidth() {
+        // 218dp focal card and 166dp compact card at 1.0x, for every panel width.
+        listOf(280f, 320f, 350f, 371f, 440f).forEach { width ->
+            assertEquals("hero must not follow $width", 218, genreMosaicHeroHeightDp(1f))
+            assertEquals("secondary must not follow $width", 166, genreMosaicSecondaryHeightDp(1f))
+        }
+        // Larger text grows the cards by a bounded amount; no card shrinks below
+        // the 48dp touch floor and no font is reduced.
+        assertEquals(230, genreMosaicHeroHeightDp(1.3f))
+        assertEquals(258, genreMosaicHeroHeightDp(2f))
+        assertEquals(172, genreMosaicSecondaryHeightDp(1.3f))
+        assertEquals(186, genreMosaicSecondaryHeightDp(2f))
+        assertEquals(298, genreMosaicHeroHeightDp(3f))
+        assertEquals(206, genreMosaicSecondaryHeightDp(3f))
     }
 
     @Test fun compilationGuestsDoNotInflateRealAlbumCount() {
