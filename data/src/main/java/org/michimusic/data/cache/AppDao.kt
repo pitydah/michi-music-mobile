@@ -58,4 +58,11 @@ interface AppDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSetting(setting: SettingsEntity)
+
+    /** MI-02R: only clean up legacy prototype MI keys in the backup-eligible DB. */
+    @Query("DELETE FROM app_settings WHERE `key` GLOB 'michi_intelligence.v1.*'")
+    suspend fun eraseLegacyIntelligenceProfile(): Int
+
+    @Query("SELECT COUNT(*) FROM app_settings WHERE `key` GLOB 'michi_intelligence.v1.*'")
+    suspend fun countIntelligencePrototypeRows(): Int
 }

@@ -1219,6 +1219,9 @@ fun AlbumsScreen(
                                     }
                                     is GenreIndexLoad.Ready -> {
                                         if (current.scopeKey == expectedScopeKey) {
+                                            // Capture the UI7 scope receipt by value: a stale
+                                            // callback cannot authorize a different library.
+                                            val renderedScope = activeScope
                                             genreViewState.SaveableStateProvider("genre_panel") {
                                                 GenreLibraryPanel(
                                                     genres = current.index.genres,
@@ -1226,6 +1229,28 @@ fun AlbumsScreen(
                                                     globallyBlockedTrackIds = current.index.blockedTrackIds,
                                                     currentTrack = currentTrack,
                                                     isPlaying = isPlaying,
+                                                    scopeKey = current.scopeKey,
+                                                    scopeGeneration = current.generation,
+                                                    captureIntelligenceTicket = {
+                                                        sessionManager.intelligenceQueueTicket()
+                                                    },
+                                                    playIntelligenceQueue = { tracks, index, ticket ->
+                                                        sessionManager.playIntelligenceQueue(tracks, index, ticket)
+                                                    },
+                                                    canPlayLocally = {
+                                                        val liveIndex = genreLibraryViewModel.state.value
+                                                        val liveOwner = sessionManager.sessionState.value
+                                                        libraryScopeStore.activeScope.value == renderedScope &&
+                                                            org.michimusic.core.intelligence.MichiLocalPlaybackGate.permits(
+                                                                liveOwner.activeEndpoint.id,
+                                                                liveOwner.activeEndpoint.isLocal,
+                                                                liveOwner.isRemoteActive,
+                                                                (liveOwner.handoffState == org.michimusic.mobile.playback.HandoffState.IDLE ||
+                                                                    liveOwner.handoffState == org.michimusic.mobile.playback.HandoffState.LOCAL_PLAYING)) &&
+                                                            liveIndex is GenreIndexLoad.Ready &&
+                                                            liveIndex.scopeKey == current.scopeKey &&
+                                                            liveIndex.generation == current.generation
+                                                    },
                                                     onPlay = ::playQueueSafe,
                                                 )
                                             }

@@ -582,6 +582,9 @@ class PlaybackSessionManager(
             rtpMetrics = finalMetrics,
             statusMessage = message ?: if (wasRemote) "Reproduciendo en este teléfono" else null
         )
+        // A completed local endpoint may now collect NEW listening evidence.
+        org.michimusic.core.intelligence.MichiPlaybackIntentFence.confirmedLocalEndpoint()
+
 
         if (resumePlayback) {
             audioController?.play()
@@ -616,6 +619,7 @@ class PlaybackSessionManager(
             statusMessage = null,
             lastSessionError = null,
         )
+        org.michimusic.core.intelligence.MichiPlaybackIntentFence.confirmedLocalEndpoint()
     }
 
     fun attachRemote(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
@@ -676,6 +680,19 @@ class PlaybackSessionManager(
     }
 
     fun handoffTo(target: PlaybackEndpoint, onResult: (Boolean, String) -> Unit) {
+        // MI-15: revoke Intelligence at INTENT time, before the asynchronous
+        // sessionState collector can publish a new PlayerDependencies authority.
+        val intentTicket = org.michimusic.core.intelligence.MichiPlaybackIntentFence.beginTransfer()
+        val originalResult = onResult
+        @Suppress("NAME_SHADOWING")
+        val onResult: (Boolean, String) -> Unit = { success, message ->
+            val actual = _sessionState.value
+            val localReady = actual.activeEndpoint.id == "local_phone" &&
+                actual.activeEndpoint.isLocal && !actual.isRemoteActive && !isRemoteSelected
+            org.michimusic.core.intelligence.MichiPlaybackIntentFence.completeTransfer(
+                intentTicket, localReady)
+            originalResult(success, message)
+        }
         nextSessionEpoch()
         _activeQueuePlaybackOp.set(null)
         if (target.isLocal) {
@@ -1432,11 +1449,67 @@ class PlaybackSessionManager(
      * Authority 3: Local Phone
      *   Dispatched directly to AudioController.
      */
+    /**
+     * MI-16: last-mile queue authorization INSIDE the active session owner.
+     * The caller captures a ticket BEFORE availability IO. This method never
+     * delegates to the generic remote-capable playQueue() fallback.
+     */
+    private val intelligenceTickets =
+        org.michimusic.core.intelligence.MichiIntelligenceQueueTicketLedger()
+
+    data class IntelligenceQueueTicket(
+        val sessionEpoch: Long,
+        val intentGeneration: Long,
+        val outputRevision: Long,
+        /** Unique click receipt: later requests invalidate earlier IO responses. */
+        val requestId: Long,
+    )
+
+    fun intelligenceQueueTicket(): IntelligenceQueueTicket? {
+        val state = _sessionState.value
+        val output = org.michimusic.player.PlayerDependencies.outputAuthority.value
+        val intent = org.michimusic.core.intelligence.MichiPlaybackIntentFence.snapshot()
+        val stable = state.handoffState == HandoffState.IDLE ||
+            state.handoffState == HandoffState.LOCAL_PLAYING
+        if (!intent.localAllowed || intent.pending || isRemoteSelected ||
+            !org.michimusic.core.intelligence.MichiLocalPlaybackGate.permits(
+                state.activeEndpoint.id, state.activeEndpoint.isLocal,
+                state.isRemoteActive, stable) ||
+            output.endpointId != "local_phone" || !output.isLocal) return null
+        val requestId = intelligenceTickets.issue()
+        return IntelligenceQueueTicket(_sessionEpoch.get(), intent.generation, output.revision, requestId)
+    }
+
+    fun playIntelligenceQueue(
+        tracks: List<Track>, startIndex: Int, ticket: IntelligenceQueueTicket,
+    ): Boolean {
+        val state = _sessionState.value
+        val output = org.michimusic.player.PlayerDependencies.outputAuthority.value
+        val stable = state.handoffState == HandoffState.IDLE ||
+            state.handoffState == HandoffState.LOCAL_PLAYING
+        if (!org.michimusic.core.intelligence.MichiIntelligenceQueuePolicy.permits(
+            tracks, startIndex, ticket.sessionEpoch, _sessionEpoch.get(),
+            ticket.intentGeneration, ticket.outputRevision, output.revision,
+            state.activeEndpoint.id, state.activeEndpoint.isLocal,
+            state.isRemoteActive, stable, isRemoteSelected,
+            output.endpointId, output.isLocal,
+        )) return false
+        val localController = audioController ?: return false
+        // One-shot and last-click-wins: a slow, earlier availability result can
+        // never override the latest user action. No timer, lock or background job.
+        if (!intelligenceTickets.consume(ticket.requestId)) return false
+        // This is a bounded, already-verified local selection (max six tracks).
+        // No suspending work or owner-routing branch occurs between gate and command.
+        localController.playQueue(tracks.toList(), startIndex)
+        return true
+    }
+
     fun playQueue(
         tracks: List<Track>,
         startIndex: Int = 0,
         confirmedAction: RemoteQueueAction? = null
     ) {
+        intelligenceTickets.cancel() // ordinary queue action wins over pending MI IO
         if (tracks.isEmpty()) return
         val validIndex = startIndex.coerceIn(0, tracks.lastIndex)
         if (!isRemotePlaybackHost) {

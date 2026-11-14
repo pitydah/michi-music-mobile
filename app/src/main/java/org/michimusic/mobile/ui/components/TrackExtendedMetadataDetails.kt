@@ -28,7 +28,7 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 
 private sealed interface ExtendedDetailsState {
     data object Loading : ExtendedDetailsState
-    data class Available(val rows: List<TrackExtendedMetadataRow>) : ExtendedDetailsState
+    data class Available(val rows: List<TrackExtendedMetadataRow>, val genres: List<String>) : ExtendedDetailsState
     data object Unavailable : ExtendedDetailsState
     data object Error : ExtendedDetailsState
 }
@@ -48,9 +48,9 @@ internal fun TrackExtendedMetadataDetails(
             val evidence = repository.loadVerified(track.sourceId, track.id, track.filepath, track.size)
             if (evidence == null || evidence.sourceId != track.sourceId ||
                 evidence.trackId != track.id) ExtendedDetailsState.Unavailable
-            else TrackExtendedMetadataPolicy.rows(evidence)
-                .takeIf { it.isNotEmpty() }
-                ?.let(ExtendedDetailsState::Available) ?: ExtendedDetailsState.Unavailable
+            else ExtendedDetailsState.Available(
+                TrackExtendedMetadataPolicy.rows(evidence), evidence.genres,
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -73,9 +73,13 @@ internal fun TrackExtendedMetadataDetails(
                 }
                 Text("Metadatos cotejados con la etiqueta actual del archivo.",
                     style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                MichiGenreNormalizationAction(track, current.genres, tagsVerified = true)
             }
-            ExtendedDetailsState.Unavailable -> Text(
-                "No hay metadatos extendidos verificados para esta canción.", color = TextSecondary)
+            ExtendedDetailsState.Unavailable -> {
+                Text("No hay metadatos extendidos verificados para esta canción.", color = TextSecondary)
+                // Read-only external discovery is still possible for untagged tracks.
+                MichiGenreNormalizationAction(track, emptyList(), tagsVerified = false)
+            }
             ExtendedDetailsState.Error -> Text(
                 "No se pudieron consultar los metadatos de la biblioteca.", color = TextSecondary)
         }

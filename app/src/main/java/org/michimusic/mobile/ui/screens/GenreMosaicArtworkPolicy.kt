@@ -128,7 +128,10 @@ internal fun mosaicApprovedArtwork(
         val height = parts[4].toIntOrNull() ?: return reject("line_${lineNumber}_height")
         val approval = parts[5]
         val index = mosaicGenreIndexKey(key)
-        if (index.isEmpty() || mosaicGenreKeyFromFilename(filename) != key)
+        // MI-26 canonical keys may hyphenate ("post-rock"); the approved manifest keeps
+        // its literal space-separated identity. Compare both through the existing index form.
+        val filenameIndex = mosaicGenreKeyFromFilename(filename)?.let(::mosaicGenreIndexKey)
+        if (index.isEmpty() || filenameIndex != index)
             return reject("line_${lineNumber}_genre_identity")
         if (!mosaicSha256Pattern.matches(sha) || approval != mosaicApprovalState)
             return reject("line_${lineNumber}_integrity_or_approval")

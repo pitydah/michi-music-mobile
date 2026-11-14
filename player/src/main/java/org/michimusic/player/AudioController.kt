@@ -40,6 +40,8 @@ class AudioController(
     private var sleepTimerJob: Job? = null
     private var lastRecordedTrackId: String? = null
     private var lastRecordedAt: Long = 0L
+    // MI-03 consumes the same Media3 listener, without another observer.
+    private val intelligenceBridge by lazy { MichiIntelligencePlaybackBridge(context, scope) }
 
     private var pendingQueueTracks: List<Track>? = null
     private var pendingStartIndex: Int = 0
@@ -47,6 +49,7 @@ class AudioController(
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            intelligenceBridge.onPlaying(isPlaying)
             val ctrl = mediaController
             val status = if (isPlaying) {
                 PlaybackStatus.Playing
@@ -70,6 +73,19 @@ class AudioController(
             reconcileQueueFromController(ctrl)
         }
 
+        // A seek within the same media item can fake an end-of-song listen.
+        // The existing Media3 listener invalidates that evidence without new polling.
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK &&
+                oldPosition.mediaItemIndex == newPosition.mediaItemIndex &&
+                oldPosition.mediaItem?.mediaId == newPosition.mediaItem?.mediaId
+            ) intelligenceBridge.onSeekWithinTrack()
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val ctrl = mediaController ?: return
             reconcileQueueFromController(ctrl)
@@ -80,6 +96,7 @@ class AudioController(
                     queue.find { it.id == id }
                 }
             }
+            intelligenceBridge.onTransition(mediaItem?.mediaId, track, queue, index, reason, ctrl.isPlaying)
             if (track != null) {
                 _state.value = _state.value.copy(
                     currentTrack = track,
@@ -100,6 +117,7 @@ class AudioController(
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             val ctrl = mediaController ?: return
+            if (playbackState == Player.STATE_ENDED) intelligenceBridge.onEnded()
             val isPlaying = ctrl.isPlaying
             val status = when (playbackState) {
                 Player.STATE_IDLE -> {
@@ -119,6 +137,7 @@ class AudioController(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            intelligenceBridge.onError()
             val mapped = PlaybackErrorMapper.mapPlaybackError(error)
             _state.value = _state.value.copy(
                 isPlaying = false,
@@ -227,6 +246,8 @@ class AudioController(
 
     override fun seekTo(position: Long) {
         ensureConnected()
+        // Fail closed before issuing any programmatic same-track seek.
+        intelligenceBridge.onSeekWithinTrack()
         mediaController?.seekTo(position)
         _state.value = _state.value.copy(position = position)
     }
@@ -234,17 +255,20 @@ class AudioController(
     override fun skipNext() {
         ensureConnected()
         Log.d(TAG, "skipNext requested")
+        intelligenceBridge.markExplicitSkip()
         mediaController?.seekToNextMediaItem()
     }
 
     override fun skipPrevious() {
         ensureConnected()
+        intelligenceBridge.markExplicitSkip()
         mediaController?.seekToPreviousMediaItem()
     }
 
     override fun skipToQueueIndex(index: Int) {
         ensureConnected()
         if (index in _state.value.queue.indices) {
+            intelligenceBridge.markExplicitSkip()
             mediaController?.seekTo(index, 0L)
             _state.value = _state.value.copy(
                 currentTrack = _state.value.queue[index],
@@ -637,6 +661,7 @@ class AudioController(
     }
 
     fun release() {
+        intelligenceBridge.release()
         stopPositionUpdates()
         cancelSleepTimer()
         mediaController?.release()

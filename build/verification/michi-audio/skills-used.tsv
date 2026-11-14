@@ -35,3 +35,14 @@ phase-b	compose-ui-testing-patterns	PASS	GenreArtworkInventory312ComposeTest
 cards-refinement	using-chrisbanes-skills	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9#cards-subagent
 cards-refinement	gradle-run	LOADED	opencode-log:/tmp/gradle-run/c0433f785a1c3ab08d96f13330b81d9a
 p0-hotfix	gradle-run	LOADED	opencode-log:/tmp/gradle-run/4015596df4962cc075c826d8962cbd50
+bootstrap	using-chrisbanes-skills	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+plan	to-plan	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+implement	deliver-spec	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+concurrency	kotlin-concurrency-and-flow	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+api	kotlin-api-design	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+ui-state	compose-state-and-effects	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+ui-component	compose-component-design	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+ui-test	compose-ui-testing-patterns	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+gradle	gradle-run	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+mi29-control-flow	kotlin-control-flow	LOADED	opencode-session:ses_e5697f240ffeIXXAkeY6nyM2Y9
+mi29-gradle-evidence	gradle-run	LOADED	opencode-log:/tmp/gradle-run/a388ee6dfca205085c93299f0ac39541

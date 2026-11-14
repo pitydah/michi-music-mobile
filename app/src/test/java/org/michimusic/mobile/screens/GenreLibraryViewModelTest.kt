@@ -28,6 +28,7 @@ import org.michimusic.mobile.ui.screens.GenreIndexLoad
 @OptIn(ExperimentalCoroutinesApi::class)
 class GenreLibraryViewModelTest {
     private val mainDispatcher = UnconfinedTestDispatcher()
+    private val createdViewModels = mutableListOf<GenreLibraryViewModel>()
 
     @Before
     fun setUp() {
@@ -36,8 +37,17 @@ class GenreLibraryViewModelTest {
 
     @After
     fun tearDown() {
+        // Cancel every collector while Main is still installed. A Room/flow
+        // producer completing after resetMain() otherwise reports an uncaught
+        // "Dispatchers.Main was accessed" exception into the next test class.
+        createdViewModels.forEach { it.clear() }
+        createdViewModels.clear()
+        mainDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
+
+    private fun newViewModel(trackDao: TrackDao): GenreLibraryViewModel =
+        GenreLibraryViewModel(trackDao).also { createdViewModels += it }
 
     @Test
     fun loadsGenreIndexFromOneOwnerSnapshotAndClearsOnExit() = runBlocking {
@@ -66,7 +76,7 @@ class GenreLibraryViewModelTest {
             sourceId = "",
         )
 
-        val viewModel = GenreLibraryViewModel(trackDao)
+        val viewModel = newViewModel(trackDao)
         viewModel.load(listOf(track), scopeOwnerId = null, isAllScope = true)
 
         val ready = withTimeout(5_000) {
@@ -88,7 +98,7 @@ class GenreLibraryViewModelTest {
         )
         every { trackDao.observeGenreEvidenceSnapshot() } returns evidence
 
-        val viewModel = GenreLibraryViewModel(trackDao)
+        val viewModel = newViewModel(trackDao)
         viewModel.load(
             listOf(genreTrack(id = "t1", title = "Jazz Song", sourceId = "ownerA")),
             scopeOwnerId = "ownerA",
@@ -124,7 +134,7 @@ class GenreLibraryViewModelTest {
             genreRow("t2", "Rock Song", "ownerA", "Rock"),
         ))
         every { dao.observeGenreEvidenceSnapshot() } returns evidence
-        val viewModel = GenreLibraryViewModel(dao)
+        val viewModel = newViewModel(dao)
 
         viewModel.load(
             listOf(genreTrack("t1", "Jazz Song", "ownerA")),
@@ -164,7 +174,7 @@ class GenreLibraryViewModelTest {
             ),
         )
 
-        val viewModel = GenreLibraryViewModel(trackDao)
+        val viewModel = newViewModel(trackDao)
         viewModel.load(
             listOf(genreTrack(id = "t2", title = "Rock Song", sourceId = "ownerB")),
             scopeOwnerId = "ownerB",
@@ -192,7 +202,7 @@ class GenreLibraryViewModelTest {
         val evidence = MutableSharedFlow<List<CachedGenreMetadata>>(extraBufferCapacity = 1)
         every { trackDao.observeGenreEvidenceSnapshot() } returns evidence
 
-        val viewModel = GenreLibraryViewModel(trackDao)
+        val viewModel = newViewModel(trackDao)
         viewModel.load(
             listOf(genreTrack(id = "t1", title = "Jazz Song", sourceId = "ownerA")),
             scopeOwnerId = "ownerA",

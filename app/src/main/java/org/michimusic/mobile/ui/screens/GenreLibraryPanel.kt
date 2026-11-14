@@ -91,6 +91,12 @@ fun GenreLibraryPanel(
     isPlaying: Boolean,
     onPlay: (List<Track>, Int) -> Unit,
     globallyBlockedTrackIds: Set<String> = emptySet(),
+    scopeKey: String = "",
+    scopeGeneration: Long = 0L,
+    canPlayLocally: () -> Boolean = { true },
+    captureIntelligenceTicket: () -> org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket? = { null },
+    playIntelligenceQueue: (List<Track>, Int,
+        org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket) -> Boolean = { _, _, _ -> false },
     // Optional read-only load receipt for Android UI7 instrumented verification.
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)? = null,
 ) {
@@ -306,6 +312,22 @@ fun GenreLibraryPanel(
                             color = TextMuted, modifier = Modifier.align(Alignment.CenterVertically))
                     }
                 }
+            }
+        }
+        // MI-22: detail-only; preserve C14 Editorial/Mosaico layout and grid semantics.
+        if (scopeKey.isNotBlank() && scopeGeneration > 0L) {
+            item(key = "genre_intelligence") {
+                MichiGenreContextRecommendations(
+                    genreId = selected.id,
+                    genreTitle = selected.title,
+                    playableTracks = playableTracks,
+                    scopeKey = scopeKey,
+                    scopeGeneration = scopeGeneration,
+                    currentTrack = currentTrack,
+                    canPlayLocally = canPlayLocally,
+                    captureIntelligenceTicket = captureIntelligenceTicket,
+                    playIntelligenceQueue = playIntelligenceQueue,
+                )
             }
         }
         items(selected.tracks, key = { "${it.sourceId}\u0000${it.id}\u0000${it.filepath}" }) { track ->

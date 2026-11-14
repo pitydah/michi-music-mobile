@@ -123,6 +123,13 @@ interface TrackLocationDao {
 
 @Dao
 interface LibraryMembershipDao {
+    // MI-17: bounded, on-demand proof of membership; no catalog Flow, scan or worker.
+    @Query("SELECT trackId FROM library_tracks WHERE libraryId = :libraryId ORDER BY trackId LIMIT 256")
+    suspend fun sampleIntelligenceMemberIds(libraryId: String): List<String>
+
+    @Query("SELECT trackId FROM library_tracks WHERE libraryId = :libraryId AND trackId IN (:trackIds)")
+    suspend fun intelligenceMemberIdsPresent(libraryId: String, trackIds: List<String>): List<String>
+
     @Query("SELECT * FROM library_tracks WHERE libraryId = :libraryId")
     fun observeTrackMemberships(libraryId: String): Flow<List<LibraryTrackCrossRef>>
 

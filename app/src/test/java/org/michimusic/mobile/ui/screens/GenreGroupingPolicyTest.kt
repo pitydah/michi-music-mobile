@@ -26,7 +26,9 @@ class GenreGroupingPolicyTest {
         val song = song("local_777", "Pop rock")
             .copy(sourceId = "", genreValues = listOf("Pop rock"))
         val result = groupLibraryGenres(listOf(song))
-        assertEquals(listOf("Pop rock"), result.map { it.title })
+        // MI-26 owns the canonical display name; the persisted literal tag is not rewritten.
+        assertEquals(listOf("Pop Rock"), result.map { it.title })
+        assertEquals("Pop rock", song.genre)
         assertEquals(listOf("local_777"), result.single().tracks.map { it.id })
         assertEquals(1, result.single().tracks.size)
         assertEquals(2, GenreViewMode.entries.size)

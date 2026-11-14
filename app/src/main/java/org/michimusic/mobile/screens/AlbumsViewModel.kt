@@ -120,7 +120,10 @@ class AlbumsViewModel(
             }
             val result = albumsResult.data
             try {
-                val tracks = result.flatMap { it.tracks }
+                // The catalog builder owns this fresh list. Publish a read-only
+                // snapshot: downstream Intelligence must never observe an in-place
+                // same-size mutation of the already-authorized library.
+                val tracks = java.util.Collections.unmodifiableList(result.flatMap { it.tracks })
                 val trackById = tracks.associateBy { it.id }
                 val smartLists = try {
                     val top = appDao.getTopTracks(12).mapNotNull { trackById[it.trackId] }

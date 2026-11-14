@@ -28,6 +28,7 @@ import org.michimusic.mobile.playback.resolvePlaybackPresentation
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -122,6 +123,91 @@ fun HomeScreen(
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val appContext = LocalContext.current.applicationContext
+    val intelligenceRepository = remember(appContext, historyDao) {
+        org.michimusic.data.intelligence.MichiIntelligenceRepository(appContext, historyDao)
+    }
+    val intelligenceAdapter = remember(appContext, intelligenceRepository) {
+        org.michimusic.mobile.intelligence.MichiHomeIntelligenceAdapter(appContext, intelligenceRepository)
+    }
+    // MI-17: membership belongs to library_tracks, never to Track.sourceId.
+    // Koin already provides the DAO and authorities. No extra MediaStore observer.
+    val miScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
+    val miMembership: org.michimusic.data.cache.LibraryMembershipDao = koinInject()
+    val miRoot: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
+    val miScope by miScopeStore.activeScope.collectAsStateWithLifecycle()
+    val miScopeHydrated by miScopeStore.hydrated.collectAsStateWithLifecycle()
+    val miRootRevision by miRoot.revision.collectAsStateWithLifecycle()
+    var miLoadedRootRevision by remember { mutableStateOf(miRootRevision) }
+    // An older media snapshot cannot be reused while its root is being changed.
+    LaunchedEffect(allTracks) { miLoadedRootRevision = miRootRevision }
+    // Each receipt binds the source-list identity as well as the root and scope.
+    // A prior produceState result cannot authorize a newly loaded catalog.
+    class MiLibraryReceipt(
+        val scope: org.michimusic.core.models.LibraryScope,
+        val rootRevision: Long,
+        val source: List<org.michimusic.core.models.Track>,
+        val tracks: List<org.michimusic.core.models.Track>,
+    )
+    val miMembershipReceipt by androidx.compose.runtime.produceState<MiLibraryReceipt?>(
+        initialValue = null, miScope, miScopeHydrated, miRootRevision, allTracks, miMembership,
+    ) {
+        value = null
+        val capturedScope = miScope
+        val capturedRoot = miRootRevision
+        val capturedTracks = allTracks
+        if (!miScopeHydrated) return@produceState
+        val verified = when (capturedScope) {
+            is org.michimusic.core.models.LibraryScope.All -> capturedTracks
+            is org.michimusic.core.models.LibraryScope.One -> {
+                try {
+                    // Do not iterate 50,000 tracks on the Compose thread.
+                    // Keep even sparse One libraries; broaden representation
+                    // with distributed candidates, never a second media scan.
+                    val prefix = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        miMembership.sampleIntelligenceMemberIds(capturedScope.libraryId)
+                    }
+                    val candidates = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        org.michimusic.core.intelligence.MichiHomeScopedLibraryPolicy
+                            .sampleDistinctCandidates(capturedTracks, prefix.toSet())
+                    }
+                    if (candidates.isEmpty()) emptyList() else {
+                        val ids = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            miMembership.intelligenceMemberIdsPresent(
+                                capturedScope.libraryId, candidates.map { it.id },
+                            )
+                        }
+                        org.michimusic.core.intelligence.MichiHomeScopedLibraryPolicy
+                            .filterUniqueOwned(candidates, ids.toSet())
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { emptyList() }
+            }
+        }
+        value = MiLibraryReceipt(capturedScope, capturedRoot, capturedTracks, verified)
+    }
+    val miScopeReady = miScopeHydrated && miMembershipReceipt?.scope == miScope &&
+        miMembershipReceipt?.rootRevision == miRootRevision &&
+        miMembershipReceipt?.source === allTracks &&
+        miLoadedRootRevision == miRootRevision
+    val miScopedTracks = if (miScopeReady) miMembershipReceipt?.tracks.orEmpty() else emptyList()
+    suspend fun miQueueScopeStillValid(queue: List<org.michimusic.core.models.Track>): Boolean {
+        if (queue.isEmpty() || queue.size > 6 || !miScopeReady ||
+            !miScopeStore.hydrated.value || miScopeStore.activeScope.value != miScope ||
+            miRoot.revision.value != miRootRevision ||
+            viewModel.allTracks.value !== allTracks) return false
+        return when (val captured = miScope) {
+            is org.michimusic.core.models.LibraryScope.All -> true
+            is org.michimusic.core.models.LibraryScope.One -> {
+                val ids = queue.map { it.id }
+                val existing = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    miMembership.intelligenceMemberIdsPresent(captured.libraryId, ids)
+                }.toSet()
+                existing.size == ids.size && existing.containsAll(ids) &&
+                    miScopeStore.activeScope.value == captured &&
+                    miRoot.revision.value == miRootRevision
+            }
+        }
+    }
     val playlistVisualStore = remember(appContext) { PlaylistVisualStore(appContext) }
     val visualRevision by PlaylistVisualStore.revision.collectAsStateWithLifecycle()
     var pinnedPlaylistIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -166,6 +252,35 @@ fun HomeScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.error.collectAsStateWithLifecycle()
     val mediaState by viewModel.mediaState.collectAsStateWithLifecycle()
+    val intelligenceConsentRevision by org.michimusic.core.intelligence.MichiIntelligenceConsentBarrier.changes.collectAsStateWithLifecycle()
+    // Screen-scoped coordinator owns publication/cancellation; Compose only renders state.
+    val intelligenceCoordinator = remember(intelligenceAdapter) {
+        org.michimusic.mobile.intelligence.MichiHomeIntelligenceCoordinator(intelligenceAdapter)
+    }
+    val intelligencePresentation by intelligenceCoordinator.state.collectAsStateWithLifecycle()
+    val intelligenceSections = intelligencePresentation.sections
+    val hiddenIntelligenceCards = intelligencePresentation.hiddenCardCount
+    var feedbackRevision by remember { mutableStateOf(0) }
+    // No composition-time IO and no provider access.
+    LaunchedEffect(miScopedTracks, miScope, miRootRevision, miScopeReady,
+        recentTracks, currentTrack?.id, currentTrack?.sourceId,
+        sessionState.activeEndpoint.id, sessionState.isRemoteActive, sessionState.handoffState,
+        currentTrack?.filepath, mediaState, isLoading, intelligenceConsentRevision, feedbackRevision) {
+        if (!isLoading && miScopeReady && miScopedTracks.isNotEmpty() &&
+            org.michimusic.core.intelligence.MichiLocalPlaybackGate.permits(
+                sessionState.activeEndpoint.id, sessionState.activeEndpoint.isLocal,
+                sessionState.isRemoteActive,
+                (sessionState.handoffState == org.michimusic.mobile.playback.HandoffState.IDLE ||
+                    sessionState.handoffState == org.michimusic.mobile.playback.HandoffState.LOCAL_PLAYING)) &&
+            mediaState == org.michimusic.mobile.screens.MediaLibraryState.READY) {
+            // Keep the previous authorized snapshot visible while a new track is
+            // evaluated. A change of library identity is filtered at render time.
+            intelligenceCoordinator.refresh(miScopedTracks, recentTracks, currentTrack)
+        } else {
+            // Losing authority/permission is a security invalidation, not a refresh.
+            intelligenceCoordinator.invalidate()
+        }
+    }
     org.michimusic.mobile.ui.components.MediaPermissionWatcher(mediaState) {
         viewModel.loadMedia(forceRefresh = true)
     }
@@ -463,8 +578,177 @@ fun HomeScreen(
                         }
                     }
                 }
-                // 4. Quick Picks Showcase
-                if (libraryPicks.isNotEmpty()) {
+                // MI-04: only real local evidence may replace generic discovery.
+                // Consent changes synchronously invalidate old cards, even with
+                // a stale asynchronous Compose projection still in memory.
+                val authorizedIntelligenceSections = intelligenceSections.filter {
+                    !isLoading && miScopeReady &&
+                        miScopeStore.activeScope.value == miScope &&
+                        miRoot.revision.value == miRootRevision &&
+                        org.michimusic.core.intelligence.MichiLocalPlaybackGate.permits(
+                            sessionState.activeEndpoint.id, sessionState.activeEndpoint.isLocal,
+                            sessionState.isRemoteActive,
+                            (sessionState.handoffState == org.michimusic.mobile.playback.HandoffState.IDLE ||
+                                sessionState.handoffState == org.michimusic.mobile.playback.HandoffState.LOCAL_PLAYING)) &&
+                        mediaState == org.michimusic.mobile.screens.MediaLibraryState.READY &&
+                        it.belongsTo(miScopedTracks)
+                }
+                authorizedIntelligenceSections.forEach { section ->
+                    item(key = "michi_intelligence_${section.title}") {
+                        QuickPicksSection(
+                            tracks = section.tracks,
+                            currentTrack = currentTrack,
+                            isPlaying = isPlaying,
+                            title = section.title,
+                            eyebrow = section.explanation,
+                            onTrackClick = { selected ->
+                                val ticket = sessionManager.intelligenceQueueTicket()
+                                scope.launch {
+                                    val plan = section.verifiedRecommendedQueue(miScopedTracks, selected)
+                                    val available = plan != null &&
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            plan.first.all { candidate ->
+                                                org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(candidate, appContext)
+                                            }
+                                        }
+                                    if (ticket == null || plan == null || !available ||
+                                        !section.belongsTo(miScopedTracks) ||
+                                        !miQueueScopeStillValid(plan.first) ||
+                                        miScopeStore.activeScope.value != miScope ||
+                                        miRoot.revision.value != miRootRevision ||
+                                        viewModel.allTracks.value !== allTracks ||
+                                        !sessionManager.playIntelligenceQueue(plan.first, plan.second, ticket)) {
+                                        snackbarHostState.showSnackbar("La selección o la sesión ya no está disponible")
+                                    }
+                                }
+                            },
+                            onPlayMix = if (section.kind ==
+                                org.michimusic.core.intelligence.MichiHomeIntelligencePolicy.CardKind.MICHI_MIX) {
+                                {
+                                    val ticket = sessionManager.intelligenceQueueTicket()
+                                    scope.launch {
+                                        val mix = section.verifiedMixQueue(miScopedTracks)
+                                        val available = mix != null &&
+                                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                mix.first.all { candidate ->
+                                                    org.michimusic.core.models.TrackAvailabilityChecker.isTrackDownloaded(candidate, appContext)
+                                                }
+                                            }
+                                        if (ticket == null || mix == null || !available ||
+                                            !section.belongsTo(miScopedTracks) ||
+                                            !miQueueScopeStillValid(mix.first) ||
+                                            miScopeStore.activeScope.value != miScope ||
+                                            miRoot.revision.value != miRootRevision ||
+                                            viewModel.allTracks.value !== allTracks ||
+                                            !sessionManager.playIntelligenceQueue(mix.first, mix.second, ticket)) {
+                                            snackbarHostState.showSnackbar("Michi Mix o la sesión ya no está disponible")
+                                        }
+                                    }
+                                }
+                            } else null,
+                            isPinned = section.displayChoice ==
+                                org.michimusic.core.intelligence.MichiHomeCardPreferencePolicy.Choice.PINNED,
+                            onPinCard = {
+                                scope.launch {
+                                    val stillCurrent = section.tracks.firstOrNull()?.let {
+                                        section.indexOf(it, miScopedTracks) != null
+                                    } == true && miScopeReady &&
+                                        miScopeStore.activeScope.value == miScope &&
+                                        miRoot.revision.value == miRootRevision &&
+                                        viewModel.allTracks.value === allTracks
+                                    if (stillCurrent && section.isAuthorized()) {
+                                        val newChoice = if (section.displayChoice ==
+                                            org.michimusic.core.intelligence.MichiHomeCardPreferencePolicy.Choice.PINNED)
+                                            org.michimusic.core.intelligence.MichiHomeCardPreferencePolicy.Choice.DEFAULT
+                                        else org.michimusic.core.intelligence.MichiHomeCardPreferencePolicy.Choice.PINNED
+                                        val saved = intelligenceRepository.setCardPreference(
+                                            section.kind, newChoice, section.consentEpoch,
+                                        )
+                                        if (saved && section.isAuthorized()) feedbackRevision++
+                                        else snackbarHostState.showSnackbar("No se pudo fijar la tarjeta")
+                                    }
+                                }
+                            },
+                            onHideCard = {
+                                scope.launch {
+                                    val stillCurrent = section.tracks.firstOrNull()?.let {
+                                        section.indexOf(it, miScopedTracks) != null
+                                    } == true && miScopeReady &&
+                                        miScopeStore.activeScope.value == miScope &&
+                                        miRoot.revision.value == miRootRevision &&
+                                        viewModel.allTracks.value === allTracks
+                                    if (stillCurrent && section.isAuthorized()) {
+                                        val saved = intelligenceRepository.setCardPreference(
+                                            section.kind,
+                                            org.michimusic.core.intelligence.MichiHomeCardPreferencePolicy.Choice.HIDDEN,
+                                            section.consentEpoch,
+                                        )
+                                        if (saved && section.isAuthorized()) feedbackRevision++
+                                        else snackbarHostState.showSnackbar("No se pudo ocultar la tarjeta")
+                                    }
+                                }
+                            },
+                            onDismissTrack = { selected ->
+                                scope.launch {
+                                    val safeIndex = section.indexOf(selected, miScopedTracks)
+                                    if (safeIndex != null && section.isAuthorized() && miScopeReady &&
+                                        miScopeStore.activeScope.value == miScope &&
+                                        miRoot.revision.value == miRootRevision) {
+                                        val saved = intelligenceRepository.dismissSuggestion(
+                                            org.michimusic.core.intelligence.MichiIntelligencePolicy.TrackKey(
+                                                selected.sourceId, selected.id),
+                                            java.time.LocalDate.now(java.time.ZoneOffset.UTC).toEpochDay(),
+                                            section.consentEpoch,
+                                        )
+                                        if (saved && section.isAuthorized()) {
+                                            // Dismiss only this track across cards; never erase the whole Mix.
+                                            intelligenceCoordinator.suppressTrack(selected)
+                                            feedbackRevision++
+                                            val action = snackbarHostState.showSnackbar(
+                                                message = "No se recomendará durante 30 días",
+                                                actionLabel = "Deshacer",
+                                                duration = androidx.compose.material3.SnackbarDuration.Short,
+                                            )
+                                            if (action == androidx.compose.material3.SnackbarResult.ActionPerformed &&
+                                                section.isAuthorized()) {
+                                                val restored = intelligenceRepository.undoDismissedSuggestion(
+                                                    org.michimusic.core.intelligence.MichiIntelligencePolicy.TrackKey(
+                                                        selected.sourceId, selected.id), section.consentEpoch)
+                                                if (restored) feedbackRevision++
+                                            }
+                                        } else snackbarHostState.showSnackbar("No se pudo guardar la preferencia")
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+                // A single recover action remains visible even when ALL five kinds are hidden.
+                // No timer or separate library observer; the setting is read with Home's snapshot.
+                if (hiddenIntelligenceCards > 0 &&
+                    org.michimusic.core.intelligence.MichiIntelligenceConsentBarrier.permits(
+                        org.michimusic.core.intelligence.MichiIntelligenceConsentBarrier.epoch()) &&
+                    org.michimusic.core.intelligence.MichiLocalPlaybackGate.permits(
+                        sessionState.activeEndpoint.id, sessionState.activeEndpoint.isLocal,
+                        sessionState.isRemoteActive,
+                        (sessionState.handoffState == org.michimusic.mobile.playback.HandoffState.IDLE ||
+                            sessionState.handoffState == org.michimusic.mobile.playback.HandoffState.LOCAL_PLAYING))) {
+                    item(key = "michi_intelligence_restore_hidden") {
+                        androidx.compose.material3.TextButton(
+                            modifier = Modifier.testTag("michi_intelligence_restore_hidden"),
+                            onClick = {
+                                scope.launch {
+                                    val epoch = org.michimusic.core.intelligence.MichiIntelligenceConsentBarrier.epoch()
+                                    if (intelligenceRepository.restoreHiddenCards(epoch)) {
+                                        feedbackRevision++
+                                    } else snackbarHostState.showSnackbar("No se pudieron restaurar las tarjetas")
+                                }
+                            },
+                        ) { Text("Mostrar tarjetas ocultas ($hiddenIntelligenceCards)") }
+                    }
+                }
+                // Original editorial discovery remains the OFF/cold-start fallback.
+                if (authorizedIntelligenceSections.isEmpty() && libraryPicks.isNotEmpty()) {
                     item {
                         QuickPicksSection(
                             tracks = libraryPicks,
@@ -1026,22 +1310,54 @@ private fun QuickPicksSection(
     currentTrack: Track?,
     isPlaying: Boolean,
     onTrackClick: (Track) -> Unit,
+    title: String = "Explora tu biblioteca",
+    eyebrow: String = "OTRAS PISTAS DISPONIBLES",
+    onDismissTrack: ((Track) -> Unit)? = null,
+    isPinned: Boolean = false,
+    onPinCard: (() -> Unit)? = null,
+    onHideCard: (() -> Unit)? = null,
+    onPlayMix: (() -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         AeroSectionHeading(
-            title = "Explora tu biblioteca",
-            eyebrow = "OTRAS PISTAS DISPONIBLES",
+            title = title,
+            eyebrow = eyebrow,
         )
+        // Michi Mix uses its own six-track queue, never allTracks.
+        if (onPlayMix != null) {
+            androidx.compose.material3.TextButton(
+                onClick = onPlayMix,
+                modifier = Modifier.testTag("michi_intelligence_play_mix"),
+            ) { Text("Reproducir Michi Mix") }
+        }
+        // Contextual UI7 controls appear ONLY for learned cards, not editorial rows.
+        if (onPinCard != null && onHideCard != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                androidx.compose.material3.TextButton(
+                    onClick = onPinCard,
+                    modifier = Modifier.testTag("michi_intelligence_pin_card"),
+                ) { Text(if (isPinned) "Desfijar" else "Fijar") }
+                androidx.compose.material3.TextButton(
+                    onClick = onHideCard,
+                    modifier = Modifier.testTag("michi_intelligence_hide_card"),
+                ) { Text("Ocultar tarjeta") }
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         tracks.forEach { track ->
-            val isCurrent = currentTrack?.id == track.id
+            val isCurrent = currentTrack?.id == track.id &&
+                currentTrack.sourceId == track.sourceId
             QuickPickTrackRow(
                 track = track,
                 isCurrent = isCurrent,
                 isPlaying = isPlaying && isCurrent,
                 onClick = { onTrackClick(track) },
+                onDismiss = onDismissTrack?.let { handler -> { handler(track) } },
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -1054,6 +1370,7 @@ private fun QuickPickTrackRow(
     isCurrent: Boolean,
     isPlaying: Boolean,
     onClick: () -> Unit,
+    onDismiss: (() -> Unit)? = null,
 ) {
     GlassCard(
         modifier = Modifier
@@ -1104,6 +1421,14 @@ private fun QuickPickTrackRow(
                     color = PrimaryPinkContainer,
                     modifier = Modifier.size(20.dp),
                 )
+            }
+            if (onDismiss != null) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.testTag("michi_intelligence_dismiss"),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "No me interesa: ${track.title}")
+                }
             }
         }
     }

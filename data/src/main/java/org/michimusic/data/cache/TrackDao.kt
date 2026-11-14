@@ -136,6 +136,45 @@ interface TrackDao {
     @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId AND id = :id")
     suspend fun getTrackBySource(sourceId: String, id: String): CachedTrack?
 
+    /**
+     * MI-24: exact owner/path/previous-size AND genre compare-and-swap after physical
+     * post-write verification. An altered file invalidates any old sync digest;
+     * verifiedSha256 must be recomputed by the normal sync owner, not preserved.
+     */
+    @Query(
+        "UPDATE cached_tracks SET genre = :newGenre, size = :newSize, " +
+            "verifiedSize = 0, verifiedSha256 = '', verifiedAt = 0, verifiedAlgorithm = '' " +
+            "WHERE sourceId = :sourceId AND id = :trackId AND filepath = :filepath " +
+            "AND size = :oldSize AND genre = :oldGenre"
+    )
+    suspend fun updateGenreAfterVerifiedFileWrite(
+        sourceId: String, trackId: String, filepath: String,
+        oldSize: Long, oldGenre: String, newSize: Long, newGenre: String,
+    ): Int
+
+    /**
+     * The indexed genre and its multi-value evidence are one Room transaction.
+     * No update if a different owner, URI, size or existing genre raced the writer.
+     * The caller is responsible for rereading and validating the physical file.
+     */
+    @Transaction
+    suspend fun replaceGenreAfterVerifiedWrite(
+        sourceId: String, trackId: String, filepath: String,
+        oldSize: Long, oldGenre: String, newSize: Long,
+        evidence: EmbeddedTagEvidence,
+    ): Boolean {
+        if (sourceId != evidence.sourceId || trackId != evidence.trackId ||
+            newSize <= 0 || evidence.sizeBytes != newSize ||
+            evidence.modifiedAt <= 0 ||
+            evidence.parserVersion != EmbeddedTagEvidence.CURRENT_PARSER_VERSION ||
+            evidence.genre.isBlank() || evidence.genreValues.isBlank()) return false
+        val changed = updateGenreAfterVerifiedFileWrite(
+            sourceId, trackId, filepath, oldSize, oldGenre, newSize, evidence.genre)
+        if (changed != 1) return false
+        putTagEvidence(listOf(evidence))
+        return true
+    }
+
     @Query("SELECT * FROM cached_tracks WHERE sourceId = :sourceId ORDER BY title")
     fun getTracksForSource(sourceId: String): Flow<List<CachedTrack>>
 

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -18,12 +19,22 @@ import androidx.compose.ui.unit.dp
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.koin.compose.KoinIsolatedContext
+import org.koin.core.KoinApplication
+import org.koin.dsl.koinApplication
+import org.koin.dsl.module
+import org.michimusic.core.models.LibraryScope
 import org.michimusic.core.models.Playlist
 import org.michimusic.core.models.Track
+import org.michimusic.data.cache.LibraryMembershipDao
+import org.michimusic.mobile.library.LibraryScopeStore
+import org.michimusic.mobile.library.MusicRootAuthority
 import org.michimusic.mobile.screens.AlbumsViewModel
 import org.michimusic.mobile.screens.MediaLibraryState
 import org.robolectric.RobolectricTestRunner
@@ -37,6 +48,39 @@ class HomeScreenTest {
     val composeTestRule = createComposeRule()
 
     private val historyDao = mockk<org.michimusic.data.cache.AppDao>(relaxed = true)
+
+    private lateinit var koinApp: KoinApplication
+
+    @Before
+    fun setUpKoin() {
+        koinApp = koinApplication {
+            modules(module {
+                single {
+                    mockk<LibraryScopeStore>(relaxed = true).also {
+                        every { it.activeScope } returns MutableStateFlow<LibraryScope>(LibraryScope.All)
+                        every { it.hydrated } returns MutableStateFlow(false)
+                    }
+                }
+                single { mockk<LibraryMembershipDao>(relaxed = true) }
+                single {
+                    mockk<MusicRootAuthority>(relaxed = true).also {
+                        every { it.revision } returns MutableStateFlow(0L)
+                    }
+                }
+            })
+        }
+    }
+
+    @After
+    fun tearDownKoin() {
+        koinApp.close()
+    }
+
+    private fun setHomeContent(content: @Composable () -> Unit) {
+        composeTestRule.setContent {
+            KoinIsolatedContext(koinApp) { content() }
+        }
+    }
 
     @Test
     fun `shows loading indicator when loading`() {
@@ -57,7 +101,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
@@ -87,7 +131,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
@@ -123,7 +167,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
@@ -156,7 +200,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
         composeTestRule.onNodeWithTag("home_retry_loading_button").performClick()
@@ -192,7 +236,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
@@ -233,7 +277,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
@@ -265,7 +309,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
         }
 
@@ -300,7 +344,7 @@ class HomeScreenTest {
 
         var navigatedPlaylistId: String? = null
 
-        composeTestRule.setContent {
+        setHomeContent {
             HomeScreen(
                 viewModel = mockViewModel,
                 sessionManager = mockSession,
@@ -336,7 +380,7 @@ class HomeScreenTest {
         val mockAudio = mockk<org.michimusic.player.AudioController>(relaxed = true)
         every { mockAudio.state } returns MutableStateFlow(org.michimusic.player.PlayerState())
 
-        composeTestRule.setContent {
+        setHomeContent {
             CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
                 HomeScreen(viewModel = mockViewModel, sessionManager = mockSession, audioController = mockAudio, historyDao = historyDao)
             }

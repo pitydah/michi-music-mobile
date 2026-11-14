@@ -59,6 +59,30 @@ class ArtistEnrichmentRepository(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, ArtistExternalProfile>>?): Boolean = size > 32
     }
 
+    /** Explicit MI-23 query: same singleton, 1100ms rate gate and HTTPS readJson as artist enrichment. */
+    internal suspend fun genreSearchForExplicitAction(
+        intent: org.michimusic.core.intelligence.MichiGenreNormalizationPolicy.SearchIntent,
+    ): JsonObject {
+        // Validate again at the last outbound HTTP boundary; SearchIntent is public.
+        if (!org.michimusic.core.intelligence.MichiGenreNormalizationPolicy.isPreparedSearch(intent))
+            return JsonObject(emptyMap())
+        fun quoted(s: String): String = s.map { c ->
+            if (c == '"' || c == '\\' || c == '\r' || c == '\n') ' ' else c
+        }.joinToString("")
+        val query = "recording:\"${quoted(intent.title)}\" AND artist:\"${quoted(intent.artist)}\"" +
+            if (intent.album.isBlank()) "" else " AND release:\"${quoted(intent.album)}\""
+        return musicBrainzJson(api("https://musicbrainz.org/ws/2/recording",
+            mapOf("query" to query, "fmt" to "json", "limit" to "8")))
+    }
+
+    /** Lookup only by a syntactically checked, explicitly chosen recording MBID. */
+    internal suspend fun genreRecordingForExplicitAction(id: String): JsonObject {
+        val canonical = org.michimusic.core.intelligence.MichiGenreNormalizationPolicy.canonicalMbid(id)
+            ?: return JsonObject(emptyMap())
+        return musicBrainzJson(api("https://musicbrainz.org/ws/2/recording/$canonical",
+            mapOf("inc" to "genres", "fmt" to "json")))
+    }
+
     override suspend fun findCandidates(localCredit: String): List<ArtistLookupCandidate> {
         val query = localCredit.trim().replace(Regex("[\\r\\n\\\"]"), " ").take(120)
         if (query.isBlank()) return emptyList()
