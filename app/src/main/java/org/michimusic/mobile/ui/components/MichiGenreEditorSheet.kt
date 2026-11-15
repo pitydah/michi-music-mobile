@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +66,7 @@ internal fun MichiGenreEditorSheet(
     state: MichiGenreEditorState,
     writesCertified: Boolean,
     footerAction: @Composable () -> Unit,
+    scrollResetKey: Any? = null,
     body: @Composable ColumnScope.() -> Unit,
 ) {
     val configuration = LocalConfiguration.current
@@ -145,10 +147,15 @@ internal fun MichiGenreEditorSheet(
                         }
                         HorizontalDivider(Modifier.padding(top = 8.dp), color = GlassBorderHigh)
                         // The only scroll owner; the footer stays pinned while the IME is open.
+                        val bodyScroll = rememberScrollState()
+                        // K47-NORM-05: switching to the inline consent stage must
+                        // start at its disclosure, not mid-scrolled from the editor
+                        // body the user just left.
+                        LaunchedEffect(scrollResetKey) { bodyScroll.scrollTo(0) }
                         Column(
                             Modifier
                                 .weight(1f, fill = false)
-                                .verticalScroll(rememberScrollState())
+                                .verticalScroll(bodyScroll)
                                 .padding(vertical = 8.dp)
                                 .testTag("mi26_genre_editor_body"),
                             verticalArrangement = Arrangement.spacedBy(8.dp),

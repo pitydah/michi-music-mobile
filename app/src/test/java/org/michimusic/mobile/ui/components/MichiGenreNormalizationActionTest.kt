@@ -158,18 +158,22 @@ class MichiGenreNormalizationActionTest {
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
         compose.onNodeWithTag("mi23_preview_external_search").performScrollTo().clickInsideDialog()
 
-        // The confirmation is a nested modal window. Robolectric does not simulate
-        // window geometry or touch input for it, so these assertions prove the exact
-        // public fields are on screen without claiming measured visibility; physical
-        // visibility/hit-testing inside the nested dialog is device-only: NOT_RUN.
-        compose.onNodeWithText("¿Consultar MusicBrainz?").assertExists()
-        compose.onNodeWithText("Se enviarán únicamente estos campos públicos:").assertExists()
-        compose.onAllNodesWithText("recording: Song Title").assertCountEquals(2)
+        // K47-NORM-05: the confirmation is an inline stage of the same modal, so
+        // the exact public fields are measured on screen, not in a nested window.
+        compose.onNodeWithTag("mi26_network_consent").assertIsDisplayed()
+        compose.onNodeWithText("¿Consultar MusicBrainz?").assertIsDisplayed()
+        compose.onNodeWithText("Se enviarán únicamente estos campos públicos:").assertIsDisplayed()
+        // Only one copy: the editor body is replaced by the consent stage.
+        compose.onAllNodesWithText("recording: Song Title").assertCountEquals(1)
         compose.onNodeWithText(
             "MusicBrainz puede registrar la IP y los parámetros de búsqueda. " +
                 "No se enviarán otros datos.",
-        ).assertExists()
-        compose.onNodeWithText("Enviar esta vez").assertExists()
+        ).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Enviar esta vez").performScrollTo().assertIsDisplayed()
+        // Cancelling leaves no queued request and returns to the editor body.
+        compose.onNodeWithTag("mi26_network_consent_cancel").clickInsideDialog()
+        compose.onNodeWithTag("mi26_network_consent").assertDoesNotExist()
+        compose.onNodeWithText("Datos exactos de búsqueda:").performScrollTo().assertIsDisplayed()
     }
 
     @Test

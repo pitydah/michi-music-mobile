@@ -150,7 +150,11 @@ internal fun MichiGenreNormalizationEditor(
     // The editor is composed only while its container is open; the receipt keeps
     // every state local to this exact track.
     val showDialog = true
-    var previewNetwork by remember(trackReceipt) { mutableStateOf(false) }
+    // K47-NORM-05: at most one pending network consent, rendered as an inline
+    // stage of this same sheet. Never a second stacked dialog.
+    var networkConsent by remember(trackReceipt) {
+        mutableStateOf<GenreNetworkConsent?>(null)
+    }
     var showDraftPreview by remember(trackReceipt) { mutableStateOf(false) }
     var showEvidenceReason by remember(trackReceipt) { mutableStateOf(false) }
     var confirmWrite by remember(trackReceipt) { mutableStateOf(false) }
@@ -188,10 +192,6 @@ internal fun MichiGenreNormalizationEditor(
     var relaxedSearchOffered by remember(trackReceipt) { mutableStateOf(false) }
     var relaxedIntent by remember(trackReceipt) {
         mutableStateOf<MichiGenreNormalizationPolicy.SearchIntent?>(null)
-    }
-    var relaxedPreview by remember(trackReceipt) { mutableStateOf(false) }
-    var pendingRecordingLookup by remember(trackReceipt) {
-        mutableStateOf<MichiGenreNormalizationPolicy.RecordingCandidate?>(null)
     }
     var lookupRevision by remember(trackReceipt) { mutableStateOf(0L) }
     var lookupJob by remember(trackReceipt) { mutableStateOf<Job?>(null) }
@@ -239,7 +239,7 @@ internal fun MichiGenreNormalizationEditor(
         matches = emptyList()
         selectedRecording = null
         proposals = emptyList()
-        pendingRecordingLookup = null
+        networkConsent = null
         relaxedSearchOffered = false
         // A new query restarts the preview from the verified file tags.
         genrePreview = MichiGenrePreviewPolicy.of(embeddedGenres)
@@ -368,8 +368,7 @@ internal fun MichiGenreNormalizationEditor(
         lookupRevision++
         lookupJob?.cancel()
         lookupJob = null
-        pendingRecordingLookup = null
-        previewNetwork = false
+        networkConsent = null
         busy = false
         onClose()
     }
@@ -517,6 +516,7 @@ internal fun MichiGenreNormalizationEditor(
         trackArtist = track.artist,
         state = editorStatus.state,
         writesCertified = MI23_TAG_WRITES_CERTIFIED,
+        scrollResetKey = networkConsent,
         footerAction = {
             // K47-NORM-03: while WRITES_CERTIFIED is false there is no inert
             // save button at all. The preview is functional, it just never
@@ -556,6 +556,36 @@ internal fun MichiGenreNormalizationEditor(
             }
         },
         body = {
+            // K47-NORM-05: every HTTP request gets its own inline consent stage
+            // in this same modal. No nested dialog, no request on composition.
+            val consent = networkConsent
+            if (consent != null) {
+                GenreNetworkConsentPanel(
+                    consent = consent,
+                    busy = busy,
+                    onCancel = { networkConsent = null },
+                    onConfirm = {
+                        networkConsent = null
+                        when (consent) {
+                            is GenreNetworkConsent.StrictSearch ->
+                                intent?.let { dispatchSearch(it) }
+                            is GenreNetworkConsent.RelaxedSearch ->
+                                relaxedIntent?.let { relaxed ->
+                                    relaxedSearchOffered = false
+                                    dispatchSearch(relaxed)
+                                }
+                            is GenreNetworkConsent.RecordingGenres -> {
+                                val chosen = consent.candidate
+                                if (matches.any { it.recording == chosen }) {
+                                    dispatchRecordingLookup(chosen)
+                                } else {
+                                    message = "La grabación ya no pertenece a esta consulta."
+                                }
+                            }
+                        }
+                    },
+                )
+            } else {
                 when (val recovery = pendingRecovery) {
                     is MichiGenreTagWriteGateway.RecoveryStatus.Pending -> Text(
                         "Recuperación local pendiente (${recovery.phase}). No se podrá guardar otra etiqueta " +
@@ -624,7 +654,9 @@ internal fun MichiGenreNormalizationEditor(
                     Text("Datos exactos de búsqueda:")
                     intent.outgoingFields().forEach { (key,value) -> Text("$key: $value") }
                     TextButton(
-                        onClick = { previewNetwork=true }, enabled = !busy,
+                        onClick = {
+                            networkConsent = GenreNetworkConsent.StrictSearch(intent.outgoingFields())
+                        }, enabled = !busy,
                         modifier = Modifier.testTag("mi23_preview_external_search")) {
                         Text("Buscar géneros en MusicBrainz")
                     }
@@ -647,8 +679,11 @@ internal fun MichiGenreNormalizationEditor(
                     TextButton(
                         onClick = {
                             intent?.let { currentIntent ->
-                                relaxedIntent = MichiGenreNormalizationPolicy.relaxedSearch(currentIntent)
-                                relaxedPreview = relaxedIntent != null
+                                val relaxed = MichiGenreNormalizationPolicy.relaxedSearch(currentIntent)
+                                relaxedIntent = relaxed
+                                networkConsent = relaxed?.let {
+                                    GenreNetworkConsent.RelaxedSearch(it.outgoingFields())
+                                }
                             }
                         },
                         enabled = !busy && canLookupNow(),
@@ -660,7 +695,8 @@ internal fun MichiGenreNormalizationEditor(
                         enabled = !busy && canLookupNow(),
                         onClick = {
                             // Selection is NOT consent to a second HTTP request.
-                            pendingRecordingLookup = choice.recording
+                            networkConsent = GenreNetworkConsent.RecordingGenres(
+                                choice.recording, choice.plausible)
                         }, modifier=Modifier.fillMaxWidth().testTag("mi23_choose_recording")) {
                         Text("${choice.recording.title} · ${choice.recording.artist}" +
                             if(choice.plausible) " · Coincidencia revisable" else " · Identidad incierta")
@@ -765,82 +801,9 @@ internal fun MichiGenreNormalizationEditor(
                     }
                 } else Text("Escritura de etiquetas deshabilitada hasta certificar MediaStore/SAF y los formatos MP3/FLAC en Android. Esta vista solo previsualiza.")
                 message?.let { Text(it) }
+            }
         },
     )
-    if (previewNetwork && intent!=null) {
-        AlertDialog(
-            onDismissRequest={previewNetwork=false},
-            title={Text("¿Consultar MusicBrainz?")},
-            text={Column {Text("Se enviarán únicamente estos campos públicos:")
-                intent.outgoingFields().forEach{(k,v)->Text("$k: $v")}
-                Text("MusicBrainz puede registrar la IP y los parámetros de búsqueda. No se enviarán otros datos.")}},
-            confirmButton={ TextButton(onClick={
-                previewNetwork=false
-                dispatchSearch(intent)
-            }, modifier=Modifier.testTag("mi23_send_once")) {Text("Enviar esta vez")} },
-            dismissButton={TextButton(onClick={previewNetwork=false}){Text("Cancelar")}},
-        )
-    }
-    // MI-23 4.1: the relaxed search is a SEPARATE request without `release`.
-    // It is only reachable after a strict zero-match result and its own confirmation.
-    relaxedIntent?.let { relaxed ->
-        if (relaxedPreview) AlertDialog(
-            onDismissRequest = { relaxedPreview = false },
-            title = { Text("¿Buscar sin álbum?") },
-            text = {
-                Column {
-                    Text("Segunda consulta independiente. Se enviarán solo estos campos públicos:")
-                    relaxed.outgoingFields().forEach { (key, value) -> Text("$key: $value") }
-                    Text("No se enviará el álbum ni ningún otro dato. MusicBrainz puede " +
-                        "registrar la IP y los parámetros. No se modifica ningún archivo.")
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        relaxedPreview = false
-                        relaxedSearchOffered = false
-                        dispatchSearch(relaxed)
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.testTag("mi26_send_relaxed"),
-                ) { Text("Enviar sin álbum") }
-            },
-            dismissButton = {
-                TextButton(onClick = { relaxedPreview = false }) { Text("Cancelar") }
-            },
-        )
-    }
-    pendingRecordingLookup?.let { chosen ->
-        AlertDialog(
-            onDismissRequest = { pendingRecordingLookup = null },
-            title = { Text("¿Consultar los géneros de esta grabación?") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Se enviará a MusicBrainz este identificador exacto:")
-                    Text(chosen.mbid)
-                    Text("Grabación: ${chosen.title} · ${chosen.artist}")
-                    Text("Es una segunda solicitud de red, independiente de la búsqueda anterior. " +
-                        "No se enviarán archivos, rutas, historial ni preferencias locales.")
-                    if (matches.none { it.recording == chosen && it.plausible })
-                        Text("La coincidencia es incierta: revisa la grabación manualmente.")
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    modifier = Modifier.testTag("mi27_confirm_recording_lookup"),
-                    enabled = !busy,
-                    onClick = {
-                        pendingRecordingLookup = null
-                        dispatchRecordingLookup(chosen)
-                    },
-                ) { Text("Consultar esta grabación") }
-            },
-            dismissButton = { TextButton(onClick = { pendingRecordingLookup = null }) {
-                Text("Cancelar")
-            } },
-        )
-    }
     if (confirmWrite && MI23_TAG_WRITES_CERTIFIED && tagsVerified) {
         AlertDialog(
             onDismissRequest={confirmWrite=false},
