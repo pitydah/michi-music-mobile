@@ -51,6 +51,7 @@ class DefaultMusicLibraryRepository(
     private val locationDao: TrackLocationDao,
     private val membershipDao: LibraryMembershipDao,
     private val uriResolver: ((String) -> Boolean)? = null,
+    private val trackCommitListener: TrackCommitListener? = null,
 ) : MusicLibraryRepository {
 
     override fun observeLibraries(): Flow<List<MusicLibrary>> {
@@ -154,19 +155,33 @@ class DefaultMusicLibraryRepository(
         location: TrackLocation,
         libraryId: String,
         origin: String,
-    ): Result<Unit> = runCatching {
-        membershipDao.registerTrackWithLocationAtomic(
-            identityDao = identityDao,
-            locationDao = locationDao,
-            identity = identity.toEntity(),
-            location = location.toEntity(),
-            crossRef = LibraryTrackCrossRef(
-                libraryId = libraryId,
-                trackId = identity.id,
-                addedAt = System.currentTimeMillis(),
-                origin = origin,
-            ),
-        )
+    ): Result<Unit> {
+        val committed = runCatching {
+            membershipDao.registerTrackWithLocationAtomic(
+                identityDao = identityDao,
+                locationDao = locationDao,
+                identity = identity.toEntity(),
+                location = location.toEntity(),
+                crossRef = LibraryTrackCrossRef(
+                    libraryId = libraryId,
+                    trackId = identity.id,
+                    addedAt = System.currentTimeMillis(),
+                    origin = origin,
+                ),
+            )
+        }
+        // External photo discovery is never part of the library transaction.
+        // A scheduling error cannot turn a successful import into a false failure.
+        if (committed.isSuccess) {
+            try {
+                trackCommitListener?.onCommitted(libraryId, identity.artist)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Registered music remains registered even when WorkManager is unavailable.
+            }
+        }
+        return committed
     }
 
     private fun selectPreferredLocation(locations: List<TrackLocation>): PlayableLocation? {

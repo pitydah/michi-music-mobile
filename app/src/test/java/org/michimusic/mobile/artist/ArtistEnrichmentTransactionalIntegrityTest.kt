@@ -53,7 +53,9 @@ class ArtistEnrichmentTransactionalIntegrityTest {
             val database = open(name)
             val bothPassedTheUncommittedReadChecks = CyclicBarrier(2)
             val stores = listOf(mbidA, mbidB).map {
-                RoomArtistEnrichmentSelectionStore(database, barrierClock(bothPassedTheUncommittedReadChecks))
+                RoomArtistEnrichmentSelectionStore(
+                    database, clock = barrierClock(bothPassedTheUncommittedReadChecks),
+                )
             }
 
             val outcomes = listOf(mbidA, mbidB).zip(stores).map { (mbid, store) ->
@@ -81,7 +83,7 @@ class ArtistEnrichmentTransactionalIntegrityTest {
             val database = open(name)
             val barrier = CyclicBarrier(2)
             val outcomes = List(2) {
-                val store = RoomArtistEnrichmentSelectionStore(database, barrierClock(barrier))
+                val store = RoomArtistEnrichmentSelectionStore(database, clock = barrierClock(barrier))
                 async(Dispatchers.IO) {
                     runCatching { store.saveIdentity("lib-a", credit, albums, mbidA) }
                 }
@@ -314,7 +316,7 @@ class ArtistEnrichmentTransactionalIntegrityTest {
             var database = open(name)
             val barrier = CyclicBarrier(2)
             val outcomes = listOf(mbidA, mbidB).map { candidate ->
-                val store = RoomArtistEnrichmentSelectionStore(database, barrierClock(barrier))
+                val store = RoomArtistEnrichmentSelectionStore(database, clock = barrierClock(barrier))
                 async(Dispatchers.IO) {
                     runCatching { store.saveIdentity("lib-a", credit, albums, candidate) }
                 }

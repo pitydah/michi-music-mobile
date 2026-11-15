@@ -12,6 +12,7 @@ enum class ArtworkSource {
     COMMONS_P180,
     WIKIPEDIA_PAGEIMAGE,
     COMMONS_CATEGORY,
+    COMMONS_GALLERY,
     OPENVERSE,
     THEAUDIODB,
     FANART_TV,
@@ -191,9 +192,10 @@ private fun sourcePriority(source: ArtworkSource): Int = when (source) {
     ArtworkSource.COMMONS_P180 -> 1
     ArtworkSource.WIKIPEDIA_PAGEIMAGE -> 2
     ArtworkSource.COMMONS_CATEGORY -> 3
-    ArtworkSource.OPENVERSE -> 4
-    ArtworkSource.THEAUDIODB -> 5
-    ArtworkSource.FANART_TV -> 6
+    ArtworkSource.COMMONS_GALLERY -> 4
+    ArtworkSource.OPENVERSE -> 5
+    ArtworkSource.THEAUDIODB -> 6
+    ArtworkSource.FANART_TV -> 7
 }
 
 /** Lower is better; the slot only expresses a preference, never a licence exemption. */

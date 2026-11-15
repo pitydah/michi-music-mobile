@@ -46,6 +46,9 @@ data class RootScanSummary(
     val sourceId: String? = null,
 )
 
+/** Root write generation, distinct from sourceId. A->B->A is never the same epoch. */
+data class MusicRootStamp(val sourceId: String, val epoch: Long)
+
 class MusicRootPreferences(context: Context) {
     private val preferences = context.applicationContext
         .getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -65,39 +68,59 @@ class MusicRootPreferences(context: Context) {
         )
     }
 
+    /** Atomically capture the source and monotonic generation between root commits. */
+    fun currentRootStamp(): MusicRootStamp = synchronized(preferences) {
+        val root = currentRoot()
+        MusicRootStamp(if (root.isDefault) "device_music_root" else root.sourceId.orEmpty(),
+            preferences.getLong(KEY_ROOT_EPOCH, 0L))
+    }
+
+    /** An overflow stops mutation rather than recycling an authorization token. */
+    private fun nextEpoch(): Long {
+        val old = preferences.getLong(KEY_ROOT_EPOCH, 0L)
+        check(old < Long.MAX_VALUE) { "Root epoch exhausted" }
+        return old + 1L
+    }
+
     /** Atomic because a root switch changes which catalog is authoritative. */
     fun setCustomRoot(
         uri: Uri,
         displayName: String,
         sourceId: String = customRootSourceId(uri),
-    ): Boolean = preferences.edit()
-        .putString(KEY_TREE_URI, uri.toString())
-        .putString(KEY_TREE_NAME, normalizeTreeDisplayName(displayName))
-        .putString(KEY_TREE_SOURCE, sourceId)
-        .remove(LEGACY_INCLUDED_FOLDERS)
-        .commit()
+    ): Boolean = synchronized(preferences) {
+        preferences.edit()
+            .putString(KEY_TREE_URI, uri.toString())
+            .putString(KEY_TREE_NAME, normalizeTreeDisplayName(displayName))
+            .putString(KEY_TREE_SOURCE, sourceId)
+            .putLong(KEY_ROOT_EPOCH, nextEpoch())
+            .remove(LEGACY_INCLUDED_FOLDERS)
+            .commit()
+    }
 
     /** Restores Music/ and removes any previous custom-tree selection. */
-    fun restoreDefault(): Boolean = preferences.edit()
-        .remove(KEY_TREE_URI)
-        .remove(KEY_TREE_NAME)
-        .remove(KEY_TREE_SOURCE)
-        .remove(LEGACY_INCLUDED_FOLDERS)
-        .commit()
+    fun restoreDefault(): Boolean = synchronized(preferences) {
+        preferences.edit()
+            .remove(KEY_TREE_URI)
+            .remove(KEY_TREE_NAME)
+            .remove(KEY_TREE_SOURCE)
+            .putLong(KEY_ROOT_EPOCH, nextEpoch())
+            .remove(LEGACY_INCLUDED_FOLDERS)
+            .commit()
+    }
 
     fun clear(): Boolean = restoreDefault()
 
     /** Persists an already-confirmed root, used for rollback and migration. */
-    fun saveRoot(root: MusicRoot): Boolean = if (root.isDefault) {
-        restoreDefault()
-    } else {
-        val treeUri = root.treeUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
-            ?: return false
-        setCustomRoot(
-            uri = treeUri,
-            displayName = root.displayName,
-            sourceId = root.sourceId ?: customRootSourceId(treeUri),
-        )
+    fun saveRoot(root: MusicRoot): Boolean {
+        return if (root.isDefault) restoreDefault() else {
+            val treeUri = root.treeUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                ?: return false
+            setCustomRoot(
+                uri = treeUri,
+                displayName = root.displayName,
+                sourceId = root.sourceId ?: customRootSourceId(treeUri),
+            )
+        }
     }
 
     fun lastScan(): RootScanSummary? {
@@ -125,6 +148,7 @@ class MusicRootPreferences(context: Context) {
 
     private companion object {
         const val PREFERENCES_NAME = "michi_library"
+        const val KEY_ROOT_EPOCH = "root_generation_artist_artwork_v1"
         const val KEY_TREE_URI = "root_tree_uri_v2"
         const val KEY_TREE_NAME = "root_tree_name_v2"
         const val KEY_TREE_SOURCE = "root_tree_source_v3"

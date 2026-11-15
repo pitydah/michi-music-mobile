@@ -14,6 +14,8 @@ internal data class WikidataArtworkSnapshot(
     val depicts: List<String>,
     val eswikiTitle: String?,
     val enwikiTitle: String?,
+    val commonsCategories: List<String> = emptyList(),
+    val commonsGallery: String? = null,
 )
 
 /** One bounded Wikidata read per QID serves P18, P180 and the verified sitelink. */
@@ -50,6 +52,8 @@ internal class WikidataArtworkLookup(private val http: ArtworkHttp) {
             qid = qid,
             p18 = values("P18").filter(::validCommonsFileTitle).distinct().take(4),
             depicts = values("P180").filter(::validWikidataQid).distinct().take(4),
+            commonsCategories = values("P373").filter(::validCommonsCategoryName).distinct().take(1),
+            commonsGallery = values("P935").firstOrNull(::validCommonsGalleryName),
             eswikiTitle = title("eswiki")?.take(200),
             enwikiTitle = title("enwiki")?.take(200),
         )
@@ -60,3 +64,12 @@ internal class WikidataArtworkLookup(private val http: ArtworkHttp) {
 
 internal fun validCommonsFileTitle(value: String): Boolean =
     value.isNotBlank() && value.length <= 180 && '/' !in value && '\\' !in value
+
+/** Wikidata P373 is a category name, not an untrusted URL or a proof of depiction. */
+internal fun validCommonsCategoryName(value: String): Boolean {
+    val name = value.trim()
+    return name.isNotEmpty() && name.length <= 160 &&
+        !name.startsWith("Category:", ignoreCase = true) &&
+        !name.any { it.isISOControl() || it in "/\\|?#<>[]{}" } &&
+        ".." !in name
+}

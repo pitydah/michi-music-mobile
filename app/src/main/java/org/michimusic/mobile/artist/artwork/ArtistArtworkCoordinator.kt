@@ -32,7 +32,19 @@ class ArtistArtworkCoordinator internal constructor(
     )
 
     suspend fun resolve(anchor: ArtistIdentityAnchor, forceRefresh: Boolean = false): ArtworkResolutionReport =
-        withAnchorLock(anchor) { resolveLocked(anchor, forceRefresh) }
+        withAnchorLock(anchor) { resolveLocked(anchor, forceRefresh,
+            expectedAutoSource = null, expectedAutoEpoch = null, protectedSlots = emptySet()) }
+
+    /** Only WorkManager may request this path. A late download must pass Room again. */
+    suspend fun resolveAutomated(
+        anchor: ArtistIdentityAnchor,
+        expectedSourceId: String,
+        expectedRootEpoch: Long? = null,
+        protectedSlots: Set<ArtworkSlot> = emptySet(),
+    ): ArtworkResolutionReport = withAnchorLock(anchor) {
+        resolveLocked(anchor, forceRefresh = false, expectedAutoSource = expectedSourceId,
+            expectedAutoEpoch = expectedRootEpoch, protectedSlots = protectedSlots)
+    }
 
     private suspend fun <T> withAnchorLock(anchor: ArtistIdentityAnchor, block: suspend () -> T): T {
         val key = lockKey(anchor)
@@ -49,7 +61,10 @@ class ArtistArtworkCoordinator internal constructor(
         }
     }
 
-    private suspend fun resolveLocked(anchor: ArtistIdentityAnchor, forceRefresh: Boolean): ArtworkResolutionReport {
+    private suspend fun resolveLocked(
+        anchor: ArtistIdentityAnchor, forceRefresh: Boolean, expectedAutoSource: String?,
+        expectedAutoEpoch: Long?, protectedSlots: Set<ArtworkSlot>,
+    ): ArtworkResolutionReport {
         ArtistEnrichmentDiagnostics.event("AE_RECOVERY_STARTED")
         val existingList = runCatching { store.load(anchor) }.getOrElse { error ->
             return reportFailure(anchor, ArtworkLoadStatus.CACHE_ERROR,
@@ -71,7 +86,11 @@ class ArtistArtworkCoordinator internal constructor(
         val existing = verified
             .filter { it.status == ArtworkLoadStatus.READY }
             .associateBy { it.slot }
-        val manualSlots = existing.filterValues { it.manuallyChosen }.keys
+        // A manually chosen image is owned by the user even when its bytes are corrupt.
+        // Do not replace it silently during either automatic recovery or force refresh.
+        val manualSlots = verified.asSequence()
+            .filter { it.manuallyChosen }
+            .map { it.slot }.toSet() + protectedSlots
         val needThumb = ArtworkSlot.ARTIST_THUMB !in manualSlots &&
             (ArtworkSlot.ARTIST_THUMB !in existing || forceRefresh)
         val needHero = ArtworkSlot.ARTIST_HERO !in manualSlots &&
@@ -82,40 +101,7 @@ class ArtistArtworkCoordinator internal constructor(
         }
 
         val outcomes = mutableListOf<ArtworkProviderOutcome>()
-        val candidates = mutableListOf<ArtistArtworkCandidate>()
-        for (provider in automaticProviders) {
-            if (provider is DisabledArtworkProvider) {
-                outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.DISABLED, "Proveedor desactivado")
-                continue
-            }
-            val result = try {
-                provider.findCandidates(anchor, ArtworkSlot.ARTIST_THUMB)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                failure(error)
-            }
-            when (result) {
-                is ProviderArtworkResult.Available -> {
-                    val valid = result.items.filter { allowedArtworkCandidate(it, anchor) }
-                    candidates += valid
-                    outcomes += ArtworkProviderOutcome(
-                        provider.source,
-                        if (valid.isEmpty()) ArtworkProviderStatus.NO_MATCH else ArtworkProviderStatus.AVAILABLE,
-                        if (valid.isEmpty()) "Sin candidato que cumpla identidad y licencia" else null,
-                        valid.size,
-                    )
-                }
-                is ProviderArtworkResult.NoMatch ->
-                    outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.NO_MATCH, "Sin coincidencias")
-                is ProviderArtworkResult.Failure ->
-                    outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.FAILURE, result.type, 0)
-                is ProviderArtworkResult.Disabled ->
-                    outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.DISABLED, result.reason)
-            }
-        }
-
-        val distinct = candidates.distinctBy { it.stableAssetId }
+        val distinct = LinkedHashMap<String, ArtistArtworkCandidate>()
         val downloads = mutableMapOf<String, Result<DownloadedArtwork>>()
         suspend fun download(candidate: ArtistArtworkCandidate): Result<DownloadedArtwork> {
             downloads[candidate.stableAssetId]?.let { return it }
@@ -132,6 +118,11 @@ class ArtistArtworkCoordinator internal constructor(
 
         val saved = existing.toMutableMap()
         var cacheError: String? = null
+        val attemptedBySlot = mutableMapOf<ArtworkSlot, MutableSet<String>>()
+        // A new provider gets an independent 3-attempt budget, but every slot
+        // retains one finite global cap to avoid unbounded downloads.
+        val attemptedInStageBySlot = mutableMapOf<ArtworkSlot, MutableSet<String>>()
+        val refreshedSlots = mutableSetOf<ArtworkSlot>()
 
         /**
          * Downloads the best candidate that actually yields usable bytes. A provider is
@@ -142,16 +133,29 @@ class ArtistArtworkCoordinator internal constructor(
             slot: ArtworkSlot,
             focus: ArtworkFocus,
             comparator: Comparator<ArtistArtworkCandidate>,
+            stageAssetIds: Set<String>,
         ): Boolean {
             var lastError: String? = null
-            for (candidate in distinct.sortedWith(comparator)) {
+            val attempted = attemptedBySlot.getOrPut(slot) { mutableSetOf() }
+            val inStage = attemptedInStageBySlot.getOrPut(slot) { mutableSetOf() }
+            for (candidate in distinct.values.filter { it.stableAssetId in stageAssetIds }
+                .sortedWith(comparator)) {
+                if (!ArtistArtworkStagePolicy.canTryAcrossStages(attempted, inStage,
+                        candidate.stableAssetId)) continue
+                attempted += candidate.stableAssetId
+                inStage += candidate.stableAssetId
                 val downloaded = download(candidate)
                 if (downloaded.isFailure) {
                     lastError = downloaded.exceptionOrNull()?.message ?: lastError
                     continue
                 }
                 val stored = try {
-                    store.save(anchor, candidate, slot, downloaded.getOrThrow(), focus, manuallyChosen = false)
+                    if (expectedAutoSource == null) {
+                        store.save(anchor, candidate, slot, downloaded.getOrThrow(), focus, manuallyChosen = false)
+                    } else {
+                        store.saveAutomated(anchor, candidate, slot, downloaded.getOrThrow(), focus,
+                            expectedAutoSource, expectedAutoEpoch)
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -159,25 +163,78 @@ class ArtistArtworkCoordinator internal constructor(
                     continue
                 }
                 saved[slot] = stored
+                refreshedSlots += slot
                 return true
             }
             if (lastError != null) cacheError = cacheError ?: lastError
             return false
         }
 
-        if (needThumb) {
-            saveBestCandidate(
-                ArtworkSlot.ARTIST_THUMB,
-                ArtworkFocus(0.5f, 0.5f),
-                artworkRankingComparator(ArtworkSlot.ARTIST_THUMB),
-            )
+        // K39: resolve a provider and persist its verified artwork BEFORE consulting
+        // the next one. P18 may fill both slots with a single download. P180,
+        // Wikipedia, P373 and P935 are paid only for slots still missing.
+        fun needs(slot: ArtworkSlot): Boolean {
+            val requested = if (slot == ArtworkSlot.ARTIST_THUMB) needThumb else needHero
+            if (!requested || slot in refreshedSlots) return false
+            // In force-refresh mode, an old READY is not proof that a new candidate
+            // was saved during THIS resolution; keep the old bytes as fallback.
+            return forceRefresh || saved[slot]?.status != ArtworkLoadStatus.READY
         }
-        if (needHero) {
-            saveBestCandidate(
-                ArtworkSlot.ARTIST_HERO,
-                ArtworkFocus(0.5f, 0.45f),
-                heroComparator,
-            )
+        // An extra P180 search page is paid only when the first did not fill the
+        // slots. Keep it before Wikipedia/P373/P935 and behind the same QID gate.
+        val primary = automaticProviders.filterNot { it is DisabledArtworkProvider }
+        val stages = primary.flatMap { provider ->
+            if (provider.source == ArtworkSource.COMMONS_P180) listOf(
+                provider, CommonsP180ContinuationProvider(http, commons),
+            ) else listOf(provider)
+        } + listOf(
+            CommonsCategoryArtworkProvider(http, wikidata, commons),
+            CommonsGalleryArtworkProvider(http, wikidata, commons),
+        )
+        ArtistArtworkStagePolicy.visitUntilComplete(
+            stages,
+            hasMissing = { needs(ArtworkSlot.ARTIST_THUMB) || needs(ArtworkSlot.ARTIST_HERO) },
+        ) { provider ->
+            val result = try {
+                provider.findCandidates(anchor, ArtworkSlot.ARTIST_THUMB)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                failure(error)
+            }
+            when (result) {
+                is ProviderArtworkResult.Available -> {
+                    attemptedInStageBySlot.clear()
+                    val valid = result.items.filter { allowedArtworkCandidate(it, anchor) }
+                    // Canonical Commons ID is the deduplication authority across
+                    // P18/P180/Wikipedia/P373/P935; a repeated URL is not new work.
+                    valid.forEach { distinct.putIfAbsent(it.stableAssetId, it) }
+                    val stageAssetIds = valid.mapTo(mutableSetOf()) { it.stableAssetId }
+                    outcomes += ArtworkProviderOutcome(provider.source,
+                        if (valid.isEmpty()) ArtworkProviderStatus.NO_MATCH else ArtworkProviderStatus.AVAILABLE,
+                        if (valid.isEmpty()) "Sin candidato con identidad y licencia verificadas" else null,
+                        valid.size)
+                    if (needs(ArtworkSlot.ARTIST_THUMB)) {
+                        saveBestCandidate(ArtworkSlot.ARTIST_THUMB, ArtworkFocus(0.5f, 0.5f),
+                            artworkRankingComparator(ArtworkSlot.ARTIST_THUMB), stageAssetIds)
+                    }
+                    if (needs(ArtworkSlot.ARTIST_HERO)) {
+                        saveBestCandidate(ArtworkSlot.ARTIST_HERO, ArtworkFocus(0.5f, 0.45f),
+                            heroComparator, stageAssetIds)
+                    }
+                }
+                is ProviderArtworkResult.NoMatch -> outcomes += ArtworkProviderOutcome(
+                    provider.source, ArtworkProviderStatus.NO_MATCH, "Sin coincidencias")
+                is ProviderArtworkResult.Failure -> outcomes += ArtworkProviderOutcome(
+                    provider.source, ArtworkProviderStatus.FAILURE, result.type, 0)
+                is ProviderArtworkResult.Disabled -> outcomes += ArtworkProviderOutcome(
+                    provider.source, ArtworkProviderStatus.DISABLED, result.reason)
+            }
+        }
+        // Retain the product policy in the report, without making any HTTP calls.
+        automaticProviders.filterIsInstance<DisabledArtworkProvider>().forEach { provider ->
+            outcomes += ArtworkProviderOutcome(provider.source, ArtworkProviderStatus.DISABLED,
+                "Proveedor desactivado")
         }
         if (needThumb || needHero) {
             runCatching { store.pruneCache() }
@@ -201,7 +258,8 @@ class ArtistArtworkCoordinator internal constructor(
             outcomes = outcomes,
             selectedAssets = ArtworkSlot.entries.associateWith { saved[it]?.assetId },
             selections = saved,
-            message = cacheError ?: outcomes.firstOrNull { it.status == ArtworkProviderStatus.FAILURE }?.reason,
+            message = if (status == ArtworkLoadStatus.READY) null
+                else cacheError ?: outcomes.firstOrNull { it.status == ArtworkProviderStatus.FAILURE }?.reason,
         )
     }
 
@@ -248,10 +306,10 @@ class ArtistArtworkCoordinator internal constructor(
             )
             val selections = store.load(anchor).associateBy { it.slot }
             return@withAnchorLock ArtworkResolutionReport(
-                status = if (selections.values.any { it.status == ArtworkLoadStatus.READY }) {
-                    ArtworkLoadStatus.READY
-                } else {
-                    ArtworkLoadStatus.PARTIAL
+                status = when (selections.values.count { it.status == ArtworkLoadStatus.READY }) {
+                    2 -> ArtworkLoadStatus.READY
+                    1 -> ArtworkLoadStatus.PARTIAL
+                    else -> ArtworkLoadStatus.CACHE_ERROR
                 },
                 outcomes = listOf(ArtworkProviderOutcome(ArtworkSource.OPENVERSE,
                     ArtworkProviderStatus.AVAILABLE, "USER_SELECTED", 1)),

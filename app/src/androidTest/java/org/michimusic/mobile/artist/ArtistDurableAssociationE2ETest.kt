@@ -77,6 +77,7 @@ class ArtistDurableAssociationE2ETest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                 ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
                 ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+                ArtistEnrichmentCacheDatabase.MIGRATION_10_11,
             )
             .build()
         store = RoomArtistEnrichmentSelectionStore(database) { 100L }

@@ -268,6 +268,14 @@ interface ArtistEnrichmentDao {
         creditKey: String,
     ): List<DurableArtistAssociationRecord>
 
+    /** Guard for automatic photos: a durable identity with no album ownership is insufficient. */
+    @Query("SELECT COUNT(*) FROM artist_album_credit_binding WHERE libraryId = :libraryId AND creditKey = :creditKey AND associationId = :associationId")
+    suspend fun countConfirmedBindingsForAssociation(
+        libraryId: String,
+        creditKey: String,
+        associationId: String,
+    ): Int
+
     @Upsert
     suspend fun putDurableAssociation(record: DurableArtistAssociationRecord)
 
@@ -361,6 +369,66 @@ interface ArtistEnrichmentDao {
         clearTrackEvidence(libraryId, trackId)
         insertTrackEvidence(rows)
     }
+
+    /** Delete only AUTO role evidence. Explicit user-supplied rows are immutable here. */
+    @Query("""DELETE FROM artist_track_evidence WHERE libraryId = :libraryId
+        AND trackId IN (:trackIds)
+        AND field IN ('AUTO_ARTIST_MBID', 'AUTO_ALBUM_ARTIST_MBID', 'AUTO_RECORDING_MBID', 'AUTO_RELEASE_MBID')""")
+    suspend fun clearObservedArtistMbidsForTracks(libraryId: String, trackIds: List<String>): Int
+
+    /** Read a whole bounded page in one query to avoid N queries or redundant writes. */
+    @Query("""SELECT * FROM artist_track_evidence WHERE libraryId = :libraryId
+        AND trackId IN (:trackIds) AND field IN ('AUTO_ARTIST_MBID', 'AUTO_ALBUM_ARTIST_MBID', 'AUTO_RECORDING_MBID', 'AUTO_RELEASE_MBID')""")
+    suspend fun observedArtistMbidsForTracks(
+        libraryId: String, trackIds: List<String>,
+    ): List<ArtistTrackEvidenceRecord>
+
+    /**
+     * Atomic, idempotent replacement of AUTO evidence only. When metadata is unchanged,
+     * preserve rows and timestamps instead of DELETE+INSERT on every library refresh.
+     * Ignore observation time when comparing semantics; compare source to avoid cross-root reuse.
+     */
+    @Transaction
+    suspend fun replaceObservedArtistMbidsForBatch(
+        libraryId: String, trackIds: List<String>, rows: List<ArtistTrackEvidenceRecord>,
+    ): Boolean {
+        require(libraryId.isNotBlank() && trackIds.isNotEmpty() && trackIds.size <= 64 &&
+            trackIds.distinct().size == trackIds.size)
+        val authorized = trackIds.toSet()
+        require(rows.all { row ->
+            row.libraryId == libraryId && row.trackId in authorized &&
+                row.field in setOf("AUTO_ARTIST_MBID", "AUTO_ALBUM_ARTIST_MBID",
+                    "AUTO_RECORDING_MBID", "AUTO_RELEASE_MBID") &&
+                row.ordinal in 0..7 && row.source.startsWith("EXISTING_TAG_READ:")
+        })
+        fun key(row: ArtistTrackEvidenceRecord) = listOf(
+            row.trackId, row.field, row.ordinal.toString(), row.value, row.source,
+        )
+        val proposed = rows.map(::key).toSet()
+        require(proposed.size == rows.size) { "Repeated MBID evidence key in one batch" }
+        if (observedArtistMbidsForTracks(libraryId, trackIds).map(::key).toSet() == proposed) {
+            return false
+        }
+        clearObservedArtistMbidsForTracks(libraryId, trackIds)
+        if (rows.isNotEmpty()) insertTrackEvidence(rows)
+        return true
+    }
+
+    /** The receipt is not an identity, an association, or permission for automatic artwork. */
+    @Upsert
+    suspend fun putCreditReviewReceipt(receipt: ArtistCreditReviewReceiptRecord)
+
+    @Query("""SELECT * FROM artist_credit_review_receipt
+        WHERE libraryId = :libraryId AND sourceId = :sourceId AND creditKey = :creditKey
+          AND albumKey = :albumKey AND trackId = :trackId LIMIT 1""")
+    suspend fun getCreditReviewReceipt(
+        libraryId: String, sourceId: String, creditKey: String,
+        albumKey: String, trackId: String,
+    ): ArtistCreditReviewReceiptRecord?
+
+    @Query("""DELETE FROM artist_credit_review_receipt
+        WHERE libraryId = :libraryId AND verifiedAtMs < :cutoff""")
+    suspend fun pruneExpiredCreditReviewReceipts(libraryId: String, cutoff: Long): Int
 
     @Query("SELECT COUNT(*) FROM artist_enrichment WHERE libraryId = :libraryId")
     suspend fun countForLibrary(libraryId: String): Int
@@ -461,6 +529,105 @@ interface ArtistEnrichmentDao {
     @Query("SELECT COUNT(*) FROM artist_artwork_asset")
     suspend fun countArtworkAssets(): Int
 
+    /** Durable, exact evidence that survives provider latency. Never match by credit alone. */
+    @Query("""SELECT COUNT(*) FROM artist_artwork_auto_outbox o
+        INNER JOIN artist_album_credit_binding b ON b.libraryId = o.libraryId
+            AND b.albumKey = o.albumKey AND b.creditKey = o.creditKey
+            AND b.associationId = o.associationId
+        WHERE o.libraryId = :libraryId AND o.creditKey = :creditKey
+          AND o.associationId = :associationId AND o.sourceId = :expectedSource
+          AND o.state = 'PENDING' AND o.updatedAtMs <= :nowMs""")
+    suspend fun countAuthorizedAutoArtworkEvents(
+        libraryId: String, creditKey: String, associationId: String,
+        expectedSource: String, nowMs: Long,
+    ): Int
+
+    /** Protect manual slots even if the old selection carries a different MBID. */
+    @Query("""SELECT COUNT(*) FROM artist_artwork_selection
+        WHERE libraryId = :libraryId AND creditKey = :creditKey
+          AND albumGroupKey = :associationId AND slot = :slot AND manuallyChosen = 1""")
+    suspend fun countManualArtworkForSlot(
+        libraryId: String, creditKey: String, associationId: String, slot: String,
+    ): Int
+
+    /** Under the final artwork write transaction, source-specific proof is mandatory. */
+    @Query("""SELECT COUNT(*) FROM artist_artwork_auto_outbox o
+        INNER JOIN artist_artwork_source_binding_proof p
+          ON p.libraryId = o.libraryId AND p.sourceId = o.sourceId
+          AND p.albumKey = o.albumKey AND p.creditKey = o.creditKey
+          AND p.associationId = o.associationId
+        INNER JOIN artist_album_credit_binding b
+          ON b.libraryId = p.libraryId AND b.albumKey = p.albumKey
+          AND b.creditKey = p.creditKey AND b.associationId = p.associationId
+          AND b.confirmedAtMs = p.confirmedAtMs
+        WHERE o.libraryId = :libraryId AND o.sourceId = :sourceId
+          AND o.creditKey = :creditKey AND o.associationId = :associationId
+          AND o.state = 'PENDING' AND o.updatedAtMs <= :nowMs""")
+    suspend fun countProvenAutomatedArtworkEvents(
+        libraryId: String, sourceId: String, creditKey: String,
+        associationId: String, nowMs: Long,
+    ): Int
+
+    /**
+     * Last-write-wins is NOT acceptable here: a manual choice, identity replacement
+     * or binding removal during HTTP invalidates the automatic write. All checks and
+     * the asset/link/selection commit share the same Room transaction.
+     * A manually initiated save continues to use persistArtwork(), unchanged.
+     */
+    @Transaction
+    suspend fun persistArtworkAutomated(
+        asset: ArtistArtworkAssetRecord,
+        link: ArtistArtworkLinkRecord,
+        selection: ArtistArtworkSelectionRecord,
+        expectedSource: String,
+    ): Long? {
+        if (expectedSource.isBlank() || selection.manuallyChosen ||
+            asset.confirmedMbid != selection.confirmedMbid ||
+            link.confirmedMbid != selection.confirmedMbid ||
+            link.assetId != selection.assetId || asset.assetId != selection.assetId ||
+            link.verifiedQid != asset.verifiedQid
+        ) return null
+        val association = getDurableAssociation(
+            selection.libraryId, selection.creditKey, selection.albumGroupKey,
+        ) ?: return null
+        val identity = get(
+            selection.libraryId, selection.creditKey, association.identityAssociationId,
+        ) ?: return null
+        if (identity.confirmedMbid != selection.confirmedMbid ||
+            identity.source == "musicbrainz-manual-selection-pending") return null
+        val identityQid = runCatching {
+            org.json.JSONObject(identity.profileJson).optString("wikidataQid")
+        }.getOrNull()
+        if (identityQid.isNullOrBlank() || identityQid != asset.verifiedQid) return null
+        if (countAuthorizedAutoArtworkEvents(
+                selection.libraryId, selection.creditKey, association.associationId,
+                expectedSource, System.currentTimeMillis(),
+            ) < 1) return null
+        // A root-specific receipt must match the CURRENT binding confirmation.
+        // Catalog membership alone never authorizes an old artist binding.
+        val authorizedProofs = countProvenAutomatedArtworkEvents(
+            selection.libraryId, expectedSource, selection.creditKey,
+            association.associationId, System.currentTimeMillis(),
+        )
+        if (authorizedProofs < 1) return null
+        // This covers an interactive choice made WHILE a candidate was downloading.
+        val existing = getArtworkSelections(
+            selection.libraryId, selection.creditKey,
+            selection.albumGroupKey, selection.confirmedMbid,
+        ).firstOrNull { it.slot == selection.slot }
+        if (existing?.manuallyChosen == true || countManualArtworkForSlot(
+                selection.libraryId, selection.creditKey, selection.albumGroupKey, selection.slot,
+            ) > 0) return null
+        putArtworkAsset(asset)
+        deleteOtherArtworkLinks(
+            link.libraryId, link.creditKey, link.albumGroupKey, link.slot, link.confirmedMbid,
+        )
+        putArtworkLink(link)
+        val revision = bumpArtworkRevisionAndReturn(selection.libraryId, selection.updatedAtMs)
+        putArtworkSelection(selection.copy(revision = revision))
+        return revision
+    }
+
     @Transaction
     suspend fun persistArtwork(
         asset: ArtistArtworkAssetRecord,
@@ -552,12 +719,19 @@ interface ArtistEnrichmentDao {
         ArtistArtworkSelectionRecord::class,
         ArtistArtworkLinkRecord::class,
         ArtistArtworkRevisionRecord::class,
+        ArtistArtworkCatalogBaselineRecord::class,
+        ArtistArtworkCatalogTrackRecord::class,
+        ArtistArtworkAutoOutboxRecord::class,
+        ArtistArtworkSourceCatalogCreditRecord::class,
+        ArtistArtworkSourceBindingProofRecord::class,
+        ArtistCreditReviewReceiptRecord::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
     abstract fun artistEnrichmentDao(): ArtistEnrichmentDao
+    abstract fun artistArtworkCatalogJournalDao(): ArtistArtworkCatalogJournalDao
 
     companion object {
         /** Migrates old R16.4 optional enrichment data in place. No destructive fallback. */
@@ -896,6 +1070,80 @@ abstract class ArtistEnrichmentCacheDatabase : RoomDatabase() {
                     "AND other.source='MIGRATION_V8' " +
                     "AND other.associationId!=artist_membership_evidence.associationId)",
             )
+        }
+
+        /** Isolated catalog and outbox; no changes to artist identities or playback. */
+        val MIGRATION_10_11 = Migration(10, 11) { db ->
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_catalog_baseline` (
+                    `libraryId` TEXT NOT NULL, `sourceId` TEXT NOT NULL,
+                    `snapshotDigest` TEXT NOT NULL, `updatedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_catalog_track` (
+                    `libraryId` TEXT NOT NULL, `trackHash` TEXT NOT NULL,
+                    PRIMARY KEY(`libraryId`, `trackHash`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_auto_outbox` (
+                    `libraryId` TEXT NOT NULL, `creditKey` TEXT NOT NULL,
+                    `associationId` TEXT NOT NULL, `albumKey` TEXT NOT NULL,
+                    `sourceId` TEXT NOT NULL, `state` TEXT NOT NULL,
+                    `updatedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `creditKey`, `associationId`, `albumKey`, `sourceId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_artwork_auto_outbox_libraryId_creditKey_associationId_state`
+                ON `artist_artwork_auto_outbox` (`libraryId`, `creditKey`, `associationId`, `state`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_artwork_auto_outbox_state_updatedAtMs`
+                ON `artist_artwork_auto_outbox` (`state`, `updatedAtMs`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_artwork_auto_outbox_libraryId_sourceId_state`
+                ON `artist_artwork_auto_outbox` (`libraryId`, `sourceId`, `state`)
+            """.trimIndent())
+            // Exact root observations and explicit binding provenance are distinct.
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_source_catalog_credit` (
+                    `libraryId` TEXT NOT NULL, `sourceId` TEXT NOT NULL,
+                    `albumKey` TEXT NOT NULL, `creditKey` TEXT NOT NULL,
+                    `observedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `sourceId`, `albumKey`, `creditKey`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_artwork_source_catalog_credit_libraryId_albumKey_creditKey`
+                ON `artist_artwork_source_catalog_credit` (`libraryId`, `albumKey`, `creditKey`)
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_artwork_source_binding_proof` (
+                    `libraryId` TEXT NOT NULL, `sourceId` TEXT NOT NULL,
+                    `albumKey` TEXT NOT NULL, `creditKey` TEXT NOT NULL,
+                    `associationId` TEXT NOT NULL, `confirmedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `sourceId`, `albumKey`, `creditKey`, `associationId`)
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE INDEX IF NOT EXISTS `index_artist_artwork_source_binding_proof_libraryId_creditKey_associationId_sourceId`
+                ON `artist_artwork_source_binding_proof` (`libraryId`, `creditKey`, `associationId`, `sourceId`)
+            """.trimIndent())
+            // New in K26 before initial v11 deployment; no destructive migration.
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS `artist_credit_review_receipt` (
+                    `libraryId` TEXT NOT NULL, `sourceId` TEXT NOT NULL,
+                    `creditKey` TEXT NOT NULL, `albumKey` TEXT NOT NULL,
+                    `trackId` TEXT NOT NULL, `artistMbid` TEXT NOT NULL,
+                    `recordingMbid` TEXT NOT NULL, `releaseMbid` TEXT NOT NULL,
+                    `role` TEXT NOT NULL, `verifiedAtMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`libraryId`, `sourceId`, `creditKey`, `albumKey`, `trackId`)
+                )
+            """.trimIndent())
         }
 
         private fun membershipFingerprint(albumKeys: Collection<String>): String {

@@ -213,6 +213,10 @@ internal object SeekableEmbeddedTags {
             discNumber = primary.discNumber ?: fallback.discNumber,
             discTotal = primary.discTotal ?: fallback.discTotal,
             date = primary.date ?: fallback.date,
+            musicBrainzArtistIds = (primary.musicBrainzArtistIds + fallback.musicBrainzArtistIds).distinct().take(8),
+            musicBrainzAlbumArtistIds = (primary.musicBrainzAlbumArtistIds + fallback.musicBrainzAlbumArtistIds).distinct().take(8),
+            musicBrainzRecordingIds = (primary.musicBrainzRecordingIds + fallback.musicBrainzRecordingIds).distinct().take(8),
+            musicBrainzReleaseIds = (primary.musicBrainzReleaseIds + fallback.musicBrainzReleaseIds).distinct().take(8),
         )
     }
 
@@ -289,6 +293,35 @@ internal object SeekableEmbeddedTags {
         )
         var visited = 0
         fun dataItem(item: Box) {
+            if (item.type == "----") {
+                var p = item.content
+                var mean: String? = null
+                var name: String? = null
+                val values = mutableListOf<String>()
+                while (p + 8 <= item.end && visited++ < MAX_MP4_BOXES) {
+                    val child = box(channel, p, item.end) ?: break
+                    val skip = if (child.type == "data") 8 else 4
+                    val length = child.end - child.content - skip
+                    if (length in 1L..2048L) {
+                        val raw = readAt(channel, child.content + skip, length.toInt())
+                            ?.toString(StandardCharsets.UTF_8).orEmpty()
+                        when (child.type) {
+                            "mean" -> mean = raw
+                            "name" -> name = raw
+                            "data" -> if (raw.isNotBlank() && '\uFFFD' !in raw) values.add(raw)
+                        }
+                    }
+                    p = child.end
+                }
+                val field = MusicBrainzTagIdPolicy.canonicalKey(name.orEmpty())
+                if (mean == "com.apple.iTunes" && field in setOf(
+                        "MUSICBRAINZARTISTID", "MUSICBRAINZALBUMARTISTID",
+                        "MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID",
+                        "MUSICBRAINZALBUMID", "MUSICBRAINZRELEASEID")) {
+                    tags.getOrPut(field) { mutableListOf() }.addAll(values)
+                }
+                return
+            }
             var p = item.content
             while (p + 8 <= item.end && visited++ < MAX_MP4_BOXES) {
                 val child = box(channel, p, item.end) ?: return

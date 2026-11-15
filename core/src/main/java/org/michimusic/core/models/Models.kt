@@ -51,6 +51,13 @@ data class Track(
      * Empty means the legacy [genre] representation is all that is available.
      */
     @Transient val genreValues: List<String> = emptyList(),
+    /** Only from an existing authorized metadata read; never serialized or treated as verified. */
+    @Transient val observedArtistMbids: List<String> = emptyList(),
+    @Transient val observedAlbumArtistMbids: List<String> = emptyList(),
+    @Transient val observedRecordingMbids: List<String> = emptyList(),
+    @Transient val observedReleaseMbids: List<String> = emptyList(),
+    /** True only for a successfully parsed existing tag read; a cache hit is not fresh evidence. */
+    @Transient val observedTagsParsed: Boolean = false,
 ) {
     /**
      * Normalized metadata signature fallback: "title|artist|album|duration_secs".

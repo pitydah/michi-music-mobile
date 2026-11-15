@@ -59,6 +59,7 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 @Composable
 internal fun SettingsLibraryPanel() {
     val context = LocalContext.current
+    ArtistArtworkAutoSettings()
     val scope = rememberCoroutineScope()
                         val musicRootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
                         val currentRoot by musicRootAuthority.currentRoot.collectAsStateWithLifecycle()

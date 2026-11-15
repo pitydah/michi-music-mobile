@@ -27,6 +27,20 @@ interface ArtistArtworkStore {
         focus: ArtworkFocus,
         manuallyChosen: Boolean,
     ): ArtistArtworkSelection
+
+    /** Explicit auto-only entry point. Test/fake stores must opt into it, never silently fallback. */
+    suspend fun saveAutomated(
+        anchor: ArtistIdentityAnchor,
+        candidate: ArtistArtworkCandidate,
+        slot: ArtworkSlot,
+        downloaded: DownloadedArtwork,
+        focus: ArtworkFocus,
+        expectedSourceId: String,
+        expectedRootEpoch: Long? = null,
+    ): ArtistArtworkSelection = throw kotlinx.coroutines.CancellationException(
+        "El almacén no admite escritura automática verificada",
+    )
+
     suspend fun updateFocus(anchor: ArtistIdentityAnchor, slot: ArtworkSlot, focus: ArtworkFocus): Boolean
     suspend fun clear(anchor: ArtistIdentityAnchor)
     suspend fun counts(): Pair<Int, Int>
@@ -82,6 +96,33 @@ class RoomArtistArtworkStore(
         downloaded: DownloadedArtwork,
         focus: ArtworkFocus,
         manuallyChosen: Boolean,
+    ): ArtistArtworkSelection = persistSelection(
+        anchor, candidate, slot, downloaded, focus, manuallyChosen,
+        expectedSourceId = null, expectedRootEpoch = null,
+    )
+
+    override suspend fun saveAutomated(
+        anchor: ArtistIdentityAnchor,
+        candidate: ArtistArtworkCandidate,
+        slot: ArtworkSlot,
+        downloaded: DownloadedArtwork,
+        focus: ArtworkFocus,
+        expectedSourceId: String,
+        expectedRootEpoch: Long?,
+    ): ArtistArtworkSelection = persistSelection(
+        anchor, candidate, slot, downloaded, focus, manuallyChosen = false,
+        expectedSourceId = expectedSourceId, expectedRootEpoch = expectedRootEpoch,
+    )
+
+    private suspend fun persistSelection(
+        anchor: ArtistIdentityAnchor,
+        candidate: ArtistArtworkCandidate,
+        slot: ArtworkSlot,
+        downloaded: DownloadedArtwork,
+        focus: ArtworkFocus,
+        manuallyChosen: Boolean,
+        expectedSourceId: String?,
+        expectedRootEpoch: Long?,
     ): ArtistArtworkSelection {
         val hash = downloaded.sha256.lowercase()
         require(hash.matches(Regex("^[0-9a-f]{64}$"))) { "SHA-256 de artwork no válido" }
@@ -136,7 +177,26 @@ class RoomArtistArtworkStore(
             evidence = candidate.evidence.name,
             linkedAtMs = now,
         )
-        val persistedRevision = dao.persistArtwork(asset, link, selection)
+        val persistedRevision = if (expectedSourceId == null) {
+            dao.persistArtwork(asset, link, selection)
+        } else {
+            // Preferences and root are external to Room: check immediately BEFORE its
+            // transactional identity/binding/manual-selection guard. No remote I/O here.
+            // The preference opt-out and this write share a process-local mutex;
+            // a completed opt-out must not race a late Room publication. Provider
+            // networking is outside the mutex, and Room still verifies identity.
+            ArtistArtworkWriteGate.guarding {
+                val activeStamp = org.michimusic.data.repository.MusicRootPreferences(context)
+                    .currentRootStamp()
+                if (!ArtistArtworkAutoScheduler.isEnabled(context) ||
+                    ArtistArtworkAutoScheduler.isPaused(context) ||
+                    expectedRootEpoch == null || activeStamp.sourceId != expectedSourceId ||
+                    activeStamp.epoch != expectedRootEpoch || !ArtistArtworkAutoNetwork.permitted(context)
+                ) throw kotlinx.coroutines.CancellationException("La autorización automática cambió")
+                dao.persistArtworkAutomated(asset, link, selection, expectedSourceId)
+                    ?: throw kotlinx.coroutines.CancellationException("Identidad, vínculo o selección cambiaron")
+            }
+        }
         return requireNotNull(
             selection.copy(revision = persistedRevision).toSelection(asset, link),
         ) { "Selección de artwork no legible" }

@@ -40,6 +40,9 @@ interface ArtistEnrichmentGateway {
      * cache so a transient provider failure is not replayed for an hour.
      */
     suspend fun refreshProfile(mbid: String): ArtistExternalProfile = confirmedProfile(mbid)
+    /** Explicit-user-only independent credit check. Never updates identity or Room. */
+    suspend fun corroborateStructuredCredit(claim: MusicBrainzCreditClaim): MusicBrainzCreditProofResult =
+        MusicBrainzCreditProofResult.Blocked(MusicBrainzCreditProofResult.Reason.MISSING_RESPONSE)
 }
 
 class ArtistEnrichmentRepository(
@@ -81,6 +84,30 @@ class ArtistEnrichmentRepository(
             ?: return JsonObject(emptyMap())
         return musicBrainzJson(api("https://musicbrainz.org/ws/2/recording/$canonical",
             mapOf("inc" to "genres", "fmt" to "json")))
+    }
+
+    /** Reuses the shared 1.1s MusicBrainz throttle, HTTPS allowlist and 256KiB cap. */
+    override suspend fun corroborateStructuredCredit(claim: MusicBrainzCreditClaim): MusicBrainzCreditProofResult {
+        if (claim.recordingMbid.isNullOrBlank() || claim.releaseMbid.isNullOrBlank())
+            return MusicBrainzCreditProofResult.Blocked(MusicBrainzCreditProofResult.Reason.MISSING_STRUCTURED_IDS)
+        // Validate UUIDs BEFORE forming a path or doing network traffic.
+        val preflight = MusicBrainzCreditProof.evaluate(claim,
+            MusicBrainzRecordingCredit(claim.recordingMbid, emptySet()),
+            MusicBrainzReleaseCredit(claim.releaseMbid, emptySet(), emptySet()))
+        if (preflight is MusicBrainzCreditProofResult.Blocked &&
+            preflight.reason == MusicBrainzCreditProofResult.Reason.MALFORMED_MBID) return preflight
+        return try {
+            val recordingJson = musicBrainzJson(api("https://musicbrainz.org/ws/2/recording/${claim.recordingMbid}",
+                mapOf("inc" to "artist-credits", "fmt" to "json")))
+            val releaseJson = musicBrainzJson(api("https://musicbrainz.org/ws/2/release/${claim.releaseMbid}",
+                mapOf("inc" to "recordings+artist-credits", "fmt" to "json")))
+            MusicBrainzCreditProof.evaluate(claim,
+                MusicBrainzCreditJson.recording(recordingJson), MusicBrainzCreditJson.release(releaseJson))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            MusicBrainzCreditProofResult.Blocked(MusicBrainzCreditProofResult.Reason.MISSING_RESPONSE)
+        }
     }
 
     override suspend fun findCandidates(localCredit: String): List<ArtistLookupCandidate> {

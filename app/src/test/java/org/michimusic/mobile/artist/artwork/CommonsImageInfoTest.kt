@@ -18,7 +18,7 @@ class CommonsImageInfoTest {
             requests += url.toString()
             val body = when {
                 url.queryParameter("prop") == "info" ->
-                    """{"query":{"pages":{"123":{"pageid":123,"title":"File:Midnight Oil.jpg"}}}}"""
+                    """{"query":{"pages":{"123":{"pageid":123,"ns":6,"title":"File:Midnight Oil.jpg"}}}}"""
                 url.queryParameter("ids") == "M123" ->
                     """{"entities":{"M123":{"statements":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
                 else -> """{"error":"unexpected"}"""

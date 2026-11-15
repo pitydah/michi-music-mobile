@@ -199,6 +199,44 @@ class ArtistEnrichmentController(
         }
     }
 
+    /** User-only recovery of a legacy album binding that predates source proof.
+     * The Room store checks exact ownership again; the UI never infers ownership.
+     */
+    fun reconfirmVisibleAlbum(
+        artistCredit: String, libraryId: String?, albumIds: List<String>, albumId: String,
+    ) {
+        val bindingStore = profileStore as? ArtistMembershipBindingStore ?: return
+        val concreteLibrary = libraryId?.takeIf { it.isNotBlank() && it != "SCOPE_ALL" } ?: return
+        val current = _state.value
+        val associationId = current.associationGroupKey ?: return
+        val mbid = current.persistedMbid ?: return
+        if (!current.persisted || !current.profilePersisted ||
+            current.profile?.mbid?.equals(mbid, ignoreCase = true) != true ||
+            albumId.isBlank() || albumId !in albumIds || albumId in current.unboundAlbumIds
+        ) return
+        requestJob?.cancel()
+        val epoch = ++requestEpoch
+        _state.value = current.copy(refreshing = true, message = null)
+        requestJob = scope.launch {
+            try {
+                bindingStore.reconfirmExistingAlbumBinding(
+                    libraryId = concreteLibrary, credit = artistCredit,
+                    albumId = albumId, associationId = associationId, expectedMbid = mbid,
+                )
+                if (epoch != requestEpoch) return@launch
+                bootstrap(concreteLibrary, artistCredit, albumIds, epoch)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (epoch != requestEpoch) return@launch
+                _state.value = _state.value.copy(
+                    refreshing = false,
+                    message = error.message ?: "No fue posible reconfirmar el álbum.",
+                )
+            }
+        }
+    }
+
     /**
      * Explicitly makes the currently visible album-credit rows members of the already verified
      * local association. This is a local Room operation: it never searches or refreshes a

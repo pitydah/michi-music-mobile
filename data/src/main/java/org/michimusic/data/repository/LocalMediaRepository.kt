@@ -34,6 +34,7 @@ open class LocalMediaRepository(
     private val importedTrackDao: TrackDao? = null,
     private val rootPreferences: MusicRootPreferences? = null,
     private val libraryExclusionDao: LibraryExclusionDao? = null,
+    private val catalogListener: LocalCatalogListener? = null,
 ) {
 
     private data class PendingTrack(val track: Track)
@@ -56,6 +57,8 @@ open class LocalMediaRepository(
     /** Position of the next batch across repeated foreground library refreshes. */
     private var nextGenreScanRow = 0
     private var cachedTracks: List<Track>? = null
+    // Cached coverage must not promote a partial SAF-only catalog into FULL.
+    private var cachedCoverage = MediaCoverage.FULL
     private var cacheTime = 0L
     private val cacheMutex = Mutex()
 
@@ -132,30 +135,52 @@ open class LocalMediaRepository(
         }.sortedBy { it.album.title }
     }
 
-    open suspend fun fetchTracksResult(): MediaResult<List<Track>> = cacheMutex.withLock {
-        withContext(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            val cached = cachedTracks
-            val cacheHit = cached != null && now - cacheTime < CACHE_TTL_MS
-            if (cacheHit) {
-                return@withContext MediaResult.Success(cached!!)
-            }
-            val result = queryTracksResult()
-            if (result is MediaResult.Success) {
-                // The media index is complete. User exclusions are a visibility overlay,
-                // never a DELETE from MediaStore, SAF, Room cached tracks or filesystem.
-                val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
-                val source = libraryVisibilitySource(root)
-                val excluded = libraryExclusionDao?.forSource(source)
-                    ?.associateBy { it.trackId }.orEmpty()
-                val visible = result.data.filterNot { track ->
-                    isLibraryTrackHidden(excluded[track.id], source, track)
+    open suspend fun fetchTracksResult(): MediaResult<List<Track>> {
+        // Construct only one notification from an actual fresh query; callback is invoked
+        // AFTER cacheMutex releases, never during MediaStore/SAF traversal or composition.
+        val (resolved, notification) = cacheMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val now = System.currentTimeMillis()
+                val cached = cachedTracks
+                if (cached != null && now - cacheTime < CACHE_TTL_MS) {
+                    return@withContext MediaResult.Success(cached, cachedCoverage) to null
                 }
-                cachedTracks = visible
-                cacheTime = now
-                MediaResult.Success(visible, result.coverage)
-            } else result
+                val root = rootPreferences?.currentRoot() ?: MusicRoot.Default
+                val query = queryTracksResult()
+                if (query is MediaResult.Success) {
+                    val source = libraryVisibilitySource(root)
+                    val excluded = libraryExclusionDao?.forSource(source)
+                        ?.associateBy { it.trackId }.orEmpty()
+                    val visible = query.data.filterNot { track ->
+                        isLibraryTrackHidden(excluded[track.id], source, track)
+                    }
+                    cachedTracks = visible
+                    cachedCoverage = query.coverage
+                    cacheTime = now
+                    val event = if (query.coverage == MediaCoverage.FULL &&
+                        catalogListener?.isEnabled() == true &&
+                        root == (rootPreferences?.currentRoot() ?: MusicRoot.Default)
+                    ) {
+                        val rows = LocalCatalogProjection.fromTracks(query.data)
+                        LocalCatalogObservation(
+                            if (root.isDefault) DEFAULT_LOCAL_CATALOG_SOURCE else root.sourceId.orEmpty(),
+                            rows,
+                        )
+                    } else null
+                    MediaResult.Success(visible, query.coverage) to event
+                } else query to null
+            }
         }
+        if (notification != null &&
+            (rootPreferences?.currentRoot() ?: MusicRoot.Default).let { current ->
+                (if (current.isDefault) DEFAULT_LOCAL_CATALOG_SOURCE else current.sourceId.orEmpty()) == notification.sourceId
+            }
+        ) {
+            try { catalogListener?.onCatalogRead(notification) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { /* library load succeeds even when optional scheduling fails */ }
+        }
+        return resolved
     }
 
     open suspend fun loadTracks(): List<Track> {
@@ -169,6 +194,7 @@ open class LocalMediaRepository(
     open suspend fun invalidateCache() {
         cacheMutex.withLock {
             cachedTracks = null
+            cachedCoverage = MediaCoverage.FULL
         }
     }
     /**
@@ -759,12 +785,14 @@ open class LocalMediaRepository(
                 val cachedEvidence = savedEvidence[trackId]?.takeIf {
                     it.matchesMediaStore(fileSize, modified)
                 }
+                var freshlyReadTags: EmbeddedTagFields? = null
                 val embedded = if (cachedEvidence != null) cachedEvidence
                 else if (!needsProbe) null
                 else if (genreReadBudget > 0 && (c.position >= scanFromRow || c.count <= scanFromRow)) {
                     genreReadBudget--
                     nextRow = c.position + 1
                     val fields = UriEmbeddedTags.read(ctx, android.net.Uri.parse(contentUri))
+                    freshlyReadTags = fields // no second file read; bounded by the existing genre budget
                     val evidence = TagEvidencePolicy.record(
                         TagEvidencePolicy.MEDIASTORE_OWNER, trackId, fileSize, modified, fields)
                     if (modified > 0) evidenceUpdates.add(evidence)
@@ -802,6 +830,11 @@ open class LocalMediaRepository(
                             sourceMimeType = c.getString(mimeCol).orEmpty(),
                             sourceFileExtension = sourceFileExtension(c.getString(displayNameCol)),
                             trackNumberFromMediaStore = embedded?.trackNumber?.takeIf { it > 0 } == null,
+                            observedArtistMbids = freshlyReadTags?.musicBrainzArtistIds.orEmpty(),
+                            observedAlbumArtistMbids = freshlyReadTags?.musicBrainzAlbumArtistIds.orEmpty(),
+                            observedRecordingMbids = freshlyReadTags?.musicBrainzRecordingIds.orEmpty(),
+                            observedReleaseMbids = freshlyReadTags?.musicBrainzReleaseIds.orEmpty(),
+                            observedTagsParsed = freshlyReadTags != null,
                         ),
                     ),
                 )

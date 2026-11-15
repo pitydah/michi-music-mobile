@@ -65,9 +65,9 @@ class ArtistArtworkCoordinatorTest {
         width: String = "1600",
         height: String = "900",
     ): String = """{"query":{"pages":{"1":{"imageinfo":[{
-        "thumburl":"https://thumb.wikimedia.org/wikipedia/commons/thumb/7/77/Midnight_Oil.png/960px.png",
+        "thumburl":"https://thumb.wikimedia.org/wikipedia/commons/thumb/7/77/Midnight_Oil.jpg/960px.jpg",
         "width":"$width","height":"$height","mime":"image/png",
-        "descriptionurl":"https://commons.wikimedia.org/wiki/File:Midnight_Oil.png",
+        "descriptionurl":"https://commons.wikimedia.org/wiki/File:Midnight_Oil.jpg",
         "extmetadata":{
             "LicenseShortName":{"value":"$license"},
             "LicenseUrl":{"value":"$licenseUrl"},
@@ -89,7 +89,7 @@ class ArtistArtworkCoordinatorTest {
                 """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
                     .toResponseBody("application/json".toMediaType())
             url.host == "commons.wikimedia.org" && url.queryParameter("prop") == "info" ->
-                """{"query":{"pages":{"1":{"pageid":1,"title":"File:Midnight Oil.jpg"}}}}"""
+                """{"query":{"pages":{"1":{"pageid":1,"ns":6,"title":"File:Midnight Oil.jpg"}}}}"""
                     .toResponseBody("application/json".toMediaType())
             url.host == "www.wikidata.org" && url.queryParameter("sites") == "commonswiki" ->
                 """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
@@ -188,7 +188,7 @@ class ArtistArtworkCoordinatorTest {
         assertTrue(java.io.File(thumb.localImagePath!!).isFile)
         // P18 uses the Wikidata snapshot; MediaInfo P180 is verified on Commons.
         assertTrue(requests.count { it.contains("www.wikidata.org") } >= 1)
-        assertTrue(requests.count { it.contains("commons.wikimedia.org/w/api.php") } >= 3)
+        assertTrue(requests.count { it.contains("commons.wikimedia.org/w/api.php") } >= 1)
         assertEquals(1, requests.count { it.contains("thumb.wikimedia.org") })
         val networkCount = requests.size
 
@@ -225,7 +225,7 @@ class ArtistArtworkCoordinatorTest {
                     """{"entities":{"M1":{"claims":{"P180":[{"mainsnak":{"datavalue":{"value":{"id":"Q48284"}}}}]}}}}"""
                         .toResponseBody("application/json".toMediaType())
                 url.host == "commons.wikimedia.org" && url.queryParameter("prop") == "info" ->
-                    """{"query":{"pages":{"1":{"pageid":1,"title":"File:Midnight Oil.jpg"}}}}"""
+                    """{"query":{"pages":{"1":{"pageid":1,"ns":6,"title":"File:Midnight Oil P180.jpg"}}}}"""
                         .toResponseBody("application/json".toMediaType())
                 url.host == "commons.wikimedia.org" &&
                     url.queryParameter("titles") == "File:Midnight Oil.jpg" ->
@@ -393,6 +393,45 @@ class ArtistArtworkCoordinatorTest {
     }
 
     @Test
+    fun corruptManualThumbIsNotOverwrittenWhenHeroIsRecovered() = runBlocking {
+        val store = MemoryStore(context)
+        val manualThumb = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true).copy(
+            localImagePath = File(context.filesDir, "artist-artwork/manual-missing.png").absolutePath,
+        )
+        store.selections[ArtworkSlot.ARTIST_THUMB] = manualThumb
+        val coordinator = coordinator(client(), store) { selection ->
+            if (selection.slot == ArtworkSlot.ARTIST_THUMB) {
+                selection.copy(status = ArtworkLoadStatus.CACHE_ERROR)
+            } else selection
+        }
+
+        val report = coordinator.resolve(anchor)
+
+        assertEquals(ArtworkLoadStatus.PARTIAL, report.status)
+        assertEquals(1, store.saves) // only HERO is downloaded
+        assertEquals(manualThumb.assetId, store.selections.getValue(ArtworkSlot.ARTIST_THUMB).assetId)
+        assertTrue(store.selections.getValue(ArtworkSlot.ARTIST_THUMB).manuallyChosen)
+        assertTrue(store.selections.containsKey(ArtworkSlot.ARTIST_HERO))
+    }
+
+    @Test
+    fun autoProtectionFromEarlierMbidStopsAllProviderRequests() = runBlocking {
+        val store = MemoryStore(context)
+        val requests = mutableListOf<String>()
+        val client = client().newBuilder().addInterceptor { chain ->
+            requests += chain.request().url.toString()
+            chain.proceed(chain.request())
+        }.build()
+        val report = coordinator(client, store).resolveAutomated(
+            anchor, expectedSourceId = "device_music_root",
+            protectedSlots = setOf(ArtworkSlot.ARTIST_THUMB, ArtworkSlot.ARTIST_HERO),
+        )
+        assertEquals(0, store.saves)
+        assertTrue(requests.isEmpty())
+        assertTrue(report.selections.isEmpty())
+    }
+
+    @Test
     fun forceRefreshNeverOverwritesManualSlots() = runBlocking {
         val store = MemoryStore(context)
         val thumb = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true)
@@ -486,7 +525,7 @@ class ArtistArtworkCoordinatorTest {
     }
 
     @Test
-    fun thumbOnlyResolutionStillQueriesLowerPriorityProvidersForFallback() = runBlocking {
+    fun thumbOnlyResolutionStopsOnceP18FillsMissingSlot() = runBlocking {
         val store = MemoryStore(context)
         store.selections[ArtworkSlot.ARTIST_HERO] = cached(ArtworkSlot.ARTIST_HERO, manuallyChosen = false)
         val requests = mutableListOf<String>()
@@ -497,11 +536,11 @@ class ArtistArtworkCoordinatorTest {
         assertEquals(ArtworkLoadStatus.READY, report.status)
         assertEquals(1, store.saves)
         assertTrue(report.outcomes.none { it.reason == "EARLY_CUT_THUMB_ONLY" })
-        assertTrue(requests.any { it.contains("list=search") })
+        assertTrue(requests.none { it.contains("list=search") || it.contains("wikipedia.org") })
     }
 
     @Test
-    fun missingHeroStillQueriesLowerPriorityProvidersBecauseHeroRankingCanImprove() = runBlocking {
+    fun missingHeroStopsOnceP18SuppliesVerifiedArtwork() = runBlocking {
         val store = MemoryStore(context)
         store.selections[ArtworkSlot.ARTIST_THUMB] = cached(ArtworkSlot.ARTIST_THUMB, manuallyChosen = false)
         val requests = mutableListOf<String>()
@@ -514,7 +553,7 @@ class ArtistArtworkCoordinatorTest {
         assertTrue(report.outcomes.none {
             it.source == ArtworkSource.COMMONS_P180 && it.status == ArtworkProviderStatus.SKIPPED
         })
-        assertTrue(requests.any { it.contains("list=search") || it.contains("wikipedia.org") })
+        assertTrue(requests.none { it.contains("list=search") || it.contains("wikipedia.org") })
     }
 
     private fun cached(

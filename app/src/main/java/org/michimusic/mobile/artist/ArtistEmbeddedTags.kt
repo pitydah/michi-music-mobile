@@ -15,6 +15,8 @@ data class EmbeddedArtistTags(
     val albumArtistMbids: Set<String> = emptySet(),
     val creditedNames: List<String> = emptyList(),
     val albumArtists: List<String> = emptyList(),
+    val recordingMbids: Set<String> = emptySet(),
+    val releaseMbids: Set<String> = emptySet(),
 )
 
 /** Per-file evidence is kept separate: several MBIDs do not imply one joint artist. */
@@ -81,6 +83,8 @@ object ArtistEmbeddedTagCodec {
         val albumNames = mutableListOf<String>()
         val ids = mutableListOf<String>()
         val albumIds = mutableListOf<String>()
+        val recordingIds = mutableListOf<String>()
+        val releaseIds = mutableListOf<String>()
         var offset = 10
         var frames = 0
         while (offset + 10 <= tagLen + 10 && frames++ < MAX_FRAMES) {
@@ -99,6 +103,8 @@ object ArtistEmbeddedTagCodec {
                     when (canonical(description)) {
                         "MUSICBRAINZARTISTID" -> ids += values
                         "MUSICBRAINZALBUMARTISTID" -> albumIds += values
+                        "MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID" -> recordingIds += values
+                        "MUSICBRAINZALBUMID", "MUSICBRAINZRELEASEID" -> releaseIds += values
                         "ARTISTS" -> names += values.mapNotNull(::safeValue)
                         "ALBUMARTIST", "ALBUMARTISTS" -> albumNames += values.mapNotNull(::safeValue)
                     }
@@ -107,7 +113,8 @@ object ArtistEmbeddedTagCodec {
             }
             offset += 10 + size
         }
-        return EmbeddedArtistTags(collectMbids(ids), collectMbids(albumIds), names.distinct(), albumNames.distinct())
+        return EmbeddedArtistTags(collectMbids(ids), collectMbids(albumIds), names.distinct(), albumNames.distinct(),
+            recordingMbids = collectMbids(recordingIds), releaseMbids = collectMbids(releaseIds))
     }
 
     private fun decodeText(payload: ByteArray): List<String> {
@@ -134,6 +141,8 @@ object ArtistEmbeddedTagCodec {
     private fun parseMp4(data: ByteArray): EmbeddedArtistTags {
         val ids = mutableListOf<String>()
         val albumIds = mutableListOf<String>()
+        val recordingIds = mutableListOf<String>()
+        val releaseIds = mutableListOf<String>()
         val names = mutableListOf<String>()
         val albumNames = mutableListOf<String>()
         var inspectedAtoms = 0
@@ -176,6 +185,8 @@ object ArtistEmbeddedTagCodec {
             when (canonical(name.orEmpty())) {
                 "MUSICBRAINZARTISTID" -> ids += values
                 "MUSICBRAINZALBUMARTISTID" -> albumIds += values
+                "MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID" -> recordingIds += values
+                "MUSICBRAINZALBUMID", "MUSICBRAINZRELEASEID" -> releaseIds += values
                 "ARTISTS" -> names += values
                 "ALBUMARTIST", "ALBUMARTISTS" -> albumNames += values
             }
@@ -207,6 +218,7 @@ object ArtistEmbeddedTagCodec {
         return EmbeddedArtistTags(
             collectMbids(ids), collectMbids(albumIds),
             names.mapNotNull(::safeValue).distinct(), albumNames.mapNotNull(::safeValue).distinct(),
+            recordingMbids = collectMbids(recordingIds), releaseMbids = collectMbids(releaseIds),
         )
     }
 
@@ -251,6 +263,8 @@ object ArtistEmbeddedTagCodec {
             albumArtistMbids = collectMbids(comments["MUSICBRAINZALBUMARTISTID"].orEmpty()),
             creditedNames = comments["ARTISTS"].orEmpty().mapNotNull(::safeValue).distinct(),
             albumArtists = (comments["ALBUMARTIST"].orEmpty() + comments["ALBUMARTISTS"].orEmpty()).mapNotNull(::safeValue).distinct(),
+            recordingMbids = collectMbids((comments["MUSICBRAINZTRACKID"].orEmpty() + comments["MUSICBRAINZRECORDINGID"].orEmpty())),
+            releaseMbids = collectMbids((comments["MUSICBRAINZALBUMID"].orEmpty() + comments["MUSICBRAINZRELEASEID"].orEmpty())),
         )
     }
 }

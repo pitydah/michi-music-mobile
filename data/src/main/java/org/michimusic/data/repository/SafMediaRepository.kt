@@ -40,6 +40,7 @@ class SafMediaRepository(
     private val context: Context,
     private val trackDao: TrackDao,
     private val localMediaRepository: LocalMediaRepository? = null,
+    private val catalogListener: LocalCatalogListener? = null,
 ) {
 
     fun takePersistablePermission(uri: Uri): Boolean = try {
@@ -104,6 +105,12 @@ class SafMediaRepository(
         val seenDocuments = HashSet<String>()
         val indexed = mutableListOf<CachedTrack>()
         val evidence = mutableListOf<EmbeddedTagEvidence>()
+        // Only structured tags from the existing SAF read, never extra file access.
+        // Cap transient memory for very large user-approved trees.
+        val observedMbids = mutableListOf<LocalStructuredTagEvidence>()
+        // A successful reread with no identifiers revokes stale AUTO IDs.
+        // Separate quota preserves coverage of positive MBID files in large trees.
+        val emptyTagSnapshots = mutableListOf<LocalStructuredTagEvidence>()
         var queryFailed = false
 
         while (pendingDirs.isNotEmpty()) {
@@ -153,6 +160,19 @@ class SafMediaRepository(
                     evidence.add(TagEvidencePolicy.record(
                         sourceId, trackId, fileSize, modified, metadata.embedded,
                     ))
+                    val parsed = metadata.embedded
+                    if (catalogListener?.isEnabled() == true && parsed != null) {
+                        val observation = LocalStructuredTagEvidence(
+                            trackId, parsed.musicBrainzArtistIds, parsed.musicBrainzAlbumArtistIds,
+                            parsed.musicBrainzRecordingIds, parsed.musicBrainzReleaseIds,
+                        )
+                        if (observation.artistMbids.isNotEmpty() || observation.albumArtistMbids.isNotEmpty() ||
+                            observation.recordingMbids.isNotEmpty() || observation.releaseMbids.isNotEmpty()) {
+                            if (observedMbids.size < 8192) observedMbids += observation
+                        } else if (emptyTagSnapshots.size < 1024) {
+                            emptyTagSnapshots += observation
+                        }
+                    }
                     val title = metadata.title.ifBlank {
                         childName.substringBeforeLast('.').ifBlank { childName }
                     }
@@ -200,6 +220,13 @@ class SafMediaRepository(
             return@withContext TreeIndexResult.Failed(
                 "No se pudo guardar el índice de la carpeta. La biblioteca no cambió.",
             )
+        }
+        // Index has COMMITTED. Optional artist observations never participate in its
+        // transaction and cannot convert a successful SAF index into a false failure.
+        if (observedMbids.isNotEmpty() || emptyTagSnapshots.isNotEmpty()) {
+            try { catalogListener?.onStructuredTagsIndexed(sourceId, observedMbids + emptyTagSnapshots) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* foreground index remains successful */ }
         }
         localMediaRepository?.invalidateCache()
         onProgress(indexed.size)

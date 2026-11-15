@@ -40,10 +40,15 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
             .build()
         val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
         val pages = (response["query"] as? JsonObject)?.get("pages") as? JsonObject
-        val info = pages?.values?.firstOrNull()
-            ?.let { (it as? JsonObject)?.get("imageinfo") as? JsonArray }
+        val page = pages?.values?.singleOrNull() as? JsonObject
+            ?: throw ArtworkCandidateRejected("UNBOUND_IMAGEINFO")
+        val info = (page["imageinfo"] as? JsonArray)
             ?.firstOrNull() as? JsonObject
             ?: throw ArtworkCandidateRejected("NO_IMAGEINFO")
+        val sourcePage = info.string("descriptionurl")
+        if (!CommonsFileSourcePolicy.matchesRequestedFile(
+                fileTitle, page.string("title"), page.string("ns"), sourcePage,
+            )) throw ArtworkCandidateRejected("UNBOUND_IMAGEINFO")
         val imageUrl = info.string("thumburl")?.takeIf(String::isNotBlank)
             ?: info.string("url")?.takeIf(String::isNotBlank)
             ?: throw ArtworkCandidateRejected("NO_IMAGE_URL")
@@ -53,7 +58,7 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
         val metadata = info["extmetadata"] as? JsonObject
         val licenseShort = metadata?.value("LicenseShortName")
         val licenseUrl = metadata?.value("LicenseUrl")
-        val license = artworkLicenseLabel(licenseShort, licenseUrl)
+        val license = CommonsLicenseConsistency.acceptedLabel(licenseShort, licenseUrl)
             ?: throw ArtworkCandidateRejected("NO_ALLOWED_LICENSE")
         val attribution = meaningful(metadata?.value("Attribution"))
             ?: meaningful(metadata?.value("Artist"))
@@ -64,8 +69,7 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
             originalWidth = width,
             originalHeight = height,
             mime = mime,
-            sourcePageUrl = info.string("descriptionurl")
-                ?: "https://commons.wikimedia.org/wiki/File:${fileTitle.replace(' ', '_')}",
+            sourcePageUrl = sourcePage ?: "https://commons.wikimedia.org/wiki/File:${fileTitle.replace(' ', '_')}",
             licenseId = license,
             licenseUrl = licenseUrl.orEmpty(),
             attribution = attribution,
@@ -106,6 +110,56 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
         }
     }
 
+    /**
+     * Category P373 is a discovery hint only. Verify up to twelve file-level P180
+     * statements with two bounded MediaWiki reads, not two network calls per title.
+     * Missing, normalized-away, duplicate and foreign files fail closed.
+     */
+    suspend fun depictsBatch(fileTitles: Collection<String>, qid: String): Set<String> {
+        val selected = CommonsDepictionBatchPolicy.selectFileTitles(fileTitles)
+        if (selected.isEmpty() || !validWikidataQid(qid)) return emptySet()
+        val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull())
+        val pagesUrl = endpoint.newBuilder()
+            .addQueryParameter("action", "query")
+            .addQueryParameter("prop", "info")
+            .addQueryParameter("titles", selected.joinToString("|") { "File:$it" })
+            .addQueryParameter("format", "json")
+            .build()
+        val pagesJson = http.readJson(pagesUrl.toString(), setOf("commons.wikimedia.org"))
+        val pages = ((pagesJson["query"] as? JsonObject)?.get("pages") as? JsonObject)
+            ?.values.orEmpty().mapNotNull { value ->
+                val page = value as? JsonObject ?: return@mapNotNull null
+                if (page.string("ns") != "6") return@mapNotNull null
+                val title = page.string("title") ?: return@mapNotNull null
+                val pageId = page.string("pageid") ?: return@mapNotNull null
+                CommonsDepictionBatchPolicy.Page(title, pageId)
+            }
+        val ids = pages.asSequence().map { "M${it.pageId}" }
+            .filter { it.matches(Regex("^M[1-9][0-9]{0,11}$")) }.distinct().toList()
+        if (ids.isEmpty()) return emptySet()
+        val mediaUrl = endpoint.newBuilder()
+            .addQueryParameter("action", "wbgetentities")
+            .addQueryParameter("ids", ids.joinToString("|"))
+            .addQueryParameter("props", "claims")
+            .addQueryParameter("format", "json")
+            .build()
+        val mediaJson = http.readJson(mediaUrl.toString(), setOf("commons.wikimedia.org"))
+        val entities = mediaJson["entities"] as? JsonObject ?: return emptySet()
+        val depictions = HashMap<String, Set<String>>()
+        for (id in ids) {
+            val item = entities[id] as? JsonObject ?: continue
+            val statements = (item["statements"] as? JsonObject)
+                ?: (item["claims"] as? JsonObject) ?: continue
+            val claims = statements["P180"] as? JsonArray ?: continue
+            depictions[id] = claims.mapNotNull { claim ->
+                val mainsnak = (claim as? JsonObject)?.get("mainsnak") as? JsonObject
+                val value = (mainsnak?.get("datavalue") as? JsonObject)?.get("value") as? JsonObject
+                value?.string("id")
+            }.toSet()
+        }
+        return CommonsDepictionBatchPolicy.verifiedFileTitles(selected, pages, depictions, qid)
+    }
+
     private suspend fun commonsPageId(fileTitle: String): String? {
         val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
             .addQueryParameter("action", "query")
@@ -115,7 +169,10 @@ internal class CommonsImageInfo(private val http: ArtworkHttp) {
             .build()
         val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
         val page = (response["query"] as? JsonObject)?.get("pages") as? JsonObject
-        return page?.values?.firstOrNull()?.let { (it as? JsonObject)?.string("pageid") }
+        val only = page?.values?.singleOrNull() as? JsonObject ?: return null
+        return CommonsPageIdBindingPolicy.verifiedId(
+            fileTitle, only.string("title"), only.string("ns"), only.string("pageid"),
+        )
     }
 
     private fun meaningful(raw: String?): String? {
@@ -205,43 +262,45 @@ internal class CommonsP180Provider(
 ) : ArtistArtworkProvider {
     override val source = ArtworkSource.COMMONS_P180
     override suspend fun findCandidates(anchor: ArtistIdentityAnchor, slot: ArtworkSlot): ProviderArtworkResult {
-        val qid = anchor.verifiedQid ?: return ProviderArtworkResult.NoMatch
+        val qid = anchor.verifiedQid?.takeIf(::validWikidataQid) ?: return ProviderArtworkResult.NoMatch
         // Search Commons for files whose own structured data depicts the verified artist.
         // The artist entity's P180 is unrelated to image depictions and must not be used.
         val files = mutableListOf<String>()
-        var offset: String? = null
         try {
-            for (page in 0 until 2) {
-                val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
-                    .addQueryParameter("action", "query")
-                    .addQueryParameter("list", "search")
-                    .addQueryParameter("srsearch", "haswbstatement:P180=$qid")
-                    .addQueryParameter("srnamespace", "6")
-                    .addQueryParameter("srlimit", "50")
-                    .addQueryParameter("format", "json")
-                    .apply { offset?.let { addQueryParameter("sroffset", it) } }
-                    .build()
-                val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
-                ((response["query"] as? JsonObject)?.get("search") as? JsonArray).orEmpty()
-                    .mapNotNull { ((it as? JsonObject)?.get("title") as? JsonPrimitive)?.contentOrNull }
-                    .mapNotNull { it.removePrefix("File:").takeIf(::validCommonsFileTitle) }
-                    .forEach(files::add)
-                offset = ((response["continue"] as? JsonObject)?.get("sroffset") as? JsonPrimitive)
-                    ?.contentOrNull
-                if (offset == null) break
-            }
+            // The old code queried two pages of fifty but consumed only twelve
+            // titles. The second search could never affect those twelve results.
+            val endpoint = requireNotNull("https://commons.wikimedia.org/w/api.php".toHttpUrlOrNull()).newBuilder()
+                .addQueryParameter("action", "query")
+                .addQueryParameter("list", "search")
+                .addQueryParameter("srsearch", "haswbstatement:P180=$qid")
+                .addQueryParameter("srnamespace", "6")
+                .addQueryParameter("srlimit", "12")
+                .addQueryParameter("format", "json")
+                .build()
+            val response = http.readJson(endpoint.toString(), setOf("commons.wikimedia.org"))
+            ((response["query"] as? JsonObject)?.get("search") as? JsonArray).orEmpty()
+                .mapNotNull { ((it as? JsonObject)?.get("title") as? JsonPrimitive)?.contentOrNull }
+                .mapNotNull { it.takeIf { name -> name.startsWith("File:") }
+                    ?.removePrefix("File:")?.takeIf(::validCommonsFileTitle) }
+                .forEach(files::add)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
             return failure(error)
         }
-        val distinct = files.distinct().take(12)
+        val distinct = CommonsDepictionBatchPolicy.selectFileTitles(files)
         if (distinct.isEmpty()) return ProviderArtworkResult.NoMatch
+        val verified = try {
+            commons.depictsBatch(distinct, qid)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            return failure(error)
+        }
         val candidates = mutableListOf<ArtistArtworkCandidate>()
         var lastFailure: Exception? = null
         for (file in distinct) {
+            if (file !in verified) continue
             try {
-                // The search index is a hint; the selected file must prove the same QID.
-                if (!commons.depicts(file, qid)) continue
                 commons.read(file).toCandidate(anchor, source, ArtworkEvidence.VERIFIED_QID_REFERENCE)
                     ?.let(candidates::add)
             } catch (error: Exception) {

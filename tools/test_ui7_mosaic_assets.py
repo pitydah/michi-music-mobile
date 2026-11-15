@@ -62,11 +62,14 @@ class MosaicGenreKeyTests(unittest.TestCase):
                          "UI7_MOSAICO_001_Rock copy.webp", "UI7_MOSAICO_001_Rock/Roll.webp"):
             self.assertIsNone(gate.genre_key(filename), filename)
 
-    def test_lookup_index_separates_closely_related_genres(self):
-        self.assertEqual("hip hop", gate.index_key("Hip-Hop"))
-        self.assertEqual(gate.index_key("hip-hop"), gate.index_key("hip hop"))
-        self.assertEqual("j rock", gate.index_key("J-Rock"))
-        self.assertNotEqual(gate.index_key("rock"), gate.index_key("rock roll"))
+    def test_lookup_identity_separates_closely_related_genres(self):
+        # MI-26: exact canonical identity; punctuation is meaningful.
+        self.assertEqual("hip-hop", gate.grouping_key("Hip-Hop"))
+        # "hip hop" is an approved alias; "hip/hop" is a different identity.
+        self.assertEqual("hip-hop", gate.grouping_key("hip hop"))
+        self.assertNotEqual(gate.grouping_key("hip/hop"), gate.grouping_key("hip-hop"))
+        self.assertEqual("j-rock", gate.grouping_key("J-Rock"))
+        self.assertNotEqual(gate.grouping_key("rock"), gate.grouping_key("rock roll"))
 
 
 class MosaicInventoryGateTests(unittest.TestCase):

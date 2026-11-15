@@ -148,6 +148,12 @@ interface ArtistMembershipBindingStore {
         evidenceType: ArtistMembershipEvidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
     ): PersistedArtistProfile
 
+    /** Explicitly re-confirm an album that is ALREADY bound to this association. */
+    suspend fun reconfirmExistingAlbumBinding(
+        libraryId: String, credit: String, albumId: String,
+        associationId: String, expectedMbid: String,
+    ): PersistedArtistProfile = error("This store cannot reconfirm an album binding")
+
     /** Explicitly claim only unbound rows in a mixed resolved view; never steal other artists. */
     suspend fun bindUnboundAlbumsToAssociation(
         libraryId: String,
@@ -220,6 +226,10 @@ suspend fun ArtistEnrichmentSelectionStore.saveIdentityFirst(
 
 class RoomArtistEnrichmentSelectionStore(
     private val database: ArtistEnrichmentCacheDatabase,
+    private val afterVerifiedCommit: suspend (
+        String, String, String, org.michimusic.data.repository.MusicRootStamp?, Boolean,
+    ) -> Unit = { _, _, _, _, _ -> },
+    private val rootStampProvider: () -> org.michimusic.data.repository.MusicRootStamp? = { null },
     private val clock: () -> Long = System::currentTimeMillis,
 ) : ArtistEnrichmentSelectionStore,
     ArtistIdentitySelectionStore,
@@ -230,12 +240,28 @@ class RoomArtistEnrichmentSelectionStore(
     private val json = Json { ignoreUnknownKeys = true }
     private val dao get() = database.artistEnrichmentDao()
 
+    /** Best-effort post-COMMIT signal: no provider/network work inside Room transactions. */
+    private suspend fun signalVerifiedAssociation(
+        libraryId: String, creditKey: String, associationId: String,
+        enteredRoot: org.michimusic.data.repository.MusicRootStamp?,
+        mayCaptureBindingProof: Boolean,
+    ) {
+        // A->B->A can have the same sourceId. Never trust a postcommit root lookup
+        // alone. Re-reading the persistent generation detects either switch.
+        if (enteredRoot != rootStampProvider()) return
+        try { afterVerifiedCommit(libraryId, creditKey, associationId, enteredRoot, mayCaptureBindingProof) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* semantic Room commit has already succeeded */ }
+    }
+
     suspend fun confirmNewIdentity(
         libraryId: String,
         credit: String,
         albumIds: List<String>,
         mbid: String,
-    ): PersistedArtistProfile = database.withTransaction {
+    ): PersistedArtistProfile {
+        val enteredRoot = rootStampProvider()
+        val committed = database.withTransaction {
         val (creditKey, associationId) = requireNotNull(
             scopedArtistCreditKey(libraryId, credit, albumIds),
         ) { "No se puede confirmar una identidad sin biblioteca y álbumes concretos" }
@@ -296,6 +322,13 @@ class RoomArtistEnrichmentSelectionStore(
         )
         decodePersisted(identity, recovered = false)
             ?: error("La identidad confirmada contiene un perfil inválido")
+        }
+        // This is the first explicit semantic binding; a profile refresh may provide
+        // a QID later but cannot create source proof by itself.
+        signalVerifiedAssociation(libraryId, normalizedCreditKey(credit),
+            requireNotNull(committed.associationGroupKey), enteredRoot,
+            mayCaptureBindingProof = true)
+        return committed
     }
 
     override suspend fun bindAlbumsToAssociation(
@@ -305,7 +338,9 @@ class RoomArtistEnrichmentSelectionStore(
         associationId: String,
         expectedMbid: String,
         evidenceType: ArtistMembershipEvidenceType,
-    ): PersistedArtistProfile = database.withTransaction {
+    ): PersistedArtistProfile {
+        val enteredRoot = rootStampProvider()
+        val committed = database.withTransaction {
         val (creditKey, _) = requireNotNull(scopedArtistCreditKey(libraryId, credit, albumIds)) {
             "La vinculación requiere una biblioteca y álbumes concretos"
         }
@@ -329,6 +364,10 @@ class RoomArtistEnrichmentSelectionStore(
             now = clock(),
         )
         requireNotNull(decodePersisted(identity, recovered = false))
+        }
+        signalVerifiedAssociation(libraryId, normalizedCreditKey(credit), associationId,
+            enteredRoot, mayCaptureBindingProof = true)
+        return committed
     }
 
     override suspend fun bindUnboundAlbumsToAssociation(
@@ -337,7 +376,9 @@ class RoomArtistEnrichmentSelectionStore(
         visibleAlbumIds: List<String>,
         associationId: String,
         expectedMbid: String,
-    ): PersistedArtistProfile = database.withTransaction {
+    ): PersistedArtistProfile {
+        val enteredRoot = rootStampProvider()
+        val committed = database.withTransaction {
         val (creditKey, _) = requireNotNull(scopedArtistCreditKey(libraryId, credit, visibleAlbumIds)) {
             "La vinculación requiere una biblioteca y álbumes concretos"
         }
@@ -364,6 +405,61 @@ class RoomArtistEnrichmentSelectionStore(
             now = clock(),
         )
         requireNotNull(decodePersisted(identity, recovered = false))
+        }
+        signalVerifiedAssociation(libraryId, normalizedCreditKey(credit), associationId,
+            enteredRoot, mayCaptureBindingProof = true)
+        return committed
+    }
+
+    /**
+     * Explicitly renew an EXISTING album/credit association for the active root.
+     * This is not automatic metadata enrichment and may not claim an unbound album.
+     * The version change invalidates prior source receipts until new proof is issued.
+     */
+    override suspend fun reconfirmExistingAlbumBinding(
+        libraryId: String, credit: String, albumId: String,
+        associationId: String, expectedMbid: String,
+    ): PersistedArtistProfile {
+        val enteredRoot = rootStampProvider()
+        val committed = database.withTransaction {
+            require(albumId.isNotBlank()) { "Elige un álbum local para reconfirmarlo." }
+            val (creditKey, _) = requireNotNull(
+                scopedArtistCreditKey(libraryId, credit, listOf(albumId)),
+            ) { "Se requiere una biblioteca concreta y un álbum visible." }
+            val canonicalMbid = requireNotNull(canonicalArtistMbid(expectedMbid)) { "MBID inválido" }
+            require(canonicalMbid == expectedMbid)
+            val bound = dao.getAlbumCreditBinding(libraryId, albumId, creditKey)
+                ?: error("El álbum no está vinculado; usa la confirmación de álbumes pendientes.")
+            require(bound.associationId == associationId) {
+                "El álbum pertenece a otra asociación. No se cambiará su identidad."
+            }
+            val association = dao.getDurableAssociation(libraryId, creditKey, associationId)
+                ?: error("La asociación durable no existe.")
+            val identity = dao.get(libraryId, creditKey, association.identityAssociationId)
+                ?: error("La identidad asociada ya no existe.")
+            require(identity.confirmedMbid == canonicalMbid) {
+                "La identidad cambió. Vuelve a abrir la ficha del artista."
+            }
+            val now = clock()
+            // Never backdate a semantic confirmation or fabricate a future receipt.
+            // A same-millisecond second click can simply be repeated.
+            require(now > bound.confirmedAtMs) {
+                "La confirmación debe ser posterior a la anterior; inténtalo de nuevo."
+            }
+            bindAlbumsLocked(
+                libraryId = libraryId,
+                creditKey = creditKey,
+                albumIds = listOf(albumId),
+                associationId = associationId,
+                expectedMbid = canonicalMbid,
+                evidenceType = ArtistMembershipEvidenceType.USER_EXPLICIT_BINDING,
+                now = now,
+            )
+            requireNotNull(decodePersisted(identity, recovered = false))
+        }
+        signalVerifiedAssociation(libraryId, normalizedCreditKey(credit), associationId,
+            enteredRoot, mayCaptureBindingProof = true)
+        return committed
     }
 
     private suspend fun bindAlbumsLocked(
@@ -392,7 +488,10 @@ class RoomArtistEnrichmentSelectionStore(
                     creditKey = creditKey,
                     associationId = associationId,
                     evidenceType = evidenceType.name,
-                    confirmedAtMs = current?.confirmedAtMs ?: now,
+                    // Explicit re-confirmation is a fresh semantic act. Preserving the
+                    // original timestamp makes source proof permanently impossible
+                    // for legacy bindings after a new root baseline has been observed.
+                    confirmedAtMs = now,
                 ),
             )
             dao.putMembershipEvidence(
@@ -489,11 +588,24 @@ class RoomArtistEnrichmentSelectionStore(
         credit: String,
         associationId: String,
         profile: ArtistExternalProfile,
-    ) = database.withTransaction {
-        val creditKey = normalizedCreditKey(credit)
-        val existing = dao.get(libraryId, creditKey, associationId)
-            ?: error("La asociación solicitada no existe")
-        persistProfile(existing, profile)
+    ) {
+        val enteredRoot = rootStampProvider()
+        database.withTransaction {
+            val creditKey = normalizedCreditKey(credit)
+            val existing = dao.get(libraryId, creditKey, associationId)
+                ?: error("La asociación solicitada no existe")
+            persistProfile(existing, profile)
+        }
+        // A profile may acquire its verified QID after the identity was saved. Notify
+        // every CONFIRMED association for this identity, never an unbound credit/name.
+        if (!profile.wikidataQid.isNullOrBlank()) {
+            val creditKey = normalizedCreditKey(credit)
+            dao.getDurableAssociationsForCredit(libraryId, creditKey)
+                .filter { it.identityAssociationId == associationId }
+                .take(32)
+                .forEach { signalVerifiedAssociation(libraryId, creditKey, it.associationId,
+                    enteredRoot, mayCaptureBindingProof = false) }
+        }
     }
 
     override suspend fun saveIdentity(
@@ -816,11 +928,20 @@ object ArtistEnrichmentPersistence {
                     ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                     ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
                     ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+                    ArtistEnrichmentCacheDatabase.MIGRATION_10_11,
                 )
                 .build().also { databaseInstance = it }
         }
 
     fun from(context: Context): ArtistEnrichmentSelectionStore = instance ?: synchronized(this) {
-        instance ?: RoomArtistEnrichmentSelectionStore(database(context)).also { instance = it }
+        val app = context.applicationContext // singleton must never capture an Activity
+        instance ?: RoomArtistEnrichmentSelectionStore(
+            database(app),
+            rootStampProvider = { org.michimusic.data.repository.MusicRootPreferences(app).currentRootStamp() },
+            afterVerifiedCommit = { libraryId, creditKey, associationId, stamp, mayCapture ->
+                if (stamp != null) org.michimusic.mobile.artist.artwork.ArtistArtworkAutoScheduler(app)
+                    .onVerifiedAssociationCommitted(libraryId, creditKey, associationId, stamp, mayCapture)
+            },
+        ).also { instance = it }
     }
 }

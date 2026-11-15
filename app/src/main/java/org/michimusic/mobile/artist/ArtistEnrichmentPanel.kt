@@ -140,6 +140,11 @@ fun ArtistEnrichmentPanel(
     var tags by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<EmbeddedArtistReview?>(null) }
     var tagReading by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
     var tagJob by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<Job?>(null) }
+    var creditProof by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<MusicBrainzCreditProofResult?>(null) }
+    var creditVerificationBusy by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
+    var creditProofSaved by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
+    var creditVerificationJob by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<Job?>(null) }
+    val reviewReceipts = remember(context) { ArtistCreditReviewReceiptPersistence(context) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
     // Aero Content/Plain for the candidate rows: the same fill and hairline the rest of
     // the system uses, instead of a locally invented white alpha that read as a card.
@@ -150,7 +155,7 @@ fun ArtistEnrichmentPanel(
     val secondaryColors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryPurple)
     val secondaryBorder = BorderStroke(0.8.dp, SecondaryPurple.copy(alpha = 0.5f))
     DisposableEffect(artistCredit, libraryId, stableGroup, localEvidenceScope) {
-        onDispose { tagJob?.cancel() }
+        onDispose { tagJob?.cancel(); creditVerificationJob?.cancel() }
     }
     val profile = uiState.profile
 
@@ -176,6 +181,9 @@ fun ArtistEnrichmentPanel(
             OutlinedButton(
                 onClick = {
                     if (tagJob?.isActive == true) return@OutlinedButton
+                    creditVerificationJob?.cancel()
+                    creditProof = null // a new tag inspection invalidates previous external proof
+                    creditProofSaved = false
                     tagReading = true
                     tagJob = scope.launch {
                         try {
@@ -216,22 +224,104 @@ fun ArtistEnrichmentPanel(
                 Text("Artista(s) de álbum: ${evidence.albumArtists.take(8).joinToString(" · ")}",
                     color = TextSecondary, fontSize = 12.sp)
             }
-            when {
-                evidence.hasConflict -> Text(
-                    "Etiquetas ambiguas: aparecen varios MBID. No se vinculará ningún artista automáticamente.",
-                    color = TextSecondary, fontSize = 12.sp)
-                evidence.suggestedMbid != null -> {
-                    Text("MBID encontrado en archivos (sin confirmar): ${evidence.suggestedMbid}",
+            // A file may credit multiple performers. Review structured identifiers
+            // per file and role instead of trusting a flattened set of tag values.
+            when (val proposal = EmbeddedArtistIdentityReview.evaluate(artistCredit, evidence)) {
+                is EmbeddedArtistIdentityProposal.Candidate -> {
+                    Text("MBID encontrado en ${proposal.supportingFiles} archivo(s) (sin confirmar): ${proposal.mbid}",
                         color = TertiaryCyan, fontSize = 12.sp)
+                    // Only one exact per-file recording/release pairing can be verified.
+                    // Text, filename, and album name never substitute for an MBID.
+                    val pairing = ArtistStructuredCreditClaimPlanner.plan(artistCredit, evidence)
+                    val claim = (pairing as? StructuredCreditPlan.Ready)?.claim
+                    if (claim != null && pairing is StructuredCreditPlan.Ready) {
+                        // File URI stays in Compose; only a stable local track ID reaches
+                        // the private Room receipt. No implicit album ownership.
+                        val reviewTrackId = localAudioUris.zip(localTrackIds)
+                            .filter { it.first == pairing.supportingUri }
+                            .map { it.second }.distinct().singleOrNull()
+                        val reviewAlbumKey = albumIds.distinct().singleOrNull()
+                        LaunchedEffect(claim, reviewTrackId, reviewAlbumKey, libraryId, evidence) {
+                            if (creditProof != null || creditVerificationBusy) return@LaunchedEffect
+                            val reviewScope = reviewReceipts.scopeFor(libraryId, artistCredit,
+                                reviewAlbumKey, reviewTrackId) ?: return@LaunchedEffect
+                            val restored = try { reviewReceipts.load(reviewScope, claim) }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (_: Exception) { false }
+                            if (restored && !creditVerificationBusy && creditProof == null) {
+                                creditProof = MusicBrainzCreditProofResult.CorroboratedForReview(
+                                    claim.artistMbid, claim.role)
+                                creditProofSaved = true
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                if (creditVerificationBusy) return@OutlinedButton
+                                creditVerificationBusy = true
+                                creditProofSaved = false
+                                creditVerificationJob = scope.launch {
+                                    try {
+                                        // Capture the root before HTTP; a root change during
+                                        // the request makes the durable review write fail closed.
+                                        val reviewScope = reviewReceipts.scopeFor(libraryId,
+                                            artistCredit, reviewAlbumKey, reviewTrackId)
+                                        val result = gateway.corroborateStructuredCredit(claim)
+                                        creditProof = result
+                                        if (reviewScope != null && result is
+                                            MusicBrainzCreditProofResult.CorroboratedForReview) {
+                                            creditProofSaved = try {
+                                                reviewReceipts.save(reviewScope, claim, result)
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (_: Exception) { false }
+                                        }
+                                    } catch (cancelled: CancellationException) { throw cancelled }
+                                    catch (_: Exception) {
+                                        creditProof = MusicBrainzCreditProofResult.Blocked(
+                                            MusicBrainzCreditProofResult.Reason.MISSING_RESPONSE)
+                                    } finally { creditVerificationBusy = false }
+                                }
+                            },
+                            enabled = !creditVerificationBusy,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .testTag("artist_credit_corroborate_musicbrainz"),
+                        ) { Text(if (creditVerificationBusy) "Verificando créditos…" else "Corroborar créditos en MusicBrainz") }
+                        when (creditProof) {
+                            is MusicBrainzCreditProofResult.CorroboratedForReview -> Text(
+                                if (creditProofSaved) "Créditos corroborados y guardados localmente para este archivo y álbum. Confirma la identidad manualmente."
+                                else "Créditos corroborados para revisión, pero sin recibo durable; confirma la identidad manualmente.",
+                                color = TertiaryCyan, fontSize = 12.sp)
+                            is MusicBrainzCreditProofResult.Blocked -> Text(
+                                "No se pudieron corroborar todos los identificadores. Revisar manualmente.",
+                                color = TextSecondary, fontSize = 12.sp)
+                            null -> Unit
+                        }
+                    }
+                    if (pairing is StructuredCreditPlan.Blocked) {
+                        Text("No hay un par grabación/lanzamiento inequívoco para corroborar en línea.",
+                            color = TextSecondary, fontSize = 12.sp)
+                    }
+                    // Only this explicit button can invoke identity persistence. A tag
+                    // suggestion never binds a new album or confirms a homonym.
                     OutlinedButton(
-                        onClick = { confirmExplicitly(requireNotNull(evidence.suggestedMbid)) },
-                        enabled = !uiState.refreshing && uiState.profile == null,
+                        onClick = { confirmExplicitly(proposal.mbid) },
+                        enabled = canPersist && !uiState.refreshing && uiState.profile == null,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .testTag("artist_embedded_mbid_confirm"),
                     ) { Text("Confirmar identidad y consultar MusicBrainz") }
                 }
-                else -> Text("Estos archivos no contienen un MBID de artista inequívoco. Puedes buscarlo manualmente.",
-                    color = TextSecondary, fontSize = 12.sp)
+                is EmbeddedArtistIdentityProposal.Blocked -> Text(
+                    when (proposal.reason) {
+                        EmbeddedArtistIdentityProposal.Reason.CONFLICTING_IDS ->
+                            "Los archivos contienen identificadores MusicBrainz incompatibles; elige explícitamente el correcto."
+                        EmbeddedArtistIdentityProposal.Reason.AMBIGUOUS_CREDIT ->
+                            "Hay varios artistas en la etiqueta y no se puede asignar un MBID a este crédito."
+                        EmbeddedArtistIdentityProposal.Reason.WRONG_CREDIT ->
+                            "Los identificadores corresponden a otro crédito o artista de álbum."
+                        EmbeddedArtistIdentityProposal.Reason.NO_EVIDENCE ->
+                            "No hay un MBID inequívoco en la evidencia disponible. Puedes buscarlo manualmente."
+                    }, color = TextSecondary, fontSize = 12.sp,
+                )
             }
         }
         when {
@@ -395,6 +485,34 @@ fun ArtistEnrichmentPanel(
                             ) {
                                 Text("Confirmar únicamente álbum local: $albumId")
                             }
+                        }
+                    }
+                }
+                // The visible action is optional and never claims another association.
+                // Even a stale UI snapshot cannot bypass the exact binding check in Room.
+                if (canPersist && result.persisted && uiState.profilePersisted &&
+                    uiState.associationGroupKey != null
+                ) {
+                    val boundVisible = albumIds.distinct().filter { albumId ->
+                        albumId.isNotBlank() && albumId !in uiState.unboundAlbumIds
+                    }.take(8)
+                    if (boundVisible.isNotEmpty()) {
+                        Text("Si un álbum antiguo no permite recuperar fotografías, " +
+                            "puedes reconfirmar explícitamente su vínculo con este artista.",
+                            color = TextSecondary, fontSize = 11.sp)
+                        boundVisible.forEachIndexed { index, albumId ->
+                            OutlinedButton(
+                                onClick = {
+                                    activeController.reconfirmVisibleAlbum(
+                                        artistCredit, libraryId, albumIds, albumId,
+                                    )
+                                },
+                                enabled = !uiState.refreshing,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    .testTag("artist_enrichment_reconfirm_bound_album_$index"),
+                                colors = secondaryColors,
+                                border = secondaryBorder,
+                            ) { Text("Reconfirmar álbum local: $albumId") }
                         }
                     }
                 }

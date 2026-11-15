@@ -56,7 +56,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                 ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
-                ArtistEnrichmentCacheDatabase.MIGRATION_9_10)
+                ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+                ArtistEnrichmentCacheDatabase.MIGRATION_10_11)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",
@@ -112,7 +113,8 @@ class ArtistEnrichmentMigrationTest {
                 ArtistEnrichmentCacheDatabase.MIGRATION_6_7,
                 ArtistEnrichmentCacheDatabase.MIGRATION_7_8,
                 ArtistEnrichmentCacheDatabase.MIGRATION_8_9,
-                ArtistEnrichmentCacheDatabase.MIGRATION_9_10)
+                ArtistEnrichmentCacheDatabase.MIGRATION_9_10,
+                ArtistEnrichmentCacheDatabase.MIGRATION_10_11)
             .build()
         try {
             assertEquals("bd6d4f63-5cd0-4d78-a292-167997794c21",

@@ -24,6 +24,15 @@ val appModule = module {
     single { org.michimusic.mobile.library.LibraryScopeStore(get(), get()) }
     single { org.michimusic.mobile.ui.theme.VisualPreferencesRepository(get()) }
     single { org.michimusic.mobile.sync.AutoSyncScheduler(get(), get(), get()) }
+    single<org.michimusic.data.repository.TrackCommitListener> {
+        val scheduler = org.michimusic.mobile.artist.artwork.ArtistArtworkAutoScheduler(get())
+        org.michimusic.data.repository.TrackCommitListener { libraryId, credit ->
+            scheduler.onTrackCommitted(libraryId, credit)
+        }
+    }
+    single<org.michimusic.data.repository.LocalCatalogListener> {
+        org.michimusic.mobile.artist.artwork.ArtistArtworkCatalogProcessor(get())
+    }
     // The single authority shared by the Wizard, Settings and library observers.
     single { MusicRootAuthority(get(), get(), get(), get()) }
 

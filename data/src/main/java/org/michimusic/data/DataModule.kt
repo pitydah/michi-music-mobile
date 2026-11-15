@@ -51,18 +51,28 @@ val dataModule = module {
         org.michimusic.data.repository.RoomTransferCheckpointRepository(get())
     }
     single<org.michimusic.data.repository.MusicLibraryRepository> {
-        org.michimusic.data.repository.DefaultMusicLibraryRepository(get(), get(), get(), get())
+        org.michimusic.data.repository.DefaultMusicLibraryRepository(
+            get(), get(), get(), get(),
+            trackCommitListener = getOrNull<org.michimusic.data.repository.TrackCommitListener>(),
+        )
     }
     single { SyncedTrackRepository(get(), get()) }
     single { MusicRootPreferences(androidContext()) }
     // The local library is scoped to one root: Music/ by default or one SAF tree.
     // Exclusion DAO is metadata-only. It must be shared by all LocalMediaRepository callers.
-    single { LocalMediaRepository(androidContext(), get(), get(), get(), get()) }
+    single {
+        LocalMediaRepository(androidContext(), get(), get(), get(), get(), getOrNull<org.michimusic.data.repository.LocalCatalogListener>())
+    }
     // Cold Room accessor; it performs no query unless the user opens song details.
     single { ExtendedTrackMetadataRepository(get(), androidContext()) }
     single<org.michimusic.data.repository.FavoritesRepository> {
         org.michimusic.data.repository.DefaultFavoritesRepository(get())
     }
     single { PlaylistRepository(get(), get(), get()) }
-    single { org.michimusic.data.repository.SafMediaRepository(androidContext(), get(), get()) }
+    single {
+        org.michimusic.data.repository.SafMediaRepository(
+            androidContext(), get(), get(),
+            catalogListener = getOrNull<org.michimusic.data.repository.LocalCatalogListener>(),
+        )
+    }
 }

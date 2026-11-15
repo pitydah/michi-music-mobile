@@ -53,6 +53,7 @@ fun allowedArtworkImageUrl(source: ArtworkSource, raw: String?): Boolean {
         ArtworkSource.COMMONS_P180,
         ArtworkSource.WIKIPEDIA_PAGEIMAGE,
         ArtworkSource.COMMONS_CATEGORY,
+        ArtworkSource.COMMONS_GALLERY,
         -> host == "upload.wikimedia.org" || host == "thumb.wikimedia.org"
 
         ArtworkSource.OPENVERSE ->
@@ -73,6 +74,7 @@ fun allowedArtworkSourcePage(source: ArtworkSource, raw: String?): Boolean {
         ArtworkSource.COMMONS_P180,
         ArtworkSource.WIKIPEDIA_PAGEIMAGE,
         ArtworkSource.COMMONS_CATEGORY,
+        ArtworkSource.COMMONS_GALLERY,
         -> host == "commons.wikimedia.org" &&
             uri.rawPath?.startsWith("/wiki/File:") == true
 
@@ -98,7 +100,8 @@ fun allowedArtworkEvidence(candidate: ArtistArtworkCandidate): Boolean = when (c
         candidate.verifiedQid != null && qidPattern.matches(candidate.verifiedQid) &&
             (candidate.source == ArtworkSource.COMMONS_P18 ||
                 candidate.source == ArtworkSource.COMMONS_P180 ||
-                candidate.source == ArtworkSource.COMMONS_CATEGORY)
+                candidate.source == ArtworkSource.COMMONS_CATEGORY ||
+                candidate.source == ArtworkSource.COMMONS_GALLERY)
 
     ArtworkEvidence.VERIFIED_ARTICLE_LINK ->
         candidate.verifiedQid != null && qidPattern.matches(candidate.verifiedQid) &&
@@ -176,11 +179,7 @@ private fun JsonElement.stringValue(): String? =
     (this as? JsonPrimitive)?.contentOrNull
 
 fun licenseKey(raw: String?): String? {
-    val uri = httpsUri(raw) ?: return null
-    if (uri.host != "creativecommons.org") return null
-    val parts = uri.rawPath.orEmpty().trim('/').split('/')
-    if (parts.size < 2) return null
-    return licenseKeyFromParts(parts[0], parts[1], parts.getOrNull(2))
+    return ArtistArtworkLegalUrlPolicy.canonicalKey(raw)
 }
 
 private fun licenseKeyFromParts(family: String, kind: String, version: String?): String? {

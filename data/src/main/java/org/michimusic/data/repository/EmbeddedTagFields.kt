@@ -17,6 +17,10 @@ internal data class EmbeddedTagFields(
     val discNumber: Int? = null,
     val discTotal: Int? = null,
     val date: String? = null,
+    val musicBrainzArtistIds: List<String> = emptyList(),
+    val musicBrainzAlbumArtistIds: List<String> = emptyList(),
+    val musicBrainzRecordingIds: List<String> = emptyList(),
+    val musicBrainzReleaseIds: List<String> = emptyList(),
 ) {
     val genre: String? get() = genres.takeIf { it.isNotEmpty() }?.joinToString("; ")
 }
@@ -44,11 +48,16 @@ internal object EmbeddedTagFieldsReader {
         val track = numberPair(first("TRACKNUMBER","TRACK","TRCK"))
         val disc = numberPair(first("DISCNUMBER","DISC","TPOS"))
         val genres = tags["GENRE"].orEmpty().plus(tags["TCON"].orEmpty()).mapNotNull(::valid).distinct()
+        val observedIds = MusicBrainzTagIdPolicy.fromTags(tags)
         return EmbeddedTagFields(first("TITLE","TIT2"),first("ARTIST","TPE1"),first("ALBUM","TALB"),
             first("ALBUMARTIST","ALBUM ARTIST","TPE2"), genres, first("COMPOSER","TCOM"),
             track.first, numberPair(first("TRACKTOTAL","TOTALTRACKS")).first ?: track.second,
             disc.first, numberPair(first("DISCTOTAL","TOTALDISCS")).first ?: disc.second,
-            first("DATE","TDRC","YEAR","TYER"))
+            first("DATE","TDRC","YEAR","TYER"),
+            musicBrainzArtistIds = observedIds.artistIds,
+            musicBrainzAlbumArtistIds = observedIds.albumArtistIds,
+            musicBrainzRecordingIds = observedIds.recordingIds,
+            musicBrainzReleaseIds = observedIds.releaseIds)
     }
     fun read(stream: InputStream): EmbeddedTagFields? = stream.use { input ->
         val bytes = java.io.ByteArrayOutputStream()
@@ -100,7 +109,7 @@ internal object EmbeddedTagFieldsReader {
         }
         val tags=linkedMapOf<String,MutableList<String>>()
         val names=mapOf("TT2" to "TIT2","TP1" to "TPE1","TAL" to "TALB","TP2" to "TPE2","TCO" to "TCON","TCM" to "TCOM","TRK" to "TRCK","TPA" to "TPOS","TYE" to "TYER")
-        val allowed=setOf("TIT2","TPE1","TALB","TPE2","TCON","TCOM","TRCK","TPOS","TDRC","TYER")
+        val allowed=setOf("TIT2","TPE1","TALB","TPE2","TCON","TCOM","TRCK","TPOS","TDRC","TYER","TXXX")
         while (p+(if(version==2) 6 else 10)<=end) {
             val header=if(version==2) 6 else 10
             val raw=String(b,p,if(version==2) 3 else 4,StandardCharsets.US_ASCII)
@@ -121,10 +130,25 @@ internal object EmbeddedTagFieldsReader {
                 val charset: Charset?=when(u(content[0])){0->StandardCharsets.ISO_8859_1;1->StandardCharsets.UTF_16;2->StandardCharsets.UTF_16BE;3->StandardCharsets.UTF_8;else->null}
                 if (charset != null && content.size > 1) {
                     val decoded = String(content,1,content.size-1,charset)
-                    val values = if (key == "TCON") Id3GenreCodes.tconValues(decoded)
-                        else listOf(decoded)
-                    values.mapNotNull(::valid).forEach {
-                        tags.getOrPut(key){mutableListOf()}.add(it)
+                    if (key == "TXXX") {
+                        // ID3 user text is DESCRIPTION NUL VALUE; never treat TPE1
+                        // display credits as authoritative identity.
+                        val separator = decoded.indexOf('\u0000')
+                        if (separator in 1..80) {
+                            val field = MusicBrainzTagIdPolicy.canonicalKey(decoded.substring(0, separator))
+                            if (field in setOf("MUSICBRAINZARTISTID", "MUSICBRAINZALBUMARTISTID",
+                                    "MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID",
+                                    "MUSICBRAINZALBUMID", "MUSICBRAINZRELEASEID")) {
+                                decoded.substring(separator + 1).split('\u0000').mapNotNull(::valid)
+                                    .forEach { tags.getOrPut(field) { mutableListOf() }.add(it) }
+                            }
+                        }
+                    } else {
+                        val values = if (key == "TCON") Id3GenreCodes.tconValues(decoded)
+                            else listOf(decoded)
+                        values.mapNotNull(::valid).forEach {
+                            tags.getOrPut(key){mutableListOf()}.add(it)
+                        }
                     }
                 }
             }
@@ -214,6 +238,37 @@ internal object EmbeddedTagFieldsReader {
                             }
                         }
                         q+=n.toInt()
+                    }
+                } else if (type == "----") {
+                    // iTunes freeform atoms: mean=com.apple.iTunes, name=tag name,
+                    // data=UTF text. Only the MusicBrainz namespace is trusted.
+                    var q = p + 8
+                    var mean: String? = null
+                    var name: String? = null
+                    val values = mutableListOf<String>()
+                    var pieces = 0
+                    while (q.toLong() + 12 <= next && pieces++ < 12) {
+                        val length = be(b, q).toLong() and 0xffffffffL
+                        if (length < 12 || q.toLong() + length > next) break
+                        val atom = String(b, q + 4, 4, StandardCharsets.ISO_8859_1)
+                        val skip = if (atom == "data") 16 else 12
+                        val n = length.toInt() - skip
+                        if (n in 1..2048) {
+                            val value = String(b, q + skip, n, StandardCharsets.UTF_8)
+                            when (atom) {
+                                "mean" -> mean = value
+                                "name" -> name = value
+                                "data" -> valid(value)?.let(values::add)
+                            }
+                        }
+                        q += length.toInt()
+                    }
+                    val field = MusicBrainzTagIdPolicy.canonicalKey(name.orEmpty())
+                    if (mean == "com.apple.iTunes" && field in setOf(
+                            "MUSICBRAINZARTISTID", "MUSICBRAINZALBUMARTISTID",
+                            "MUSICBRAINZTRACKID", "MUSICBRAINZRECORDINGID",
+                            "MUSICBRAINZALBUMID", "MUSICBRAINZRELEASEID")) {
+                        tags.getOrPut(field) { mutableListOf() }.addAll(values)
                     }
                 } else if(type=="moov" || type=="udta" || type=="meta" || type=="ilst") {
                     walk(p+8+(if(type=="meta") 4 else 0),next,depth+1)
