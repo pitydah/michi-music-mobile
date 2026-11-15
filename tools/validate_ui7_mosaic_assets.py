@@ -111,9 +111,7 @@ def genre_key(filename: str) -> str | None:
     return grouping_key(" ".join(words))
 
 
-def index_key(key: str) -> str:
-    """Tolerant lookup form: case/punctuation cannot merge two different genres."""
-    return re.sub(r"[^a-z0-9]+", " ", key.lower()).strip()
+# MI-26: canonical identity is exact; punctuation is not compacted into a lookup form.
 
 
 def geometry_valid(width: int, height: int) -> bool:
@@ -168,7 +166,6 @@ def validate(folder: Path = ASSETS) -> list[str]:
     installed = {p.name for p in folder.glob("*.webp")}
     used_files: set[str] = set()
     used_keys: set[str] = set()
-    used_indexes: set[str] = set()
     numbers: list[int] = []
     for number, cells in enumerate(records, 2):
         if len(cells) != FIELDS:
@@ -191,9 +188,7 @@ def validate(folder: Path = ASSETS) -> list[str]:
         if key in used_keys:
             errors.append(f"row {number}: duplicate genre_key '{key}'")
         used_keys.add(key)
-        if index_key(key) in used_indexes:
-            errors.append(f"row {number}: ambiguous genre_key '{key}'")
-        used_indexes.add(index_key(key))
+        # MI-26: used_keys above already enforces exact canonical uniqueness.
         if approval != APPROVAL:
             errors.append(f"row {number}: not user-confirmed complete")
         if not re.fullmatch(r"[a-f0-9]{64}", sha):

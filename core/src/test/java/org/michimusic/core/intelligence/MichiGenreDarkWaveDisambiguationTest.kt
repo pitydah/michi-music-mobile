@@ -56,7 +56,13 @@ class MichiGenreDarkWaveDisambiguationTest {
         assertEquals("norteno", MichiGenreDisambiguationPolicy.key("Norteño"))
         assertEquals("rai", MichiGenreDisambiguationPolicy.key("Raï"))
         assertEquals("j-pop", MichiGenreDisambiguationPolicy.key("J-Pop"))
-        assertEquals("j-rock", MichiGenreDisambiguationPolicy.key("J-Rock"))
+        // Approved aliases may collapse punctuation; the non-approved separators above must not.
+        assertEquals("j rock", MichiGenreDisambiguationPolicy.key("J-Rock"))
+        assertEquals("j rock", MichiGenreDisambiguationPolicy.key("JRock"))
+        assertEquals("coldwave", MichiGenreDisambiguationPolicy.key("Cold-Wave"))
+        assertEquals("art pop", MichiGenreDisambiguationPolicy.key("Art-Pop"))
+        assertEquals("nu jazz", MichiGenreDisambiguationPolicy.key("Nu-Jazz"))
+        assertEquals("cha cha cha", MichiGenreDisambiguationPolicy.key("Cha-cha-chá"))
         assertNotEquals(
             MichiGenreDisambiguationPolicy.key("J-Pop"),
             MichiGenreDisambiguationPolicy.key("J-Rock"),

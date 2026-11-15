@@ -109,8 +109,90 @@ object MichiGenreDisambiguationPolicy {
         register("thrash metal", "Thrash Metal", "thrashmetal", "thrash-metal")
         register("symphonic metal", "Symphonic Metal", "symphonicmetal", "symphonic-metal")
         register("post-metal", "Post-Metal", "post metal", "postmetal")
+        register("synthwave", "Synthwave", "synth wave", "synth-wave")
+        register("big band", "Big Band", "big-band")
+        register("vaporwave", "Vaporwave", "vapor wave", "vapor-wave")
+        register("rocksteady", "Rocksteady", "rock steady", "rock-steady")
+        register("new jack swing", "New Jack Swing", "new-jack-swing")
+        register("hi nrg", "Hi-NRG", "hi-nrg")
+        register("g funk", "G-Funk", "g-funk", "gfunk")
+        register("chillwave", "Chillwave", "chill wave", "chill-wave")
+        register("mpb", "MPB", "música popular brasileira", "musica popular brasileira")
+        register("idm", "IDM", "intelligent dance music")
+        register("j rock", "J-Rock", "j-rock", "jrock")
+        register("ndw", "NDW", "neue deutsche welle")
+        register("coldwave", "Coldwave", "cold wave", "cold-wave")
+        register("minimal wave", "Minimal Wave", "minimal-wave")
+        register("no wave", "No Wave", "no-wave")
+        register("ebm", "EBM", "electronic body music")
+        register("post punk revival", "Post Punk Revival", "post-punk revival")
+        register("sovietwave", "Sovietwave", "soviet wave", "soviet-wave")
+        register("russian post punk", "Russian Post Punk", "russian post-punk")
+        register("dark ambient", "Dark Ambient", "dark-ambient")
+        register("art pop", "Art Pop", "art-pop", "artpop")
+        register("modal jazz", "Modal Jazz", "modal-jazz")
+        register("soul jazz", "Soul Jazz", "soul-jazz")
+        register("ethio jazz", "Ethio Jazz", "ethio-jazz")
+        register("jazz funk", "Jazz Funk", "jazz-funk")
+        register("nu jazz", "Nu Jazz", "nu-jazz", "nujazz")
+        register("afro cuban jazz", "Afro Cuban Jazz", "afro-cuban jazz")
+        register("cha cha cha", "Cha Cha Chá", "cha-cha-cha", "cha-cha-chá")
     }
     private val canonicalDisplay: Map<String, String> = approved.values.associate { it.key to it.display }
+
+    /**
+     * MI-26 aliases that changed the canonical hash. These are read-time
+     * compatibility keys only: writes always use the canonical key, so legacy
+     * counters are summed exactly once and no evidence is duplicated.
+     */
+    private val legacyAliasKeys: Map<String, String> = mapOf(
+        "synth wave" to "synthwave",
+        "synth-wave" to "synthwave",
+        "big-band" to "big band",
+        "vapor wave" to "vaporwave",
+        "vapor-wave" to "vaporwave",
+        "rock steady" to "rocksteady",
+        "rock-steady" to "rocksteady",
+        "new-jack-swing" to "new jack swing",
+        "hi-nrg" to "hi nrg",
+        "g-funk" to "g funk",
+        "gfunk" to "g funk",
+        "chill wave" to "chillwave",
+        "chill-wave" to "chillwave",
+        "musica popular brasileira" to "mpb",
+        "intelligent dance music" to "idm",
+        "j-rock" to "j rock",
+        "jrock" to "j rock",
+        "neue deutsche welle" to "ndw",
+        "dark wave" to "darkwave",
+        "dark-wave" to "darkwave",
+        "cold wave" to "coldwave",
+        "cold-wave" to "coldwave",
+        "minimal-wave" to "minimal wave",
+        "no-wave" to "no wave",
+        "electronic body music" to "ebm",
+        "post-punk revival" to "post punk revival",
+        "soviet wave" to "sovietwave",
+        "soviet-wave" to "sovietwave",
+        "russian post-punk" to "russian post punk",
+        "dark-ambient" to "dark ambient",
+        "art-pop" to "art pop",
+        "artpop" to "art pop",
+        "modal-jazz" to "modal jazz",
+        "soul-jazz" to "soul jazz",
+        "ethio-jazz" to "ethio jazz",
+        "jazz-funk" to "jazz funk",
+        "nu-jazz" to "nu jazz",
+        "nujazz" to "nu jazz",
+        "afro-cuban jazz" to "afro cuban jazz",
+        "cha-cha-cha" to "cha cha cha",
+    )
+
+    /** Literal keys that previously hashed an alias now folded into [key]. */
+    fun legacyAliases(): Map<String, String> = legacyAliasKeys
+
+    fun legacyKeysFor(key: String): List<String> =
+        legacyAliasKeys.filterValues { it == key }.keys.toList()
 
     private fun folded(input: String): String = whitespace.replace(
         combiningMarks.replace(Normalizer.normalize(input.trim(), Normalizer.Form.NFD), "")

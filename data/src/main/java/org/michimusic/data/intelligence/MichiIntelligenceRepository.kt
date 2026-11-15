@@ -14,6 +14,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.michimusic.core.intelligence.MichiGenreDisambiguationPolicy
 import org.michimusic.core.intelligence.MichiGenreIntelligencePolicy
 import org.michimusic.core.intelligence.MichiHomeCardPreferencePolicy
 import org.michimusic.core.intelligence.MichiHomeIntelligencePolicy
@@ -53,6 +54,17 @@ class MichiIntelligenceRepository(
     private val appContext = context.applicationContext
     private val file: File get() = File(appContext.noBackupFilesDir, FILE_NAME)
     private val revocationMarker: File get() = File(appContext.noBackupFilesDir, REVOKED_FILE_NAME)
+    private val legacyGenreHashToCanonical: Map<String, String> by lazy {
+        MichiGenreDisambiguationPolicy.legacyAliases().entries.associate {
+            sha256(it.key) to sha256(it.value)
+        }
+    }
+    private val legacyGenreHashesByCanonical: Map<String, List<String>> by lazy {
+        MichiGenreDisambiguationPolicy.legacyAliases().entries.groupBy(
+            keySelector = { it.value },
+            valueTransform = { sha256(it.key) },
+        )
+    }
 
     /**
      * AtomicFile may leave a .new (interrupted write) or a legacy .bak (older
@@ -468,7 +480,11 @@ class MichiIntelligenceRepository(
                                     val score = decodeCounter(v)?.let {
                                         MichiIntelligencePolicy.decayed(it, nowEpochDay)
                                     } ?: 0
-                                    if (score != 0) genres[k.removePrefix(GENRE)] = score
+                                    if (score != 0) {
+                                        val hash = k.removePrefix(GENRE)
+                                        val canonicalHash = legacyGenreHashToCanonical[hash] ?: hash
+                                        genres.merge(canonicalHash, score, Int::plus)
+                                    }
                                 }
                                 k.startsWith(OWNED_TRACK) && k.length == 66 -> {
                                     val count = MichiOwnedPlayCountPolicy.decode(v)
@@ -533,9 +549,23 @@ class MichiIntelligenceRepository(
                             if (decayed != 0) put(key, decayed)
                         }
                     }
+                    fun projectGenres(keys: List<String>): Map<String, Int> = buildMap {
+                        for (key in keys) {
+                            val hashes = buildSet {
+                                add(sha256(key))
+                                addAll(legacyGenreHashesByCanonical[key].orEmpty())
+                            }
+                            var total = 0
+                            for (hash in hashes) {
+                                val value = rows[GENRE + hash]?.let(::decodeCounter) ?: continue
+                                total += MichiIntelligencePolicy.decayed(value, nowEpochDay)
+                            }
+                            if (total != 0) put(key, total)
+                        }
+                    }
                     if (!consentAllows(readEpoch))
                         AffinitySnapshot()
-                    else AffinitySnapshot(project(artists, ARTIST), project(genres, GENRE))
+                    else AffinitySnapshot(project(artists, ARTIST), projectGenres(genres))
                 }
             }
         }
