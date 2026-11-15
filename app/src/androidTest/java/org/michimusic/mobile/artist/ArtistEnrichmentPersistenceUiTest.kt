@@ -62,9 +62,17 @@ class ArtistEnrichmentPersistenceUiTest {
         rule.onNodeWithText("MBID confirmado por selección", substring = true).assertExists()
         assertEquals(0, fetches)
         rule.waitUntil(5000) {
+            rule.onAllNodesWithTag("artist_enrichment_advanced").fetchSemanticsNodes().isNotEmpty()
+        }
+        // K47-ART-03: advanced section, then confirmation; cancel would keep everything.
+        rule.onNodeWithTag("artist_enrichment_advanced").performScrollTo().performClick()
+        rule.waitUntil(5000) {
             rule.onAllNodesWithTag("artist_enrichment_clear").fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithTag("artist_enrichment_clear").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(0, cleared)
+        rule.onNodeWithTag("artist_enrichment_delete_confirm").performScrollTo().performClick()
         rule.waitForIdle()
         assertEquals(1, cleared)
     }

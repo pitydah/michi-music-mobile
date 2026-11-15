@@ -42,7 +42,11 @@ data class ArtistEnrichmentState(
     val refreshFailed: Boolean = false,
     val message: String? = null,
     val pendingPortraits: List<ArtistArtworkCandidate> = emptyList(),
+    /** True only while an explicitly requested Openverse search is running. */
+    val searchingPortraits: Boolean = false,
     val selections: Map<ArtworkSlot, ArtistArtworkSelection> = emptyMap(),
+    /** Last artwork receipt for this identity; null until a provider run finishes. */
+    val artworkReport: org.michimusic.mobile.artist.artwork.ArtworkResolutionReport? = null,
     val unboundAlbumIds: List<String> = emptyList(),
 )
 
@@ -74,6 +78,7 @@ class ArtistEnrichmentController(
 
     private var bindKey: String? = null
     private var requestJob: Job? = null
+    private var portraitJob: Job? = null
     /**
      * Identity-scoped request epoch. A response from a previous artist, library or
      * explicit action is discarded instead of overwriting the current screen.
@@ -278,6 +283,54 @@ class ArtistEnrichmentController(
                 _state.value = _state.value.copy(
                     refreshing = false,
                     message = error.message ?: "No fue posible vincular estos álbumes.",
+                )
+            }
+        }
+    }
+
+    /**
+     * K47-ART-02: explicit, consented Openverse discovery.
+     *
+     * Nothing calls this from composition, from [bind] or from [refresh]; a photo search
+     * runs only after the reader confirms it. A failed search never erases portraits
+     * that were already verified for this identity.
+     */
+    fun searchPortraits(
+        artistCredit: String,
+        libraryId: String?,
+        albumIds: List<String>,
+        query: String = artistCredit,
+    ) {
+        val current = _state.value
+        val profile = current.profile ?: return
+        if (current.searchingPortraits) return
+        portraitJob?.cancel()
+        _state.value = current.copy(searchingPortraits = true, message = null)
+        portraitJob = scope.launch {
+            try {
+                val items = orchestrator.searchManualPortraits(
+                    artistCredit = artistCredit,
+                    libraryId = libraryId,
+                    albumIds = albumIds,
+                    profile = profile,
+                    associationGroupKey = current.associationGroupKey,
+                    query = query,
+                )
+                _state.value = _state.value.copy(
+                    searchingPortraits = false,
+                    pendingPortraits = items,
+                    message = if (items.isEmpty()) {
+                        "La búsqueda manual no devolvió retratos utilizables."
+                    } else {
+                        "Retratos encontrados: ${items.size}. Revisa identidad y licencia antes de elegir."
+                    },
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(
+                    searchingPortraits = false,
+                    message = "No fue posible consultar Openverse. No se modificó ninguna foto guardada.",
                 )
             }
         }
@@ -626,6 +679,8 @@ class ArtistEnrichmentController(
                 incoming = result.selections,
                 identityChanged = identityChanged,
             ),
+            artworkReport = if (identityChanged) result.artwork
+                else result.artwork ?: current.artworkReport,
         )
     }
 }

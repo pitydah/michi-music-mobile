@@ -415,6 +415,14 @@ fun ArtistDetailScreen(
                         artistCredit = artistCredit,
                         libraryId = libraryId,
                         albumIds = albumIds,
+                        albumLabels = remember(localAlbums) {
+                            localAlbums.associate { entry ->
+                                entry.album.id to listOfNotNull(
+                                    entry.album.title.takeIf(String::isNotBlank),
+                                    entry.album.year.takeIf { it > 0 }?.toString(),
+                                ).joinToString(" · ")
+                            }
+                        },
                         controller = enrichmentController,
                         artworkStore = artworkStore,
                         localAudioUris = localTracks.map { it.filepath },

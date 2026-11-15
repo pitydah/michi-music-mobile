@@ -3,6 +3,7 @@ package org.michimusic.mobile.artist
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCoordinator
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
 import org.michimusic.mobile.artist.artwork.ArtworkLoadStatus
@@ -285,24 +286,10 @@ class ArtistEnrichmentOrchestrator(
             }
         } else null
 
-        // Openverse runs automatically only when a verified identity let the
-        // first-party providers run and they still left a visual slot uncovered.
-        // Name-only searches without a verified QID stay explicit, never automatic.
-        var pending: List<org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate> = emptyList()
-        if (anchor?.verifiedQid != null &&
-            (report == null || !report.selections.keys.containsAll(ArtworkSlot.entries))
-        ) {
-            pending = try {
-                when (val result = artwork.searchManual(anchor, artistCredit)) {
-                    is ProviderArtworkResult.Available -> result.items
-                    else -> emptyList()
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                emptyList()
-            }
-        }
+        // K47-ART-02: Openverse is a manual, consented search owned by the picker.
+        // Enrichment never queries it, not even when a verified identity left a slot
+        // uncovered: opening a profile must not contact a third party.
+        val pending: List<org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate> = emptyList()
 
         val hasBoth = report?.selections?.keys?.containsAll(ArtworkSlot.entries) == true
         val hasBio = !profile.biography.isNullOrBlank()
@@ -335,5 +322,33 @@ class ArtistEnrichmentOrchestrator(
             associationGroupKey = associationGroupKey,
             message = message,
         )
+    }
+
+    /**
+     * K47-ART-02: the only Openverse entry point. It requires an explicit user click and
+     * a confirmed identity; enrichment never reaches it, so opening a profile stays
+     * free of third-party calls.
+     */
+    suspend fun searchManualPortraits(
+        artistCredit: String,
+        libraryId: String?,
+        albumIds: List<String>,
+        profile: ArtistExternalProfile,
+        associationGroupKey: String?,
+        query: String,
+    ): List<ArtistArtworkCandidate> {
+        val anchor = artistIdentityAnchor(
+            libraryId, artistCredit, albumIds, profile, associationGroupKey,
+        ) ?: return emptyList()
+        return try {
+            when (val result = artwork.searchManual(anchor, query)) {
+                is ProviderArtworkResult.Available -> result.items
+                else -> emptyList()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 }

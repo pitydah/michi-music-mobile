@@ -114,6 +114,8 @@ class ArtistEnrichmentPanelTest {
         compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.onNodeWithText("MBID confirmado por selección", substring = true).assertExists()
+        // K47-ART-03: deletion now lives behind an advanced section and a confirmation.
+        compose.onNodeWithTag("artist_enrichment_advanced").performScrollTo().performClick()
         compose.onNodeWithTag("artist_enrichment_clear").assertExists()
         // The previous verified profile is still rendered while the network refresh runs.
         compose.onNodeWithText("Midnight Oil").assertExists()
@@ -191,7 +193,12 @@ class ArtistEnrichmentPanelTest {
         }
         compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
+        // K47-ART-03: nothing is deleted until the reader confirms the exact scope.
+        compose.onNodeWithTag("artist_enrichment_advanced").performScrollTo().performClick()
         compose.onNodeWithTag("artist_enrichment_clear").performScrollTo().performClick()
+        compose.waitForIdle()
+        assertEquals("Opening the confirmation must not delete anything", 0, store.clears.get())
+        compose.onNodeWithTag("artist_enrichment_delete_confirm").performScrollTo().performClick()
 
         compose.waitUntil(5_000) { store.clears.get() == 1 }
         compose.onNodeWithText("Enriquecimiento borrado.").assertExists()

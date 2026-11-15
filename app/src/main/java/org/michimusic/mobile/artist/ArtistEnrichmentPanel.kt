@@ -35,6 +35,7 @@ import kotlinx.coroutines.Job
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -54,9 +55,13 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
+import org.michimusic.mobile.artist.artwork.ArtistArtworkCoverageState
+import org.michimusic.mobile.artist.artwork.ArtistArtworkCoverageUiState
+import org.michimusic.mobile.artist.artwork.ArtistArtworkUiState
 import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSelection
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSlotState
 import org.michimusic.mobile.artist.artwork.ArtistArtworkService
 import org.michimusic.mobile.artist.artwork.ArtistArtworkStore
 import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
@@ -95,6 +100,8 @@ fun ArtistEnrichmentPanel(
     controller: ArtistEnrichmentController? = null,
     localAudioUris: List<String> = emptyList(),
     localTrackIds: List<String> = emptyList(),
+    /** K47-ART-05: human album labels; raw MediaStore ids never become a visible CTA. */
+    albumLabels: Map<String, String> = emptyMap(),
     tagProbe: ArtistTagProbe? = null,
 ) {
     val context = LocalContext.current
@@ -143,6 +150,8 @@ fun ArtistEnrichmentPanel(
     var creditProof by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<MusicBrainzCreditProofResult?>(null) }
     var creditVerificationBusy by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
     var creditProofSaved by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
+    var advancedOpen by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
+    var clearConfirm by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
     var creditVerificationJob by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<Job?>(null) }
     val reviewReceipts = remember(context) { ArtistCreditReviewReceiptPersistence(context) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
@@ -483,7 +492,10 @@ fun ArtistEnrichmentPanel(
                                 colors = secondaryColors,
                                 border = secondaryBorder,
                             ) {
-                                Text("Confirmar únicamente álbum local: $albumId")
+                                Text(
+                                    "Confirmar vínculo con " +
+                                        (albumLabels[albumId]?.takeIf { it.isNotBlank() } ?: "este álbum"),
+                                )
                             }
                         }
                     }
@@ -512,20 +524,73 @@ fun ArtistEnrichmentPanel(
                                     .testTag("artist_enrichment_reconfirm_bound_album_$index"),
                                 colors = secondaryColors,
                                 border = secondaryBorder,
-                            ) { Text("Reconfirmar álbum local: $albumId") }
+                            ) {
+                                Text(
+                                    "Reconfirmar vínculo con " +
+                                        (albumLabels[albumId]?.takeIf { it.isNotBlank() } ?: "este álbum"),
+                                )
+                            }
                         }
                     }
                 }
                 if (canPersist && result.persisted) {
-                    OutlinedButton(
-                        onClick = {
-                            activeController.clear(artistCredit, libraryId, albumIds)
-                        },
+                    // K47-ART-03: deletion is destructive and irreversible for this
+                    // association, so it lives behind an advanced section and an explicit
+                    // confirmation that states exactly what is removed and what remains.
+                    TextButton(
+                        onClick = { advancedOpen = !advancedOpen },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .testTag("artist_enrichment_clear"),
-                        colors = secondaryColors,
-                        border = secondaryBorder,
-                    ) { Text("Borrar enriquecimiento guardado") }
+                            .testTag("artist_enrichment_advanced"),
+                    ) {
+                        Text(
+                            if (advancedOpen) "Ocultar opciones avanzadas" else "Opciones avanzadas",
+                            color = PureWhite, fontSize = 12.sp,
+                        )
+                    }
+                    if (advancedOpen) {
+                        if (clearConfirm) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                                    .testTag("artist_enrichment_confirm_delete"),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    "Se quitarán de $artistCredit los datos enriquecidos guardados " +
+                                        "(MBID ${profile.mbid}, biografía, fotografías y vínculos de " +
+                                        "${albumIds.distinct().size} álbum(es)). Tus archivos de audio, " +
+                                        "etiquetas y la biblioteca local no se modifican.",
+                                    color = PureWhite, fontSize = 12.sp,
+                                )
+                                Text(
+                                    "Esta acción no se puede deshacer desde aquí.",
+                                    color = TextSecondary, fontSize = 11.sp,
+                                )
+                                TextButton(
+                                    onClick = { clearConfirm = false },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("artist_enrichment_delete_cancel"),
+                                ) { Text("Cancelar", color = SecondaryPurple) }
+                                OutlinedButton(
+                                    onClick = {
+                                        clearConfirm = false
+                                        activeController.clear(artistCredit, libraryId, albumIds)
+                                    },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                        .testTag("artist_enrichment_delete_confirm"),
+                                    colors = secondaryColors,
+                                    border = secondaryBorder,
+                                ) { Text("Quitar datos enriquecidos") }
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = { clearConfirm = true },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                    .testTag("artist_enrichment_clear"),
+                                colors = secondaryColors,
+                                border = secondaryBorder,
+                            ) { Text("Quitar datos enriquecidos…") }
+                        }
+                    }
                 }
                 Text(listOf(profile.type, profile.area, profile.disambiguation)
                     .filter(String::isNotBlank).joinToString(" · ").ifBlank { "Identidad registrada en MusicBrainz" },
@@ -566,6 +631,10 @@ fun ArtistEnrichmentPanel(
                     albumIds = albumIds,
                     initialSelections = uiState.selections,
                     pendingCandidates = result.pendingPortraits,
+                    searching = uiState.searchingPortraits,
+                    onSearch = {
+                        activeController.searchPortraits(artistCredit, libraryId, albumIds)
+                    },
                     associationGroupKey = uiState.associationGroupKey,
                     onSelectionsChanged = { selections ->
                         activeController.applySelections(
@@ -576,6 +645,26 @@ fun ArtistEnrichmentPanel(
                             selections = selections,
                         )
                     },
+                )
+                val artworkUi = ArtistArtworkUiState(
+                    thumb = ArtistArtworkSlotState(
+                        slot = ArtworkSlot.ARTIST_THUMB,
+                        selection = uiState.selections[ArtworkSlot.ARTIST_THUMB],
+                        status = uiState.selections[ArtworkSlot.ARTIST_THUMB]?.status
+                            ?: ArtworkLoadStatus.NOT_REQUESTED,
+                    ),
+                    hero = ArtistArtworkSlotState(
+                        slot = ArtworkSlot.ARTIST_HERO,
+                        selection = uiState.selections[ArtworkSlot.ARTIST_HERO],
+                        status = uiState.selections[ArtworkSlot.ARTIST_HERO]?.status
+                            ?: ArtworkLoadStatus.NOT_REQUESTED,
+                    ),
+                )
+                ArtistArtworkCoverageSection(
+                    uiState = artworkUi,
+                    report = uiState.artworkReport,
+                    identityConfirmed = profile.mbid.isNotBlank(),
+                    verifiedQid = profile.wikidataQid,
                 )
                 Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
                     color = TextSecondary, fontSize = 11.sp)
@@ -624,6 +713,8 @@ fun ArtistArtworkManualSection(
     initialSelections: Map<ArtworkSlot, ArtistArtworkSelection>,
     pendingCandidates: List<ArtistArtworkCandidate>,
     associationGroupKey: String?,
+    searching: Boolean = false,
+    onSearch: (() -> Unit)? = null,
     onSelectionsChanged: (Map<ArtworkSlot, ArtistArtworkSelection>) -> Unit,
     chooser: (suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport)? = null,
 ) {
@@ -650,7 +741,7 @@ fun ArtistArtworkManualSection(
     var message by remember(anchor) { mutableStateOf<String?>(null) }
     val candidates = pendingCandidates
     Text("Retratos alternativos", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    Text("Se buscan automáticamente cuando hacen falta. La imagen elegida se descarga y se guarda para este artista.",
+    Text("Solo se consultan cuando tú lo pides. La imagen elegida se descarga y se guarda para este artista.",
         color = TextSecondary, fontSize = 11.sp)
     selections.values.sortedBy { it.slot.ordinal }.forEach { selection ->
         val file = selection.localImagePath?.takeIf { it.isNotBlank() }?.let(::File)
@@ -760,8 +851,45 @@ fun ArtistArtworkManualSection(
             )
         }
     }
-    Text("Los retratos alternativos se consultan automáticamente cuando las fuentes verificadas no cubren el mosaico y la ficha.",
-        color = TextSecondary, fontSize = 11.sp)
+    var consentOpen by remember(anchor, profile.mbid) { mutableStateOf(false) }
+    if (consentOpen) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                .testTag("artist_artwork_openverse_consent"),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "La búsqueda en Openverse enviaría el nombre público de $artistCredit. " +
+                    "Las fotos requieren comprobar identidad, atribución y licencia antes de guardarse.",
+                color = TextSecondary, fontSize = 11.sp,
+            )
+            TextButton(
+                onClick = { consentOpen = false },
+                modifier = Modifier.heightIn(min = 48.dp)
+                    .testTag("artist_artwork_openverse_cancel"),
+            ) { Text("Cancelar", color = SecondaryPurple) }
+            OutlinedButton(
+                onClick = {
+                    consentOpen = false
+                    onSearch?.invoke()
+                },
+                enabled = !searching && onSearch != null,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .testTag("artist_artwork_openverse_confirm"),
+                colors = secondaryColors,
+                border = secondaryBorder,
+            ) { Text("Buscar esta vez") }
+        }
+    } else if (onSearch != null) {
+        OutlinedButton(
+            onClick = { consentOpen = true },
+            enabled = !searching,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("artist_artwork_openverse_search"),
+            colors = secondaryColors,
+            border = secondaryBorder,
+        ) { Text(if (searching) "Buscando retratos…" else "Buscar otras fotografías") }
+    }
     message?.let { Text(it, color = TextSecondary, fontSize = 11.sp,
         modifier = Modifier.testTag("artist_artwork_openverse_status")) }
     if (candidates.isNotEmpty()) {
@@ -829,6 +957,90 @@ fun ArtistArtworkManualSection(
                         border = secondaryBorder,
                     ) { Text("Usar en $label") }
                 }
+        }
+    }
+}
+
+
+/**
+ * K47-ART-01: causal diagnosis, collapsed by default so the summary stays the
+ * primary task. Each slot and each provider reports its own state; a missing photo
+ * is never flattened into a generic sentence.
+ */
+@Composable
+internal fun ArtistArtworkCoverageSection(
+    uiState: ArtistArtworkUiState,
+    report: ArtworkResolutionReport?,
+    identityConfirmed: Boolean,
+    verifiedQid: String?,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val coverage = remember(uiState, report, identityConfirmed, verifiedQid) {
+        ArtistArtworkCoverageUiState.from(
+            uiState = uiState,
+            report = report,
+            identityConfirmed = identityConfirmed,
+            verifiedQid = verifiedQid,
+        )
+    }
+    Column(modifier.fillMaxWidth().testTag("artist_artwork_coverage")) {
+        HorizontalDivider(color = TextSecondary.copy(alpha = 0.2f))
+        TextButton(
+            onClick = { expanded = !expanded },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("artist_artwork_coverage_toggle"),
+        ) {
+            Text(
+                if (expanded) "Ocultar diagnóstico por proveedor" else "Diagnóstico por proveedor",
+                color = PureWhite, fontSize = 12.sp,
+            )
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                coverage.slots.forEach { slot ->
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                            .testTag("artist_artwork_coverage_slot_${slot.slot.name}"),
+                    ) {
+                        Text(
+                            "${slot.slotLabel} · ${slot.statusLabel}",
+                            color = if (slot.state == ArtistArtworkCoverageState.READY)
+                                TertiaryCyan else PureWhite,
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                        slot.reason?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
+                        slot.nextAction?.let {
+                            Text("Siguiente paso: $it", color = SecondaryPurple, fontSize = 11.sp)
+                        }
+                    }
+                }
+                if (!coverage.diagnosed) {
+                    Text(
+                        "Aún no diagnosticado. Abre la ficha para obtener un recibo por proveedor.",
+                        color = TextSecondary, fontSize = 11.sp,
+                    )
+                }
+                coverage.providers.forEach { provider ->
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "${provider.label} · ${provider.statusLabel}",
+                            color = PureWhite, fontSize = 11.sp,
+                        )
+                        provider.reason?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
+                    }
+                }
+                coverage.primaryAction?.let {
+                    Text("Siguiente paso de la ficha: $it", color = SecondaryPurple, fontSize = 11.sp)
+                }
+                Text(
+                    "Solo se muestran estados causales: nunca rutas, URLs ni datos privados.",
+                    color = TextSecondary, fontSize = 11.sp,
+                )
+            }
         }
     }
 }
