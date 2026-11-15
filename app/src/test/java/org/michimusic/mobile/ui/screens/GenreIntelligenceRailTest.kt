@@ -1,6 +1,9 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -124,6 +127,38 @@ class GenreIntelligenceRailTest {
         compose.onNodeWithTag("genre_intelligence_track_0").assertIsDisplayed()
         compose.onNodeWithText("Reproduciendo · Por tu afinidad con este artista")
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun thePlayingRowOffersNoControlThatWouldRestartIt() {
+        var plays = 0
+        setRail(
+            expanded(first, second).copy(playingKey = first.key),
+            onPlayPick = { plays++ },
+        )
+        compose.onNodeWithTag("genre_intelligence_track_play_0")
+            .assertIsDisplayed()
+            .assertHasNoClickAction()
+        compose.onNodeWithTag("genre_intelligence_track_play_1")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+
+        compose.onNodeWithTag("genre_intelligence_track_play_0").performClick()
+        assertEquals(0, plays)
+    }
+
+    @Test
+    fun theSelectionCtaBecomesInformationalWhileTheMixPlays() {
+        var selections = 0
+        setRail(
+            expanded(first, second).copy(playingKey = first.key),
+            onPlaySelection = { selections++ },
+        )
+        compose.onNodeWithTag("genre_intelligence_play_mix")
+            .assertIsDisplayed()
+            .assertTextEquals("Reproduciendo selección (2)")
+            .assertHasNoClickAction()
+        assertEquals(0, selections)
     }
 
     @Test

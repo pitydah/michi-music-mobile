@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,7 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -96,14 +97,29 @@ internal fun GenreIntelligenceRail(
                 )
             }
             if (state.picks.size > 1) {
-                TextButton(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = MichiSpacing.minTouchTarget)
-                        .padding(horizontal = 12.dp)
-                        .testTag("genre_intelligence_play_mix"),
-                    onClick = onPlaySelection,
-                ) { Text("Reproducir selección (${state.picks.size})") }
+                if (state.playingKey != null) {
+                    // The mix is already playing. Restarting it from here would be an
+                    // unannounced playback change, so the control becomes informational.
+                    Text(
+                        "Reproduciendo selección (${state.picks.size})",
+                        color = TertiaryCyan,
+                        style = MichiTypography.metadata,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = MichiSpacing.minTouchTarget)
+                            .padding(horizontal = 12.dp, vertical = 14.dp)
+                            .testTag("genre_intelligence_play_mix"),
+                    )
+                } else {
+                    TextButton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = MichiSpacing.minTouchTarget)
+                            .padding(horizontal = 12.dp)
+                            .testTag("genre_intelligence_play_mix"),
+                        onClick = onPlaySelection,
+                    ) { Text("Reproducir selección (${state.picks.size})") }
+                }
             }
             Text(
                 state.reasonDetail
@@ -268,21 +284,40 @@ private fun RailPickRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(
-            modifier = Modifier
-                .size(MichiSpacing.minTouchTarget)
-                .testTag("genre_intelligence_track_play_$index")
-                .semantics {
-                    stateDescription = if (playing) "Reproduciendo" else "Pausado"
-                },
-            onClick = { onPlayPick(pick.key) },
-        ) {
-            Icon(
-                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (playing) "Reproduciendo ${pick.title}"
-                    else "Reproducir ${pick.title}",
-                tint = if (playing) TertiaryCyan else PureWhite,
-            )
+        if (playing) {
+            // This pick is the one sounding right now. The row states the fact and
+            // offers no control, because restarting it would surface a fake pause.
+            Box(
+                modifier = Modifier
+                    .size(MichiSpacing.minTouchTarget)
+                    .testTag("genre_intelligence_track_play_$index")
+                    .semantics {
+                        stateDescription = "Reproduciendo"
+                        contentDescription = "Reproduciendo ${pick.title}"
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.GraphicEq,
+                    contentDescription = null,
+                    tint = TertiaryCyan,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        } else {
+            IconButton(
+                modifier = Modifier
+                    .size(MichiSpacing.minTouchTarget)
+                    .testTag("genre_intelligence_track_play_$index")
+                    .semantics { stateDescription = "Pausado" },
+                onClick = { onPlayPick(pick.key) },
+            ) {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = "Reproducir ${pick.title}",
+                    tint = PureWhite,
+                )
+            }
         }
     }
 }
