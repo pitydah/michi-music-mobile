@@ -58,6 +58,14 @@ class GenreDetailHeaderComposeTest {
         File(context.getExternalFilesDir(null), "ui7-mega-c-evidence").apply { mkdirs() }
     } else null
     private val evidenceLines = mutableListOf<String>()
+
+    /**
+     * This suite composes the panel inside a fixed reference container. On a phone narrower
+     * than that reference Compose measures the container at the screen width, so every
+     * geometry expectation must come from the width the panel really receives.
+     */
+    private val deviceWidthDp: Int = context.resources.configuration.screenWidthDp
+    private var activeWidthDp: Float = 411f
     private var activeDensity = 0f
 
     private fun pxOf(dpValue: Float): Float = dpValue * activeDensity
@@ -86,12 +94,14 @@ class GenreDetailHeaderComposeTest {
         val genres = fixture.genres
         val playableIds = fixture.tracks.map { it.id }.toSet()
         val panelDensity = density ?: rule.density.density
+        val appliedWidthDp = minOf(widthDp, deviceWidthDp)
+        activeWidthDp = appliedWidthDp.toFloat()
         activeDensity = panelDensity
         rule.setContent {
             val baseConfiguration = LocalConfiguration.current
             val configuration = remember(baseConfiguration, widthDp, fontScale) {
                 Configuration(baseConfiguration).apply {
-                    screenWidthDp = widthDp
+                    screenWidthDp = appliedWidthDp
                     this.fontScale = fontScale
                 }
             }
@@ -100,7 +110,7 @@ class GenreDetailHeaderComposeTest {
                 LocalDensity provides Density(panelDensity, fontScale),
             ) {
                 MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
-                    Box(Modifier.width(widthDp.dp).fillMaxHeight()) {
+                    Box(Modifier.width(appliedWidthDp.dp).fillMaxHeight()) {
                         GenreLibraryPanel(
                             genres = genres,
                             playableTrackIds = playableIds,
@@ -170,7 +180,7 @@ class GenreDetailHeaderComposeTest {
                 .fetchSemanticsNodes().isEmpty())
         val editorial = bounds("genre_detail_header")
         assertNear("Editorial header keeps 20dp side margins",
-            pxOf(411f - 40f), editorial.width, pxOf(1.5f))
+            pxOf(activeWidthDp - 40f), editorial.width, pxOf(1.5f))
         assertTrue("Editorial header height ${editorial.height}px must stay in 160..192dp",
             editorial.height >= pxOf(160f) - pxOf(1f) &&
                 editorial.height <= pxOf(192f) + pxOf(1f))
@@ -190,7 +200,7 @@ class GenreDetailHeaderComposeTest {
                 .fetchSemanticsNodes().isEmpty())
         val mosaico = bounds("genre_detail_header")
         assertNear("Mosaico header keeps 20dp side margins",
-            pxOf(411f - 40f), mosaico.width, pxOf(1.5f))
+            pxOf(activeWidthDp - 40f), mosaico.width, pxOf(1.5f))
         assertTrue("Mosaico header height ${mosaico.height}px must stay in 160..192dp",
             mosaico.height >= pxOf(160f) - pxOf(1f) &&
                 mosaico.height <= pxOf(192f) + pxOf(1f))
@@ -217,7 +227,7 @@ class GenreDetailHeaderComposeTest {
         )
         rule.setContent {
             MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
-                Box(Modifier.width(411.dp).fillMaxHeight()) {
+                Box(Modifier.width(activeWidthDp.dp).fillMaxHeight()) {
                     GenreLibraryPanel(
                         genres = groupLibraryGenres(listOf(track)),
                         playableTrackIds = setOf(track.id),
@@ -313,14 +323,15 @@ class GenreDetailHeaderComposeTest {
 
     @Test fun detailHeaderAndRowsStayInsideTheBandAt480DpAndTwoXFont() {
         // 2.0x density keeps a real 480dp panel inside the 1080px emulator while
-        // still measuring the requested dp geometry at a 2x font scale.
+        // still measuring the requested dp geometry at a 2x font scale. A device
+        // narrower than 480dp measures its own width instead (see setPanel).
         setPanel(widthDp = 480, fontScale = 2f, density = 2f)
         rule.waitForIdle()
         waitForTag(mosaicTileTag("Pop"))
         rule.onNodeWithTag(mosaicTileTag("Pop")).performClick()
         waitForTag("genre_detail_header")
         val header = bounds("genre_detail_header")
-        assertNear("480dp header keeps 20dp side margins", pxOf(480f - 40f), header.width,
+        assertNear("480dp header keeps 20dp side margins", pxOf(activeWidthDp - 40f), header.width,
             pxOf(1.5f))
         assertTrue("2x header height ${header.height}px must stay in 160..192dp",
             header.height >= pxOf(160f) - pxOf(1f) &&

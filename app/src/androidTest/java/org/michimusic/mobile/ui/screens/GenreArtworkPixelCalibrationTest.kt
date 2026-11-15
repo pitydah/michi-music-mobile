@@ -114,6 +114,17 @@ class GenreArtworkPixelCalibrationTest {
     private val editorialTitles =
         listOf("New Wave", "Pop", "Rock", "Soft Rock", "NDW", "Timba")
 
+    /**
+     * The pixel contracts were written against a 411 dp reference container. A narrower
+     * device measures that container at the screen width, so both the composed width and
+     * every derived expectation must use the width the grid really receives.
+     */
+    private val referenceWidthDp: Int = minOf(
+        411,
+        InstrumentationRegistry.getInstrumentation().targetContext
+            .resources.configuration.screenWidthDp,
+    )
+
     private fun pxOf(dpValue: Float): Float = with(rule.density) { dpValue.dp.toPx() }
     private fun dpOf(pxValue: Float): Float = pxValue / rule.density.density
 
@@ -255,7 +266,7 @@ class GenreArtworkPixelCalibrationTest {
     }
 
     @Test fun verifiedTimbaCropHasOneContourAndNoCornerWedges() {
-        setMosaicPanel(411, mosaicTitles)
+        setMosaicPanel(referenceWidthDp, mosaicTitles)
         rule.waitUntil(20_000) { receipts["FEATURED:timba"] != null }
         assertEquals("Timba must decode", true, receipts["FEATURED:timba"])
         rule.onNodeWithTag("genres_featured")
@@ -295,8 +306,8 @@ class GenreArtworkPixelCalibrationTest {
     }
 
     @Test fun everyPackagedCropPaintsInTheHomogeneousCell() {
-        setMosaicPanel(411, mosaicTitles)
-        val size = mosaicCardSize(411f, 2)
+        setMosaicPanel(referenceWidthDp, mosaicTitles)
+        val size = mosaicCardSize(referenceWidthDp.toFloat(), 2)
         mosaicTitles.forEach { title ->
             val id = genreGroupingKey(title)
             rule.onNodeWithTag("genres_featured")
@@ -345,11 +356,11 @@ class GenreArtworkPixelCalibrationTest {
         assertEquals("fixture must have an optical row", true, timba.opticalMask != null)
         rule.setContent {
             MichiTheme {
-                Box(Modifier.width(411.dp).fillMaxHeight().background(SurfaceObsidian)) {
+                Box(Modifier.width(referenceWidthDp.dp).fillMaxHeight().background(SurfaceObsidian)) {
                     GenreMosaicGrid(
                         genres = listOf(genre("Timba")),
                         columns = 2,
-                        availableWidthDp = 411f,
+                        availableWidthDp = referenceWidthDp.toFloat(),
                         state = rememberLazyGridState(),
                         artwork = mapOf("timba" to unverified),
                         onArtworkLoad = { view, id, ok -> receipts["${view.name}:$id"] = ok },
@@ -375,7 +386,7 @@ class GenreArtworkPixelCalibrationTest {
         assertFalse(spec.hasVerifiedContour)
         assertFalse("the provisional clip is not certified", spec.clipMask.verified)
         assertEquals(2f, spec.clipMask.leftInsetPx)
-        val size = mosaicCardSize(411f, 2)
+        val size = mosaicCardSize(referenceWidthDp.toFloat(), 2)
         val decision = ui7ArtworkDecision(spec, size.widthDp, size.heightDp, 26f, 26f)
         assertTrue(decision.paintsArtwork)
         assertTrue(decision.quality.opticalMaskUnverified)
@@ -389,11 +400,11 @@ class GenreArtworkPixelCalibrationTest {
         val genres = editorialTitles.map { genre(it) }
         rule.setContent {
             MichiTheme(visualPreferences = VisualPreferences(reducedMotion = true)) {
-                Box(Modifier.width(411.dp).fillMaxHeight().background(SurfaceObsidian)) {
+                Box(Modifier.width(referenceWidthDp.dp).fillMaxHeight().background(SurfaceObsidian)) {
                     GenreEditorialGrid(
                         genres = genres,
                         columns = 2,
-                        availableWidthDp = 411f,
+                        availableWidthDp = referenceWidthDp.toFloat(),
                         state = rememberLazyListState(),
                         posterAssets = posterAssets,
                         onArtworkLoad = { view, id, ok -> receipts["${view.name}:$id"] = ok },
@@ -404,7 +415,7 @@ class GenreArtworkPixelCalibrationTest {
         }
         rule.waitForIdle()
 
-        val plan = editorialPlan(genres, posterAssets, 411f, 2, 1f)
+        val plan = editorialPlan(genres, posterAssets, referenceWidthDp.toFloat(), 2, 1f)
         // New Wave banner, Pop compact single (Rock is a banner), Rock banner,
         // Soft Rock+NDW pair, Timba compact single.
         assertEquals(
@@ -413,7 +424,7 @@ class GenreArtworkPixelCalibrationTest {
                 EditorialRowKind.SINGLE_COMPACT),
             plan.map { it.kind },
         )
-        val usable = editorialUsableWidthDp(411f)
+        val usable = editorialUsableWidthDp(referenceWidthDp.toFloat())
         plan.forEach { row ->
             when (row) {
                 is EditorialRow.Full -> {
@@ -491,11 +502,11 @@ class GenreArtworkPixelCalibrationTest {
         val genres = counts.mapIndexed { index, count -> genre("Conteo $index", count) }
         rule.setContent {
             MichiTheme {
-                Box(Modifier.width(411.dp).fillMaxHeight().background(SurfaceObsidian)) {
+                Box(Modifier.width(referenceWidthDp.dp).fillMaxHeight().background(SurfaceObsidian)) {
                     GenreMosaicGrid(
                         genres = genres,
                         columns = 2,
-                        availableWidthDp = 411f,
+                        availableWidthDp = referenceWidthDp.toFloat(),
                         state = rememberLazyGridState(),
                         artwork = emptyMap(),
                         onArtworkLoad = null,

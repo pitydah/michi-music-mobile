@@ -53,6 +53,17 @@ import org.michimusic.mobile.ui.theme.SurfaceObsidian
 class GenreArtworkComposeRenderTest {
     @get:Rule val rule = createComposeRule()
 
+    /**
+     * The render contracts were written against a 411 dp reference container. A narrower
+     * device measures that container at the screen width, so both the composed width and
+     * every derived expectation must use the width the grid really receives.
+     */
+    private val referenceWidthDp: Int = minOf(
+        411,
+        InstrumentationRegistry.getInstrumentation().targetContext
+            .resources.configuration.screenWidthDp,
+    )
+
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     private fun changedSamples(before: ImageBitmap, after: ImageBitmap): Pair<Int, Int> {
@@ -194,7 +205,7 @@ class GenreArtworkComposeRenderTest {
         val genres = titles.map { genre(it) }
         rule.setContent {
             MichiTheme {
-                Box(Modifier.width(411.dp).fillMaxHeight()) {
+                Box(Modifier.width(referenceWidthDp.dp).fillMaxHeight()) {
                     GenreLibraryPanel(
                         genres = genres,
                         playableTrackIds = genres.flatMap { it.tracks }.map { it.id }.toSet(),
@@ -257,11 +268,11 @@ class GenreArtworkComposeRenderTest {
         val receipts = ConcurrentHashMap<String, Boolean>()
         rule.setContent {
             MichiTheme {
-                Box(Modifier.width(411.dp).fillMaxHeight().background(SurfaceObsidian)) {
+                Box(Modifier.width(referenceWidthDp.dp).fillMaxHeight().background(SurfaceObsidian)) {
                     GenreMosaicGrid(
                         genres = listOf(genre("Timba")),
                         columns = 2,
-                        availableWidthDp = 411f,
+                        availableWidthDp = referenceWidthDp.toFloat(),
                         state = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
                         artwork = mapOf("timba" to unverified),
                         onArtworkLoad = { view, id, ok -> receipts["${view.name}:$id"] = ok },
@@ -283,7 +294,7 @@ class GenreArtworkComposeRenderTest {
         assertFalse("the verified contour is missing", spec.hasVerifiedContour)
         assertFalse("the provisional clip is not certified", spec.clipMask.verified)
         assertEquals("provisional inset", 2f, spec.clipMask.leftInsetPx)
-        val size = mosaicCardSize(411f, 2)
+        val size = mosaicCardSize(referenceWidthDp.toFloat(), 2)
         val decision = ui7ArtworkDecision(spec, size.widthDp, size.heightDp, 26f, 26f)
         assertTrue(decision.paintsArtwork)
         assertTrue(decision.quality.opticalMaskUnverified)
@@ -353,11 +364,11 @@ class GenreArtworkComposeRenderTest {
         val receipts = ConcurrentHashMap<String, Boolean>()
         rule.setContent {
             MichiTheme {
-                Row(Modifier.width(411.dp).background(SurfaceObsidian)) {
+                Row(Modifier.width(referenceWidthDp.dp).background(SurfaceObsidian)) {
                     GenreEditorialGrid(
                         genres = genres,
                         columns = 2,
-                        availableWidthDp = 411f,
+                        availableWidthDp = referenceWidthDp.toFloat(),
                         state = rememberLazyListState(),
                         posterAssets = posters,
                         onArtworkLoad = { view, id, ok -> receipts["${view.name}:$id"] = ok },
@@ -368,12 +379,12 @@ class GenreArtworkComposeRenderTest {
         }
         rule.waitForIdle()
 
-        val plan = editorialPlan(genres, posters, 411f, 2, 1f)
+        val plan = editorialPlan(genres, posters, referenceWidthDp.toFloat(), 2, 1f)
         assertEquals("banner, compact single, banner, compact single",
             listOf(EditorialRowKind.BANNER, EditorialRowKind.SINGLE_COMPACT,
                 EditorialRowKind.BANNER, EditorialRowKind.SINGLE_COMPACT),
             plan.map { it.kind })
-        val usable = editorialUsableWidthDp(411f)
+        val usable = editorialUsableWidthDp(referenceWidthDp.toFloat())
         val density = rule.density.density
 
         titles.forEachIndexed { index, title ->
@@ -417,11 +428,11 @@ class GenreArtworkComposeRenderTest {
         val receipts = ConcurrentHashMap<String, Boolean>()
         rule.setContent {
             MichiTheme {
-                Row(Modifier.width(411.dp).background(SurfaceObsidian)) {
+                Row(Modifier.width(referenceWidthDp.dp).background(SurfaceObsidian)) {
                     GenreEditorialGrid(
                         genres = genres,
                         columns = 2,
-                        availableWidthDp = 411f,
+                        availableWidthDp = referenceWidthDp.toFloat(),
                         state = rememberLazyListState(),
                         posterAssets = posters,
                         onArtworkLoad = { view, id, ok -> receipts["${view.name}:$id"] = ok },
@@ -433,13 +444,13 @@ class GenreArtworkComposeRenderTest {
         rule.waitForIdle()
         rule.waitUntil(20_000) { receipts["EDITORIAL:pop"] == true }
 
-        val plan = editorialPlan(genres, posters, 411f, 2, 1f)
+        val plan = editorialPlan(genres, posters, referenceWidthDp.toFloat(), 2, 1f)
         assertEquals(2, plan.size)
         val pair = plan[0] as EditorialRow.Pair
         assertEquals("Pop", pair.leading.genre.title)
         assertEquals("Soft Rock", pair.trailing.genre.title)
         assertEquals("pair height is shared", pair.leading.heightDp, pair.trailing.heightDp, 0f)
-        val usable = editorialUsableWidthDp(411f)
+        val usable = editorialUsableWidthDp(referenceWidthDp.toFloat())
         assertEquals("pair fills the usable width", usable,
             pair.leading.widthDp + GENRE_GRID_GAP_DP + pair.trailing.widthDp, 0.05f)
         assertTrue("proportional widths differ", pair.leading.widthDp != pair.trailing.widthDp)
