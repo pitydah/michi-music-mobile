@@ -94,7 +94,10 @@ import org.michimusic.mobile.ui.components.AeroSegmentedChoice
 import org.michimusic.mobile.ui.components.AeroSegmentRail
 import org.michimusic.mobile.ui.components.AeroSegmentStack
 import org.michimusic.mobile.ui.components.aeroSegmentStacking
+import org.michimusic.mobile.artist.ArtistCreditOccurrence
+import org.michimusic.mobile.artist.planArtistPresentation
 import org.michimusic.mobile.ui.components.ArtistMosaicEntry
+import org.michimusic.mobile.ui.components.ArtistVariantNotice
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
 import org.michimusic.mobile.ui.components.MichiCardDeck
@@ -1103,19 +1106,30 @@ fun AlbumsScreen(
                                 libraries = availableLibraries,
                                 repository = musicLibraryRepo,
                             )
-                            val artistsList = remember(scoped.albums) {
-                                scoped.albums.groupBy { it.album.artist }.toList()
+                            // Credits stay separate unless a verified identity backs a merge;
+                            // possible variants are surfaced for review instead of collapsing.
+                            val presentation = remember(scoped.albums, scoped.identityLibraryId) {
+                                planArtistPresentation(
+                                    scoped.albums.map { album ->
+                                        ArtistCreditOccurrence(
+                                            credit = album.album.artist,
+                                            libraryId = scoped.identityLibraryId,
+                                            albumIds = listOf(album.album.id),
+                                            trackCount = album.tracks.size,
+                                        )
+                                    },
+                                )
                             }
-                            val artistEntries = remember(artistsList, multiMemberships) {
-                                artistsList.map { (credit, groups) ->
+                            val artistEntries = remember(presentation, multiMemberships) {
+                                presentation.entries.map { entry ->
                                     ArtistMosaicEntry(
-                                        credit = credit,
-                                        albumIds = groups.map { it.album.id },
-                                        albumCount = groups.size,
-                                        trackCount = groups.sumOf { it.tracks.size },
+                                        credit = entry.credit,
+                                        albumIds = entry.albumIds,
+                                        albumCount = entry.albumIds.size,
+                                        trackCount = entry.trackCount,
                                         profileScopes = if (scoped.identityLibraryId == null &&
                                             multiMemberships.ready && !multiMemberships.error)
-                                            multiMemberships.byCredit[credit].orEmpty() else emptyList(),
+                                            multiMemberships.byCredit[entry.credit].orEmpty() else emptyList(),
                                     )
                                 }
                             }
@@ -1133,19 +1147,29 @@ fun AlbumsScreen(
                                     scoped.identityLibraryId?.let(artworkStore::observeLibraryRevision)
                                         ?: flowOf(0L)
                                 }.collectAsStateWithLifecycle(initialValue = 0L)
-                                ArtistMosaicGrid(
-                                    artists = artistEntries,
-                                    libraryId = scoped.identityLibraryId,
-                                    refreshToken = 0,
-                                    artworkRevision = artworkRevision,
-                                    onOpenArtist = onNavigateToArtist,
-                                    modifier = Modifier.fillMaxSize(),
-                                    artworkStore = artworkStore,
-                                    cardsMode = artistCardsMode,
-                                    selectedArtistCredit = selectedArtistCard,
-                                    onSelectArtistCard = { selectedArtistCard = it },
-                                    libraryScopeKey = activeScope,
-                                )
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    if (presentation.variantHints.isNotEmpty()) {
+                                        ArtistVariantNotice(
+                                            hints = presentation.variantHints,
+                                            onReviewIdentity = onNavigateToArtist,
+                                            modifier = Modifier.padding(
+                                                start = 20.dp, end = 20.dp, top = 8.dp),
+                                        )
+                                    }
+                                    ArtistMosaicGrid(
+                                        artists = artistEntries,
+                                        libraryId = scoped.identityLibraryId,
+                                        refreshToken = 0,
+                                        artworkRevision = artworkRevision,
+                                        onOpenArtist = onNavigateToArtist,
+                                        modifier = Modifier.fillMaxWidth().weight(1f),
+                                        artworkStore = artworkStore,
+                                        cardsMode = artistCardsMode,
+                                        selectedArtistCredit = selectedArtistCard,
+                                        onSelectArtistCard = { selectedArtistCard = it },
+                                        libraryScopeKey = activeScope,
+                                    )
+                                }
                             }
                         }
                     }
