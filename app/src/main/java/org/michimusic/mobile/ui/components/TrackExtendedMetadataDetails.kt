@@ -19,19 +19,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CancellationException
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextSecondary
-
-private sealed interface ExtendedDetailsState {
-    data object Loading : ExtendedDetailsState
-    data class Available(val rows: List<TrackExtendedMetadataRow>, val genres: List<String>) : ExtendedDetailsState
-    data object Unavailable : ExtendedDetailsState
-    data object Error : ExtendedDetailsState
-}
 
 /** Composed ONLY after the user expands the item. No I/O during list scrolling. */
 @Composable
@@ -39,23 +31,12 @@ internal fun TrackExtendedMetadataDetails(
     track: Track,
     repository: ExtendedTrackMetadataRepository = koinInject(),
 ) {
-    var state by remember(track.sourceId, track.id, track.filepath) {
-        mutableStateOf<ExtendedDetailsState>(ExtendedDetailsState.Loading)
+    var state by remember(track.sourceId, track.id, track.filepath, track.size) {
+        mutableStateOf<GenreEvidenceUiState>(GenreEvidenceUiState.Loading)
     }
-    LaunchedEffect(repository, track.sourceId, track.id, track.filepath) {
-        state = ExtendedDetailsState.Loading
-        state = try {
-            val evidence = repository.loadVerified(track.sourceId, track.id, track.filepath, track.size)
-            if (evidence == null || evidence.sourceId != track.sourceId ||
-                evidence.trackId != track.id) ExtendedDetailsState.Unavailable
-            else ExtendedDetailsState.Available(
-                TrackExtendedMetadataPolicy.rows(evidence), evidence.genres,
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            ExtendedDetailsState.Error
-        }
+    LaunchedEffect(repository, track.sourceId, track.id, track.filepath, track.size) {
+        state = GenreEvidenceUiState.Loading
+        state = loadGenreEvidence(repository, track)
     }
     Column(
         modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)
@@ -65,9 +46,9 @@ internal fun TrackExtendedMetadataDetails(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         when (val current = state) {
-            ExtendedDetailsState.Loading -> CircularProgressIndicator()
-            is ExtendedDetailsState.Available -> {
-                current.rows.forEach { row ->
+            GenreEvidenceUiState.Loading -> CircularProgressIndicator()
+            is GenreEvidenceUiState.Verified -> {
+                TrackExtendedMetadataPolicy.rows(current.metadata).forEach { row ->
                     Text(row.label, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                     Text(row.value, style = MaterialTheme.typography.bodyMedium, color = PureWhite)
                 }
@@ -75,13 +56,18 @@ internal fun TrackExtendedMetadataDetails(
                     style = MaterialTheme.typography.labelSmall, color = TextSecondary)
                 MichiGenreNormalizationAction(track, current.genres, tagsVerified = true)
             }
-            ExtendedDetailsState.Unavailable -> {
-                Text("No hay metadatos extendidos verificados para esta canción.", color = TextSecondary)
-                // Read-only external discovery is still possible for untagged tracks.
+            // K48-S4: the same verdict and the same translated reason the Genres
+            // route shows. An unreadable tag is never presented as an empty one.
+            is GenreEvidenceUiState.Unavailable -> {
+                Text("Etiqueta original: aún no verificable.", color = TextSecondary)
+                Text(
+                    evidenceUnavailableLabel(current.reason),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("track_extended_metadata_reason"),
+                )
                 MichiGenreNormalizationAction(track, emptyList(), tagsVerified = false)
             }
-            ExtendedDetailsState.Error -> Text(
-                "No se pudieron consultar los metadatos de la biblioteca.", color = TextSecondary)
         }
     }
 }
