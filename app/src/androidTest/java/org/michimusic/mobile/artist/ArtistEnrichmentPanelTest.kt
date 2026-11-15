@@ -201,7 +201,11 @@ class ArtistEnrichmentPanelTest {
         compose.onNodeWithTag("artist_enrichment_delete_confirm").performScrollTo().performClick()
 
         compose.waitUntil(5_000) { store.clears.get() == 1 }
-        compose.onNodeWithText("Enriquecimiento borrado.").assertExists()
+        // K48-09: success is announced only after both stores confirm the deletion.
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Datos enriquecidos borrados.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         assertEquals("Late provider responses must not start a new search", 0, gateway.searches.get())
         assertEquals("No automatic re-confirmation after clear", 1, gateway.refreshes.get())
     }

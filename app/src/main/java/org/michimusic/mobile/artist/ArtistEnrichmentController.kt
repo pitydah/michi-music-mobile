@@ -447,7 +447,8 @@ class ArtistEnrichmentController(
         }
         _state.value = ArtistEnrichmentState(
             status = ArtistEnrichmentStatus.IDLE,
-            message = "Enriquecimiento borrado.",
+            // K48-09: never announce success before the stores confirm it.
+            message = "Borrando datos enriquecidos…",
         )
         requestJob = scope.launch {
             var profileCleared = false
@@ -483,6 +484,9 @@ class ArtistEnrichmentController(
                 } else {
                     previous.copy(message = "No fue posible borrar todos los datos guardados.")
                 }
+            } else {
+                // Only after both stores completed without failure.
+                _state.value = _state.value.copy(message = "Datos enriquecidos borrados.")
             }
         }
     }

@@ -56,6 +56,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCoverageState
+import org.michimusic.mobile.artist.artwork.ArtistArtworkSlotCoverage
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCoverageUiState
 import org.michimusic.mobile.artist.artwork.ArtistArtworkUiState
 import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
@@ -624,6 +625,45 @@ fun ArtistEnrichmentPanel(
                             modifier = Modifier.testTag("artist_enrichment_status"))
                     }
                 }
+                val artworkUi = ArtistArtworkUiState(
+                    thumb = ArtistArtworkSlotState(
+                        slot = ArtworkSlot.ARTIST_THUMB,
+                        selection = uiState.selections[ArtworkSlot.ARTIST_THUMB],
+                        status = uiState.selections[ArtworkSlot.ARTIST_THUMB]?.status
+                            ?: ArtworkLoadStatus.NOT_REQUESTED,
+                    ),
+                    hero = ArtistArtworkSlotState(
+                        slot = ArtworkSlot.ARTIST_HERO,
+                        selection = uiState.selections[ArtworkSlot.ARTIST_HERO],
+                        status = uiState.selections[ArtworkSlot.ARTIST_HERO]?.status
+                            ?: ArtworkLoadStatus.NOT_REQUESTED,
+                    ),
+                )
+                val artworkCoverage = ArtistArtworkCoverageUiState.from(
+                    uiState = artworkUi,
+                    report = uiState.artworkReport,
+                    identityConfirmed = profile.mbid.isNotBlank(),
+                    verifiedQid = profile.wikidataQid,
+                )
+                Text(
+                    "Fotografías de '$artistCredit'",
+                    color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.testTag("artist_artwork_summary"),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    artworkCoverage.slots.forEach { slot ->
+                        ArtistArtworkSlotSummary(coverage = slot, modifier = Modifier.weight(1f))
+                    }
+                }
+                artworkCoverage.primaryAction?.let { action ->
+                    Text(
+                        action, color = SecondaryPurple, fontSize = 12.sp,
+                        modifier = Modifier.testTag("artist_artwork_next_action"),
+                    )
+                }
                 ArtistArtworkManualSection(
                     profile = profile,
                     artistCredit = artistCredit,
@@ -645,20 +685,6 @@ fun ArtistEnrichmentPanel(
                             selections = selections,
                         )
                     },
-                )
-                val artworkUi = ArtistArtworkUiState(
-                    thumb = ArtistArtworkSlotState(
-                        slot = ArtworkSlot.ARTIST_THUMB,
-                        selection = uiState.selections[ArtworkSlot.ARTIST_THUMB],
-                        status = uiState.selections[ArtworkSlot.ARTIST_THUMB]?.status
-                            ?: ArtworkLoadStatus.NOT_REQUESTED,
-                    ),
-                    hero = ArtistArtworkSlotState(
-                        slot = ArtworkSlot.ARTIST_HERO,
-                        selection = uiState.selections[ArtworkSlot.ARTIST_HERO],
-                        status = uiState.selections[ArtworkSlot.ARTIST_HERO]?.status
-                            ?: ArtworkLoadStatus.NOT_REQUESTED,
-                    ),
                 )
                 ArtistArtworkCoverageSection(
                     uiState = artworkUi,
@@ -1042,5 +1068,37 @@ internal fun ArtistArtworkCoverageSection(
                 )
             }
         }
+    }
+}
+
+/**
+ * Concrete, non-technical slot card used by the enrichment summary: it answers
+ * "do I have this photo or not" before any provider detail is expanded.
+ */
+@Composable
+private fun ArtistArtworkSlotSummary(
+    coverage: ArtistArtworkSlotCoverage,
+    modifier: Modifier = Modifier,
+) {
+    val satisfied = coverage.state == ArtistArtworkCoverageState.READY ||
+        coverage.state == ArtistArtworkCoverageState.MANUAL_PROTECTED
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(PureWhite.copy(alpha = 0.04f))
+            .padding(12.dp)
+            .testTag("artist_artwork_slot_${coverage.slot.name}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            coverage.slotLabel,
+            color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            coverage.statusLabel,
+            color = if (satisfied) TertiaryCyan else TextSecondary,
+            fontSize = 12.sp,
+        )
+        coverage.reason?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
     }
 }
