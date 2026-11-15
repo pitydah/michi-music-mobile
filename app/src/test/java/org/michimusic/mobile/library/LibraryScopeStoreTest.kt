@@ -8,6 +8,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -24,13 +25,16 @@ import org.michimusic.data.repository.MusicLibraryRepository
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryScopeStoreTest {
 
-    private val testDispatcher = StandardTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
+    // A fresh scheduler per test: the store collects for the lifetime of the scope it
+    // receives, and a shared TestScope let a coroutine from one test surface as
+    // `UncaughtExceptionsBeforeTest` in the next one under the full F-Droid suite.
+    private lateinit var testDispatcher: TestDispatcher
+    private lateinit var testScope: TestScope
 
     @After
     fun tearDown() {
-        testDispatcher.scheduler.advanceUntilIdle()
         testScope.cancel()
+        testDispatcher.scheduler.advanceUntilIdle()
     }
 
     private lateinit var appDao: AppDao
@@ -39,6 +43,8 @@ class LibraryScopeStoreTest {
 
     @Before
     fun setup() {
+        testDispatcher = StandardTestDispatcher()
+        testScope = TestScope(testDispatcher)
         appDao = mockk(relaxed = true)
         libraryRepo = mockk(relaxed = true)
         settingsMap.clear()
