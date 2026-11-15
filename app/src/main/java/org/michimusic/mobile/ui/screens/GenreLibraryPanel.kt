@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.ViewCarousel
 import androidx.compose.material3.AlertDialog
@@ -65,6 +66,9 @@ import org.michimusic.core.models.Track
 import org.michimusic.mobile.ui.components.AeroEmptyEditorial
 import org.michimusic.mobile.ui.components.AlbumArtView
 import org.michimusic.mobile.ui.components.EqualizerWaveBars
+import org.michimusic.mobile.ui.components.GenreTrackActionsSheet
+import org.michimusic.mobile.ui.components.MichiGenreEditorOrigin
+import org.michimusic.mobile.ui.components.MichiGenreNormalizationHost
 import org.michimusic.mobile.ui.components.coverStyleFor
 import org.michimusic.mobile.ui.components.premium.MichiIconAction
 import org.michimusic.mobile.ui.motion.aeroTrackArtworkCoverModel
@@ -112,6 +116,10 @@ fun GenreLibraryPanel(
     // Explicit user action only; nothing is built while the panel is idle.
     var showDiagnostic by rememberSaveable { mutableStateOf(false) }
     var diagnosticCsvVisible by rememberSaveable { mutableStateOf(false) }
+    // NORM-M1: per-track actions and the single editor host live at panel level so a
+    // row recomposition cannot lose the selection or the exact owner receipt.
+    var actionsTrack by remember { mutableStateOf<Track?>(null) }
+    var normalizationTrack by remember { mutableStateOf<Track?>(null) }
     val context = LocalContext.current
     // Both approved catalogs are read once, when the panel enters composition. They
     // are independent one-shot reads of a bounded manifest (never a media scan and
@@ -373,8 +381,36 @@ fun GenreLibraryPanel(
                 } else if (!playable && !largeText) {
                     Text("No disponible", style = MichiTypography.microLabel, color = TextMuted)
                 }
+                // Contextual actions are separate from the row tap: opening the menu
+                // never starts playback and never depends on Media3 playability.
+                MichiIconAction(
+                    icon = Icons.Default.MoreVert,
+                    contentDescription = "Más opciones de ${track.title}",
+                    onClick = { actionsTrack = track },
+                    testTag = "genre_track_more_${track.id}",
+                    tint = TextSecondary,
+                )
             }
         }
+    }
+    // The actions sheet is closed BEFORE the editor opens: never two modal
+    // containers stacked over each other.
+    actionsTrack?.let { track ->
+        GenreTrackActionsSheet(
+            track = track,
+            onDismiss = { actionsTrack = null },
+            onNormalize = {
+                actionsTrack = null
+                normalizationTrack = track
+            },
+        )
+    }
+    normalizationTrack?.let { track ->
+        MichiGenreNormalizationHost(
+            track = track,
+            origin = MichiGenreEditorOrigin.GENRES,
+            onDismiss = { normalizationTrack = null },
+        )
     }
 }
 

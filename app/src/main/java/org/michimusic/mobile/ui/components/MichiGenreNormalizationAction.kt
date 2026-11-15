@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -67,14 +68,59 @@ internal object MichiGenreWriteCertification {
 
 private const val MI23_TAG_WRITES_CERTIFIED = MichiGenreWriteCertification.WRITES_CERTIFIED
 
-/** User-opened metadata detail only. No search on composition or while scrolling. */
+/**
+ * Trigger used by the Now Playing metadata block. The editor itself is the same
+ * implementation the Genres route uses through [MichiGenreNormalizationHost];
+ * nothing here searches on composition or while scrolling.
+ */
 @Composable
-internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<String>, tagsVerified: Boolean) {
+internal fun MichiGenreNormalizationAction(
+    track: Track,
+    embeddedGenres: List<String>,
+    tagsVerified: Boolean,
+    origin: MichiGenreEditorOrigin = MichiGenreEditorOrigin.NOW_PLAYING,
+) {
+    if (track.source != TrackSource.LOCAL) return
+    var open by remember(track.sourceId, track.id, track.filepath, track.size, embeddedGenres) {
+        mutableStateOf(false)
+    }
+    TextButton(
+        onClick = { open = true },
+        modifier = Modifier.testTag("mi23_open_genre_normalization"),
+    ) {
+        Text("Normalizar géneros")
+    }
+    if (!open) return
+    MichiGenreNormalizationEditor(
+        track = track,
+        embeddedGenres = embeddedGenres,
+        tagsVerified = tagsVerified,
+        origin = origin,
+        onClose = { open = false },
+    )
+}
+
+/**
+ * The single editor body. [showDialog] is now always true: the container is the
+ * modal sheet and closing it is the caller's `onClose`, so both routes share one
+ * receipt and one state machine.
+ */
+@Composable
+internal fun MichiGenreNormalizationEditor(
+    track: Track,
+    embeddedGenres: List<String>,
+    tagsVerified: Boolean,
+    origin: MichiGenreEditorOrigin,
+    onClose: () -> Unit,
+) {
     if (track.source != TrackSource.LOCAL) return
     val context = LocalContext.current
     val scopeStore: LibraryScopeStore = koinInject()
     val rootAuthority: MusicRootAuthority = koinInject()
     val session: PlaybackSessionManager = koinInject()
+    // Observed once for the whole editor: reading `StateFlow.value` inside composition
+    // is a lint error and would not recompose the honest mode badge on a handoff.
+    val sessionState by session.sessionState.collectAsStateWithLifecycle()
     val albumsViewModel: AlbumsViewModel = koinViewModel()
     val trackDao: TrackDao = koinInject()
     val coroutineScope = rememberCoroutineScope()
@@ -93,7 +139,9 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
         MichiGenreNormalizationPolicy.prepareSearch(track.title,track.artist,track.album)
     }
     val uri = remember(track.filepath) { Uri.parse(track.filepath) }
-    var showDialog by remember(trackReceipt) { mutableStateOf(false) }
+    // The editor is composed only while its container is open; the receipt keeps
+    // every state local to this exact track.
+    val showDialog = true
     var previewNetwork by remember(trackReceipt) { mutableStateOf(false) }
     var confirmWrite by remember(trackReceipt) { mutableStateOf(false) }
     var confirmRecovery by remember(trackReceipt) { mutableStateOf(false) }
@@ -103,6 +151,10 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
     var recoveryUnknownBytes by remember(trackReceipt) { mutableStateOf<Long?>(null) }
     var recoveryUnknownSha256 by remember(trackReceipt) { mutableStateOf<String?>(null) }
     var busy by remember(trackReceipt) { mutableStateOf(false) }
+    // Explicit, mutually distinguishable network stage (contract §10.2.7).
+    var lookupPhase by remember(trackReceipt) {
+        mutableStateOf(MichiGenreLookupPhase.IDLE)
+    }
     var message by remember(trackReceipt) { mutableStateOf<String?>(null) }
     var pendingRecovery by remember(trackReceipt) {
         mutableStateOf<MichiGenreTagWriteGateway.RecoveryStatus?>(null)
@@ -143,7 +195,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
      * implicit vetoes: a read-only lookup must work while the track is loaded.
      */
     fun accessContext(): MichiGenreAccessPolicy.Context {
-        val s = session.sessionState.value
+        val s = sessionState
         return MichiGenreAccessPolicy.Context(
             trackLocal = track.source == TrackSource.LOCAL,
             receiptMatches = true,
@@ -173,6 +225,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
         val requestedRevision = lookupRevision
         lookupJob?.cancel()
         busy = true
+        lookupPhase = MichiGenreLookupPhase.PENDING
         matches = emptyList()
         selectedRecording = null
         proposals = emptyList()
@@ -197,6 +250,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                     track.duration.takeIf { it > 0 })
                 if (lookupRevision == requestedRevision && showDialog && canLookupNow()) {
                     matches = results
+                    lookupPhase = MichiGenreLookupPhase.RESULTS
                     val outcome = MichiGenreLookupOutcomePolicy.search(
                         matchCount = results.size,
                         reviewableCount = results.count { it.plausible },
@@ -212,6 +266,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                 throw cancel
             } catch (_: Exception) {
                 if (lookupRevision == requestedRevision) {
+                    lookupPhase = MichiGenreLookupPhase.ERROR
                     message = MichiGenreLookupOutcomePolicy.message(
                         MichiGenreLookupOutcomePolicy.SearchOutcome.ERROR)
                 }
@@ -237,6 +292,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
         selectedRecording = chosen
         proposals = emptyList()
         busy = true
+        lookupPhase = MichiGenreLookupPhase.PENDING
         // Issued synchronously with the second, independently confirmed click.
         val approvedRecording = authorization.issueRecording(mbid)
         if (approvedRecording == null) {
@@ -253,6 +309,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                     proposals = received.filter {
                         MichiGenreNormalizationPolicy.approvedProposal(chosen, it, chosen.mbid)
                     }
+                    lookupPhase = MichiGenreLookupPhase.RESULTS
                     val outcome = MichiGenreLookupOutcomePolicy.recording(proposals.size)
                     message = MichiGenreLookupOutcomePolicy.message(outcome)
                 }
@@ -260,6 +317,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                 throw cancel
             } catch (_: Exception) {
                 if (lookupRevision == requestedRevision) {
+                    lookupPhase = MichiGenreLookupPhase.ERROR
                     message = MichiGenreLookupOutcomePolicy.message(
                         MichiGenreLookupOutcomePolicy.RecordingOutcome.ERROR)
                 }
@@ -302,15 +360,15 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
         lookupJob = null
         pendingRecordingLookup = null
         previewNetwork = false
-        showDialog = false
         busy = false
+        onClose()
     }
-    // A cold dialog reads one local receipt only; nothing runs in Home/scroll/idle.
+    // A cold editor reads one local receipt only; nothing runs in Home/scroll/idle.
     LaunchedEffect(showDialog, track.sourceId, track.id, track.filepath) {
-        pendingRecovery = if (showDialog) try { writer.pendingRecovery() }
+        pendingRecovery = try { writer.pendingRecovery() }
         catch (_: Exception) {
             MichiGenreTagWriteGateway.RecoveryStatus.Blocked("RECOVERY_CHECK_FAILED")
-        } else null
+        }
     }
 
     suspend fun reportVerifiedWrite(ticket: MichiGenreTagWriteGateway.Ticket,
@@ -432,18 +490,38 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
         } else { confirmWrite=false;message="Permiso denegado o biblioteca cambiada." }
     }
 
-    TextButton(onClick = { showDialog=true }, modifier=Modifier.testTag("mi23_open_genre_normalization")) {
-        Text("Normalizar género")
-    }
-    if (!showDialog) return
-    AlertDialog(
+    val editorStatus = MichiGenreEditorContract.status(
+        tagsVerified = tagsVerified,
+        verifiedGenres = embeddedGenres,
+        previewModified = genrePreview.isModified,
+        lookup = lookupPhase,
+        writesCertified = MI23_TAG_WRITES_CERTIFIED,
+        descriptorOpenInPlayer = sessionState.currentTrack?.filepath == track.filepath,
+        recoveryPending = pendingRecovery is MichiGenreTagWriteGateway.RecoveryStatus.Pending,
+    )
+    MichiGenreEditorSheet(
         onDismissRequest = {
             if (!busy || lookupJob != null) closeLookupDialog()
         },
-        title = { Text("Michi Intelligence · Género") },
-        text = {
-            Column(Modifier.heightIn(max=520.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        trackTitle = track.title,
+        trackArtist = track.artist,
+        state = editorStatus.state,
+        writesCertified = MI23_TAG_WRITES_CERTIFIED,
+        footerAction = {
+            TextButton(
+                onClick = { closeLookupDialog() },
+                enabled = !busy || lookupJob != null,
+                modifier = Modifier.testTag("mi26_genre_editor_close"),
+            ) { Text("Cerrar") }
+            // Contextual, honest action. While the certification gate is false this
+            // never pretends a physical write is one tap away.
+            TextButton(
+                onClick = {},
+                enabled = MichiGenreEditorContract.primaryActionEnabled(editorStatus.write),
+                modifier = Modifier.testTag("mi26_genre_editor_primary"),
+            ) { Text(MichiGenreEditorContract.primaryActionLabel(editorStatus.write)) }
+        },
+        body = {
                 when (val recovery = pendingRecovery) {
                     is MichiGenreTagWriteGateway.RecoveryStatus.Pending -> Text(
                         "Recuperación local pendiente (${recovery.phase}). No se podrá guardar otra etiqueta " +
@@ -463,8 +541,15 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                         ) { Text("Restaurar copia original") }
                     } else Text("La copia original está protegida. La restauración requiere certificación Android.")
                 }
-                Text(if (tagsVerified) "Género verificado: ${embeddedGenres.joinToString(" · ").ifBlank { "Sin género" }}"
-                    else "Género del archivo no verificable. Puedes buscar sugerencias, pero no editar la etiqueta.")
+                Text(
+                    if (tagsVerified) {
+                        MichiGenreEditorContract.evidenceLabel(true, embeddedGenres)
+                    } else {
+                        "Género del archivo no verificable. Puedes buscar sugerencias, " +
+                            "pero no editar la etiqueta."
+                    },
+                    modifier = Modifier.testTag("mi26_genre_evidence"),
+                )
                 Text("Solo se buscará por título, artista y, si existe, álbum. Nunca se enviarán rutas, archivos, biblioteca, historial ni gustos.")
                 if (intent == null) Text("No hay título y artista válidos para consultar MusicBrainz.")
                 else {
@@ -484,6 +569,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                             lookupJob?.cancel()
                             lookupJob = null
                             busy = false
+                            lookupPhase = MichiGenreLookupPhase.CANCELLED
                             message = "Consulta cancelada. No se publicaron resultados tardíos."
                         }, modifier = Modifier.testTag("mi27_cancel_lookup"),
                     ) { Text("Cancelar consulta") }
@@ -542,9 +628,14 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                 }
                 Text("Previsualización: no modifica el archivo.",
                     modifier = Modifier.testTag("mi26_preview_only_notice"))
-                Text("Original: ${genrePreview.original.joinToString(" · ").ifBlank { "Sin género" }}")
-                Text("Propuesto: ${genrePreview.proposed.joinToString(" · ").ifBlank { "Sin género" }}",
-                    modifier = Modifier.testTag("mi26_preview_proposed"))
+                Text(
+                    MichiGenreEditorContract.originalLabel(tagsVerified, genrePreview.original),
+                    modifier = Modifier.testTag("mi26_preview_original"),
+                )
+                Text(
+                    MichiGenreEditorContract.proposedLabel(tagsVerified, genrePreview.proposed),
+                    modifier = Modifier.testTag("mi26_preview_proposed"),
+                )
                 val previewDiff = genrePreview.diff()
                 if (previewDiff.added.isNotEmpty())
                     Text("Añadido: ${previewDiff.added.joinToString(" · ")}")
@@ -605,12 +696,8 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                         Text(if (embeddedGenres.isEmpty()) "Guardar GENRE en archivo" else "Reemplazar GENRE existente")
                     }
                 } else Text("Escritura de etiquetas deshabilitada hasta certificar MediaStore/SAF y los formatos MP3/FLAC en Android. Esta vista solo previsualiza.")
-                message?.let {Text(it)}
-            }
+                message?.let { Text(it) }
         },
-        confirmButton={ TextButton(
-            onClick={closeLookupDialog()}, enabled = !busy || lookupJob != null,
-        ) { Text("Cerrar") } },
     )
     if (previewNetwork && intent!=null) {
         AlertDialog(

@@ -189,6 +189,13 @@ object MichiGenreDisambiguationPolicy {
     /** Literal keys that previously hashed an alias now folded into [key]. */
     fun legacyAliases(): Map<String, String> = legacyAliasKeys
 
+    /**
+     * Read-only snapshot of the curated canonical identities. Used by offline audit
+     * tests (312-catalog coherence and collision checks) and never by runtime
+     * classification, so it cannot become a second policy.
+     */
+    fun canonicalIdentities(): Set<String> = canonicalDisplay.keys
+
     fun legacyKeysFor(key: String): List<String> =
         legacyAliasKeys.filterValues { it == key }.keys.toList()
 

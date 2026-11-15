@@ -10,10 +10,10 @@ import java.io.File
 /**
  * MI-26 review gate for the audit CSV proposals.
  *
- * The CSV is an inventory, not the runtime authority. Every proposed alias must
- * be explicitly approved here or deliberately deferred. Approved aliases must
- * resolve to the reviewed canonical target; forbidden neighbours must stay
- * separate. The runtime registry stays the single policy.
+ * The CSV is an inventory, not the runtime authority. Every alias must be either
+ * already approved (and still resolve to its reviewed canonical target) or
+ * explicitly deferred; forbidden neighbours must stay separate. The runtime
+ * registry stays the single policy.
  */
 class MichiGenreAliasPolicyTest {
     private val approvedAliases: Map<String, String> = mapOf(
@@ -67,14 +67,29 @@ class MichiGenreAliasPolicyTest {
         val rows = parseCsv(csvFile().readText())
         val header = rows.first()
         val aliasColumn = header.requireColumn("alias_nuevos_propuestos_NO_ACTIVOS")
+        val approvedColumn = header.requireColumn("alias_ya_aprobados_MI26")
         val targetColumn = header.requireColumn("clave_grupo_objetivo")
         val noMergeColumn = header.requireColumn("no_fusionar_con")
 
-        var reviewed = 0
+        // The curated registry revision moved the reviewed aliases from the proposal
+        // column into `alias_ya_aprobados_MI26`. Both columns stay verified: an alias
+        // already in code must still resolve to its reviewed canonical target, and the
+        // proposal column may only keep the deliberately deferred one.
+        var reviewedApproved = 0
+        val stillProposed = mutableSetOf<String>()
         for (row in rows.drop(1).filter { it.any(String::isNotBlank) }) {
             val target = row[targetColumn]
+            for (alias in row[approvedColumn].split('|').map(String::trim).filter(String::isNotEmpty)) {
+                val expected = approvedAliases[alias] ?: continue
+                reviewedApproved++
+                assertEquals(
+                    "approved alias '$alias' must resolve to '$expected'",
+                    expected,
+                    MichiGenreDisambiguationPolicy.key(alias),
+                )
+            }
             for (alias in row[aliasColumn].split('|').map(String::trim).filter(String::isNotEmpty)) {
-                reviewed++
+                stillProposed += alias
                 val expected = approvedAliases[alias]
                 when {
                     expected != null -> assertEquals(
@@ -101,7 +116,13 @@ class MichiGenreAliasPolicyTest {
                 )
             }
         }
-        assertEquals("all 43 proposed aliases must be reviewed", 43, reviewed)
+        assertEquals(
+            "all reviewed aliases must now be listed in the CSV approved column",
+            approvedAliases.size,
+            reviewedApproved,
+        )
+        // Only the deliberately deferred alias may remain a proposal.
+        assertEquals(deferredAliases, stillProposed)
     }
 
     @Test

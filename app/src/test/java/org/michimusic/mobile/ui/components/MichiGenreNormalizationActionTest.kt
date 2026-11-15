@@ -2,8 +2,12 @@ package org.michimusic.mobile.ui.components
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -12,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -112,25 +117,38 @@ class MichiGenreNormalizationActionTest {
         }
     }
 
+    /**
+     * Robolectric does not dispatch touch events into a `Dialog` window: the modal
+     * window's input path is not simulated, so a touch `performClick()` inside the
+     * genre editor sheet or its nested dialogs never reaches the child control
+     * (verified with a pointer probe: the state only changes with
+     * `performSemanticsAction`). The semantics action invokes the exact same
+     * `onClick` lambda a real touch does, so the state machine is still proven here.
+     * Physical touch dispatch and visual placement inside the dialog remain
+     * device-only checks (NOT_RUN in Robolectric).
+     */
+    private fun SemanticsNodeInteraction.clickInsideDialog(): SemanticsNodeInteraction =
+        performSemanticsAction(SemanticsActions.OnClick)
+
     @Test
     fun openingShowsExactPublicFieldsAndClosingSendsNothing() {
         setContent(tagsVerified = true, genres = listOf("Rock"))
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
 
-        compose.onNodeWithText("Michi Intelligence · Género").assertIsDisplayed()
+        compose.onNodeWithTag("mi26_genre_editor_title").assertTextEquals("Normalizar géneros")
         compose.onNodeWithText("Género verificado: Rock").assertIsDisplayed()
-        compose.onNodeWithText("Datos exactos de búsqueda:").assertIsDisplayed()
-        compose.onNodeWithText("recording: Song Title").assertIsDisplayed()
-        compose.onNodeWithText("artist: Artist Name").assertIsDisplayed()
-        compose.onNodeWithText("release: Album Name").assertIsDisplayed()
+        compose.onNodeWithText("Datos exactos de búsqueda:").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("recording: Song Title").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("artist: Artist Name").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("release: Album Name").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(
             "Solo se buscará por título, artista y, si existe, álbum. " +
                 "Nunca se enviarán rutas, archivos, biblioteca, historial ni gustos.",
-        ).assertIsDisplayed()
+        ).performScrollTo().assertIsDisplayed()
 
-        compose.onNodeWithText("Cerrar").performClick()
-        compose.onNodeWithText("Michi Intelligence · Género").assertDoesNotExist()
+        compose.onNodeWithTag("mi26_genre_editor_close").clickInsideDialog()
+        compose.onNodeWithTag("mi26_genre_editor_title").assertDoesNotExist()
         compose.onNodeWithText("¿Consultar MusicBrainz?").assertDoesNotExist()
     }
 
@@ -139,16 +157,20 @@ class MichiGenreNormalizationActionTest {
         setContent(tagsVerified = true, genres = listOf("Rock"))
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
-        compose.onNodeWithTag("mi23_preview_external_search").performClick()
+        compose.onNodeWithTag("mi23_preview_external_search").performScrollTo().clickInsideDialog()
 
-        compose.onNodeWithText("¿Consultar MusicBrainz?").assertIsDisplayed()
-        compose.onNodeWithText("Se enviarán únicamente estos campos públicos:").assertIsDisplayed()
+        // The confirmation is a nested modal window. Robolectric does not simulate
+        // window geometry or touch input for it, so these assertions prove the exact
+        // public fields are on screen without claiming measured visibility; physical
+        // visibility/hit-testing inside the nested dialog is device-only: NOT_RUN.
+        compose.onNodeWithText("¿Consultar MusicBrainz?").assertExists()
+        compose.onNodeWithText("Se enviarán únicamente estos campos públicos:").assertExists()
         compose.onAllNodesWithText("recording: Song Title").assertCountEquals(2)
         compose.onNodeWithText(
             "MusicBrainz puede registrar la IP y los parámetros de búsqueda. " +
                 "No se enviarán otros datos.",
-        ).assertIsDisplayed()
-        compose.onNodeWithText("Enviar esta vez").assertIsDisplayed()
+        ).assertExists()
+        compose.onNodeWithText("Enviar esta vez").assertExists()
     }
 
     @Test
@@ -161,6 +183,7 @@ class MichiGenreNormalizationActionTest {
             "Género del archivo no verificable. Puedes buscar sugerencias, pero no editar la etiqueta.",
         ).assertIsDisplayed()
         compose.onNodeWithText("Género verificado: Sin género").assertDoesNotExist()
+        compose.onNodeWithText("Original: sin datos verificados").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Guardar GENRE en archivo").assertDoesNotExist()
         compose.onNodeWithText("Reemplazar GENRE existente").assertDoesNotExist()
     }
@@ -187,7 +210,7 @@ class MichiGenreNormalizationActionTest {
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
         compose.onNodeWithTag("mi23_manual_genre").performScrollTo().performTextReplacement("Coldwave")
-        compose.onNodeWithTag("mi26_preview_add").performScrollTo().performClick()
+        compose.onNodeWithTag("mi26_preview_add").performScrollTo().clickInsideDialog()
 
         compose.onNodeWithText("Propuesto: Post-Punk · New Wave · Coldwave").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Añadido: Coldwave").performScrollTo().assertIsDisplayed()
@@ -200,7 +223,7 @@ class MichiGenreNormalizationActionTest {
         setContent(tagsVerified = true, genres = listOf("Post-Punk", "New Wave", "Darkwave"))
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
-        compose.onAllNodesWithTag("mi26_preview_remove")[1].performScrollTo().performClick()
+        compose.onAllNodesWithTag("mi26_preview_remove")[1].performScrollTo().clickInsideDialog()
 
         compose.onNodeWithText("Propuesto: Post-Punk · Darkwave").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Quitado: New Wave").performScrollTo().assertIsDisplayed()
@@ -211,13 +234,28 @@ class MichiGenreNormalizationActionTest {
         setContent(tagsVerified = true, genres = listOf("Post-Punk", "New Wave", "Darkwave"))
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
-        compose.onAllNodesWithTag("mi26_preview_select_replace")[2].performScrollTo().performClick()
+        compose.onAllNodesWithTag("mi26_preview_select_replace")[2].performScrollTo().clickInsideDialog()
         compose.onNodeWithTag("mi23_manual_genre").performScrollTo().performTextReplacement("Coldwave")
-        compose.onNodeWithTag("mi26_preview_replace").performScrollTo().performClick()
+        compose.onNodeWithTag("mi26_preview_replace").performScrollTo().clickInsideDialog()
 
         compose.onNodeWithText("Propuesto: Post-Punk · New Wave · Coldwave").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Añadido: Coldwave").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Quitado: Darkwave").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun theFooterSaysPreviewOnlyAndThePrimaryActionIsUnavailable() {
+        setContent(tagsVerified = true, genres = listOf("Rock"))
+
+        compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
+
+        compose.onNodeWithTag("mi26_genre_editor_mode")
+            .assertTextEquals("Solo previsualización")
+        compose.onNodeWithTag("mi26_genre_editor_primary")
+            .assertIsNotEnabled()
+            .assertTextEquals("No disponible: escritura sin certificar")
+        compose.onNodeWithTag("mi26_genre_editor_close").assertIsDisplayed()
+        compose.onNodeWithTag("mi26_genre_editor_footer").assertIsDisplayed()
     }
 
     @Test
