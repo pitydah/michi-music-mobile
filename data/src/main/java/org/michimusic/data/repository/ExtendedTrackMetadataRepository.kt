@@ -24,6 +24,31 @@ data class ExtendedTrackMetadata(
     val genres: List<String>,
 )
 
+
+/**
+ * K47-NORM-02: why a cold tag read could not prove the physical values. The
+ * reason is a fact about the read, never a guess: an unavailable read must not
+ * be rendered as "the file has no genre".
+ */
+enum class ExtendedTagUnavailableReason {
+    NOT_CONTENT_URI,
+    INVALID_TRACK_ID,
+    INVALID_SIZE,
+    MISSING_STAMP,
+    SIZE_MISMATCH,
+    MODIFIED_AT_ZERO,
+    NO_CURRENT_EVIDENCE,
+    TAG_READER_UNSUPPORTED,
+    TAG_MISMATCH,
+    PERMISSION_DENIED,
+    PROVIDER_UNAVAILABLE,
+}
+
+sealed interface ExtendedTagEvidenceResult {
+    data class Verified(val metadata: ExtendedTrackMetadata) : ExtendedTagEvidenceResult
+    data class Unavailable(val reason: ExtendedTagUnavailableReason) : ExtendedTagEvidenceResult
+}
+
 /**
  * Cold owner-aware Room lookups. The user-opened verified path rereads bounded tags
  * once, and cannot promote stale sidecar values based on provider size/mtime alone.
@@ -41,39 +66,89 @@ class ExtendedTrackMetadataRepository(
      */
     suspend fun loadVerified(
         sourceId: String, trackId: String, filepath: String, expectedSize: Long,
-    ): ExtendedTrackMetadata? = withContext(Dispatchers.IO) {
-        val ctx = context ?: return@withContext null
-        if (!filepath.startsWith("content://") || trackId.isBlank() || expectedSize <= 0)
-            return@withContext null
+    ): ExtendedTrackMetadata? =
+        (loadVerifiedResult(sourceId, trackId, filepath, expectedSize)
+            as? ExtendedTagEvidenceResult.Verified)?.metadata
+
+    /**
+     * Same proof as [loadVerified] (kept for compatibility) but with a typed
+     * reason, so the editor can explain what actually happened instead of
+     * implying the file has no genre.
+     */
+    suspend fun loadVerifiedResult(
+        sourceId: String, trackId: String, filepath: String, expectedSize: Long,
+    ): ExtendedTagEvidenceResult = withContext(Dispatchers.IO) {
+        if (!filepath.startsWith("content://"))
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.NOT_CONTENT_URI)
+        if (trackId.isBlank())
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.INVALID_TRACK_ID)
+        if (expectedSize <= 0)
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.INVALID_SIZE)
+        val ctx = context
+            ?: return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE)
         val uri = Uri.parse(filepath)
         val sizeCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.SIZE
             else DocumentsContract.Document.COLUMN_SIZE
         val modifiedCol = if (sourceId.isEmpty()) MediaStore.Audio.Media.DATE_MODIFIED
             else DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        var denied = false
+        var queryFailed = false
         fun stamp(): RecoveryDocumentStamp? = try {
             ctx.contentResolver.query(uri, arrayOf(sizeCol, modifiedCol), null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst() || cursor.isNull(0) || cursor.isNull(1)) null
                 else RecoveryDocumentStamp(cursor.getLong(0), cursor.getLong(1))
             }
         } catch (cancel: CancellationException) { throw cancel }
-        catch (_: Exception) { null }
+        catch (_: SecurityException) { denied = true; null }
+        catch (_: Exception) { queryFailed = true; null }
         val before = stamp()
-        if (before == null || before.size != expectedSize || before.modifiedAt <= 0)
-            return@withContext null
+        if (before == null) {
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                when {
+                    denied -> ExtendedTagUnavailableReason.PERMISSION_DENIED
+                    queryFailed -> ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE
+                    else -> ExtendedTagUnavailableReason.MISSING_STAMP
+                })
+        }
+        if (before.size != expectedSize)
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.SIZE_MISMATCH)
+        if (before.modifiedAt <= 0)
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.MODIFIED_AT_ZERO)
         val evidence = trackDao.getCurrentExtendedTagEvidenceForPath(
             sourceId, trackId, filepath, expectedSize)
-        if (evidence == null) return@withContext null
+            ?: return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.NO_CURRENT_EVIDENCE)
         // A provider may recycle URI, size and mtime. Compare the actual tag fields
         // only on this explicit details tap, never in card/list recompositions.
         // A malformed/unsupported tag fails closed rather than trusting old Room data.
         val currentTags = EmbeddedTagReadPolicy.fieldsOrNull(
-            UriEmbeddedTags.readDetailed(ctx, uri)) ?: return@withContext null
+            UriEmbeddedTags.readDetailed(ctx, uri))
+            ?: return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED)
         val after = stamp()
+        if (after == null) {
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                when {
+                    denied -> ExtendedTagUnavailableReason.PERMISSION_DENIED
+                    queryFailed -> ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE
+                    else -> ExtendedTagUnavailableReason.MISSING_STAMP
+                })
+        }
         if (!ColdMetadataStampPolicy.matches(
-                sourceId, trackId, filepath, expectedSize, before, after, evidence) ||
-            !ColdMetadataTagEquivalence.matches(evidence, currentTags))
-            return@withContext null
-        evidence.toExtendedMetadata()
+                sourceId, trackId, filepath, expectedSize, before, after, evidence)) {
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.TAG_MISMATCH)
+        }
+        if (!ColdMetadataTagEquivalence.matches(evidence, currentTags))
+            return@withContext ExtendedTagEvidenceResult.Unavailable(
+                ExtendedTagUnavailableReason.TAG_MISMATCH)
+        ExtendedTagEvidenceResult.Verified(evidence.toExtendedMetadata())
     }
 
     suspend fun load(sourceId: String, trackId: String): ExtendedTrackMetadata? =

@@ -195,10 +195,14 @@ class MichiGenreNormalizationActionTest {
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
 
-        compose.onNodeWithText(
-            "Género del archivo no verificable. Puedes buscar sugerencias, pero no editar la etiqueta.",
-        ).assertIsDisplayed()
+        // K47-NORM-02: unavailable is not an empty tag.
+        compose.onNodeWithTag("mi26_genre_evidence").assertTextEquals("Aún no verificable")
+        compose.onNodeWithText("En Biblioteca: Rock").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Género verificado: Sin género").assertDoesNotExist()
+        compose.onNodeWithTag("mi26_genre_evidence_reason").performScrollTo()
+            .clickInsideDialog()
+        compose.onNodeWithTag("mi26_genre_evidence_reason_text")
+            .assertTextEquals("No se registró un motivo para esta lectura.")
         compose.onNodeWithText("Original: sin datos verificados").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Guardar GENRE en archivo").assertDoesNotExist()
         compose.onNodeWithText("Reemplazar GENRE existente").assertDoesNotExist()

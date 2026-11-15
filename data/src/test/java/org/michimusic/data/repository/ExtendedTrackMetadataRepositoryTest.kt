@@ -51,4 +51,35 @@ class ExtendedTrackMetadataRepositoryTest {
             assertNull(repo.load("owner-a", "same"))
         } finally { db.close() }
     }
+
+    @Test fun verifiedReadReportsATypedReasonInsteadOfAnEmptyTag() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(), MichiDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        try {
+            val repo = ExtendedTrackMetadataRepository(db.trackDao())
+            assertEquals(
+                ExtendedTagEvidenceResult.Unavailable(
+                    ExtendedTagUnavailableReason.NOT_CONTENT_URI),
+                repo.loadVerifiedResult("owner", "id", "/storage/song.mp3", 10),
+            )
+            assertEquals(
+                ExtendedTagEvidenceResult.Unavailable(
+                    ExtendedTagUnavailableReason.INVALID_TRACK_ID),
+                repo.loadVerifiedResult("owner", "", "content://michi/song", 10),
+            )
+            assertEquals(
+                ExtendedTagEvidenceResult.Unavailable(
+                    ExtendedTagUnavailableReason.INVALID_SIZE),
+                repo.loadVerifiedResult("owner", "id", "content://michi/song", 0),
+            )
+            // Without a provider context the read cannot be proven, and that is
+            // still not evidence that the file has no genre.
+            assertEquals(
+                ExtendedTagEvidenceResult.Unavailable(
+                    ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE),
+                repo.loadVerifiedResult("owner", "id", "content://michi/song", 10),
+            )
+        } finally { db.close() }
+    }
 }

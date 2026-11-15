@@ -35,6 +35,8 @@ import kotlinx.coroutines.CancellationException
 import org.koin.compose.koinInject
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
+import org.michimusic.data.repository.ExtendedTagEvidenceResult
+import org.michimusic.data.repository.ExtendedTagUnavailableReason
 import org.michimusic.data.repository.ExtendedTrackMetadataRepository
 import org.michimusic.mobile.ui.components.premium.MichiBottomSheet
 import org.michimusic.mobile.ui.theme.MichiSpacing
@@ -113,8 +115,10 @@ internal fun GenreTrackActionsSheet(
 private sealed interface GenreEditorEvidenceState {
     data object Loading : GenreEditorEvidenceState
     data class Available(val genres: List<String>) : GenreEditorEvidenceState
-    data object Unavailable : GenreEditorEvidenceState
-    data object Error : GenreEditorEvidenceState
+    data class Unavailable(
+        val reason: ExtendedTagUnavailableReason?,
+    ) : GenreEditorEvidenceState
+    data class Error(val reason: ExtendedTagUnavailableReason?) : GenreEditorEvidenceState
 }
 
 /**
@@ -134,25 +138,32 @@ internal fun MichiGenreNormalizationHost(
         GenreEditorReadOnlyNotice(track, onDismiss)
         return
     }
-    var evidence by remember(track.sourceId, track.id, track.filepath) {
+    // K47-NORM-04: size belongs to the receipt. Same URI with different bytes is a
+    // different document and cannot inherit the previous evidence.
+    var evidence by remember(track.sourceId, track.id, track.filepath, track.size) {
         mutableStateOf<GenreEditorEvidenceState>(GenreEditorEvidenceState.Loading)
     }
-    LaunchedEffect(repository, track.sourceId, track.id, track.filepath) {
+    LaunchedEffect(repository, track.sourceId, track.id, track.filepath, track.size) {
         evidence = try {
-            val verified = repository.loadVerified(
+            when (val verified = repository.loadVerifiedResult(
                 track.sourceId, track.id, track.filepath, track.size,
-            )
-            if (verified == null || verified.sourceId != track.sourceId ||
-                verified.trackId != track.id
-            ) {
-                GenreEditorEvidenceState.Unavailable
-            } else {
-                GenreEditorEvidenceState.Available(verified.genres)
+            )) {
+                is ExtendedTagEvidenceResult.Verified ->
+                    if (verified.metadata.sourceId != track.sourceId ||
+                        verified.metadata.trackId != track.id
+                    ) {
+                        GenreEditorEvidenceState.Unavailable(
+                            ExtendedTagUnavailableReason.TAG_MISMATCH)
+                    } else {
+                        GenreEditorEvidenceState.Available(verified.metadata.genres)
+                    }
+                is ExtendedTagEvidenceResult.Unavailable ->
+                    GenreEditorEvidenceState.Unavailable(verified.reason)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            GenreEditorEvidenceState.Error
+            GenreEditorEvidenceState.Error(ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE)
         }
     }
     when (val current = evidence) {
@@ -166,14 +177,21 @@ internal fun MichiGenreNormalizationHost(
         )
         // Unavailable is NOT proof that the file has no genre: the editor opens
         // read-only with `tagsVerified = false` and says so explicitly.
-        GenreEditorEvidenceState.Unavailable,
-        GenreEditorEvidenceState.Error,
-        -> MichiGenreNormalizationEditor(
+        is GenreEditorEvidenceState.Unavailable -> MichiGenreNormalizationEditor(
             track = track,
             embeddedGenres = emptyList(),
             tagsVerified = false,
             origin = origin,
             onClose = onDismiss,
+            evidenceReason = current.reason,
+        )
+        is GenreEditorEvidenceState.Error -> MichiGenreNormalizationEditor(
+            track = track,
+            embeddedGenres = emptyList(),
+            tagsVerified = false,
+            origin = origin,
+            onClose = onDismiss,
+            evidenceReason = current.reason,
         )
     }
 }

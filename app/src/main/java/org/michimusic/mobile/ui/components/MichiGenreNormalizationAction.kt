@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.TextMuted
+import org.michimusic.mobile.ui.theme.TextSecondary
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.core.intelligence.MichiGenreAccessPolicy
 import org.michimusic.core.intelligence.MichiGenreDisambiguationPolicy
@@ -55,6 +56,7 @@ import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.intelligence.MichiGenreTagWriteGateway
 import org.michimusic.data.cache.TrackDao
+import org.michimusic.data.repository.ExtendedTagUnavailableReason
 import org.michimusic.data.repository.MichiGenrePostWriteReconciler
 import org.michimusic.mobile.intelligence.MichiGenreMusicBrainzGateway
 import org.michimusic.mobile.library.LibraryScopeStore
@@ -117,6 +119,7 @@ internal fun MichiGenreNormalizationEditor(
     tagsVerified: Boolean,
     origin: MichiGenreEditorOrigin,
     onClose: () -> Unit,
+    evidenceReason: ExtendedTagUnavailableReason? = null,
 ) {
     if (track.source != TrackSource.LOCAL) return
     val context = LocalContext.current
@@ -149,6 +152,7 @@ internal fun MichiGenreNormalizationEditor(
     val showDialog = true
     var previewNetwork by remember(trackReceipt) { mutableStateOf(false) }
     var showDraftPreview by remember(trackReceipt) { mutableStateOf(false) }
+    var showEvidenceReason by remember(trackReceipt) { mutableStateOf(false) }
     var confirmWrite by remember(trackReceipt) { mutableStateOf(false) }
     var confirmRecovery by remember(trackReceipt) { mutableStateOf(false) }
     var confirmUnknownRecovery by remember(trackReceipt) { mutableStateOf(false) }
@@ -571,15 +575,49 @@ internal fun MichiGenreNormalizationEditor(
                         ) { Text("Restaurar copia original") }
                     } else Text("La copia original está protegida. La restauración requiere certificación Android.")
                 }
-                Text(
-                    if (tagsVerified) {
-                        MichiGenreEditorContract.evidenceLabel(true, embeddedGenres)
-                    } else {
-                        "Género del archivo no verificable. Puedes buscar sugerencias, " +
-                            "pero no editar la etiqueta."
-                    },
-                    modifier = Modifier.testTag("mi26_genre_evidence"),
-                )
+                if (tagsVerified) {
+                    Text(
+                        MichiGenreEditorContract.evidenceLabel(true, embeddedGenres),
+                        modifier = Modifier.testTag("mi26_genre_evidence"),
+                    )
+                } else {
+                    // K47-NORM-02: the local index classification and the physical
+                    // tag are two independent pieces of evidence. An unavailable
+                    // read is never presented as an empty tag.
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "En Biblioteca: " + (track.genre?.takeIf(String::isNotBlank)
+                                ?: "Sin clasificación"),
+                            color = PureWhite,
+                            modifier = Modifier.testTag("mi26_genre_library_classification"),
+                        )
+                        Text(
+                            "Clasificación del índice local, no prueba de la etiqueta física.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextMuted,
+                        )
+                        Text("Etiqueta original del archivo",
+                            style = MaterialTheme.typography.labelMedium, color = TextMuted)
+                        Text(
+                            "Aún no verificable",
+                            color = PureWhite,
+                            modifier = Modifier.testTag("mi26_genre_evidence"),
+                        )
+                        Text("Conservar la clasificación actual. No inventar ausencia de metadatos.")
+                        TextButton(
+                            onClick = { showEvidenceReason = !showEvidenceReason },
+                            modifier = Modifier.testTag("mi26_genre_evidence_reason"),
+                        ) { Text("¿Por qué no se verificó?") }
+                        if (showEvidenceReason) {
+                            Text(
+                                evidenceUnavailableLabel(evidenceReason),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                modifier = Modifier.testTag("mi26_genre_evidence_reason_text"),
+                            )
+                        }
+                    }
+                }
                 Text("Solo se buscará por título, artista y, si existe, álbum. Nunca se enviarán rutas, archivos, biblioteca, historial ni gustos.")
                 if (intent == null) Text("No hay título y artista válidos para consultar MusicBrainz.")
                 else {
@@ -959,4 +997,34 @@ internal fun MichiGenreNormalizationEditor(
             },
         )
     }
+}
+
+/**
+ * K47-NORM-02: exact, path-free diagnostic for a cold read that could not prove
+ * the physical tags. Never says the file has no genre.
+ */
+internal fun evidenceUnavailableLabel(reason: ExtendedTagUnavailableReason?): String = when (reason) {
+    ExtendedTagUnavailableReason.NOT_CONTENT_URI ->
+        "La pista no apunta a un documento content://, así que no hay archivo local que leer."
+    ExtendedTagUnavailableReason.INVALID_TRACK_ID ->
+        "La identificación de la pista está incompleta."
+    ExtendedTagUnavailableReason.INVALID_SIZE ->
+        "El tamaño del archivo no está disponible."
+    ExtendedTagUnavailableReason.MISSING_STAMP ->
+        "El proveedor no devolvió tamaño y fecha del documento."
+    ExtendedTagUnavailableReason.SIZE_MISMATCH ->
+        "El tamaño actual no coincide con la evidencia registrada en la base local."
+    ExtendedTagUnavailableReason.MODIFIED_AT_ZERO ->
+        "El proveedor no informa una fecha de modificación utilizable."
+    ExtendedTagUnavailableReason.NO_CURRENT_EVIDENCE ->
+        "No hay evidencia actual de etiquetas para esta ruta en la base local."
+    ExtendedTagUnavailableReason.TAG_READER_UNSUPPORTED ->
+        "El lector no pudo interpretar las etiquetas de este formato."
+    ExtendedTagUnavailableReason.TAG_MISMATCH ->
+        "Las etiquetas releídas no coinciden con la evidencia registrada."
+    ExtendedTagUnavailableReason.PERMISSION_DENIED ->
+        "Android denegó el permiso de lectura del documento."
+    ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE ->
+        "El proveedor de documentos no está disponible ahora mismo."
+    null -> "No se registró un motivo para esta lectura."
 }
