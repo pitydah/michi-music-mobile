@@ -5,13 +5,9 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -25,26 +21,12 @@ import org.michimusic.data.repository.MusicLibraryRepository
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryScopeStoreTest {
 
-    // A fresh scheduler per test: the store collects for the lifetime of the scope it
-    // receives, and a shared TestScope let a coroutine from one test surface as
-    // `UncaughtExceptionsBeforeTest` in the next one under the full F-Droid suite.
-    private lateinit var testDispatcher: TestDispatcher
-    private lateinit var testScope: TestScope
-
-    @After
-    fun tearDown() {
-        testScope.cancel()
-        testDispatcher.scheduler.advanceUntilIdle()
-    }
-
     private lateinit var appDao: AppDao
     private lateinit var libraryRepo: MusicLibraryRepository
     private val settingsMap = mutableMapOf<String, String>()
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        testScope = TestScope(testDispatcher)
         appDao = mockk(relaxed = true)
         libraryRepo = mockk(relaxed = true)
         settingsMap.clear()
@@ -65,44 +47,51 @@ class LibraryScopeStoreTest {
         )
     }
 
+    // The store collects for the lifetime of the scope it receives. Handing it a
+    // detached TestScope let a coroutine from one test surface as
+    // `UncaughtExceptionsBeforeTest` in the next one under the full F-Droid suite, so
+    // every case now owns the store inside its own `runTest` scope: a failure is
+    // attributed to the test that caused it and `runTest` cancels whatever is left.
     @Test
-    fun `scope defaults to All when no setting stored`() = runTest(testDispatcher) {
-        val store = LibraryScopeStore(appDao, libraryRepo, testScope)
-        testDispatcher.scheduler.advanceUntilIdle()
+    fun `scope defaults to All when no setting stored`() = runTest(StandardTestDispatcher()) {
+        val store = LibraryScopeStore(appDao, libraryRepo, this)
+        testScheduler.advanceUntilIdle()
 
         assertEquals(LibraryScope.All, store.activeScope.value)
     }
 
     @Test
-    fun `scope loads persisted valid library`() = runTest(testDispatcher) {
+    fun `scope loads persisted valid library`() = runTest(StandardTestDispatcher()) {
         settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE] = "lib_custom_1"
 
-        val store = LibraryScopeStore(appDao, libraryRepo, testScope)
-        testDispatcher.scheduler.advanceUntilIdle()
+        val store = LibraryScopeStore(appDao, libraryRepo, this)
+        testScheduler.advanceUntilIdle()
 
         assertEquals(LibraryScope.One("lib_custom_1"), store.activeScope.value)
     }
 
     @Test
-    fun `scope falls back to All if persisted library no longer exists`() = runTest(testDispatcher) {
-        settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE] = "lib_deleted_999"
+    fun `scope falls back to All if persisted library no longer exists`() =
+        runTest(StandardTestDispatcher()) {
+            settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE] = "lib_deleted_999"
 
-        val store = LibraryScopeStore(appDao, libraryRepo, testScope)
-        testDispatcher.scheduler.advanceUntilIdle()
+            val store = LibraryScopeStore(appDao, libraryRepo, this)
+            testScheduler.advanceUntilIdle()
 
-        assertEquals(LibraryScope.All, store.activeScope.value)
-        assertEquals(LibraryScopeStore.VALUE_ALL, settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE])
-    }
+            assertEquals(LibraryScope.All, store.activeScope.value)
+            assertEquals(LibraryScopeStore.VALUE_ALL, settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE])
+        }
 
     @Test
-    fun `setScope updates state and persists setting`() = runTest(testDispatcher) {
-        val store = LibraryScopeStore(appDao, libraryRepo, testScope)
-        testDispatcher.scheduler.advanceUntilIdle()
+    fun `setScope updates state and persists setting`() = runTest(StandardTestDispatcher()) {
+        val store = LibraryScopeStore(appDao, libraryRepo, this)
+        testScheduler.advanceUntilIdle()
 
         store.setScope(LibraryScope.One("lib_device_local"))
-        testDispatcher.scheduler.advanceUntilIdle()
+        testScheduler.advanceUntilIdle()
 
         assertEquals(LibraryScope.One("lib_device_local"), store.activeScope.value)
         assertEquals("lib_device_local", settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE])
+        coVerify { appDao.setSetting(match { it.value == "lib_device_local" }) }
     }
 }
