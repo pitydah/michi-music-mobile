@@ -999,6 +999,11 @@ class GenreLibraryPanelComposeTest {
             }
         }
         rule.onNodeWithTag("genre_tile_jazz").performClick()
+        // The detail is a LazyColumn: on a shorter CI device the row is not
+        // composed until the list is scrolled to it. Scroll first, then assert
+        // the real disabled semantics instead of assuming it is on screen.
+        rule.onNodeWithTag("genre_detail")
+            .performScrollToNode(hasTestTag("genre_track_shared"))
         rule.onNodeWithTag("genre_track_shared").assertIsNotEnabled()
         rule.runOnIdle { assertEquals(false, invoked) }
     }
