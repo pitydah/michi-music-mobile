@@ -327,7 +327,13 @@ class GenreDetailHeaderComposeTest {
         // narrower than 480dp measures its own width instead (see setPanel).
         setPanel(widthDp = 480, fontScale = 2f, density = 2f)
         rule.waitForIdle()
-        waitForTag(mosaicTileTag("Pop"))
+        // K48: at 2x the tiles grow, so the target can sit outside the composed
+        // window on a narrower device; scroll the lazy grid to it instead of
+        // assuming it is already laid out (this timed out on CI).
+        waitForTag("genres_featured")
+        rule.onNodeWithTag("genres_featured")
+            .performScrollToNode(hasTestTag(mosaicTileTag("Pop")))
+        rule.waitForIdle()
         rule.onNodeWithTag(mosaicTileTag("Pop")).performClick()
         waitForTag("genre_detail_header")
         val header = bounds("genre_detail_header")
