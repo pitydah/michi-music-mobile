@@ -113,11 +113,11 @@ class ArtistEnrichmentPanelTest {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        openAdvancedBlock()
         compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.onNodeWithText("MBID confirmado por selección", substring = true).assertExists()
-        // K47-ART-03: deletion now lives behind an advanced section and a confirmation.
-        compose.onNodeWithTag("artist_enrichment_advanced").performScrollTo().performClick()
+        // K47-ART-03: deletion now lives behind the advanced section openAdvancedBlock() opened.
         compose.onNodeWithTag("artist_enrichment_clear").assertExists()
         // The previous verified profile is still rendered while the network refresh runs.
         compose.onNodeWithText("Midnight Oil").assertExists()
@@ -195,10 +195,10 @@ class ArtistEnrichmentPanelTest {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        openAdvancedBlock()
         compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         // K47-ART-03: nothing is deleted until the reader confirms the exact scope.
-        compose.onNodeWithTag("artist_enrichment_advanced").performScrollTo().performClick()
         compose.onNodeWithTag("artist_enrichment_clear").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals("Opening the confirmation must not delete anything", 0, store.clears.get())
@@ -448,6 +448,7 @@ class ArtistEnrichmentPanelTest {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        openAdvancedBlock()
         compose.onNodeWithTag("artist_enrichment_refresh").performScrollTo().performClick()
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.runOnIdle { credit = "Second Artist" }
@@ -482,6 +483,23 @@ class ArtistEnrichmentPanelTest {
             .fetchSemanticsNodes().isNotEmpty()
         if (!alreadyOpen) {
             compose.onNodeWithTag("artist_identity_accordion").performScrollTo().performClick()
+            compose.waitForIdle()
+        }
+    }
+
+    /**
+     * K48-S7 design E: the external refresh now lives inside the advanced block,
+     * so the tests must open it like a user would instead of assuming it is
+     * visible in the summary.
+     */
+    private fun openAdvancedBlock() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("artist_enrichment_advanced").fetchSemanticsNodes().isNotEmpty()
+        }
+        val alreadyOpen = compose.onAllNodesWithText("Ocultar opciones avanzadas")
+            .fetchSemanticsNodes().isNotEmpty()
+        if (!alreadyOpen) {
+            compose.onNodeWithTag("artist_enrichment_advanced").performScrollTo().performClick()
             compose.waitForIdle()
         }
     }

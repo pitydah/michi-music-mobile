@@ -520,21 +520,6 @@ fun ArtistEnrichmentPanel(
                     Text("Datos guardados: revisión vencida. Actualiza solo cuando lo necesites.",
                         color = TextSecondary, fontSize = 11.sp)
                 }
-                TextButton(
-                    onClick = {
-                        activeController.refresh(
-                            artistCredit, libraryId, albumIds, force = true,
-                        )
-                    },
-                    enabled = !result.refreshing,
-                    modifier = Modifier.heightIn(min = 48.dp)
-                        .testTag("artist_enrichment_refresh"),
-                ) {
-                    Text(
-                        if (result.refreshing) "Actualizando…" else "Actualizar datos externos",
-                        color = TertiaryCyan, fontSize = 12.sp,
-                    )
-                }
                 uiState.persistenceError?.let {
                     Text(it, color = TextSecondary, fontSize = 11.sp,
                         modifier = Modifier.testTag("artist_enrichment_persistence_error"))
@@ -619,6 +604,23 @@ fun ArtistEnrichmentPanel(
                         )
                     }
                     if (advancedOpen) {
+                        // K48-S7 design E: the external refresh is an advanced action,
+                        // not the primary affordance of the summary.
+                        TextButton(
+                            onClick = {
+                                activeController.refresh(
+                                    artistCredit, libraryId, albumIds, force = true,
+                                )
+                            },
+                            enabled = !result.refreshing,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                                .testTag("artist_enrichment_refresh"),
+                        ) {
+                            Text(
+                                if (result.refreshing) "Actualizando…" else "Actualizar información externa",
+                                color = TertiaryCyan, fontSize = 12.sp,
+                            )
+                        }
                         if (clearConfirm) {
                             Column(
                                 modifier = Modifier.fillMaxWidth()
@@ -1057,7 +1059,9 @@ internal fun ArtistArtworkCoverageSection(
                 .testTag("artist_artwork_coverage_toggle"),
         ) {
             Text(
-                if (expanded) "Ocultar diagnóstico por proveedor" else "Diagnóstico por proveedor",
+                // K48-S7 / Design D: the user-facing question first; the provider
+                // table stays inside as the technical diagnosis.
+                if (expanded) "Ocultar diagnóstico" else "¿Por qué faltan fotografías?",
                 color = PureWhite, fontSize = 12.sp,
             )
         }
