@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -65,8 +68,13 @@ internal fun MichiGenreEditorSheet(
     body: @Composable ColumnScope.() -> Unit,
 ) {
     val configuration = LocalConfiguration.current
-    // Safe cap: never a fixed 520dp for every form, never the whole screen.
-    val maxSheetHeight = (configuration.screenHeightDp * 0.88f).dp
+    val density = LocalDensity.current
+    val safeBottom = WindowInsets.safeDrawing.getBottom(density)
+    // Safe cap measured against the usable window, not just screenHeightDp: the
+    // modal may take at most 88% of the area left by the system bars.
+    val maxSheetHeight = with(density) {
+        ((configuration.screenHeightDp.dp - safeBottom.toDp()) * 0.88f)
+    }
     Dialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(
@@ -110,7 +118,7 @@ internal fun MichiGenreEditorSheet(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
-                                "Normalizar géneros",
+                                "Revisar géneros",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = PureWhite,

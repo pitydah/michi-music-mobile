@@ -83,7 +83,7 @@ internal fun GenreTrackActionsSheet(
                     .clickable(role = Role.Button, onClick = onNormalize)
                     .testTag("genre_track_action_normalize")
                     .semantics {
-                        contentDescription = "Normalizar géneros de ${track.title}"
+                        contentDescription = "Revisar géneros de ${track.title}"
                         role = Role.Button
                     }
                     .padding(vertical = 12.dp),
@@ -91,7 +91,7 @@ internal fun GenreTrackActionsSheet(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Icon(Icons.Default.EditNote, contentDescription = null, tint = PureWhite)
-                Text("Normalizar géneros", color = PureWhite)
+                Text("Revisar géneros", color = PureWhite)
             }
             Text(
                 if (track.source == TrackSource.LOCAL) {
@@ -188,7 +188,7 @@ private fun GenreEditorEvidenceLoading(track: Track, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "Normalizar géneros",
+                "Revisar géneros",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = PureWhite,
@@ -222,7 +222,7 @@ private fun GenreEditorReadOnlyNotice(track: Track, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "Normalizar géneros",
+                "Revisar géneros",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = PureWhite,

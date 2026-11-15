@@ -11,6 +11,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -39,6 +42,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+import org.michimusic.mobile.ui.theme.PureWhite
+import org.michimusic.mobile.ui.theme.TextMuted
 import org.koin.androidx.compose.koinViewModel
 import org.michimusic.core.intelligence.MichiGenreAccessPolicy
 import org.michimusic.core.intelligence.MichiGenreDisambiguationPolicy
@@ -88,7 +93,7 @@ internal fun MichiGenreNormalizationAction(
         onClick = { open = true },
         modifier = Modifier.testTag("mi23_open_genre_normalization"),
     ) {
-        Text("Normalizar géneros")
+        Text("Revisar géneros")
     }
     if (!open) return
     MichiGenreNormalizationEditor(
@@ -143,6 +148,7 @@ internal fun MichiGenreNormalizationEditor(
     // every state local to this exact track.
     val showDialog = true
     var previewNetwork by remember(trackReceipt) { mutableStateOf(false) }
+    var showDraftPreview by remember(trackReceipt) { mutableStateOf(false) }
     var confirmWrite by remember(trackReceipt) { mutableStateOf(false) }
     var confirmRecovery by remember(trackReceipt) { mutableStateOf(false) }
     var confirmUnknownRecovery by remember(trackReceipt) { mutableStateOf(false) }
@@ -508,18 +514,42 @@ internal fun MichiGenreNormalizationEditor(
         state = editorStatus.state,
         writesCertified = MI23_TAG_WRITES_CERTIFIED,
         footerAction = {
-            TextButton(
-                onClick = { closeLookupDialog() },
-                enabled = !busy || lookupJob != null,
-                modifier = Modifier.testTag("mi26_genre_editor_close"),
-            ) { Text("Cerrar") }
-            // Contextual, honest action. While the certification gate is false this
-            // never pretends a physical write is one tap away.
-            TextButton(
-                onClick = {},
-                enabled = MichiGenreEditorContract.primaryActionEnabled(editorStatus.write),
-                modifier = Modifier.testTag("mi26_genre_editor_primary"),
-            ) { Text(MichiGenreEditorContract.primaryActionLabel(editorStatus.write)) }
+            // K47-NORM-03: while WRITES_CERTIFIED is false there is no inert
+            // save button at all. The preview is functional, it just never
+            // pretends the tags will be written.
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    "Estos cambios no se guardan en los archivos",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted,
+                    modifier = Modifier.testTag("mi26_genre_editor_legend"),
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = { closeLookupDialog() },
+                        enabled = !busy || lookupJob != null,
+                        modifier = Modifier.testTag("mi26_genre_editor_close"),
+                    ) { Text("Cerrar") }
+                    Spacer(Modifier.weight(1f))
+                    if (genrePreview.isModified) {
+                        TextButton(
+                            onClick = { showDraftPreview = !showDraftPreview },
+                            modifier = Modifier.testTag("mi26_genre_editor_preview_toggle"),
+                        ) { Text("Ver previsualización") }
+                    }
+                }
+                if (showDraftPreview) {
+                    Text(
+                        MichiGenreEditorContract.proposedLabel(tagsVerified, genrePreview.proposed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = PureWhite,
+                        modifier = Modifier.testTag("mi26_genre_preview_summary"),
+                    )
+                }
+            }
         },
         body = {
                 when (val recovery = pendingRecovery) {

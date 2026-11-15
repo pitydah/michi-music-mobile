@@ -6,7 +6,6 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -136,7 +135,7 @@ class MichiGenreNormalizationActionTest {
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
 
-        compose.onNodeWithTag("mi26_genre_editor_title").assertTextEquals("Normalizar géneros")
+        compose.onNodeWithTag("mi26_genre_editor_title").assertTextEquals("Revisar géneros")
         compose.onNodeWithText("Género verificado: Rock").assertIsDisplayed()
         compose.onNodeWithText("Datos exactos de búsqueda:").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("recording: Song Title").performScrollTo().assertIsDisplayed()
@@ -171,6 +170,23 @@ class MichiGenreNormalizationActionTest {
                 "No se enviarán otros datos.",
         ).assertExists()
         compose.onNodeWithText("Enviar esta vez").assertExists()
+    }
+
+    @Test
+    fun draftPreviewIsFunctionalButNeverPromisesPersistence() {
+        setContent(tagsVerified = true, genres = listOf("Post-Punk"))
+
+        compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
+        compose.onNodeWithTag("mi26_genre_editor_preview_toggle").assertDoesNotExist()
+
+        compose.onNodeWithTag("mi23_manual_genre").performScrollTo()
+            .performTextReplacement("Coldwave")
+        compose.onNodeWithTag("mi26_preview_add").performScrollTo().clickInsideDialog()
+
+        compose.onNodeWithTag("mi26_genre_editor_preview_toggle").clickInsideDialog()
+        compose.onNodeWithTag("mi26_genre_preview_summary")
+            .assertTextEquals("Propuesto: Post-Punk · Coldwave")
+        compose.onNodeWithText("Guardar").assertDoesNotExist()
     }
 
     @Test
@@ -244,16 +260,17 @@ class MichiGenreNormalizationActionTest {
     }
 
     @Test
-    fun theFooterSaysPreviewOnlyAndThePrimaryActionIsUnavailable() {
+    fun theFooterHidesSaveAndExplainsThatNothingIsWritten() {
         setContent(tagsVerified = true, genres = listOf("Rock"))
 
         compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
 
         compose.onNodeWithTag("mi26_genre_editor_mode")
             .assertTextEquals("Solo previsualización")
-        compose.onNodeWithTag("mi26_genre_editor_primary")
-            .assertIsNotEnabled()
-            .assertTextEquals("No disponible: escritura sin certificar")
+        // K47-NORM-03: no inert Guardar and no long implementation message.
+        compose.onNodeWithTag("mi26_genre_editor_primary").assertDoesNotExist()
+        compose.onNodeWithTag("mi26_genre_editor_legend")
+            .assertTextEquals("Estos cambios no se guardan en los archivos")
         compose.onNodeWithTag("mi26_genre_editor_close").assertIsDisplayed()
         compose.onNodeWithTag("mi26_genre_editor_footer").assertIsDisplayed()
     }
