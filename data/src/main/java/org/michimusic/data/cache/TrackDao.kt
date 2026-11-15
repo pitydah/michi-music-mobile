@@ -51,7 +51,8 @@ interface TrackDao {
     /** Updates only missing genres; guard prevents racing with a changed SAF document. */
     @Query(
         "UPDATE cached_tracks SET genre = :genre WHERE sourceId = :sourceId " +
-            "AND id = :id AND filepath = :filepath AND size = :size AND (TRIM(genre) = '' OR LOWER(TRIM(genre)) IN ('unknown','unknown genre','<unknown>','sin género','sin genero','sin clasificar','none','unclassified','n/a','unspecified','not specified','?')) " +
+            "AND id = :id AND filepath = :filepath AND size = :size AND (" +
+            org.michimusic.data.cache.GenreMissingMarkerSql.IS_MISSING + ") " +
             "AND EXISTS (SELECT 1 FROM embedded_tag_evidence AS e WHERE e.sourceId = :sourceId " +
             "AND e.trackId = :id AND e.sizeBytes = :size AND e.modifiedAt = :expectedModifiedAt " +
             "AND e.modifiedAt > 0 AND e.genre = :genre AND e.parserVersion = :parserVersion)",

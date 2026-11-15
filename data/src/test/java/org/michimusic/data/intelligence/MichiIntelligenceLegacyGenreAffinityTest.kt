@@ -86,6 +86,40 @@ class MichiIntelligenceLegacyGenreAffinityTest {
     }
 
     @Test
+    fun legacyAndCanonicalCountersSaturateAtTheNominalRange() = runBlocking {
+        seed("dark wave" to 255, "darkwave" to 255)
+
+        val signals = repo.readSelectionSignals(20_000)
+        assertEquals(
+            org.michimusic.core.intelligence.MichiIntelligencePolicy.AFFINITY_MAX,
+            signals.genres[sha256("darkwave")] ?: 0,
+        )
+        val snapshot = repo.readAffinities(
+            artistKeys = emptyList(),
+            genreKeys = listOf("Dark Wave"),
+            nowEpochDay = 20_000,
+        )
+        assertEquals(
+            org.michimusic.core.intelligence.MichiIntelligencePolicy.AFFINITY_MAX,
+            snapshot.genre["darkwave"] ?: 0,
+        )
+    }
+
+    @Test
+    fun negativeLegacyCountersClampAtTheMinimumWithoutLosingAliases() = runBlocking {
+        seed("dark wave" to -32, "darkwave" to -32)
+
+        val signals = repo.readSelectionSignals(20_000)
+        assertEquals(
+            org.michimusic.core.intelligence.MichiIntelligencePolicy.AFFINITY_MIN,
+            signals.genres[sha256("darkwave")] ?: 0,
+        )
+        // The legacy key was folded once; no duplicate canonical entry is published.
+        assertNull(signals.genres[sha256("dark wave")])
+        assertEquals(1, signals.genres.size)
+    }
+
+    @Test
     fun readAffinitiesMergesLegacyAndCanonical() = runBlocking {
         seed("dark wave" to 3, "darkwave" to 2)
 

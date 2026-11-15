@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -38,9 +39,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import org.koin.androidx.compose.koinViewModel
+import org.michimusic.core.intelligence.MichiGenreAccessPolicy
 import org.michimusic.core.intelligence.MichiGenreDisambiguationPolicy
-import org.michimusic.core.intelligence.MichiGenreNormalizationPolicy
 import org.michimusic.core.intelligence.MichiGenreLookupAuthorization
+import org.michimusic.core.intelligence.MichiGenreLookupOutcomePolicy
+import org.michimusic.core.intelligence.MichiGenreNormalizationPolicy
+import org.michimusic.core.intelligence.MichiGenrePreviewPolicy
 import org.michimusic.core.models.Track
 import org.michimusic.core.models.TrackSource
 import org.michimusic.data.intelligence.MichiGenreTagWriteGateway
@@ -57,7 +61,11 @@ import org.michimusic.mobile.screens.AlbumsViewModel
  * production editing remains FAIL-CLOSED. Manual lookup and genre preview work.
  * OpenCode must not flip this merely because unit tests or a synthetic diff pass.
  */
-private const val MI23_TAG_WRITES_CERTIFIED = false
+internal object MichiGenreWriteCertification {
+    const val WRITES_CERTIFIED = false
+}
+
+private const val MI23_TAG_WRITES_CERTIFIED = MichiGenreWriteCertification.WRITES_CERTIFIED
 
 /** User-opened metadata detail only. No search on composition or while scrolling. */
 @Composable
@@ -108,7 +116,18 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
     var proposals by remember(trackReceipt) {
         mutableStateOf<List<MichiGenreNormalizationPolicy.GenreProposal>>(emptyList())
     }
-    var chosenGenre by remember(trackReceipt) { mutableStateOf("") }
+    // MI-23 5: the preview is a LIST. Every verified value is kept by default; one
+    // explicit add/replace/remove never discards the rest of the tag set.
+    var genrePreview by remember(trackReceipt) {
+        mutableStateOf(MichiGenrePreviewPolicy.of(embeddedGenres))
+    }
+    var manualGenre by remember(trackReceipt) { mutableStateOf("") }
+    var replaceIndex by remember(trackReceipt) { mutableStateOf<Int?>(null) }
+    var relaxedSearchOffered by remember(trackReceipt) { mutableStateOf(false) }
+    var relaxedIntent by remember(trackReceipt) {
+        mutableStateOf<MichiGenreNormalizationPolicy.SearchIntent?>(null)
+    }
+    var relaxedPreview by remember(trackReceipt) { mutableStateOf(false) }
     var pendingRecordingLookup by remember(trackReceipt) {
         mutableStateOf<MichiGenreNormalizationPolicy.RecordingCandidate?>(null)
     }
@@ -116,15 +135,160 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
     var lookupJob by remember(trackReceipt) { mutableStateOf<Job?>(null) }
     val capturedScope = remember(showDialog, trackReceipt) { scopeStore.activeScope.value }
     val capturedRoot = remember(showDialog, trackReceipt) { rootAuthority.revision.value }
-    fun stillOwns(): Boolean {
+
+    /**
+     * The receipt is the `remember(trackReceipt)` state itself: if the source, URI or
+     * metadata changed, this whole composition is replaced, so the local receipt
+     * cannot belong to another song. Playback/handoff/endpoint are inputs, not
+     * implicit vetoes: a read-only lookup must work while the track is loaded.
+     */
+    fun accessContext(): MichiGenreAccessPolicy.Context {
         val s = session.sessionState.value
-        // Even paused/current media may hold a descriptor; editing it is forbidden.
-        val selectedInPlayer = s.currentTrack?.filepath == track.filepath
-        return scopeStore.activeScope.value == capturedScope &&
-            rootAuthority.revision.value == capturedRoot &&
-            !s.isRemoteActive && !selectedInPlayer &&
-            s.handoffState == org.michimusic.mobile.playback.HandoffState.IDLE &&
-            s.activeEndpoint.isLocal && track.filepath == uri.toString()
+        return MichiGenreAccessPolicy.Context(
+            trackLocal = track.source == TrackSource.LOCAL,
+            receiptMatches = true,
+            uriMatches = track.filepath == uri.toString(),
+            scopeUnchanged = scopeStore.activeScope.value == capturedScope,
+            revisionUnchanged = rootAuthority.revision.value == capturedRoot,
+            dialogOpen = showDialog,
+            trackSelectedInPlayer = s.currentTrack?.filepath == track.filepath,
+            remoteSessionActive = s.isRemoteActive,
+            handoffActive = s.handoffState != org.michimusic.mobile.playback.HandoffState.IDLE,
+            localEndpoint = s.activeEndpoint.isLocal,
+        )
+    }
+    /** Strict contract for a physical GENRE mutation (kept fail-closed). */
+    fun stillOwns(): Boolean = MichiGenreAccessPolicy.canMutateAudioFile(accessContext())
+    /** Read-only contract: playback of the same stable local file never blocks it. */
+    fun canLookupNow(): Boolean = MichiGenreAccessPolicy.canLookup(accessContext())
+
+    fun dispatchSearch(requested: MichiGenreNormalizationPolicy.SearchIntent) {
+        if (!showDialog || !canLookupNow() ||
+            !MichiGenreNormalizationPolicy.isPreparedSearch(requested)) {
+            message = MichiGenreLookupOutcomePolicy.message(
+                MichiGenreLookupOutcomePolicy.SearchOutcome.CONSENT_REVOKED)
+            return
+        }
+        lookupRevision++
+        val requestedRevision = lookupRevision
+        lookupJob?.cancel()
+        busy = true
+        matches = emptyList()
+        selectedRecording = null
+        proposals = emptyList()
+        pendingRecordingLookup = null
+        relaxedSearchOffered = false
+        // A new query restarts the preview from the verified file tags.
+        genrePreview = MichiGenrePreviewPolicy.of(embeddedGenres)
+        manualGenre = ""
+        replaceIndex = null
+        // Mint on the confirmed user click, NOT after coroutine dispatch.
+        // Closing the dialog before dispatch revokes this exact grant.
+        val approvedSearch = authorization.issueSearch(requested)
+        if (approvedSearch == null) {
+            message = MichiGenreLookupOutcomePolicy.message(
+                MichiGenreLookupOutcomePolicy.SearchOutcome.CONSENT_REVOKED)
+            busy = false
+            return
+        }
+        lookupJob = coroutineScope.launch {
+            try {
+                val results = gateway.search(requested, approvedSearch,
+                    track.duration.takeIf { it > 0 })
+                if (lookupRevision == requestedRevision && showDialog && canLookupNow()) {
+                    matches = results
+                    val outcome = MichiGenreLookupOutcomePolicy.search(
+                        matchCount = results.size,
+                        reviewableCount = results.count { it.plausible },
+                    )
+                    // Only a completed strict search with zero matches may offer the
+                    // optional second query; it still needs a fresh confirmation.
+                    relaxedSearchOffered =
+                        outcome == MichiGenreLookupOutcomePolicy.SearchOutcome.NO_MATCH &&
+                            requested.album.isNotEmpty()
+                    message = MichiGenreLookupOutcomePolicy.message(outcome)
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                if (lookupRevision == requestedRevision) {
+                    message = MichiGenreLookupOutcomePolicy.message(
+                        MichiGenreLookupOutcomePolicy.SearchOutcome.ERROR)
+                }
+            } finally {
+                if (lookupRevision == requestedRevision) {
+                    busy = false
+                    lookupJob = null
+                }
+            }
+        }
+    }
+
+    fun dispatchRecordingLookup(chosen: MichiGenreNormalizationPolicy.RecordingCandidate) {
+        val mbid = MichiGenreNormalizationPolicy.canonicalMbid(chosen.mbid)
+        if (!showDialog || !canLookupNow() || mbid == null ||
+            matches.none { it.recording == chosen }) {
+            message = "La grabación ya no pertenece a esta consulta."
+            return
+        }
+        lookupRevision++
+        val requestedRevision = lookupRevision
+        lookupJob?.cancel()
+        selectedRecording = chosen
+        proposals = emptyList()
+        busy = true
+        // Issued synchronously with the second, independently confirmed click.
+        val approvedRecording = authorization.issueRecording(mbid)
+        if (approvedRecording == null) {
+            busy = false
+            message = MichiGenreLookupOutcomePolicy.message(
+                MichiGenreLookupOutcomePolicy.RecordingOutcome.CONSENT_REVOKED)
+            return
+        }
+        lookupJob = coroutineScope.launch {
+            try {
+                val received = gateway.genresForSelectedRecording(chosen, approvedRecording)
+                if (lookupRevision == requestedRevision && showDialog && canLookupNow() &&
+                    selectedRecording == chosen) {
+                    proposals = received.filter {
+                        MichiGenreNormalizationPolicy.approvedProposal(chosen, it, chosen.mbid)
+                    }
+                    val outcome = MichiGenreLookupOutcomePolicy.recording(proposals.size)
+                    message = MichiGenreLookupOutcomePolicy.message(outcome)
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                if (lookupRevision == requestedRevision) {
+                    message = MichiGenreLookupOutcomePolicy.message(
+                        MichiGenreLookupOutcomePolicy.RecordingOutcome.ERROR)
+                }
+            } finally {
+                if (lookupRevision == requestedRevision) {
+                    busy = false
+                    lookupJob = null
+                }
+            }
+        }
+    }
+
+    fun applyPreviewEdit(edit: MichiGenrePreviewPolicy.Edit) {
+        when (edit) {
+            is MichiGenrePreviewPolicy.Edit.Accepted -> {
+                genrePreview = edit.preview
+                manualGenre = ""
+                replaceIndex = null
+                message = null
+            }
+            is MichiGenrePreviewPolicy.Edit.Rejected -> message = when (edit.reason) {
+                "MAX_GENRES" -> "Se conservan como máximo 32 géneros verificados."
+                "DUPLICATE_GENRE" -> "Ese género ya está en la previsualización."
+                "NOT_A_MUSICAL_GENRE" ->
+                    "Un marcador de ausencia o un contenedor no es un género musical."
+                "INVALID_INDEX" -> "Selecciona un género de la lista."
+                else -> "La etiqueta escrita no es válida."
+            }
+        }
     }
     // Neither a dismissed dialog nor a replaced track can receive late HTTP results.
     // A cancelled coroutine does not revoke an already completed network disclosure.
@@ -244,7 +408,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
     ) { result ->
         if (tagsVerified && MI23_TAG_WRITES_CERTIFIED && result.resultCode == Activity.RESULT_OK &&
             stillOwns() && confirmWrite) {
-            val newGenre = chosenGenre
+            val newGenres = genrePreview.proposed.toList()
             confirmWrite = false
             busy = true
             coroutineScope.launch {
@@ -252,7 +416,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                     val ticket = MichiGenreTagWriteGateway.Ticket(
                         track.sourceId,track.id,track.filepath,embeddedGenres,
                         track.title,track.artist,track.album,track.size)
-                    message = when (val result = writer.write(ticket,listOf(newGenre),true,true,true,::stillOwns)) {
+                    message = when (val result = writer.write(ticket,newGenres,true,true,true,::stillOwns)) {
                         is MichiGenreTagWriteGateway.Result.SavedVerified ->
                             reportVerifiedWrite(ticket, result)
                         is MichiGenreTagWriteGateway.Result.Rejected ->
@@ -324,9 +488,22 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                         }, modifier = Modifier.testTag("mi27_cancel_lookup"),
                     ) { Text("Cancelar consulta") }
                 }
+                if (relaxedSearchOffered && intent?.album?.isNotEmpty() == true) {
+                    Text("La búsqueda estricta (título, artista y álbum) no encontró coincidencias.")
+                    TextButton(
+                        onClick = {
+                            intent?.let { currentIntent ->
+                                relaxedIntent = MichiGenreNormalizationPolicy.relaxedSearch(currentIntent)
+                                relaxedPreview = relaxedIntent != null
+                            }
+                        },
+                        enabled = !busy && canLookupNow(),
+                        modifier = Modifier.testTag("mi26_open_relaxed_search"),
+                    ) { Text("Buscar sin álbum (segunda consulta)") }
+                }
                 matches.forEach { choice ->
                     TextButton(
-                        enabled = !busy && showDialog && stillOwns(),
+                        enabled = !busy && canLookupNow(),
                         onClick = {
                             // Selection is NOT consent to a second HTTP request.
                             pendingRecordingLookup = choice.recording
@@ -335,44 +512,99 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                             if(choice.plausible) " · Coincidencia revisable" else " · Identidad incierta")
                     }
                 }
-                if(selectedRecording!=null) Text("Grabación elegida: ${selectedRecording!!.mbid}")
+                selectedRecording?.let { sel ->
+                    Text("Grabación elegida: ${sel.mbid}")
+                    Text("Procedencia: " + MichiGenreNormalizationPolicy.provenanceLabel(
+                        MichiGenreNormalizationPolicy.provenanceOf(
+                            MichiGenreNormalizationPolicy.Entity.RECORDING)))
+                }
                 proposals.forEach { proposal ->
                     val selected = selectedRecording
                     val provenanceVerified = selected != null &&
                         MichiGenreNormalizationPolicy.approvedProposal(
                             selected, proposal, selected.mbid)
+                    val provenance = MichiGenreNormalizationPolicy.provenanceOf(proposal.entity)
                     TextButton(
                         onClick = {
-                            if (provenanceVerified && stillOwns())
-                                chosenGenre = MichiGenreDisambiguationPolicy.suggestedTag(proposal.name)
-                        }, enabled = !busy && provenanceVerified && stillOwns(),
+                            if (provenanceVerified && canLookupNow()) {
+                                // Additive: choosing a proposal never drops existing tags.
+                                applyPreviewEdit(genrePreview.add(
+                                    MichiGenreDisambiguationPolicy.suggestedTag(proposal.name)))
+                            }
+                        }, enabled = !busy && provenanceVerified && canLookupNow(),
                         modifier=Modifier.fillMaxWidth().testTag("mi23_proposed_genre")) {
-                        Text("${proposal.name} · Clasificación: ${MichiGenreDisambiguationPolicy.suggestedTag(proposal.name)} · votos: ${proposal.votes ?: "s/d"}")
+                        Text("${proposal.name} · " +
+                            MichiGenreNormalizationPolicy.provenanceLabel(provenance) +
+                            " · votos: ${proposal.votes ?: "s/d"}" +
+                            if (MichiGenreNormalizationPolicy.isContextOnly(provenance))
+                                " · Solo contexto: no se aplica" else "")
+                    }
+                }
+                Text("Previsualización: no modifica el archivo.",
+                    modifier = Modifier.testTag("mi26_preview_only_notice"))
+                Text("Original: ${genrePreview.original.joinToString(" · ").ifBlank { "Sin género" }}")
+                Text("Propuesto: ${genrePreview.proposed.joinToString(" · ").ifBlank { "Sin género" }}",
+                    modifier = Modifier.testTag("mi26_preview_proposed"))
+                val previewDiff = genrePreview.diff()
+                if (previewDiff.added.isNotEmpty())
+                    Text("Añadido: ${previewDiff.added.joinToString(" · ")}")
+                if (previewDiff.removed.isNotEmpty())
+                    Text("Quitado: ${previewDiff.removed.joinToString(" · ")}")
+                // One explicit operation per value; the remaining values are preserved.
+                genrePreview.proposed.forEachIndexed { index, value ->
+                    Row {
+                        TextButton(
+                            onClick = { applyPreviewEdit(genrePreview.removeAt(index)) },
+                            enabled = !busy,
+                            modifier = Modifier.testTag("mi26_preview_remove"),
+                        ) { Text("Quitar") }
+                        TextButton(
+                            onClick = { replaceIndex = index; manualGenre = value },
+                            enabled = !busy,
+                            modifier = Modifier.testTag("mi26_preview_select_replace"),
+                        ) { Text("Sustituir") }
+                        Text(value + if (replaceIndex == index) " · seleccionado" else "")
                     }
                 }
                 OutlinedTextField(
-                    value=chosenGenre,onValueChange={chosenGenre=it},singleLine=true,
-                    label={Text("Género elegido o escrito manualmente")},
+                    value=manualGenre,onValueChange={manualGenre=it},singleLine=true,
+                    label={Text("Género para añadir o sustituir")},
                     modifier=Modifier.fillMaxWidth().testTag("mi23_manual_genre"))
-                if (MichiGenreNormalizationPolicy.validateGenres(listOf(chosenGenre)) != null) {
-                    Text("Actual: ${embeddedGenres.joinToString(" · ").ifBlank { "Sin género" }}")
-                    val canonicalPreview = MichiGenreDisambiguationPolicy.suggestedTag(chosenGenre)
-                    Text("Propuesto: $chosenGenre")
-                    Text("Categoría en biblioteca: $canonicalPreview")
-                    if (canonicalPreview != chosenGenre) {
-                        TextButton(
-                            modifier = Modifier.testTag("mi26_use_canonical_genre"),
-                            enabled = !busy,
-                            onClick = { chosenGenre = canonicalPreview },
-                        ) { Text("Usar etiqueta normalizada: $canonicalPreview") }
-                    }
-                    if (MI23_TAG_WRITES_CERTIFIED && tagsVerified) {
-                        TextButton(onClick={confirmWrite=true},enabled=!busy && stillOwns(),
-                            modifier=Modifier.testTag("mi23_request_write")) {
-                            Text(if (embeddedGenres.isEmpty()) "Guardar GENRE en archivo" else "Reemplazar GENRE existente")
-                        }
-                    } else Text("Escritura de etiquetas deshabilitada hasta certificar MediaStore/SAF y los formatos MP3/FLAC en Android.")
+                Row {
+                    TextButton(
+                        onClick = { applyPreviewEdit(genrePreview.add(manualGenre)) },
+                        enabled = !busy && manualGenre.isNotBlank(),
+                        modifier = Modifier.testTag("mi26_preview_add"),
+                    ) { Text("Añadir") }
+                    TextButton(
+                        onClick = {
+                            replaceIndex?.let {
+                                applyPreviewEdit(genrePreview.replaceAt(it, manualGenre))
+                            }
+                        },
+                        enabled = !busy && replaceIndex != null && manualGenre.isNotBlank(),
+                        modifier = Modifier.testTag("mi26_preview_replace"),
+                    ) { Text("Sustituir seleccionado") }
+                    TextButton(
+                        onClick = {
+                            genrePreview = MichiGenrePreviewPolicy.of(embeddedGenres)
+                            manualGenre = ""
+                            replaceIndex = null
+                        },
+                        enabled = !busy,
+                        modifier = Modifier.testTag("mi26_preview_keep_all"),
+                    ) { Text("Mantener todo") }
                 }
+                genrePreview.structuralError?.let {
+                    Text("Previsualización no válida ($it). No se puede guardar.")
+                }
+                if (MI23_TAG_WRITES_CERTIFIED && tagsVerified &&
+                    genrePreview.structuralError == null && genrePreview.isModified) {
+                    TextButton(onClick={confirmWrite=true},enabled=!busy && stillOwns(),
+                        modifier=Modifier.testTag("mi23_request_write")) {
+                        Text(if (embeddedGenres.isEmpty()) "Guardar GENRE en archivo" else "Reemplazar GENRE existente")
+                    }
+                } else Text("Escritura de etiquetas deshabilitada hasta certificar MediaStore/SAF y los formatos MP3/FLAC en Android. Esta vista solo previsualiza.")
                 message?.let {Text(it)}
             }
         },
@@ -389,39 +621,39 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                 Text("MusicBrainz puede registrar la IP y los parámetros de búsqueda. No se enviarán otros datos.")}},
             confirmButton={ TextButton(onClick={
                 previewNetwork=false
-                if (!showDialog || !stillOwns() ||
-                    !MichiGenreNormalizationPolicy.isPreparedSearch(intent)) {
-                    message = "Consulta cancelada: cambió la canción o la biblioteca."
-                } else {
-                    lookupRevision++
-                    val requestedRevision = lookupRevision
-                    lookupJob?.cancel()
-                    busy=true;matches=emptyList();selectedRecording=null;proposals=emptyList();chosenGenre=""
-                    pendingRecordingLookup=null
-                    // Mint on the confirmed user click, NOT after coroutine dispatch.
-                    // Closing the dialog before dispatch revokes this exact grant.
-                    val approvedSearch = authorization.issueSearch(intent)
-                    lookupJob = coroutineScope.launch {
-                        try {
-                            val results = gateway.search(intent, approvedSearch,
-                                track.duration.takeIf {it>0})
-                            if (lookupRevision == requestedRevision && showDialog && stillOwns()) {
-                                matches = results
-                                message = if (results.isEmpty()) "Sin grabaciones coincidentes." else null
-                            }
-                        } catch (cancel:CancellationException){ throw cancel }
-                        catch (_:Exception){
-                            if (lookupRevision == requestedRevision) message="MusicBrainz no respondió."
-                        } finally {
-                            if (lookupRevision == requestedRevision) {
-                                busy=false
-                                lookupJob=null
-                            }
-                        }
-                    }
-                }
+                dispatchSearch(intent)
             }, modifier=Modifier.testTag("mi23_send_once")) {Text("Enviar esta vez")} },
             dismissButton={TextButton(onClick={previewNetwork=false}){Text("Cancelar")}},
+        )
+    }
+    // MI-23 4.1: the relaxed search is a SEPARATE request without `release`.
+    // It is only reachable after a strict zero-match result and its own confirmation.
+    relaxedIntent?.let { relaxed ->
+        if (relaxedPreview) AlertDialog(
+            onDismissRequest = { relaxedPreview = false },
+            title = { Text("¿Buscar sin álbum?") },
+            text = {
+                Column {
+                    Text("Segunda consulta independiente. Se enviarán solo estos campos públicos:")
+                    relaxed.outgoingFields().forEach { (key, value) -> Text("$key: $value") }
+                    Text("No se enviará el álbum ni ningún otro dato. MusicBrainz puede " +
+                        "registrar la IP y los parámetros. No se modifica ningún archivo.")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        relaxedPreview = false
+                        relaxedSearchOffered = false
+                        dispatchSearch(relaxed)
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.testTag("mi26_send_relaxed"),
+                ) { Text("Enviar sin álbum") }
+            },
+            dismissButton = {
+                TextButton(onClick = { relaxedPreview = false }) { Text("Cancelar") }
+            },
         )
     }
     pendingRecordingLookup?.let { chosen ->
@@ -445,46 +677,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                     enabled = !busy,
                     onClick = {
                         pendingRecordingLookup = null
-                        if (!showDialog || !stillOwns() ||
-                            matches.none { it.recording == chosen } ||
-                            MichiGenreNormalizationPolicy.canonicalMbid(chosen.mbid) == null) {
-                            message = "La grabación ya no pertenece a esta consulta."
-                        } else {
-                            lookupRevision++
-                            val requestedRevision = lookupRevision
-                            lookupJob?.cancel()
-                            selectedRecording = chosen
-                            proposals = emptyList()
-                            chosenGenre = "" // An old preview is never reused for a new recording.
-                            busy = true
-                            // Issued synchronously with second, independently confirmed click.
-                            val approvedRecording = authorization.issueRecording(chosen.mbid)
-                            lookupJob = coroutineScope.launch {
-                                try {
-                                    val received = gateway.genresForSelectedRecording(chosen,
-                                        approvedRecording)
-                                    if (lookupRevision == requestedRevision && showDialog && stillOwns() &&
-                                        selectedRecording == chosen) {
-                                        proposals = received.filter {
-                                            MichiGenreNormalizationPolicy.approvedProposal(
-                                                chosen, it, chosen.mbid)
-                                        }
-                                        message = if (proposals.isEmpty())
-                                            "MusicBrainz no aportó géneros verificados para esta grabación."
-                                            else null
-                                    }
-                                } catch (cancel: CancellationException) { throw cancel }
-                                catch (_: Exception) {
-                                    if (lookupRevision == requestedRevision)
-                                        message = "No se pudieron obtener géneros."
-                                } finally {
-                                    if (lookupRevision == requestedRevision) {
-                                        busy = false
-                                        lookupJob = null
-                                    }
-                                }
-                            }
-                        }
+                        dispatchRecordingLookup(chosen)
                     },
                 ) { Text("Consultar esta grabación") }
             },
@@ -513,7 +706,7 @@ internal fun MichiGenreNormalizationAction(track: Track, embeddedGenres: List<St
                         try {
                             val ticket=MichiGenreTagWriteGateway.Ticket(track.sourceId,track.id,
                                 track.filepath,embeddedGenres,track.title,track.artist,track.album,track.size)
-                            message=when(val result=writer.write(ticket,listOf(chosenGenre),true,true,true,::stillOwns)) {
+                            message=when(val result=writer.write(ticket,genrePreview.proposed.toList(),true,true,true,::stillOwns)) {
                                 is MichiGenreTagWriteGateway.Result.SavedVerified ->
                                     reportVerifiedWrite(ticket, result)
                                 is MichiGenreTagWriteGateway.Result.Rejected -> "No se guardó: ${result.code}"

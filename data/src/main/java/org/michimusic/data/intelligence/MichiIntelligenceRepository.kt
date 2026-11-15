@@ -483,7 +483,9 @@ class MichiIntelligenceRepository(
                                     if (score != 0) {
                                         val hash = k.removePrefix(GENRE)
                                         val canonicalHash = legacyGenreHashToCanonical[hash] ?: hash
-                                        genres.merge(canonicalHash, score, Int::plus)
+                                        genres.merge(canonicalHash, score) { a, b ->
+                                            MichiIntelligencePolicy.clampAffinity(a + b)
+                                        }
                                     }
                                 }
                                 k.startsWith(OWNED_TRACK) && k.length == 66 -> {
@@ -560,7 +562,7 @@ class MichiIntelligenceRepository(
                                 val value = rows[GENRE + hash]?.let(::decodeCounter) ?: continue
                                 total += MichiIntelligencePolicy.decayed(value, nowEpochDay)
                             }
-                            if (total != 0) put(key, total)
+                            if (total != 0) put(key, MichiIntelligencePolicy.clampAffinity(total))
                         }
                     }
                     if (!consentAllows(readEpoch))

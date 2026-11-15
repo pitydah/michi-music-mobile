@@ -23,6 +23,20 @@ class MichiIntelligencePolicyTest {
         assertEquals(liked, policy.observe(liked, MichiIntelligencePolicy.PlaybackOutcome.EXPLICIT_SKIP, 800, 100, true))
     }
 
+    @Test fun affinityScoresAreClampedAtTheSharedBoundary() {
+        // Legacy alias counters can add up beyond the nominal range; the boundary
+        // that returns a score map must clamp once, for every consumer.
+        assertEquals(255, policy.clampAffinity(255))
+        assertEquals(255, policy.clampAffinity(510))
+        assertEquals(255, policy.clampAffinity(Int.MAX_VALUE))
+        assertEquals(-32, policy.clampAffinity(-32))
+        assertEquals(-32, policy.clampAffinity(-64))
+        assertEquals(0, policy.clampAffinity(0))
+        assertEquals(7, policy.clampAffinity(7))
+        // Individual decay still happens before clamping.
+        assertEquals(31, policy.decayed(MichiIntelligencePolicy.PreferenceCounter(255, 10), 100))
+    }
+
     @Test fun preferenceDecaysOnlyWhenAsked() {
         val saved = MichiIntelligencePolicy.PreferenceCounter(16, 10)
         assertEquals(16, policy.decayed(saved, 39))

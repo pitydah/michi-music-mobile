@@ -13,11 +13,17 @@ object MichiGenreNormalizationPolicy {
     const val MAX_GENRE_CHARS = 2_048
     const val MAX_TOTAL_GENRE_CHARS = 8_192
     const val MAX_SEARCH_FIELD = 120
-    private val placeholders = setOf("", "unknown", "undefined", "unclassified", "sin clasificar",
-        "desconocido", "none", "n/a", "no genre", "other", "various")
     private val mbidPattern = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
     enum class Entity { RECORDING, RELEASE_GROUP, ARTIST }
+
+    /**
+     * Where a value came from. Only FILE/RECORDING/MANUAL classify a track;
+     * RELEASE_GROUP and ARTIST are orientative context and are NEVER attributed
+     * to the recording automatically.
+     */
+    enum class Provenance { FILE, RECORDING, RELEASE_GROUP, ARTIST, MANUAL }
+
     data class SearchIntent(val title: String, val artist: String, val album: String = "") {
         /** Exact per-request disclosure. Contains no local owner / identity / URI. */
         fun outgoingFields(): Map<String, String> = buildMap {
@@ -41,9 +47,35 @@ object MichiGenreNormalizationPolicy {
 
     private fun comparable(value: String): String = Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
         .lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
-    fun isPlaceholderGenre(value: String): Boolean = comparable(value) in placeholders
+
+    /** Shared MI-26 absence policy; `Other`/`Various` are containers, never assigned. */
+    fun isPlaceholderGenre(value: String): Boolean = !MichiGenreAbsencePolicy.isAssignableLabel(value)
+
     fun canonicalMbid(value: String): String? = value.trim().lowercase(Locale.ROOT)
         .takeIf { mbidPattern.matches(it) }
+
+    /** Only a recording (or the user's own file/manual edit) classifies the track. */
+    fun provenanceOf(entity: Entity): Provenance = when (entity) {
+        Entity.RECORDING -> Provenance.RECORDING
+        Entity.RELEASE_GROUP -> Provenance.RELEASE_GROUP
+        Entity.ARTIST -> Provenance.ARTIST
+    }
+
+    fun isTrackClassification(provenance: Provenance): Boolean = when (provenance) {
+        Provenance.FILE, Provenance.RECORDING, Provenance.MANUAL -> true
+        Provenance.RELEASE_GROUP, Provenance.ARTIST -> false
+    }
+
+    /** Orientative-only provenance; never shown as a verified track classification. */
+    fun isContextOnly(provenance: Provenance): Boolean = !isTrackClassification(provenance)
+
+    fun provenanceLabel(provenance: Provenance): String = when (provenance) {
+        Provenance.FILE -> "Etiqueta del archivo"
+        Provenance.RECORDING -> "Grabación MusicBrainz"
+        Provenance.RELEASE_GROUP -> "Contexto: release group (orientativo)"
+        Provenance.ARTIST -> "Contexto: artista (orientativo)"
+        Provenance.MANUAL -> "Etiqueta local aprobada"
+    }
 
     /** An unsafe field fails closed; never silently chop a malformed payload. */
     fun validateGenres(input: List<String>): List<String>? {
@@ -78,6 +110,22 @@ object MichiGenreNormalizationPolicy {
      */
     fun isPreparedSearch(intent: SearchIntent): Boolean =
         prepareSearch(intent.title, intent.artist, intent.album) == intent
+
+    /**
+     * MI-23 4.1: a SECOND, less restrictive search without `release` is offered in
+     * the UI only after the strict search returned zero matches. It is a separate
+     * request that requires its own explicit confirmation; it is never automatic
+     * and it never sends more fields than [SearchIntent.outgoingFields] declares.
+     */
+    fun prepareRelaxedSearch(title: String, artist: String): SearchIntent? =
+        prepareSearch(title, artist, album = "")
+
+    fun relaxedSearch(intent: SearchIntent): SearchIntent? =
+        if (intent.album.isEmpty()) null
+        else prepareRelaxedSearch(intent.title, intent.artist)
+
+    fun isRelaxedSearch(intent: SearchIntent): Boolean =
+        isPreparedSearch(intent) && intent.album.isEmpty()
 
     /** Candidate is a suggestion, not an automatic identity binding. */
     fun plausibleCandidate(intent: SearchIntent, candidate: RecordingCandidate,

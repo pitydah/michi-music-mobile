@@ -9,13 +9,17 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -159,5 +163,66 @@ class MichiGenreNormalizationActionTest {
         compose.onNodeWithText("Género verificado: Sin género").assertDoesNotExist()
         compose.onNodeWithText("Guardar GENRE en archivo").assertDoesNotExist()
         compose.onNodeWithText("Reemplazar GENRE existente").assertDoesNotExist()
+    }
+
+    @Test
+    fun previewShowsEveryCurrentValueAndSaysItDoesNotModifyTheFile() {
+        setContent(tagsVerified = true, genres = listOf("Post-Punk", "New Wave", "Darkwave"))
+
+        compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
+
+        compose.onNodeWithText("Previsualización: no modifica el archivo.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Original: Post-Punk · New Wave · Darkwave").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Propuesto: Post-Punk · New Wave · Darkwave").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(
+            "Escritura de etiquetas deshabilitada hasta certificar MediaStore/SAF y los " +
+                "formatos MP3/FLAC en Android. Esta vista solo previsualiza.",
+        ).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("mi23_request_write").assertDoesNotExist()
+    }
+
+    @Test
+    fun addingAGenreKeepsTheExistingOnes() {
+        setContent(tagsVerified = true, genres = listOf("Post-Punk", "New Wave"))
+
+        compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
+        compose.onNodeWithTag("mi23_manual_genre").performScrollTo().performTextReplacement("Coldwave")
+        compose.onNodeWithTag("mi26_preview_add").performScrollTo().performClick()
+
+        compose.onNodeWithText("Propuesto: Post-Punk · New Wave · Coldwave").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Añadido: Coldwave").performScrollTo().assertIsDisplayed()
+        // Original evidence is never rewritten by the preview.
+        compose.onNodeWithText("Original: Post-Punk · New Wave").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun removingOneGenreKeepsEveryOtherGenre() {
+        setContent(tagsVerified = true, genres = listOf("Post-Punk", "New Wave", "Darkwave"))
+
+        compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
+        compose.onAllNodesWithTag("mi26_preview_remove")[1].performScrollTo().performClick()
+
+        compose.onNodeWithText("Propuesto: Post-Punk · Darkwave").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Quitado: New Wave").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun replacingOneGenreKeepsTheOtherNMinusOne() {
+        setContent(tagsVerified = true, genres = listOf("Post-Punk", "New Wave", "Darkwave"))
+
+        compose.onNodeWithTag("mi23_open_genre_normalization").performClick()
+        compose.onAllNodesWithTag("mi26_preview_select_replace")[2].performScrollTo().performClick()
+        compose.onNodeWithTag("mi23_manual_genre").performScrollTo().performTextReplacement("Coldwave")
+        compose.onNodeWithTag("mi26_preview_replace").performScrollTo().performClick()
+
+        compose.onNodeWithText("Propuesto: Post-Punk · New Wave · Coldwave").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Añadido: Coldwave").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Quitado: Darkwave").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun tagWritesAreNotCertifiedInProduction() {
+        // The deliberate fail-closed gate is a product contract, not a test artifact.
+        assertFalse(MichiGenreWriteCertification.WRITES_CERTIFIED)
     }
 }

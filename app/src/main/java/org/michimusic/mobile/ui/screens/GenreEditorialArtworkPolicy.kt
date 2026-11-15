@@ -1,5 +1,7 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.core.intelligence.MichiGenreAbsencePolicy
+
 /**
  * Source artwork inventory is not a music taxonomy. It never creates genre
  * groups or changes Track.genre; a missing/unfinished asset leaves Compose intact.
@@ -116,7 +118,7 @@ internal enum class EditorialProductionVariant(val suffix: String) {
 /** Exact approved slug used by both complete posters and derived Editorial art. */
 internal fun editorialArtworkSlug(genreTitle: String): String? {
     val id = genreGroupingKey(genreTitle)
-    if (id.isBlank() || id == "sin clasificar" || id == "unknown" || id == "<unknown>") return null
+    if (id.isBlank() || MichiGenreAbsencePolicy.isMissing(id)) return null
     val slug = when (id) {
         "r&b" -> "rn_b"
         "edm" -> "e_d_m"

@@ -1,5 +1,6 @@
 package org.michimusic.mobile.ui.screens
 
+import org.michimusic.core.intelligence.MichiGenreAbsencePolicy
 import org.michimusic.core.models.Track
 import java.util.Locale
 
@@ -12,8 +13,11 @@ data class LibraryGenre(
 ) {
 }
 
-private const val UNKNOWN_GENRE_ID = "__ui7_unknown_genre__"
-private const val UNKNOWN_GENRE_TITLE = "Sin clasificar"
+private const val UNKNOWN_GENRE_ID = MichiGenreAbsencePolicy.UNCLASSIFIED_KEY
+private const val UNKNOWN_GENRE_TITLE = MichiGenreAbsencePolicy.UNCLASSIFIED_LABEL
+
+/** The honest bucket for tracks without genre evidence; never a musical style. */
+internal fun genreIsUnclassified(genreId: String): Boolean = genreId == UNKNOWN_GENRE_ID
 
 private data class GenreToken(val key: String, val title: String)
 private fun genreNames(raw: String, structured: List<String>): List<GenreToken> {

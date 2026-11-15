@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,10 +27,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.ViewCarousel
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -104,6 +109,9 @@ fun GenreLibraryPanel(
     var detailMode by rememberSaveable { mutableStateOf<GenreViewMode?>(null) }
     // Save across detail navigation; state inside the overview branch would reset.
     var viewMode by rememberSaveable { mutableStateOf(GenreViewMode.FEATURED) }
+    // Explicit user action only; nothing is built while the panel is idle.
+    var showDiagnostic by rememberSaveable { mutableStateOf(false) }
+    var diagnosticCsvVisible by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     // Both approved catalogs are read once, when the panel enters composition. They
     // are independent one-shot reads of a bounded manifest (never a media scan and
@@ -135,6 +143,63 @@ fun GenreLibraryPanel(
         detailMode = null
     }
 
+    // MI-26 2.5: aggregated, on-demand receipt over the already-loaded index and
+    // the approved catalogs. No file scan, no provider call, no path or history.
+    if (showDiagnostic) {
+        val diagnosticRows = remember(genres, mosaicCatalog, posterCatalog) {
+            GenreLibraryDiagnosticReport.build(
+                genres = genres,
+                mosaicKeys = mosaicCatalog.entriesOrEmpty().keys,
+                editorialSlugs = posterCatalog.entriesOrEmpty().keys,
+            )
+        }
+        AlertDialog(
+            onDismissRequest = {
+                showDiagnostic = false
+                diagnosticCsvVisible = false
+            },
+            title = { Text("Diagnóstico local de géneros") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp)) {
+                    Text(
+                        "Usa el índice ya cargado. No escanea archivos, no consulta " +
+                            "proveedores y no incluye rutas ni historial.",
+                    )
+                    if (diagnosticCsvVisible) {
+                        Text(
+                            GenreLibraryDiagnosticReport.csv(diagnosticRows),
+                            modifier = Modifier.verticalScroll(rememberScrollState())
+                                .testTag("genres_diagnostic_csv"),
+                        )
+                    } else {
+                        LazyColumn(Modifier.testTag("genres_diagnostic_rows")) {
+                            items(diagnosticRows) { row ->
+                                Text(
+                                    "${row.originalLabel} · ${row.songCount} pistas · " +
+                                        "${row.evidenceOrigin} · " +
+                                        "Mosaico:${if (row.mosaicExact) "sí" else "no"} · " +
+                                        "Editorial:${if (row.editorialExact) "sí" else "no"} · " +
+                                        row.fallbackCause,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiagnostic = false
+                    diagnosticCsvVisible = false
+                }) { Text("Cerrar") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { diagnosticCsvVisible = !diagnosticCsvVisible },
+                    modifier = Modifier.testTag("genres_diagnostic_toggle_csv"),
+                ) { Text(if (diagnosticCsvVisible) "Ver filas" else "Ver CSV agregado") }
+            },
+        )
+    }
     if (genres.isEmpty()) {
         Box(Modifier.fillMaxSize().padding(20.dp).testTag("genres_empty"),
             contentAlignment = Alignment.TopCenter) {
@@ -161,6 +226,7 @@ fun GenreLibraryPanel(
                 totalGenres = genres.size,
                 currentMode = viewMode,
                 onModeChange = { viewMode = it },
+                onDiagnostic = { showDiagnostic = true },
             )
             // Available width, not entire device width: work in split/folded layouts.
             // The grid starts immediately after the compact local header; there is no
@@ -314,7 +380,7 @@ fun GenreLibraryPanel(
 
 /** Stable presentation accent only; cyan stays reserved for technical/audio truth. */
 internal fun genreAccent(genre: LibraryGenre): Color =
-    if (genre.id == "__ui7_unknown_genre__") TextSecondary
+    if (genreIsUnclassified(genre.id)) TextSecondary
     else when ((genre.id.hashCode() and Int.MAX_VALUE) % 3) {
         0 -> PrimaryPinkContainer
         1 -> Color(0xFFDDB7FF)
@@ -338,6 +404,7 @@ private fun GenreModeToolbar(
     totalGenres: Int,
     currentMode: GenreViewMode,
     onModeChange: (GenreViewMode) -> Unit,
+    onDiagnostic: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     val highContrast = LocalVisualPreferences.current.highContrast
@@ -357,6 +424,10 @@ private fun GenreModeToolbar(
                 maxLines = 1,
                 modifier = Modifier.testTag("genres_header_count"))
         }
+        TextButton(
+            onClick = onDiagnostic,
+            modifier = Modifier.testTag("genres_diagnostic_open"),
+        ) { Text("Diagnóstico", style = MichiTypography.microLabel, color = TextSecondary) }
         Box {
             MichiIconAction(
                 icon = genreModeIcon(currentMode),

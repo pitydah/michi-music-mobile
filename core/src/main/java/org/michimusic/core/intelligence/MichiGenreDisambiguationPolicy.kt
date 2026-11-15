@@ -17,8 +17,6 @@ object MichiGenreDisambiguationPolicy {
     private val combiningMarks = Regex("\\p{Mn}+")
     private val whitespace = Regex("\\s+")
     private val safeSeparators = Regex("[a-z0-9 _-]+")
-    private val unknown = setOf("", "unknown", "<unknown>", "sin genero", "sin clasificar",
-        "unspecified", "not specified", "none", "unclassified", "unknown genre", "n/a", "?")
 
     data class Resolution(
         val original: String,
@@ -204,7 +202,9 @@ object MichiGenreDisambiguationPolicy {
             raw.any { it.isISOControl() || it == '\uFFFD' }) return null
         val original = whitespace.replace(raw.trim(), " ")
         val folded = folded(original)
-        if (folded in unknown) return null
+        // MI-26: one shared absence policy. `Other`/`Various` are containers, not
+        // absences, so they stay visible as literal labels and are never rewritten.
+        if (MichiGenreAbsencePolicy.isMissing(folded)) return null
         val matched = approved[folded] ?: if (safeSeparators.matches(folded)) {
             // Only a listed compact alias may match; never guess a new genre.
             approved[folded.replace(" ", "").replace("-", "").replace("_", "")]

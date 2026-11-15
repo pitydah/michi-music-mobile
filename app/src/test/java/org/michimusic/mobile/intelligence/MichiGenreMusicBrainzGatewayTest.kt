@@ -136,4 +136,19 @@ class MichiGenreMusicBrainzGatewayTest {
         assertTrue(gateway.search(intent, grant).isEmpty())
         assertEquals(0, fake.searches)
     }
+
+    @Test fun relaxedSearchNeedsItsOwnPermitAndNeverSendsTheAlbum() = runBlocking {
+        val auth = MichiGenreLookupAuthorization()
+        val fake = Fake("""{"recordings":[$song]}""", "{}")
+        val gateway = MichiGenreMusicBrainzGateway(fake, auth)
+        val strict = policy.prepareSearch("Song", "Artist", "Album")!!
+        val relaxed = policy.relaxedSearch(strict)!!
+        // The strict grant cannot authorize the relaxed payload.
+        val strictGrant = auth.issueSearch(strict)
+        assertTrue(gateway.search(relaxed, strictGrant).isEmpty())
+        assertEquals(0, fake.searches)
+        // A fresh explicit grant for the relaxed intent sends only recording+artist.
+        assertEquals(1, gateway.search(relaxed, auth.issueSearch(relaxed)).size)
+        assertEquals(1, fake.searches)
+    }
 }

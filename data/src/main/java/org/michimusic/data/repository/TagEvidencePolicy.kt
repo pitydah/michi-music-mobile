@@ -1,5 +1,6 @@
 package org.michimusic.data.repository
 
+import org.michimusic.core.intelligence.MichiGenreAbsencePolicy
 import org.michimusic.data.cache.EmbeddedTagEvidence
 
 /** Pure conversion. This policy does not normalize, infer, or collapse genre names. */
@@ -8,7 +9,9 @@ internal object TagEvidencePolicy {
 
     /** Do not scan a file whose provider metadata is already sufficient. */
     fun needsProbe(genre: String?, title: String?, artist: String?, album: String?): Boolean =
-        GenreMetadataMerge.choose(null, genre, null).isBlank() ||
+        // Containers such as "Other"/"Various" are not missing evidence; only absence
+        // markers justify spending the foreground probe budget.
+        MichiGenreAbsencePolicy.isMissing(genre.orEmpty()) ||
             MetadataFieldMerge.choose(null, title).isBlank() ||
             MetadataFieldMerge.choose(null, artist).isBlank() ||
             MetadataFieldMerge.choose(null, album).isBlank()

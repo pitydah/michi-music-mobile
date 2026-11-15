@@ -9,6 +9,17 @@ package org.michimusic.core.intelligence
 object MichiIntelligencePolicy {
     const val MAX_CANDIDATES = 128
     const val MAX_RESULTS = 12
+
+    /** Nominal affinity range shared by Home, the local selector and recommendations. */
+    const val AFFINITY_MIN = -32
+    const val AFFINITY_MAX = 255
+
+    /**
+     * Summing several legacy alias counters can exceed the nominal range. Clamp
+     * once, at the boundary that returns a score map, so every consumer sees the
+     * same contract instead of relying on a later `coerceIn`.
+     */
+    fun clampAffinity(value: Int): Int = value.coerceIn(AFFINITY_MIN, AFFINITY_MAX)
     private const val DECAY_INTERVAL_DAYS = 30L
 
     enum class PlaybackOutcome { COMPLETED, EXPLICIT_SKIP, INTERRUPTED }
@@ -64,7 +75,7 @@ object MichiIntelligencePolicy {
         if (delta == 0) return previous
         val currentValue = decayed(previous, nowEpochDay)
         return PreferenceCounter(
-            value = (currentValue + delta).coerceIn(-32, 255),
+            value = clampAffinity(currentValue + delta),
             lastObservedEpochDay = nowEpochDay,
         )
     }
@@ -74,7 +85,7 @@ object MichiIntelligencePolicy {
         if (counter == null) return 0
         val days = (nowEpochDay - counter.lastObservedEpochDay).coerceAtLeast(0L)
         val halvings = (days / DECAY_INTERVAL_DAYS).coerceAtMost(8L).toInt()
-        var value = counter.value.coerceIn(-32, 255)
+        var value = clampAffinity(counter.value)
         repeat(halvings) { value /= 2 }
         return value
     }
@@ -114,7 +125,7 @@ object MichiIntelligencePolicy {
                 item = item,
                 artist = item.artistKey.trim().lowercase(),
                 album = item.albumKey.trim().lowercase(),
-                genreScore = genres.maxOfOrNull { (genreAffinity[it] ?: 0).coerceIn(-32, 255) } ?: 0,
+                genreScore = genres.maxOfOrNull { clampAffinity(genreAffinity[it] ?: 0) } ?: 0,
             )
         }
         val target = minOf(limit, MAX_RESULTS, prepared.size)
@@ -130,7 +141,7 @@ object MichiIntelligencePolicy {
                 val candidate = entry.item
                 if (candidate.key in chosenKeys) continue
                 val artistScore = if (entry.artist.isEmpty()) 0 else
-                    (artistAffinity[entry.artist] ?: 0).coerceIn(-32, 255)
+                    clampAffinity(artistAffinity[entry.artist] ?: 0)
                 // Positive owned counts never contain zero. Unknown is NOT "unplayed";
                 // a tiny exploration weight diversifies candidates without inventing history.
                 val novelty = if (!candidate.playCountKnown) 1 else 0
