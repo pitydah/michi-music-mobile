@@ -208,4 +208,25 @@ class EmbeddedArtistIdentityProposalTest {
             EmbeddedArtistIdentityReview.evaluate("Band", receipt))
     }
 
+    /**
+     * The exact shape [LocalArtistTagProbe] returns for a joint credit. The UI test that
+     * proves "binding waits for confirmation" must use this receipt: aggregate-only
+     * evidence naming a single member of a joint credit is deliberately rejected, so it
+     * can never stand in for a real probe result.
+     */
+    @Test fun jointCreditIsReviewableOnlyWithPerFileEvidence() {
+        val jointCredit = "Patti Austin & James Ingram"
+        val perFile = review(
+            EmbeddedArtistTags(artistMbids = setOf(a), creditedNames = listOf(jointCredit)),
+        )
+        assertEquals(EmbeddedArtistIdentityProposal.Candidate(a, 1),
+            EmbeddedArtistIdentityReview.evaluate(jointCredit, perFile))
+
+        val aggregateOnly = EmbeddedArtistReview(
+            1, 1, setOf(a), emptySet(), listOf("Patti Austin"), emptyList(),
+        )
+        assertEquals(EmbeddedArtistIdentityProposal.Blocked(
+            EmbeddedArtistIdentityProposal.Reason.WRONG_CREDIT),
+            EmbeddedArtistIdentityReview.evaluate(jointCredit, aggregateOnly))
+    }
 }

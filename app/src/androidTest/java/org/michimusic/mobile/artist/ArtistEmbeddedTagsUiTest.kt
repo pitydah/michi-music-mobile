@@ -17,9 +17,30 @@ class ArtistEmbeddedTagsUiTest {
     @Test fun tagProbeRunsOnlyWhenTappedAndProviderBindingWaitsForConfirmation() {
         var scans = 0
         var remote = 0
+        val jointCredit = "Patti Austin & James Ingram"
+        val uri = "content://media/external/audio/media/12"
         val probe = ArtistTagProbe {
             scans++
-            EmbeddedArtistReview(1, 1, setOf(mbid), emptySet(), listOf("Patti Austin"), emptyList())
+            // Shaped exactly like [LocalArtistTagProbe]: per-file evidence plus the same
+            // aggregate view. An aggregate-only receipt naming just one member of a joint
+            // credit is deliberately rejected (WRONG_CREDIT), so it cannot prove this flow.
+            EmbeddedArtistReview(
+                inspectedFiles = 1,
+                taggedFiles = 1,
+                artistMbids = setOf(mbid),
+                albumArtistMbids = emptySet(),
+                creditedNames = listOf(jointCredit),
+                albumArtists = emptyList(),
+                trackEvidence = listOf(
+                    EmbeddedTrackEvidence(
+                        uri = uri,
+                        tags = EmbeddedArtistTags(
+                            artistMbids = setOf(mbid),
+                            creditedNames = listOf(jointCredit),
+                        ),
+                    ),
+                ),
+            )
         }
         val gateway = object : ArtistEnrichmentGateway {
             override suspend fun findCandidates(localCredit: String): List<ArtistLookupCandidate> {
@@ -37,7 +58,7 @@ class ArtistEmbeddedTagsUiTest {
                 gateway = gateway,
                 libraryId = "lib-local",
                 albumIds = listOf("album-local"),
-                localAudioUris = listOf("content://media/external/audio/media/12"),
+                localAudioUris = listOf(uri),
                 tagProbe = probe,
                 selectionStore = object : ArtistEnrichmentSelectionStore {
                     override suspend fun load(libraryId: String, credit: String, albumIds: List<String>) = null
