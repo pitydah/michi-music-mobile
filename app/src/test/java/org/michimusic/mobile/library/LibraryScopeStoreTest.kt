@@ -5,10 +5,12 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -24,6 +26,12 @@ class LibraryScopeStoreTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
+
+    @After
+    fun tearDown() {
+        testDispatcher.scheduler.advanceUntilIdle()
+        testScope.cancel()
+    }
 
     private lateinit var appDao: AppDao
     private lateinit var libraryRepo: MusicLibraryRepository

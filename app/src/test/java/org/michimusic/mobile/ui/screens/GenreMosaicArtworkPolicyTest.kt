@@ -82,9 +82,9 @@ class GenreMosaicArtworkPolicyTest {
         val artwork = mosaicApprovedArtwork(manifest(row(), row(key = "j rock", filename = jRock)), names)
         assertEquals(2, artwork.size)
         assertEquals(rock, mosaicArtworkForGenre("rock", artwork)?.filename)
-        // Case and whitespace still normalize; punctuation is not compacted.
+        // Approved aliases may collapse punctuation; non-approved separators below must not.
         assertEquals(jRock, mosaicArtworkForGenre("J Rock", artwork)?.filename)
-        assertNull(mosaicArtworkForGenre("j-rock", artwork))
+        assertEquals(jRock, mosaicArtworkForGenre("j-rock", artwork)?.filename)
         assertNull(mosaicArtworkForGenre("rock/pop", artwork))
         assertNull(mosaicArtworkForGenre("", artwork))
         assertNull(mosaicArtworkForGenre("rock", emptyMap()))
