@@ -73,12 +73,13 @@ data class ArtistArtworkCoverageUiState(
             identityConfirmed: Boolean,
             verifiedQid: String?,
         ): ArtistArtworkCoverageUiState {
-            if (report == null) return undiagnosed()
+            // K48-S2: identity and slot facts stay diagnosable without a provider receipt.
+            // A missing receipt is "not attempted", never "no match".
             val slots = ArtworkSlot.entries.map { slot ->
                 val state = if (slot == ArtworkSlot.ARTIST_THUMB) uiState.thumb else uiState.hero
-                slotCoverage(slot, state, identityConfirmed, verifiedQid)
+                slotCoverage(slot, state, identityConfirmed, verifiedQid, report)
             }
-            val providers = report.outcomes
+            val providers = report?.outcomes.orEmpty()
                 .filter { it.source in PROVIDER_ORDER }
                 .sortedBy { PROVIDER_ORDER.indexOf(it.source) }
                 .map { outcome ->
@@ -92,7 +93,7 @@ data class ArtistArtworkCoverageUiState(
             return ArtistArtworkCoverageUiState(
                 slots = slots,
                 providers = providers,
-                diagnosed = true,
+                diagnosed = report != null,
                 primaryAction = primaryAction(slots, identityConfirmed, verifiedQid),
             )
         }
@@ -111,6 +112,7 @@ data class ArtistArtworkCoverageUiState(
             state: ArtistArtworkSlotState,
             identityConfirmed: Boolean,
             verifiedQid: String?,
+            report: ArtworkResolutionReport?,
         ): ArtistArtworkSlotCoverage {
             val selection = state.selection
             if (selection?.manuallyChosen == true &&
@@ -132,7 +134,15 @@ data class ArtistArtworkCoverageUiState(
                 ArtworkLoadStatus.NOT_REQUESTED -> when {
                     !identityConfirmed -> ArtistArtworkCoverageState.IDENTITY_UNVERIFIED
                     !validWikidataQid(verifiedQid) -> ArtistArtworkCoverageState.QID_MISSING
-                    else -> ArtistArtworkCoverageState.NO_MATCH
+                    // An empty provider answer only means "no match" when a provider ran.
+                    report == null -> ArtistArtworkCoverageState.NOT_ATTEMPTED
+                    report.outcomes.any { it.status == ArtworkProviderStatus.FAILURE } ->
+                        ArtistArtworkCoverageState.NETWORK_FAILED
+                    report.outcomes.any { it.status == ArtworkProviderStatus.AVAILABLE } ->
+                        ArtistArtworkCoverageState.DOWNLOAD_FAILED
+                    report.outcomes.any { it.status == ArtworkProviderStatus.NO_MATCH } ->
+                        ArtistArtworkCoverageState.NO_MATCH
+                    else -> ArtistArtworkCoverageState.NOT_ATTEMPTED
                 }
                 ArtworkLoadStatus.PARTIAL -> ArtistArtworkCoverageState.DOWNLOAD_FAILED
                 ArtworkLoadStatus.NO_IMAGE -> ArtistArtworkCoverageState.NO_MATCH
@@ -237,9 +247,15 @@ data class ArtistArtworkCoverageUiState(
             if (slots.any { it.state == ArtistArtworkCoverageState.LICENSE_REJECTED }) {
                 return "Elegir otra fotografía"
             }
-            if (slots.all { it.state == ArtistArtworkCoverageState.READY }) return "Ver fotos"
+            if (slots.all { it.state.isSatisfied() } &&
+                slots.none { it.state == ArtistArtworkCoverageState.NOT_ATTEMPTED }
+            ) return "Ver fotos"
             if (slots.any { it.state == ArtistArtworkCoverageState.NO_MATCH }) return "Buscar fotos faltantes"
             return "Buscar fotos faltantes"
         }
     }
 }
+
+/** A slot is covered only when a real image is present, automatic or manually protected. */
+fun ArtistArtworkCoverageState.isSatisfied(): Boolean =
+    this == ArtistArtworkCoverageState.READY || this == ArtistArtworkCoverageState.MANUAL_PROTECTED

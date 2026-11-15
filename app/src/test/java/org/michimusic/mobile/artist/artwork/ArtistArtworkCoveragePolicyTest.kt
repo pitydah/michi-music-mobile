@@ -254,4 +254,99 @@ class ArtistArtworkCoveragePolicyTest {
         assertNull(coverage.providers[1].reason)
         assertEquals("El proveedor no respondió", coverage.providers[2].reason)
     }
+
+    @Test
+    fun aProviderFailureIsNamedAsNetworkInsteadOfNoMatch() {
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(),
+            report = report(
+                ArtworkProviderOutcome(ArtworkSource.COMMONS_P18, ArtworkProviderStatus.FAILURE, "timeout"),
+            ),
+            identityConfirmed = true,
+            verifiedQid = "Q1234",
+        )
+
+        assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.NETWORK_FAILED })
+        assertEquals("Error temporal", coverage.slots.first().statusLabel)
+    }
+
+    @Test
+    fun anAvailableProviderWithoutLocalBytesIsADownloadFailure() {
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(),
+            report = report(
+                ArtworkProviderOutcome(ArtworkSource.COMMONS_P18, ArtworkProviderStatus.AVAILABLE),
+            ),
+            identityConfirmed = true,
+            verifiedQid = "Q1234",
+        )
+
+        assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.DOWNLOAD_FAILED })
+    }
+
+    @Test
+    fun missingQidIsDiagnosedEvenWithoutAProviderReceipt() {
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(),
+            report = null,
+            identityConfirmed = true,
+            verifiedQid = null,
+        )
+
+        assertFalse(coverage.diagnosed)
+        assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.QID_MISSING })
+        assertEquals("Verificar identidad para fotos", coverage.primaryAction)
+    }
+
+    @Test
+    fun aLaterFailedSearchNeverReplacesAManualPhoto() {
+        val manual = selection(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true)
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(thumb = slotState(ArtworkSlot.ARTIST_THUMB, ArtworkLoadStatus.READY, manual)),
+            report = report(
+                ArtworkProviderOutcome(ArtworkSource.OPENVERSE, ArtworkProviderStatus.FAILURE, "offline"),
+            ),
+            identityConfirmed = true,
+            verifiedQid = "Q1234",
+        )
+
+        assertEquals(ArtistArtworkCoverageState.MANUAL_PROTECTED, coverage.slots[0].state)
+        assertTrue(coverage.slots[0].state.isSatisfied())
+    }
+
+    @Test
+    fun bothManualPhotosSatisfyTheSlotsAndOfferTheGallery() {
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(
+                thumb = slotState(
+                    ArtworkSlot.ARTIST_THUMB, ArtworkLoadStatus.READY,
+                    selection(ArtworkSlot.ARTIST_THUMB, manuallyChosen = true),
+                ),
+                hero = slotState(
+                    ArtworkSlot.ARTIST_HERO, ArtworkLoadStatus.READY,
+                    selection(ArtworkSlot.ARTIST_HERO, manuallyChosen = true),
+                ),
+            ),
+            report = null,
+            identityConfirmed = true,
+            verifiedQid = "Q1234",
+        )
+
+        assertTrue(coverage.slots.all { it.state.isSatisfied() })
+        assertEquals("Ver fotos", coverage.primaryAction)
+    }
+
+    @Test
+    fun aFetchingSlotIsInProgressAndNotAFailure() {
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(thumb = slotState(ArtworkSlot.ARTIST_THUMB, ArtworkLoadStatus.FETCHING)),
+            report = null,
+            identityConfirmed = true,
+            verifiedQid = "Q1234",
+        )
+
+        assertEquals(ArtistArtworkCoverageState.NOT_ATTEMPTED, coverage.slots[0].state)
+        assertTrue(coverage.slots[0].reason.orEmpty().contains("sigue en curso"))
+        assertFalse(coverage.slots[0].state.isSatisfied())
+    }
 }

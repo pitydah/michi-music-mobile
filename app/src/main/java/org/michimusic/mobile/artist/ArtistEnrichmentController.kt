@@ -84,12 +84,19 @@ class ArtistEnrichmentController(
      * explicit action is discarded instead of overwriting the current screen.
      */
     private var requestEpoch = 0
+    /**
+     * Portrait work has its own epoch: an image response must never be published after
+     * the artist, library, association or MBID that requested it changed.
+     */
+    private var portraitEpoch = 0L
+    private var portraitReceipt: ArtistPortraitSearchReceipt? = null
 
     fun bind(libraryId: String?, artistCredit: String, albumIds: List<String>) {
         val key = bindKeyFor(libraryId, artistCredit, albumIds)
         if (key == bindKey) return
         bindKey = key
         requestJob?.cancel()
+        invalidatePortraitSearch()
         val epoch = ++requestEpoch
         _state.value = ArtistEnrichmentState()
         requestJob = scope.launch {
@@ -304,10 +311,25 @@ class ArtistEnrichmentController(
         val current = _state.value
         val profile = current.profile ?: return
         if (current.searchingPortraits) return
+        if (profile.mbid.isBlank()) {
+            _state.value = current.copy(
+                message = "La identidad del artista aún no está confirmada; no se consultó ningún proveedor.",
+            )
+            return
+        }
+        val receipt = ArtistPortraitSearchReceipt.of(
+            libraryId = libraryId,
+            artistCredit = artistCredit,
+            albumIds = albumIds,
+            associationGroupKey = current.associationGroupKey,
+            mbid = profile.mbid,
+            requestSequence = ++portraitEpoch,
+        )
+        portraitReceipt = receipt
         portraitJob?.cancel()
         _state.value = current.copy(searchingPortraits = true, message = null)
         portraitJob = scope.launch {
-            try {
+            val result = try {
                 val items = orchestrator.searchManualPortraits(
                     artistCredit = artistCredit,
                     libraryId = libraryId,
@@ -316,23 +338,53 @@ class ArtistEnrichmentController(
                     associationGroupKey = current.associationGroupKey,
                     query = query,
                 )
-                _state.value = _state.value.copy(
-                    searchingPortraits = false,
-                    pendingPortraits = items,
-                    message = if (items.isEmpty()) {
-                        "La búsqueda manual no devolvió retratos utilizables."
-                    } else {
-                        "Retratos encontrados: ${items.size}. Revisa identidad y licencia antes de elegir."
-                    },
-                )
+                if (items.isEmpty()) {
+                    ArtistPortraitSearchResult.NoMatch
+                } else {
+                    ArtistPortraitSearchResult.Candidates(items)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                _state.value = _state.value.copy(
-                    searchingPortraits = false,
-                    message = "No fue posible consultar Openverse. No se modificó ninguna foto guardada.",
-                )
+                ArtistPortraitSearchResult.Failed("PROVIDER_UNAVAILABLE")
             }
+            // A late answer from a previous identity is dropped, not shown and not persisted.
+            if (!isCurrentPortraitReceipt(receipt)) return@launch
+            _state.value = _state.value.copy(
+                searchingPortraits = false,
+                pendingPortraits = when (result) {
+                    is ArtistPortraitSearchResult.Candidates -> result.items
+                    else -> _state.value.pendingPortraits
+                },
+                message = when (result) {
+                    is ArtistPortraitSearchResult.Candidates ->
+                        "Retratos encontrados: ${result.items.size}. Revisa identidad y licencia antes de elegir."
+                    ArtistPortraitSearchResult.NoMatch ->
+                        "La búsqueda manual no devolvió retratos utilizables."
+                    ArtistPortraitSearchResult.IdentityUnverified ->
+                        "La identidad del artista aún no está confirmada; no se consultó ningún proveedor."
+                    is ArtistPortraitSearchResult.Failed ->
+                        "No fue posible consultar Openverse. No se modificó ninguna foto guardada."
+                },
+            )
+        }
+    }
+
+    /** True only while [receipt] still belongs to the identity and action in progress. */
+    internal fun isCurrentPortraitReceipt(receipt: ArtistPortraitSearchReceipt): Boolean =
+        receipt.requestSequence == portraitEpoch && receipt == portraitReceipt
+
+    /**
+     * Drops any in-flight portrait request. Called whenever the identity anchor changes,
+     * the enrichment is cleared or the owning screen releases the controller.
+     */
+    internal fun invalidatePortraitSearch() {
+        ++portraitEpoch
+        portraitReceipt = null
+        portraitJob?.cancel()
+        portraitJob = null
+        if (_state.value.searchingPortraits) {
+            _state.value = _state.value.copy(searchingPortraits = false, pendingPortraits = emptyList())
         }
     }
 
@@ -386,6 +438,7 @@ class ArtistEnrichmentController(
      */
     fun clear(artistCredit: String, libraryId: String?, albumIds: List<String>) {
         requestJob?.cancel()
+        invalidatePortraitSearch()
         ++requestEpoch
         val previous = _state.value
         val groupKey = previous.associationGroupKey
@@ -468,6 +521,7 @@ class ArtistEnrichmentController(
     fun release() {
         ++requestEpoch
         requestJob?.cancel()
+        invalidatePortraitSearch()
     }
 
     private suspend fun bootstrap(
