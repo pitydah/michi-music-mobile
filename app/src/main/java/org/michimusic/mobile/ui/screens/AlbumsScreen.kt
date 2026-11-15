@@ -1109,14 +1109,23 @@ fun AlbumsScreen(
                             // Credits stay separate unless a verified identity backs a merge;
                             // possible variants are surfaced for review instead of collapsing.
                             val presentation = remember(scoped.albums, scoped.identityLibraryId) {
+                                // K48-S5: the album model keeps one credit, yet a file can
+                                // disagree with it (A-ha vs a-ha inside the same MediaStore
+                                // album). Occurrences therefore come from track credits, so
+                                // the variant notice can surface without merging anything.
                                 planArtistPresentation(
-                                    scoped.albums.map { album ->
-                                        ArtistCreditOccurrence(
-                                            credit = album.album.artist,
-                                            libraryId = scoped.identityLibraryId,
-                                            albumIds = listOf(album.album.id),
-                                            trackCount = album.tracks.size,
-                                        )
+                                    scoped.albums.flatMap { album ->
+                                        val albumCredit = album.album.artist
+                                        album.tracks
+                                            .groupBy { it.artist.ifBlank { albumCredit } }
+                                            .map { (credit, tracks) ->
+                                                ArtistCreditOccurrence(
+                                                    credit = credit,
+                                                    libraryId = scoped.identityLibraryId,
+                                                    albumIds = listOf(album.album.id),
+                                                    trackCount = tracks.size,
+                                                )
+                                            }
                                     },
                                 )
                             }

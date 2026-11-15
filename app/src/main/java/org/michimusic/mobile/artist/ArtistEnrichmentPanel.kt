@@ -208,7 +208,10 @@ fun ArtistEnrichmentPanel(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            "Fotografías de '$artistCredit'",
+            // K48-S7: a credit like "'Til Tuesday" already starts with an
+            // apostrophe; wrapping it again printed doubled quotes.
+            if (artistCredit.startsWith("'")) "Fotografías de $artistCredit"
+            else "Fotografías de '$artistCredit'",
             color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.testTag("artist_artwork_summary"),
         )

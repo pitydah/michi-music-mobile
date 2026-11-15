@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.michimusic.core.intelligence.MichiIntelligencePolicy
+import org.michimusic.core.models.Track
 import org.michimusic.mobile.ui.theme.MichiSpacing
 import org.michimusic.mobile.ui.theme.MichiTypography
 import org.michimusic.mobile.ui.theme.OutlineVariant
@@ -65,6 +66,22 @@ internal data class GenreIntelligenceUiState(
     val warning: String? = null,
     val reasonDetail: String? = null,
 )
+
+/**
+ * K48-S3: the rail may only name a pick as playing while the player is truly
+ * playing it. Deriving the key from the current track alone left a row saying
+ * "Reproduciendo" after the user paused or the queue stopped.
+ */
+internal fun genreIntelligencePlayingKey(
+    currentTrack: Track?,
+    isPlaying: Boolean,
+    picks: List<GenreIntelligencePick>,
+): MichiIntelligencePolicy.TrackKey? {
+    if (!isPlaying) return null
+    val track = currentTrack ?: return null
+    val key = MichiIntelligencePolicy.TrackKey(track.sourceId, track.id)
+    return picks.firstOrNull { it.key == key }?.key
+}
 
 private val RailShape = RoundedCornerShape(16.dp)
 

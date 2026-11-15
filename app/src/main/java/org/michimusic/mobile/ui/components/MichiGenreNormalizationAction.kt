@@ -10,6 +10,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -117,6 +119,7 @@ internal fun MichiGenreNormalizationAction(
  * modal sheet and closing it is the caller's `onClose`, so both routes share one
  * receipt and one state machine.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun MichiGenreNormalizationEditor(
     track: Track,
@@ -827,7 +830,9 @@ internal fun MichiGenreNormalizationEditor(
                         .bringIntoViewRequester(manualBringIntoView)
                         .focusRequester(manualFieldFocus)
                         .testTag("mi23_manual_genre"))
-                Row {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     TextButton(
                         onClick = { applyPreviewEdit(genrePreview.add(manualGenre)) },
                         enabled = !busy && manualGenre.isNotBlank(),

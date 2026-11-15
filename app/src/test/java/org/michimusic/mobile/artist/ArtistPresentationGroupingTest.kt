@@ -75,6 +75,26 @@ class ArtistPresentationGroupingTest {
         assertEquals(listOf("album_a", "album_b"), plan.variantHints.single().albumIds)
     }
 
+    /**
+     * K48-S5: the album model stores a single credit, so the screen must feed
+     * occurrences built from track credits. Two credits for the same album id
+     * are still evidence worth reviewing and must never collapse silently.
+     */
+    @Test
+    fun oneAlbumWithTwoTrackCreditsSurfacesAVariantWithoutDuplicatingTheAlbum() {
+        val plan = planArtistPresentation(
+            listOf(
+                occurrence("A-ha", listOf("album_hunting"), trackCount = 2),
+                occurrence("a-ha", listOf("album_hunting"), trackCount = 1),
+            ),
+        )
+        assertEquals(listOf("A-ha", "a-ha"), plan.entries.map { it.credit })
+        assertEquals(ArtistVariantReason.IDENTITY_UNVERIFIED, plan.variantHints.single().reason)
+        assertEquals(listOf("A-ha", "a-ha"), plan.variantHints.single().credits)
+        assertEquals(listOf("album_hunting"), plan.variantHints.single().albumIds)
+        assertEquals(3, plan.entries.sumOf { it.trackCount })
+    }
+
     @Test
     fun creditsFromDifferentLibrariesAreNeverMergedEvenWithTheSameIdentity() {
         val plan = planArtistPresentation(

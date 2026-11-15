@@ -43,6 +43,7 @@ internal fun MichiGenreContextRecommendations(
     scopeKey: String,
     scopeGeneration: Long,
     currentTrack: Track?,
+    isPlaying: Boolean,
     canPlayLocally: () -> Boolean,
     captureIntelligenceTicket: () -> org.michimusic.mobile.playback.PlaybackSessionManager.IntelligenceQueueTicket?,
     playIntelligenceQueue: (List<Track>, Int,
@@ -122,10 +123,7 @@ internal fun MichiGenreContextRecommendations(
         }
     }
 
-    val playingKey = currentTrack?.let { track ->
-        val key = MichiIntelligencePolicy.TrackKey(track.sourceId, track.id)
-        picks.firstOrNull { it.key == key }?.key
-    }
+    val playingKey = genreIntelligencePlayingKey(currentTrack, isPlaying, picks)
     if (picks.isNotEmpty()) {
         GenreIntelligenceRail(
             state = GenreIntelligenceUiState(

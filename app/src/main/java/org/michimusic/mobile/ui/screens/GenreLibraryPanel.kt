@@ -322,6 +322,7 @@ fun GenreLibraryPanel(
                     scopeKey = scopeKey,
                     scopeGeneration = scopeGeneration,
                     currentTrack = currentTrack,
+                    isPlaying = isPlaying,
                     canPlayLocally = canPlayLocally,
                     captureIntelligenceTicket = captureIntelligenceTicket,
                     playIntelligenceQueue = playIntelligenceQueue,

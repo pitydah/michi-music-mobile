@@ -161,6 +161,46 @@ class GenreIntelligenceRailTest {
         assertEquals(0, selections)
     }
 
+    /**
+     * K48-S3: pausing or finishing the queue must stop the "Reproduciendo" claim.
+     * The old derivation only compared the current track, so a paused pick kept a
+     * cyan playing label and an equalizer that no longer described reality.
+     */
+    private fun track(id: String) = org.michimusic.core.models.Track(
+        id = id,
+        title = "Voices Carry",
+        artist = "'Til Tuesday",
+        album = "Voices Carry",
+        filepath = "/music/$id.mp3",
+        source = org.michimusic.core.models.TrackSource.LOCAL,
+        sourceId = "saf-A",
+    )
+
+    @Test
+    fun aPausedPickIsNoLongerLabelledAsPlaying() {
+        assertEquals(
+            null,
+            genreIntelligencePlayingKey(track("track-1"), isPlaying = false, picks = listOf(first, second)),
+        )
+    }
+
+    @Test
+    fun aPlayingPickInTheRailKeepsItsKey() {
+        assertEquals(
+            first.key,
+            genreIntelligencePlayingKey(track("track-1"), isPlaying = true, picks = listOf(first, second)),
+        )
+    }
+
+    @Test
+    fun aTrackOutsideTheRailIsNeverMarkedAsPlaying() {
+        assertEquals(
+            null,
+            genreIntelligencePlayingKey(track("track-9"), isPlaying = true, picks = listOf(first, second)),
+        )
+        assertEquals(null, genreIntelligencePlayingKey(null, isPlaying = true, picks = listOf(first)))
+    }
+
     @Test
     fun reasonActionAndWarningStayReachable() {
         var reasonKey: MichiIntelligencePolicy.TrackKey? = null
