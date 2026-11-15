@@ -137,6 +137,9 @@ class MichiGenreNormalizationActionTest {
 
         compose.onNodeWithTag("mi26_genre_editor_title").assertTextEquals("Revisar géneros")
         compose.onNodeWithText("Género verificado: Rock").assertIsDisplayed()
+        // K48-S6: the technical fields stay folded until asked for.
+        compose.onNodeWithText("Datos exactos de búsqueda:").assertDoesNotExist()
+        compose.onNodeWithTag("mi26_toggle_exact_fields").performScrollTo().clickInsideDialog()
         compose.onNodeWithText("Datos exactos de búsqueda:").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("recording: Song Title").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("artist: Artist Name").performScrollTo().assertIsDisplayed()
@@ -173,7 +176,8 @@ class MichiGenreNormalizationActionTest {
         // Cancelling leaves no queued request and returns to the editor body.
         compose.onNodeWithTag("mi26_network_consent_cancel").clickInsideDialog()
         compose.onNodeWithTag("mi26_network_consent").assertDoesNotExist()
-        compose.onNodeWithText("Datos exactos de búsqueda:").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("mi23_preview_external_search").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Datos exactos de búsqueda:").assertDoesNotExist()
     }
 
     @Test

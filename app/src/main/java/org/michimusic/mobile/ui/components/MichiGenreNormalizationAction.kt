@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -36,7 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -158,6 +163,8 @@ internal fun MichiGenreNormalizationEditor(
     var showDraftPreview by remember(trackReceipt) { mutableStateOf(false) }
     var showEvidenceReason by remember(trackReceipt) { mutableStateOf(false) }
     var confirmWrite by remember(trackReceipt) { mutableStateOf(false) }
+    // K48-S6: the exact request fields are technical detail, folded by default.
+    var showExactSearchFields by remember(trackReceipt) { mutableStateOf(false) }
     var confirmRecovery by remember(trackReceipt) { mutableStateOf(false) }
     var confirmUnknownRecovery by remember(trackReceipt) { mutableStateOf(false) }
     var recoveryGrantPending by remember(trackReceipt) { mutableStateOf(false) }
@@ -189,6 +196,10 @@ internal fun MichiGenreNormalizationEditor(
     }
     var manualGenre by remember(trackReceipt) { mutableStateOf("") }
     var replaceIndex by remember(trackReceipt) { mutableStateOf<Int?>(null) }
+    // "Añadir género manualmente" takes the reader to the field instead of leaving
+    // the manual box wherever the current scroll happened to stop.
+    val manualFieldFocus = remember { FocusRequester() }
+    val manualBringIntoView = remember { BringIntoViewRequester() }
     var relaxedSearchOffered by remember(trackReceipt) { mutableStateOf(false) }
     var relaxedIntent by remember(trackReceipt) {
         mutableStateOf<MichiGenreNormalizationPolicy.SearchIntent?>(null)
@@ -606,6 +617,7 @@ internal fun MichiGenreNormalizationEditor(
                     } else Text("La copia original está protegida. La restauración requiere certificación Android.")
                 }
                 if (tagsVerified) {
+                    GenreEditorSectionLabel("Género en biblioteca")
                     Text(
                         MichiGenreEditorContract.evidenceLabel(true, embeddedGenres),
                         modifier = Modifier.testTag("mi26_genre_evidence"),
@@ -615,6 +627,7 @@ internal fun MichiGenreNormalizationEditor(
                     // tag are two independent pieces of evidence. An unavailable
                     // read is never presented as an empty tag.
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        GenreEditorSectionLabel("Género en biblioteca")
                         Text(
                             "En Biblioteca: " + (track.genre?.takeIf(String::isNotBlank)
                                 ?: "Sin clasificación"),
@@ -626,8 +639,10 @@ internal fun MichiGenreNormalizationEditor(
                             style = MaterialTheme.typography.labelSmall,
                             color = TextMuted,
                         )
-                        Text("Etiqueta original del archivo",
-                            style = MaterialTheme.typography.labelMedium, color = TextMuted)
+                        GenreEditorSectionLabel(
+                            "Etiqueta del archivo",
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                         Text(
                             "Aún no verificable",
                             color = PureWhite,
@@ -648,19 +663,42 @@ internal fun MichiGenreNormalizationEditor(
                         }
                     }
                 }
+                GenreEditorSectionLabel(
+                    "Encontrar sugerencias",
+                    modifier = Modifier.padding(top = 12.dp),
+                )
                 Text("Solo se buscará por título, artista y, si existe, álbum. Nunca se enviarán rutas, archivos, biblioteca, historial ni gustos.")
                 if (intent == null) Text("No hay título y artista válidos para consultar MusicBrainz.")
                 else {
-                    Text("Datos exactos de búsqueda:")
-                    intent.outgoingFields().forEach { (key,value) -> Text("$key: $value") }
                     TextButton(
                         onClick = {
                             networkConsent = GenreNetworkConsent.StrictSearch(intent.outgoingFields())
                         }, enabled = !busy,
-                        modifier = Modifier.testTag("mi23_preview_external_search")) {
-                        Text("Buscar géneros en MusicBrainz")
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("mi23_preview_external_search")) {
+                        Text("Buscar en MusicBrainz")
+                    }
+                    // Technical detail stays folded unless the person asks for it.
+                    TextButton(
+                        onClick = { showExactSearchFields = !showExactSearchFields },
+                        modifier = Modifier.testTag("mi26_toggle_exact_fields"),
+                    ) {
+                        Text(if (showExactSearchFields) "Ocultar datos exactos" else "Ver datos exactos")
+                    }
+                    if (showExactSearchFields) {
+                        Text("Datos exactos de búsqueda:")
+                        intent.outgoingFields().forEach { (key, value) -> Text("$key: $value") }
                     }
                 }
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch { manualBringIntoView.bringIntoView() }
+                        manualFieldFocus.requestFocus()
+                    },
+                    modifier = Modifier.testTag("mi26_open_manual_entry"),
+                ) { Text("Añadir género manualmente") }
                 if (busy) CircularProgressIndicator()
                 if (lookupJob != null) {
                     TextButton(
@@ -708,28 +746,49 @@ internal fun MichiGenreNormalizationEditor(
                         MichiGenreNormalizationPolicy.provenanceOf(
                             MichiGenreNormalizationPolicy.Entity.RECORDING)))
                 }
+                if (proposals.isNotEmpty()) {
+                    GenreEditorSectionLabel(
+                        "Sugerencias",
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
                 proposals.forEach { proposal ->
                     val selected = selectedRecording
                     val provenanceVerified = selected != null &&
                         MichiGenreNormalizationPolicy.approvedProposal(
                             selected, proposal, selected.mbid)
                     val provenance = MichiGenreNormalizationPolicy.provenanceOf(proposal.entity)
-                    TextButton(
-                        onClick = {
-                            if (provenanceVerified && canLookupNow()) {
-                                // Additive: choosing a proposal never drops existing tags.
-                                applyPreviewEdit(genrePreview.add(
-                                    MichiGenreDisambiguationPolicy.suggestedTag(proposal.name)))
-                            }
-                        }, enabled = !busy && provenanceVerified && canLookupNow(),
-                        modifier=Modifier.fillMaxWidth().testTag("mi23_proposed_genre")) {
-                        Text("${proposal.name} · " +
-                            MichiGenreNormalizationPolicy.provenanceLabel(provenance) +
-                            " · votos: ${proposal.votes ?: "s/d"}" +
-                            if (MichiGenreNormalizationPolicy.isContextOnly(provenance))
-                                " · Solo contexto: no se aplica" else "")
+                    // One row per suggestion: the name is the action, the provenance is
+                    // the explanation. Votes are never the headline.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(
+                            onClick = {
+                                if (provenanceVerified && canLookupNow()) {
+                                    // Additive: choosing a proposal never drops existing tags.
+                                    applyPreviewEdit(genrePreview.add(
+                                        MichiGenreDisambiguationPolicy.suggestedTag(proposal.name)))
+                                }
+                            }, enabled = !busy && provenanceVerified && canLookupNow(),
+                            modifier = Modifier.weight(1f).testTag("mi23_proposed_genre")) {
+                            Text(proposal.name)
+                        }
+                        Text(
+                            if (provenanceVerified) {
+                                "Procedencia: " +
+                                    MichiGenreNormalizationPolicy.provenanceLabel(provenance)
+                            } else {
+                                "Solo contexto"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary,
+                            modifier = Modifier.testTag("mi23_proposed_genre_origin"),
+                        )
                     }
                 }
+                GenreEditorSectionLabel(
+                    "Previsualización",
+                    modifier = Modifier.padding(top = 12.dp),
+                )
                 Text("Previsualización: no modifica el archivo.",
                     modifier = Modifier.testTag("mi26_preview_only_notice"))
                 Text(
@@ -764,7 +823,10 @@ internal fun MichiGenreNormalizationEditor(
                 OutlinedTextField(
                     value=manualGenre,onValueChange={manualGenre=it},singleLine=true,
                     label={Text("Género para añadir o sustituir")},
-                    modifier=Modifier.fillMaxWidth().testTag("mi23_manual_genre"))
+                    modifier=Modifier.fillMaxWidth()
+                        .bringIntoViewRequester(manualBringIntoView)
+                        .focusRequester(manualFieldFocus)
+                        .testTag("mi23_manual_genre"))
                 Row {
                     TextButton(
                         onClick = { applyPreviewEdit(genrePreview.add(manualGenre)) },
@@ -990,4 +1052,15 @@ internal fun evidenceUnavailableLabel(reason: ExtendedTagUnavailableReason?): St
     ExtendedTagUnavailableReason.PROVIDER_UNAVAILABLE ->
         "El proveedor de documentos no está disponible ahora mismo."
     null -> "No se registró un motivo para esta lectura."
+}
+
+@Composable
+private fun GenreEditorSectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = TextMuted,
+        letterSpacing = 1.2.sp,
+        modifier = modifier,
+    )
 }
