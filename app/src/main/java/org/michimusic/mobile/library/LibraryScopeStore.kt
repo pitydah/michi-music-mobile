@@ -1,5 +1,6 @@
 package org.michimusic.mobile.library
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +32,17 @@ class LibraryScopeStore(
 
     init {
         scope.launch {
-            loadPersistedScope()
+            // K48: the owner scope is long lived (application/IO). A failing
+            // settings or library provider must never surface as an uncaught
+            // coroutine exception, which is exactly what made the F-Droid CI
+            // run flaky. Degrade to All and stay hydrated instead.
+            try {
+                loadPersistedScope()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                publishRestored(selectionEpoch.get(), LibraryScope.All)
+            }
         }
     }
 
@@ -77,10 +88,19 @@ class LibraryScopeStore(
                 is LibraryScope.One -> newScope.libraryId
             }
             // Newer selections supersede persistence tasks not yet started.
-            persistenceMutex.withLock {
-                if (selectionEpoch.get() == issued) {
-                    appDao.setSetting(SettingsEntity(key = KEY_ACTIVE_SCOPE, value = valueToStore))
+            // K48: persistence failures stay contained; the in-memory selection
+            // is already published, and an escaping exception would crash the
+            // host scope (and flake instrumented/unit runs).
+            try {
+                persistenceMutex.withLock {
+                    if (selectionEpoch.get() == issued) {
+                        appDao.setSetting(SettingsEntity(key = KEY_ACTIVE_SCOPE, value = valueToStore))
+                    }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the published selection; retry happens on the next change.
             }
         }
     }

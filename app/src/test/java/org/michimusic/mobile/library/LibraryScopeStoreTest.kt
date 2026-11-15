@@ -53,6 +53,32 @@ class LibraryScopeStoreTest {
     // every case now owns the store inside its own `runTest` scope: a failure is
     // attributed to the test that caused it and `runTest` cancels whatever is left.
     @Test
+    fun `a failing settings read degrades to All instead of crashing the scope`() =
+        runTest(StandardTestDispatcher()) {
+            coEvery { appDao.getSetting(LibraryScopeStore.KEY_ACTIVE_SCOPE) } throws
+                IllegalStateException("settings provider unavailable")
+            val store = LibraryScopeStore(appDao, libraryRepo, this)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(LibraryScope.All, store.activeScope.value)
+            assertEquals(true, store.hydrated.value)
+        }
+
+    @Test
+    fun `a failing persisted write keeps the published selection and reports nothing`() =
+        runTest(StandardTestDispatcher()) {
+            coEvery { appDao.setSetting(any()) } throws
+                IllegalStateException("settings provider unavailable")
+            val store = LibraryScopeStore(appDao, libraryRepo, this)
+            testScheduler.advanceUntilIdle()
+
+            store.setScope(LibraryScope.One("lib_custom_1"))
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(LibraryScope.One("lib_custom_1"), store.activeScope.value)
+        }
+
+    @Test
     fun `scope defaults to All when no setting stored`() = runTest(StandardTestDispatcher()) {
         val store = LibraryScopeStore(appDao, libraryRepo, this)
         testScheduler.advanceUntilIdle()
