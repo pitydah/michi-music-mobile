@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -72,8 +73,10 @@ import org.michimusic.mobile.artist.artwork.ArtworkResolutionReport
 import org.michimusic.mobile.artist.artwork.ArtworkSlot
 import org.michimusic.mobile.artist.artwork.ProviderArtworkResult
 import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
+import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
 import org.michimusic.mobile.ui.theme.PureWhite
 import org.michimusic.mobile.ui.theme.SecondaryPurple
+import org.michimusic.mobile.ui.theme.SurfaceObsidian
 import org.michimusic.mobile.ui.theme.TextSecondary
 import org.michimusic.mobile.ui.theme.TertiaryCyan
 import org.michimusic.mobile.ui.theme.aeroMaterialStyle
@@ -153,6 +156,10 @@ fun ArtistEnrichmentPanel(
     var creditProofSaved by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf(false) }
     var advancedOpen by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
     var clearConfirm by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
+    // K48-S7: the artwork slots are the first thing the screen answers. Identity, MBID
+    // and association evidence stay one tap away instead of filling the first screen.
+    var identityExpanded by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
+    var artworkPickerOpen by remember(artistCredit, libraryId, stableGroup) { mutableStateOf(false) }
     var creditVerificationJob by remember(artistCredit, libraryId, stableGroup, localEvidenceScope) { mutableStateOf<Job?>(null) }
     val reviewReceipts = remember(context) { ArtistCreditReviewReceiptPersistence(context) }
     val canPersist = scopedArtistCreditKey(libraryId, artistCredit, albumIds) != null
@@ -168,6 +175,27 @@ fun ArtistEnrichmentPanel(
         onDispose { tagJob?.cancel(); creditVerificationJob?.cancel() }
     }
     val profile = uiState.profile
+    // K48-S7: one coverage projection computed once, rendered at the top of the screen.
+    val panelArtworkUi = ArtistArtworkUiState(
+        thumb = ArtistArtworkSlotState(
+            slot = ArtworkSlot.ARTIST_THUMB,
+            selection = uiState.selections[ArtworkSlot.ARTIST_THUMB],
+            status = uiState.selections[ArtworkSlot.ARTIST_THUMB]?.status
+                ?: ArtworkLoadStatus.NOT_REQUESTED,
+        ),
+        hero = ArtistArtworkSlotState(
+            slot = ArtworkSlot.ARTIST_HERO,
+            selection = uiState.selections[ArtworkSlot.ARTIST_HERO],
+            status = uiState.selections[ArtworkSlot.ARTIST_HERO]?.status
+                ?: ArtworkLoadStatus.NOT_REQUESTED,
+        ),
+    )
+    val panelCoverage = ArtistArtworkCoverageUiState.from(
+        uiState = panelArtworkUi,
+        report = uiState.artworkReport,
+        identityConfirmed = uiState.profile?.mbid?.isNotBlank() == true,
+        verifiedQid = uiState.profile?.wikidataQid,
+    )
 
     fun confirmExplicitly(id: String) {
         val verifiedId = canonicalArtistMbid(id) ?: return
@@ -179,6 +207,45 @@ fun ArtistEnrichmentPanel(
             .testTag("artist_enrichment_panel"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Text(
+            "Fotografías de '$artistCredit'",
+            color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.testTag("artist_artwork_summary"),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            panelCoverage.slots.forEach { slot ->
+                ArtistArtworkSlotSummary(coverage = slot, modifier = Modifier.weight(1f))
+            }
+        }
+        Button(
+            onClick = {
+                // K48-S7: without a confirmed identity the only honest action is to review it.
+                if (uiState.profile?.mbid?.isBlank() != false) identityExpanded = true
+                artworkPickerOpen = true
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = PrimaryPinkContainer,
+                contentColor = SurfaceObsidian,
+            ),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("artist_artwork_primary_action"),
+        ) {
+            Text(panelCoverage.primaryAction ?: "Buscar fotos faltantes")
+        }
+        TextButton(
+            onClick = { identityExpanded = !identityExpanded },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .testTag("artist_identity_accordion"),
+        ) {
+            Text(
+                if (identityExpanded) "Ocultar identidad y álbumes" else "Identidad y álbumes",
+                color = TextSecondary, fontSize = 12.sp,
+            )
+        }
+        if (identityExpanded) {
         Text("IDENTIDAD Y DATOS EXTERNOS", color = TertiaryCyan,
             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Text("La identidad solo se vincula con un MBID confirmado. Si hay varias coincidencias, elige la correcta.",
@@ -625,75 +692,6 @@ fun ArtistEnrichmentPanel(
                             modifier = Modifier.testTag("artist_enrichment_status"))
                     }
                 }
-                val artworkUi = ArtistArtworkUiState(
-                    thumb = ArtistArtworkSlotState(
-                        slot = ArtworkSlot.ARTIST_THUMB,
-                        selection = uiState.selections[ArtworkSlot.ARTIST_THUMB],
-                        status = uiState.selections[ArtworkSlot.ARTIST_THUMB]?.status
-                            ?: ArtworkLoadStatus.NOT_REQUESTED,
-                    ),
-                    hero = ArtistArtworkSlotState(
-                        slot = ArtworkSlot.ARTIST_HERO,
-                        selection = uiState.selections[ArtworkSlot.ARTIST_HERO],
-                        status = uiState.selections[ArtworkSlot.ARTIST_HERO]?.status
-                            ?: ArtworkLoadStatus.NOT_REQUESTED,
-                    ),
-                )
-                val artworkCoverage = ArtistArtworkCoverageUiState.from(
-                    uiState = artworkUi,
-                    report = uiState.artworkReport,
-                    identityConfirmed = profile.mbid.isNotBlank(),
-                    verifiedQid = profile.wikidataQid,
-                )
-                Text(
-                    "Fotografías de '$artistCredit'",
-                    color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.testTag("artist_artwork_summary"),
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    artworkCoverage.slots.forEach { slot ->
-                        ArtistArtworkSlotSummary(coverage = slot, modifier = Modifier.weight(1f))
-                    }
-                }
-                artworkCoverage.primaryAction?.let { action ->
-                    Text(
-                        action, color = SecondaryPurple, fontSize = 12.sp,
-                        modifier = Modifier.testTag("artist_artwork_next_action"),
-                    )
-                }
-                ArtistArtworkManualSection(
-                    profile = profile,
-                    artistCredit = artistCredit,
-                    libraryId = libraryId,
-                    albumIds = albumIds,
-                    initialSelections = uiState.selections,
-                    pendingCandidates = result.pendingPortraits,
-                    searching = uiState.searchingPortraits,
-                    onSearch = {
-                        activeController.searchPortraits(artistCredit, libraryId, albumIds)
-                    },
-                    associationGroupKey = uiState.associationGroupKey,
-                    onSelectionsChanged = { selections ->
-                        activeController.applySelections(
-                            libraryId = libraryId,
-                            artistCredit = artistCredit,
-                            albumIds = albumIds,
-                            mbid = profile.mbid,
-                            selections = selections,
-                        )
-                    },
-                )
-                ArtistArtworkCoverageSection(
-                    uiState = artworkUi,
-                    report = uiState.artworkReport,
-                    identityConfirmed = profile.mbid.isNotBlank(),
-                    verifiedQid = profile.wikidataQid,
-                )
-                Text("Los álbumes de catálogos externos no se agregan a tu colección local.",
-                    color = TextSecondary, fontSize = 11.sp)
             }
             uiState.status == ArtistEnrichmentStatus.FAILED -> {
                 Text(uiState.message ?: "No fue posible completar la ficha ahora. Tu biblioteca permanece disponible sin conexión.",
@@ -721,6 +719,39 @@ fun ArtistEnrichmentPanel(
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), color = TertiaryCyan)
                 Text("Consultando datos verificados…", color = TextSecondary, fontSize = 12.sp)
             }
+        }
+        } // K48-S7: end of the collapsed identity section
+        uiState.profile?.let { artworkProfile ->
+            if (artworkPickerOpen) {
+                ArtistArtworkManualSection(
+                    profile = artworkProfile,
+                    artistCredit = artistCredit,
+                    libraryId = libraryId,
+                    albumIds = albumIds,
+                    initialSelections = uiState.selections,
+                    pendingCandidates = uiState.pendingPortraits,
+                    searching = uiState.searchingPortraits,
+                    onSearch = {
+                        activeController.searchPortraits(artistCredit, libraryId, albumIds)
+                    },
+                    associationGroupKey = uiState.associationGroupKey,
+                    onSelectionsChanged = { selections ->
+                        activeController.applySelections(
+                            libraryId = libraryId,
+                            artistCredit = artistCredit,
+                            albumIds = albumIds,
+                            mbid = artworkProfile.mbid,
+                            selections = selections,
+                        )
+                    },
+                )
+            }
+            ArtistArtworkCoverageSection(
+                uiState = panelArtworkUi,
+                report = uiState.artworkReport,
+                identityConfirmed = artworkProfile.mbid.isNotBlank(),
+                verifiedQid = artworkProfile.wikidataQid,
+            )
         }
     }
 }
@@ -766,7 +797,12 @@ fun ArtistArtworkManualSection(
     var confirmedIdentity by remember(anchor, profile.mbid) { mutableStateOf(false) }
     var message by remember(anchor) { mutableStateOf<String?>(null) }
     val candidates = pendingCandidates
-    Text("Retratos alternativos", color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    // K48-S7: the picker names its job and its destinations before showing candidates.
+    Text("Elegir fotografía", color = PureWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    Text(
+        "Destino: elige mosaico o ficha en cada candidata. Tocar una miniatura no guarda nada.",
+        color = TextSecondary, fontSize = 12.sp,
+    )
     Text("Solo se consultan cuando tú lo pides. La imagen elegida se descarga y se guarda para este artista.",
         color = TextSecondary, fontSize = 11.sp)
     selections.values.sortedBy { it.slot.ordinal }.forEach { selection ->

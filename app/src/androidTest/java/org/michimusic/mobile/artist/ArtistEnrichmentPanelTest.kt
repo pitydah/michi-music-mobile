@@ -64,6 +64,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }
@@ -106,6 +107,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
@@ -150,6 +152,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = FakeArtworkStore(),
             )
         }
+        openIdentityBlock()
 
         compose.onNodeWithTag("artist_enrichment_bind_albums").performScrollTo().performClick()
         compose.waitUntil(5_000) { store.bindings.get() == 1 }
@@ -186,6 +189,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
@@ -226,6 +230,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) {
@@ -266,6 +271,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.waitForIdle()
         assertEquals(0, gateway.searches.get())
@@ -297,6 +303,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }
@@ -330,6 +337,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = FakeArtworkStore(),
             )
         }
+        openIdentityBlock()
 
         compose.onNodeWithTag("artist_enrichment_search").performClick()
         compose.waitUntil(5_000) { gateway.searches.get() == 1 }
@@ -384,6 +392,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = FakeArtworkStore(),
             )
         }
+        openIdentityBlock()
 
         compose.waitUntil(5_000) {
             compose.onAllNodesWithTag("artist_association_candidate_$groupB")
@@ -433,6 +442,7 @@ class ArtistEnrichmentPanelTest {
                 artworkStore = artworkStore,
             )
         }
+        openIdentityBlock()
 
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("MBID confirmado por selección", substring = true)
@@ -442,6 +452,9 @@ class ArtistEnrichmentPanelTest {
         compose.waitUntil(5_000) { gateway.refreshes.get() == 1 }
         compose.runOnIdle { credit = "Second Artist" }
         compose.waitForIdle()
+        // K48-S7: the technical block collapses again for the new artist, so the
+        // negative assertions below must be checked with it explicitly open.
+        openIdentityBlock()
         assertEquals(0, gateway.searches.get())
         compose.runOnIdle {
             gate.complete(profile().copy(name = "Midnight Oil"))
@@ -453,6 +466,24 @@ class ArtistEnrichmentPanelTest {
                 .fetchSemanticsNodes().isEmpty(),
         )
         compose.onNodeWithTag("artist_enrichment_search").assertExists()
+    }
+
+    /**
+     * K48-S7: the artwork slots are the first answer of the screen, so the technical
+     * identity block starts collapsed. Expand it explicitly instead of weakening the
+     * assertions that inspect its evidence. Idempotent so a test can call it again
+     * after the artist changes.
+     */
+    private fun openIdentityBlock() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("artist_identity_accordion").fetchSemanticsNodes().isNotEmpty()
+        }
+        val alreadyOpen = compose.onAllNodesWithText("Ocultar identidad y álbumes")
+            .fetchSemanticsNodes().isNotEmpty()
+        if (!alreadyOpen) {
+            compose.onNodeWithTag("artist_identity_accordion").performScrollTo().performClick()
+            compose.waitForIdle()
+        }
     }
 
     private fun profile() = ArtistExternalProfile(

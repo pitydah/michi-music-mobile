@@ -2,8 +2,10 @@ package org.michimusic.mobile.artist
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -70,7 +72,14 @@ class ArtistEmbeddedTagsUiTest {
         rule.waitForIdle()
         assertEquals(0, scans)
         assertEquals(0, remote) // Opening the panel is local-only.
-        rule.onNodeWithTag("artist_embedded_tags_scan").performClick()
+        // K48-S7: the artwork slots are the first answer, so the technical identity
+        // block starts collapsed. Open it instead of weakening the assertion.
+        rule.waitUntil(5_000) {
+            rule.onAllNodesWithTag("artist_identity_accordion").fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithTag("artist_identity_accordion").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("artist_embedded_tags_scan").performScrollTo().performClick()
         rule.waitForIdle()
         assertEquals(1, scans)
         assertEquals(0, remote) // Scanning a tag never binds an identity by itself.

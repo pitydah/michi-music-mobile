@@ -52,6 +52,13 @@ class ArtistEnrichmentPersistenceUiTest {
             ArtistEnrichmentPanel(artistCredit = "Midnight Oil", gateway = gateway,
                 libraryId = "lib-one", albumIds = listOf("album-1"), selectionStore = store)
         }
+        // K48-S7: the artwork slots are the first answer of the screen, so the
+        // technical identity block starts collapsed. Open it before asserting its
+        // evidence instead of weakening the assertion.
+        rule.waitUntil(5000) {
+            rule.onAllNodesWithTag("artist_identity_accordion").fetchSemanticsNodes().isNotEmpty()
+        }
+        rule.onNodeWithTag("artist_identity_accordion").performScrollTo().performClick()
         // Compose synchronization can finish before the controller's cached-profile
         // coroutine publishes its first state on a loaded CI emulator. Wait for the
         // observable contract instead of racing it; no production timeout is changed.
