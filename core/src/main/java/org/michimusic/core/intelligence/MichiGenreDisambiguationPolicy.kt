@@ -52,6 +52,7 @@ object MichiGenreDisambiguationPolicy {
         register("pop rock", "Pop Rock", "rock pop", "poprock", "rockpop")
         register("synth-pop", "Synth-Pop", "synth pop", "synthpop")
         register("new wave", "New Wave", "new-wave", "newwave")
+        register("darkwave", "Dark Wave", "dark wave", "dark-wave")
         register("lo-fi", "Lo-Fi", "lo fi", "lofi")
         register("hip-hop", "Hip-Hop", "hip hop", "hiphop")
         register("k-pop", "K-Pop", "k pop", "kpop")

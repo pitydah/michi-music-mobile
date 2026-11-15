@@ -1,7 +1,5 @@
 package org.michimusic.mobile.ui.screens
 
-import java.util.Locale
-
 /**
  * UI7 "Mosaico destacado" local crops (312 approved WebP files).
  *
@@ -31,7 +29,6 @@ private const val maxMosaicManifestChars = 96_000
 private const val maxMosaicPixels = 3_686_400L
 private val mosaicFilenamePattern = Regex("UI7_MOSAICO_[0-9]{3}_([A-Za-z0-9]+)\\.webp")
 private val mosaicSha256Pattern = Regex("[a-f0-9]{64}")
-private val mosaicIndexSeparators = Regex("[^a-z0-9]+")
 
 /**
  * The only suffix the CamelCase tokenizer cannot split on its own. Everything else
@@ -89,13 +86,9 @@ internal fun mosaicGenreKeyFromFilename(filename: String): String? {
     return genreGroupingKey(label)
 }
 
-/** Case/punctuation-tolerant lookup form of a canonical key ("j-rock" == "j rock"). */
-internal fun mosaicGenreIndexKey(genreKey: String): String =
-    mosaicIndexSeparators.replace(genreKey.lowercase(Locale.ROOT), " ").trim()
-
 /**
  * Fail closed atomically: a malformed, duplicated, unapproved or unpackaged row
- * invalidates the whole catalog. Keyed by the normalized genre index.
+ * invalidates the whole catalog. Keyed by the exact canonical genre identity.
  * Format: genre_key, filename, sha256, width_px, height_px, approval (TAB separated).
  * Bytes and dimensions are re-verified by tools/validate_ui7_mosaic_assets.py at build time.
  */
@@ -127,22 +120,22 @@ internal fun mosaicApprovedArtwork(
         val width = parts[3].toIntOrNull() ?: return reject("line_${lineNumber}_width")
         val height = parts[4].toIntOrNull() ?: return reject("line_${lineNumber}_height")
         val approval = parts[5]
-        val index = mosaicGenreIndexKey(key)
-        // MI-26 canonical keys may hyphenate ("post-rock"); the approved manifest keeps
-        // its literal space-separated identity. Compare both through the existing index form.
-        val filenameIndex = mosaicGenreKeyFromFilename(filename)?.let(::mosaicGenreIndexKey)
-        if (index.isEmpty() || filenameIndex != index)
+        val canonical = genreGroupingKey(key)
+        // MI-26 compares exact canonical identities: punctuation such as '/' and '&'
+        // is meaningful, so "hip/hop" is not "hip-hop" and "r b" is not "r&b".
+        val filenameCanonical = mosaicGenreKeyFromFilename(filename)
+        if (canonical.isEmpty() || filenameCanonical != canonical)
             return reject("line_${lineNumber}_genre_identity")
         if (!mosaicSha256Pattern.matches(sha) || approval != mosaicApprovalState)
             return reject("line_${lineNumber}_integrity_or_approval")
         if (!mosaicArtworkGeometryValid(width, height)) return reject("line_${lineNumber}_geometry")
         if (filename !in installed) return reject("line_${lineNumber}_asset_missing")
-        if (!usedFiles.add(filename) || !usedIndexes.add(index))
+        if (!usedFiles.add(filename) || !usedIndexes.add(canonical))
             return reject("line_${lineNumber}_duplicate")
         val mask = opticalMasks[filename]?.takeIf {
             it.sourceWidthPx == width && it.sourceHeightPx == height
         }
-        artwork[index] = MosaicArtworkAsset(
+        artwork[canonical] = MosaicArtworkAsset(
             genreKey = key,
             filename = filename,
             widthPx = width,
@@ -163,7 +156,7 @@ internal fun mosaicArtworkForGenre(
     artwork: Map<String, MosaicArtworkAsset>,
 ): MosaicArtworkAsset? {
     if (artwork.isEmpty()) return null
-    val index = mosaicGenreIndexKey(genreId)
-    if (index.isEmpty()) return null
-    return artwork[index]
+    val canonical = genreGroupingKey(genreId)
+    if (canonical.isEmpty()) return null
+    return artwork[canonical]
 }
