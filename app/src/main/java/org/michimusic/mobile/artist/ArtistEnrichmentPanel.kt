@@ -670,7 +670,7 @@ fun ArtistEnrichmentPanel(
         } // K48-S7: end of the collapsed identity section
         uiState.profile?.let { artworkProfile ->
             if (artworkPickerOpen) {
-                ArtistArtworkPickerContent(
+                ArtistArtworkPickerHost(
                     profile = artworkProfile,
                     artistCredit = artistCredit,
                     libraryId = libraryId,

@@ -111,7 +111,7 @@ class ArtistManualArtworkRouteTest {
         compose.setContent {
             MichiTheme {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    ArtistArtworkPickerContent(
+                    ArtistArtworkPickerHost(
                         profile = profile(),
                         artistCredit = credit,
                         libraryId = "lib-manual",

@@ -76,7 +76,7 @@ class ArtistPhotoConsentGateTest {
         compose.setContent {
             MichiTheme {
                 Box(Modifier.fillMaxWidth()) {
-                    ArtistArtworkPickerContent(
+                    ArtistArtworkPickerHost(
                         profile = profile(),
                         artistCredit = credit,
                         libraryId = "lib-consent",

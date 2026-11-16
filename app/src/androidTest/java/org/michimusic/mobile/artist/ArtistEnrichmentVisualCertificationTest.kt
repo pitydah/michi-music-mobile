@@ -191,7 +191,7 @@ class ArtistEnrichmentVisualCertificationTest {
                             .padding(surfaceMargin.dp)
                             .testTag("cert_picker"),
                     ) {
-                        ArtistArtworkPickerContent(
+                        ArtistArtworkPickerHost(
                             profile = profile(),
                             artistCredit = credit,
                             libraryId = "lib-cert",
