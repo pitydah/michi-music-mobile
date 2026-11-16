@@ -106,11 +106,18 @@ fun GenreLibraryPanel(
     onArtworkLoad: ((GenreViewMode, String, Boolean) -> Unit)? = null,
     onTrackArtworkLoad: ((String, Boolean) -> Unit)? = null,
 ) {
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    // A new library owner/generation always starts with a fresh detail+Atlas route.
+    var selectedId by rememberSaveable(scopeKey, scopeGeneration) { mutableStateOf<String?>(null) }
+    var atlasOpenForId by rememberSaveable(scopeKey, scopeGeneration) {
+        mutableStateOf<String?>(null)
+    }
+    var detailScrollOwnerId by rememberSaveable(scopeKey, scopeGeneration) {
+        mutableStateOf<String?>(null)
+    }
     // Explicit origin of the open detail. It is captured when a card is opened,
     // so the header can never infer Editorial/Mosaico from a filename or from a
     // later mode selection.
-    var detailMode by rememberSaveable { mutableStateOf<GenreViewMode?>(null) }
+    var detailMode by rememberSaveable(scopeKey, scopeGeneration) { mutableStateOf<GenreViewMode?>(null) }
     // Save across detail navigation; state inside the overview branch would reset.
     var viewMode by rememberSaveable { mutableStateOf(GenreViewMode.FEATURED) }
     // Explicit user action only; nothing is built while the panel is idle.
@@ -134,21 +141,36 @@ fun GenreLibraryPanel(
     // Both views retain their independent positions when switching modes or opening details.
     val featuredGridState = rememberLazyGridState()
     val editorialListState = rememberLazyListState()
+    val detailListState = rememberLazyListState()
     val openGenre: (String) -> Unit = { id ->
         detailMode = viewMode
+        atlasOpenForId = null
         selectedId = id
     }
     val selected = genres.firstOrNull { it.id == selectedId }
+    LaunchedEffect(selectedId, scopeKey, scopeGeneration) {
+        if (selectedId == null) {
+            detailScrollOwnerId = null
+        } else if (detailScrollOwnerId != selectedId) {
+            detailListState.scrollToItem(0)
+            detailScrollOwnerId = selectedId
+        }
+    }
     // A deleted/retagged genre must never reopen from a stale saved ID.
     LaunchedEffect(selectedId, genres) {
         if (selectedId != null && selected == null) {
             selectedId = null
             detailMode = null
+            atlasOpenForId = null
         }
     }
     BackHandler(enabled = selected != null) {
-        selectedId = null
-        detailMode = null
+        if (atlasOpenForId != null) {
+            atlasOpenForId = null
+        } else {
+            selectedId = null
+            detailMode = null
+        }
     }
 
     // MI-26 2.5: aggregated, on-demand receipt over the already-loaded index and
@@ -284,8 +306,34 @@ fun GenreLibraryPanel(
     val playableIdentities = remember(playableIndexByIdentity) { playableIndexByIdentity.keys }
     val largeText = LocalConfiguration.current.fontScale >= 1.3f
     val originMode = detailMode ?: viewMode
+    if (atlasOpenForId == selected.id && atlasGenreIsEligible(selected)) {
+        MichiAtlasGenreScreen(
+            genre = selected,
+            viewMode = originMode,
+            poster = editorialPosterForTitle(selected.title, posterCatalog.entriesOrEmpty()),
+            mosaic = mosaicArtworkForGenre(selected.id, mosaicCatalog.entriesOrEmpty()),
+            scopedGenres = genres,
+            playableTrackIds = playableTrackIds,
+            globallyBlockedTrackIds = globallyBlockedTrackIds,
+            editorialAssets = posterCatalog.entriesOrEmpty(),
+            mosaicAssets = mosaicCatalog.entriesOrEmpty(),
+            scopeIdentity = "$scopeKey|$scopeGeneration",
+            onBack = { atlasOpenForId = null },
+            onPlay = onPlay,
+            canPlayLocally = canPlayLocally,
+            onOpenLibraryGenre = { destinationId ->
+                // Library detail still owns the selected genre and playback controller.
+                if (atlasScopedGenre(destinationId, genres) != null) {
+                    atlasOpenForId = null
+                    selectedId = destinationId
+                }
+            },
+        )
+        return
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("genre_detail"),
+        state = detailListState,
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -305,6 +353,7 @@ fun GenreLibraryPanel(
                 onShuffle = {
                     if (playableTracks.isNotEmpty()) onPlay(playableTracks.shuffled(), 0)
                 },
+                onOpenAtlas = { atlasOpenForId = selected.id },
             )
             if (playableTracks.isEmpty()) {
                 Text("No hay pistas reproducibles", style = MichiTypography.microLabel,
