@@ -76,6 +76,9 @@ import org.michimusic.mobile.artist.artwork.artistIdentityAnchor
 import org.michimusic.mobile.artist.artwork.verifyCachedArtwork
 import org.michimusic.mobile.artist.scopedArtistCreditKey
 import org.michimusic.mobile.library.LibraryScopeStore
+import org.michimusic.mobile.library.authority
+import org.michimusic.mobile.library.authorizedScope
+import org.michimusic.mobile.library.noAuthorizedScope
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
 import org.michimusic.mobile.library.artistQueueSelection
@@ -123,6 +126,11 @@ fun ArtistDetailScreen(
     val rootAuthority: org.michimusic.mobile.library.MusicRootAuthority = koinInject()
     val libraryRepo: MusicLibraryRepository = koinInject()
     val activeScope by scopeStore.activeScope.collectAsStateWithLifecycle()
+    // K48-R12-02: this page is entirely scope-dependent. Building it from the
+    // provisional placeholder would show another owner's album/artist data, so it
+    // waits for a verified selection and shows the restore notice meanwhile.
+    val scopeResolution by scopeStore.resolution.collectAsStateWithLifecycle()
+    val authorizedScope = scopeResolution.authority().authorizedScope()
     val availableLibraries by libraryRepo.observeLibraries().collectAsStateWithLifecycle(initialValue = emptyList())
 
     LaunchedEffect(viewModel) { viewModel.loadMedia() }
@@ -130,13 +138,17 @@ fun ArtistDetailScreen(
     // EXACT source used by Library's artist mosaic: visible tracks, albums and
     // enrichment key all belong to the same snapshot / membership set.
     var scopeRetry by remember { mutableIntStateOf(0) }
-    val scoped = rememberArtistScopedCollection(
-        localAlbums = albums,
-        scope = activeScope,
-        libraries = availableLibraries,
-        repository = libraryRepo,
-        retryKey = scopeRetry,
-    )
+    val scoped = if (authorizedScope != null) {
+        rememberArtistScopedCollection(
+            localAlbums = albums,
+            scope = authorizedScope,
+            libraries = availableLibraries,
+            repository = libraryRepo,
+            retryKey = scopeRetry,
+        )
+    } else {
+        noAuthorizedScope()
+    }
     var membershipRetry by remember { mutableIntStateOf(0) }
     val memberships = rememberArtistIdentityMemberships(
         aggregate = scoped, localAlbums = albums, libraries = availableLibraries,

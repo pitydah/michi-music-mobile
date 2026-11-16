@@ -28,6 +28,19 @@ data class ArtistScopedCollection(
     val playableTrackIds: Set<String> = emptySet(),
 )
 
+/**
+ * K48-R12-02: the store has not verified a library selection yet, so nothing may be
+ * built from it. `ready = false` obliges every consumer to ignore `albums`,
+ * `identityLibraryId` and `scope` — the scope carrier keeps the type non-null.
+ */
+fun noAuthorizedScope(): ArtistScopedCollection = ArtistScopedCollection(
+    ready = false,
+    albums = emptyList(),
+    identityLibraryId = null,
+    scope = LibraryScope.All,
+    errorMessage = null,
+)
+
 private sealed interface ArtistScopeRead {
     val scope: LibraryScope
     data class Loading(override val scope: LibraryScope) : ArtistScopeRead

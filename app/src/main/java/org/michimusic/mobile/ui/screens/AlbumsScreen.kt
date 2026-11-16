@@ -102,6 +102,8 @@ import org.michimusic.mobile.ui.components.ArtistVariantNotice
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
 import org.michimusic.mobile.ui.components.ArtistMosaicGrid
 import org.michimusic.mobile.ui.components.MichiCardDeck
+import org.michimusic.mobile.library.authority
+import org.michimusic.mobile.library.authorizedScope
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.mobile.library.rememberArtistIdentityMemberships
 import org.michimusic.mobile.ui.components.coverStyleFor
@@ -173,6 +175,11 @@ fun AlbumsScreen(
     val libraryScopeStore: org.michimusic.mobile.library.LibraryScopeStore = koinInject()
     val musicLibraryRepo: org.michimusic.data.repository.MusicLibraryRepository = koinInject()
     val activeScope by libraryScopeStore.activeScope.collectAsStateWithLifecycle()
+    // K48-R12-02: `activeScope` is a placeholder until the store verifies it, so the
+    // collections below are only built from an authorized scope. While loading, or
+    // after a failed read, the screen shows the notice instead of another owner's data.
+    val scopeResolution by libraryScopeStore.resolution.collectAsStateWithLifecycle()
+    val authorizedScope = scopeResolution.authority().authorizedScope()
     val availableLibraries by musicLibraryRepo.observeLibraries().collectAsStateWithLifecycle(initialValue = emptyList())
 
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.SONGS) }
@@ -203,13 +210,15 @@ fun AlbumsScreen(
     // This also supports synced/registered artists when MediaStore is empty.
     var artistScopeRetry by remember { mutableIntStateOf(0) }
     val scopedArtistCollection = if (
-        selectedTab == LibraryTab.ARTISTS ||
-        selectedTab == LibraryTab.ALBUMS ||
-        selectedTab == LibraryTab.GENRES
+        authorizedScope != null && (
+            selectedTab == LibraryTab.ARTISTS ||
+                selectedTab == LibraryTab.ALBUMS ||
+                selectedTab == LibraryTab.GENRES
+            )
     ) {
         rememberArtistScopedCollection(
             localAlbums = albums,
-            scope = activeScope,
+            scope = authorizedScope,
             libraries = availableLibraries,
             repository = musicLibraryRepo,
             retryKey = artistScopeRetry,

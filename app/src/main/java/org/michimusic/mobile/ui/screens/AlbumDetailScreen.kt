@@ -53,6 +53,9 @@ import org.michimusic.core.models.TrackSource
 import org.michimusic.data.repository.FavoritesRepository
 import org.michimusic.mobile.artist.AlbumEnrichmentPanel
 import org.michimusic.mobile.library.LibraryScopeStore
+import org.michimusic.mobile.library.authority
+import org.michimusic.mobile.library.authorizedScope
+import org.michimusic.mobile.library.noAuthorizedScope
 import org.michimusic.mobile.library.rememberArtistScopedCollection
 import org.michimusic.data.repository.MusicLibraryRepository
 import org.michimusic.mobile.playback.PlaybackSessionManager
@@ -102,12 +105,21 @@ fun AlbumDetailScreen(
     val scopeStore: LibraryScopeStore = koinInject()
     val libraryRepository: MusicLibraryRepository = koinInject()
     val activeScope by scopeStore.activeScope.collectAsStateWithLifecycle()
+    // K48-R12-02: this page is entirely scope-dependent. Building it from the
+    // provisional placeholder would show another owner's album/artist data, so it
+    // waits for a verified selection and shows the restore notice meanwhile.
+    val scopeResolution by scopeStore.resolution.collectAsStateWithLifecycle()
+    val authorizedScope = scopeResolution.authority().authorizedScope()
     val libraries by libraryRepository.observeLibraries().collectAsStateWithLifecycle(initialValue = emptyList())
     var scopeRetry by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val scoped = rememberArtistScopedCollection(
-        localAlbums = albums, scope = activeScope, libraries = libraries,
-        repository = libraryRepository, retryKey = scopeRetry,
-    )
+    val scoped = if (authorizedScope != null) {
+        rememberArtistScopedCollection(
+            localAlbums = albums, scope = authorizedScope, libraries = libraries,
+            repository = libraryRepository, retryKey = scopeRetry,
+        )
+    } else {
+        noAuthorizedScope()
+    }
     val album = if (scoped.ready) resolveNavigationAlbum(scoped.albums, albumId, activeScope) else null
     val reducedMotion = LocalVisualPreferences.current.reducedMotion || LocalVisualPreferences.current.highContrast
     // Animation state is scoped to the resolved album; its real track ordering remains UI3.2's.

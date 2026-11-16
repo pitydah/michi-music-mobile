@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.michimusic.core.models.LibraryScope
@@ -169,4 +170,39 @@ class LibraryScopeStoreTest {
         assertEquals("lib_device_local", settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE])
         coVerify { appDao.setSetting(match { it.value == "lib_device_local" }) }
     }
+
+    // K48-R12-02: a hydrated store used to ignore every later retry, which made a read
+    // failure after a successful selection unrecoverable. The retry must run again.
+    @Test
+    fun `retry after a read failure re-reads even when a scope is already published`() =
+        runTest(StandardTestDispatcher()) {
+            settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE] = "lib_custom_1"
+            val store = LibraryScopeStore(appDao, libraryRepo, this)
+            testScheduler.advanceUntilIdle()
+            assertEquals(LibraryScope.One("lib_custom_1"), store.activeScope.value)
+            assertTrue(store.hydrated.value)
+
+            // The provider starts failing, and the failure is reported.
+            coEvery { appDao.getSetting(LibraryScopeStore.KEY_ACTIVE_SCOPE) } throws
+                IllegalStateException("settings provider unavailable")
+            store.loadPersistedScope(force = true)
+            testScheduler.advanceUntilIdle()
+            assertEquals(
+                LibraryScopeResolution.ReadFailed(LibraryScopeFailure.SETTINGS_UNAVAILABLE),
+                store.resolution.value,
+            )
+
+            // Recovery must be possible without recreating the store.
+            coEvery { appDao.getSetting(LibraryScopeStore.KEY_ACTIVE_SCOPE) } answers {
+                settingsMap[LibraryScopeStore.KEY_ACTIVE_SCOPE]
+            }
+            store.retryLoading()
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                LibraryScopeResolution.Ready(LibraryScope.One("lib_custom_1"), persisted = true),
+                store.resolution.value,
+            )
+            assertEquals(LibraryScope.One("lib_custom_1"), store.activeScope.value)
+        }
 }

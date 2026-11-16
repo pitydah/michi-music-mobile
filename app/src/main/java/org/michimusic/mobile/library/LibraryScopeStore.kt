@@ -54,8 +54,11 @@ class LibraryScopeStore(
         }
     }
 
-    suspend fun loadPersistedScope() {
-        if (_hydrated.value) return
+    suspend fun loadPersistedScope(force: Boolean = false) {
+        // K48-R12-02: a hydrated store normally has nothing to restore, but a retry
+        // after a read failure must be able to run again even when a selection is
+        // already published. Without `force` that combination was unrecoverable.
+        if (_hydrated.value && !force) return
         val expected = selectionEpoch.get()
         val saved = try {
             appDao.getSetting(KEY_ACTIVE_SCOPE)
@@ -93,7 +96,7 @@ class LibraryScopeStore(
     fun retryLoading() {
         scope.launch {
             try {
-                loadPersistedScope()
+                loadPersistedScope(force = true)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -201,3 +204,35 @@ enum class LibraryScopeFailure {
     LIBRARIES_UNAVAILABLE,
     WRITE_UNAVAILABLE,
 }
+
+/**
+ * K48-R12-02 — whether a library scope carries authority right now.
+ *
+ * Consumers must ask for this instead of reading `activeScope` directly: while the
+ * store is [Loading] that value is only a placeholder, and after a read failure it
+ * is not a decision at all. There is exactly one source of truth — this is a
+ * projection of [LibraryScopeResolution], never a second state machine.
+ */
+sealed interface LibraryScopeAuthority {
+    /** No selection has been verified yet: scope-dependent content must not be built. */
+    data object Loading : LibraryScopeAuthority
+
+    /** [scope] may be used. `persisted` says whether the choice survives a restart. */
+    data class Authorized(val scope: LibraryScope, val persisted: Boolean) : LibraryScopeAuthority
+
+    /** The selection could not be read. Show the failure and offer a retry. */
+    data class Unavailable(val reason: LibraryScopeFailure) : LibraryScopeAuthority
+}
+
+fun LibraryScopeResolution.authority(): LibraryScopeAuthority = when (this) {
+    is LibraryScopeResolution.Loading -> LibraryScopeAuthority.Loading
+    is LibraryScopeResolution.Ready -> LibraryScopeAuthority.Authorized(scope, persisted)
+    is LibraryScopeResolution.ReadFailed -> LibraryScopeAuthority.Unavailable(reason)
+    // The user's choice is active; only its persistence failed. It still authorizes,
+    // but it must never be presented as saved.
+    is LibraryScopeResolution.WriteFailed -> LibraryScopeAuthority.Authorized(activeScope, persisted = false)
+}
+
+/** The scope that may be used, or null when no verified selection exists yet. */
+fun LibraryScopeAuthority.authorizedScope(): LibraryScope? =
+    (this as? LibraryScopeAuthority.Authorized)?.scope
