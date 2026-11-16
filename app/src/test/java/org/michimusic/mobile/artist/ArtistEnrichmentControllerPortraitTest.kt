@@ -100,7 +100,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
     @Test
     fun latePortraitAnswerAfterIdentityChangeIsDiscarded() = runTest {
-        val gate = CompletableDeferred<List<ArtistArtworkCandidate>>()
+        val gate = CompletableDeferred<ArtistPortraitSearchResult>()
         val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
         coEvery { orchestrator.searchManualPortraits(any(), any(), any(), any(), any(), any()) } coAnswers {
             gate.await()
@@ -115,7 +115,7 @@ class ArtistEnrichmentControllerPortraitTest {
         // The reader switches artist while Openverse is still answering.
         controller.bind("lib-b", "A-ha", listOf("album-2"))
         advanceUntilIdle()
-        gate.complete(listOf(candidate()))
+        gate.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate())))
         advanceUntilIdle()
 
         assertTrue(controller.state.value.pendingPortraits.isEmpty())
@@ -124,8 +124,8 @@ class ArtistEnrichmentControllerPortraitTest {
 
     @Test
     fun secondSearchPublishesOnlyItsOwnAnswer() = runTest {
-        val first = CompletableDeferred<List<ArtistArtworkCandidate>>()
-        val second = CompletableDeferred<List<ArtistArtworkCandidate>>()
+        val first = CompletableDeferred<ArtistPortraitSearchResult>()
+        val second = CompletableDeferred<ArtistPortraitSearchResult>()
         var calls = 0
         val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
         coEvery { orchestrator.searchManualPortraits(any(), any(), any(), any(), any(), any()) } coAnswers {
@@ -141,11 +141,11 @@ class ArtistEnrichmentControllerPortraitTest {
         controller.searchPortraits("'Til Tuesday", "lib-a", listOf("album-1"), query = "'Til Tuesday portraits")
         runCurrent()
 
-        first.complete(listOf(candidate("stale")))
+        first.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate("stale"))))
         advanceUntilIdle()
         assertTrue(controller.state.value.pendingPortraits.isEmpty())
 
-        second.complete(listOf(candidate("current")))
+        second.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate("current"))))
         advanceUntilIdle()
         assertEquals(1, controller.state.value.pendingPortraits.size)
         assertEquals(
@@ -157,7 +157,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
     @Test
     fun changingLibraryDiscardsThePendingAnswer() = runTest {
-        val gate = CompletableDeferred<List<ArtistArtworkCandidate>>()
+        val gate = CompletableDeferred<ArtistPortraitSearchResult>()
         val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
         coEvery { orchestrator.searchManualPortraits(any(), any(), any(), any(), any(), any()) } coAnswers {
             gate.await()
@@ -170,7 +170,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
         controller.bind("lib-b", "'Til Tuesday", listOf("album-1"))
         advanceUntilIdle()
-        gate.complete(listOf(candidate()))
+        gate.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate())))
         advanceUntilIdle()
 
         assertTrue(controller.state.value.pendingPortraits.isEmpty())
@@ -178,7 +178,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
     @Test
     fun clearingTheEnrichmentCancelsThePortraitSearch() = runTest {
-        val gate = CompletableDeferred<List<ArtistArtworkCandidate>>()
+        val gate = CompletableDeferred<ArtistPortraitSearchResult>()
         val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
         coEvery { orchestrator.searchManualPortraits(any(), any(), any(), any(), any(), any()) } coAnswers {
             gate.await()
@@ -191,7 +191,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
         controller.clear("'Til Tuesday", "lib-a", listOf("album-1"))
         advanceUntilIdle()
-        gate.complete(listOf(candidate()))
+        gate.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate())))
         advanceUntilIdle()
 
         assertTrue(controller.state.value.pendingPortraits.isEmpty())
@@ -200,7 +200,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
     @Test
     fun releasingTheOwnerDropsTheAnswerAndKeepsNoJob() = runTest {
-        val gate = CompletableDeferred<List<ArtistArtworkCandidate>>()
+        val gate = CompletableDeferred<ArtistPortraitSearchResult>()
         val orchestrator = mockk<ArtistEnrichmentOrchestrator>(relaxed = true)
         coEvery { orchestrator.searchManualPortraits(any(), any(), any(), any(), any(), any()) } coAnswers {
             gate.await()
@@ -213,7 +213,7 @@ class ArtistEnrichmentControllerPortraitTest {
 
         controller.release()
         advanceUntilIdle()
-        gate.complete(listOf(candidate()))
+        gate.complete(ArtistPortraitSearchResult.Candidates(listOf(candidate())))
         advanceUntilIdle()
 
         assertTrue(controller.state.value.pendingPortraits.isEmpty())

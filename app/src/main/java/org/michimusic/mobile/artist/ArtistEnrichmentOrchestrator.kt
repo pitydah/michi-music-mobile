@@ -336,19 +336,30 @@ class ArtistEnrichmentOrchestrator(
         profile: ArtistExternalProfile,
         associationGroupKey: String?,
         query: String,
-    ): List<ArtistArtworkCandidate> {
+    ): ArtistPortraitSearchResult {
         val anchor = artistIdentityAnchor(
             libraryId, artistCredit, albumIds, profile, associationGroupKey,
-        ) ?: return emptyList()
+        ) ?: return ArtistPortraitSearchResult.IdentityUnverified
         return try {
             when (val result = artwork.searchManual(anchor, query)) {
-                is ProviderArtworkResult.Available -> result.items
-                else -> emptyList()
+                is ProviderArtworkResult.Available ->
+                    if (result.items.isEmpty()) ArtistPortraitSearchResult.NoMatch
+                    else ArtistPortraitSearchResult.Candidates(result.items)
+                is ProviderArtworkResult.NoMatch -> ArtistPortraitSearchResult.NoMatch
+                is ProviderArtworkResult.Disabled -> ArtistPortraitSearchResult.Failed(
+                    ArtistPortraitFailure.PROVIDER_UNAVAILABLE,
+                )
+                is ProviderArtworkResult.Failure -> ArtistPortraitSearchResult.Failed(
+                    // A retryable provider failure is a transport problem; the rest are
+                    // provider-side rejections the user cannot fix by retrying blindly.
+                    if (result.retryable) ArtistPortraitFailure.NETWORK_UNAVAILABLE
+                    else ArtistPortraitFailure.PROVIDER_UNAVAILABLE,
+                )
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            emptyList()
+            ArtistPortraitSearchResult.Failed(ArtistPortraitFailure.UNKNOWN_FAILURE)
         }
     }
 }

@@ -330,7 +330,7 @@ class ArtistEnrichmentController(
         _state.value = current.copy(searchingPortraits = true, message = null)
         portraitJob = scope.launch {
             val result = try {
-                val items = orchestrator.searchManualPortraits(
+                orchestrator.searchManualPortraits(
                     artistCredit = artistCredit,
                     libraryId = libraryId,
                     albumIds = albumIds,
@@ -338,15 +338,10 @@ class ArtistEnrichmentController(
                     associationGroupKey = current.associationGroupKey,
                     query = query,
                 )
-                if (items.isEmpty()) {
-                    ArtistPortraitSearchResult.NoMatch
-                } else {
-                    ArtistPortraitSearchResult.Candidates(items)
-                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                ArtistPortraitSearchResult.Failed("PROVIDER_UNAVAILABLE")
+                ArtistPortraitSearchResult.Failed(ArtistPortraitFailure.UNKNOWN_FAILURE)
             }
             // A late answer from a previous identity is dropped, not shown and not persisted.
             if (!isCurrentPortraitReceipt(receipt)) return@launch
@@ -364,7 +359,7 @@ class ArtistEnrichmentController(
                     ArtistPortraitSearchResult.IdentityUnverified ->
                         "La identidad del artista aún no está confirmada; no se consultó ningún proveedor."
                     is ArtistPortraitSearchResult.Failed ->
-                        "No fue posible consultar Openverse. No se modificó ninguna foto guardada."
+                        result.reason.userMessage()
                 },
             )
         }
