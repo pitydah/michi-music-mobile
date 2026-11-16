@@ -202,57 +202,90 @@ fun ArtistEnrichmentPanel(
         activeController.confirm(artistCredit, libraryId, albumIds, verifiedId)
     }
 
+    val presentation = ArtistEnrichmentUiState.from(
+        artistCredit = artistCredit,
+        state = uiState,
+        coverage = panelCoverage,
+        canPersist = canPersist,
+        albumCount = albumIds.distinct().size,
+        section = when {
+            advancedOpen -> ArtistEnrichmentSection.ADVANCED
+            identityExpanded -> ArtistEnrichmentSection.IDENTITY
+            else -> ArtistEnrichmentSection.NONE
+        },
+    )
+
+    /**
+     * Opening the picker never searches. Downloading bytes is a separate, explicit
+     * user request made inside the picker.
+     */
+    fun openPicker() {
+        artworkPickerOpen = true
+    }
+
+    fun openPickerAndSearch() {
+        artworkPickerOpen = true
+        activeController.searchPortraits(artistCredit, libraryId, albumIds)
+    }
+
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .testTag("artist_enrichment_panel"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            // K48-S7: a credit like "'Til Tuesday" already starts with an
-            // apostrophe; wrapping it again printed doubled quotes.
-            if (artistCredit.startsWith("'")) "Fotografías de $artistCredit"
-            else "Fotografías de '$artistCredit'",
-            color = PureWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.testTag("artist_artwork_summary"),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            panelCoverage.slots.forEach { slot ->
-                ArtistArtworkSlotSummary(coverage = slot, modifier = Modifier.weight(1f))
+        ArtistSummaryHeader(presentation)
+        // §9.9: two columnas solo cuando caben miniatura, estado y acción sin recorte.
+        if (artworkSlotsInline()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ArtworkSlotCard(
+                    slot = presentation.mosaic,
+                    artistName = presentation.artistName,
+                    onChoose = { openPicker() },
+                    modifier = Modifier.weight(1f),
+                )
+                ArtworkSlotCard(
+                    slot = presentation.card,
+                    artistName = presentation.artistName,
+                    onChoose = { openPicker() },
+                    modifier = Modifier.weight(1f),
+                )
             }
+        } else {
+            ArtworkSlotCard(
+                slot = presentation.mosaic,
+                artistName = presentation.artistName,
+                onChoose = { openPicker() },
+            )
+            ArtworkSlotCard(
+                slot = presentation.card,
+                artistName = presentation.artistName,
+                onChoose = { openPicker() },
+            )
         }
-        Button(
-            onClick = {
+        ArtistPrimaryAction(
+            action = presentation.primaryAction,
+            label = presentation.primaryActionLabel,
+            busy = presentation.isBusy,
+            onAction = { action ->
                 // K48-R03: the label comes from the action, so tapping it always runs
                 // exactly the operation the user read.
-                when (panelCoverage.primaryAction) {
+                when (action) {
                     ArtistEnrichmentPrimaryAction.ReviewIdentity,
                     ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity,
                     -> identityExpanded = true
                     ArtistEnrichmentPrimaryAction.SearchMissingPhotos,
                     ArtistEnrichmentPrimaryAction.RetryProvider,
-                    -> {
-                        artworkPickerOpen = true
-                        activeController.searchPortraits(artistCredit, libraryId, albumIds)
-                    }
+                    -> openPickerAndSearch()
                     ArtistEnrichmentPrimaryAction.ReviewLicense,
                     ArtistEnrichmentPrimaryAction.ViewPhotos,
-                    -> artworkPickerOpen = true
+                    -> openPicker()
                     ArtistEnrichmentPrimaryAction.None -> Unit
                 }
             },
-            enabled = panelCoverage.primaryAction != ArtistEnrichmentPrimaryAction.None,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = PrimaryPinkContainer,
-                contentColor = SurfaceObsidian,
-            ),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .testTag("artist_artwork_primary_action"),
-        ) {
-            Text(panelCoverage.primaryAction.label ?: "Buscar fotos faltantes")
-        }
+        )
         TextButton(
             onClick = { identityExpanded = !identityExpanded },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -1057,9 +1090,9 @@ fun ArtistArtworkManualSection(
 
 
 /**
- * K47-ART-01: causal diagnosis, collapsed by default so the summary stays the
- * primary task. Each slot and each provider reports its own state; a missing photo
- * is never flattened into a generic sentence.
+ * K47-ART-01 / K48-R07: the causal diagnosis is a pure content component. It is
+ * collapsed by default so the summary stays the primary task, and each slot and each
+ * provider reports its own state instead of being flattened into one sentence.
  */
 @Composable
 internal fun ArtistArtworkCoverageSection(
@@ -1079,96 +1112,32 @@ internal fun ArtistArtworkCoverageSection(
         )
     }
     Column(modifier.fillMaxWidth().testTag("artist_artwork_coverage")) {
-        HorizontalDivider(color = TextSecondary.copy(alpha = 0.2f))
-        TextButton(
-            onClick = { expanded = !expanded },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .testTag("artist_artwork_coverage_toggle"),
-        ) {
-            Text(
-                // K48-S7 / Design D: the user-facing question first; the provider
-                // table stays inside as the technical diagnosis.
-                if (expanded) "Ocultar diagnóstico" else "¿Por qué faltan fotografías?",
-                color = PureWhite, fontSize = 12.sp,
+        ArtistSectionDivider()
+        ArtistExpandableSectionToggle(
+            // K48-S7 / Design D: the user-facing question first; the provider
+            // table stays inside as the technical diagnosis.
+            title = if (expanded) "Ocultar diagnóstico" else "¿Por qué faltan fotografías?",
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+            tag = "artist_artwork_coverage_toggle",
+        )
+        if (expanded) {
+            ArtistCoverageDiagnosticContent(
+                rows = coverage.slots.map { slot ->
+                    ArtistCoverageRow(
+                        title = "${slot.slotLabel} · ${slot.statusLabel}",
+                        detail = slot.reason,
+                        nextAction = slot.nextAction,
+                    )
+                },
+                providers = coverage.providers.map { provider ->
+                    ArtistCoverageRow(
+                        title = "${provider.label} · ${provider.statusLabel}",
+                        detail = provider.reason,
+                    )
+                },
+                diagnosed = coverage.diagnosed,
             )
         }
-        if (expanded) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                coverage.slots.forEach { slot ->
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                            .testTag("artist_artwork_coverage_slot_${slot.slot.name}"),
-                    ) {
-                        Text(
-                            "${slot.slotLabel} · ${slot.statusLabel}",
-                            color = if (slot.state == ArtistArtworkCoverageState.READY)
-                                TertiaryCyan else PureWhite,
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                        )
-                        slot.reason?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
-                        slot.nextAction?.let {
-                            Text("Siguiente paso: $it", color = SecondaryPurple, fontSize = 11.sp)
-                        }
-                    }
-                }
-                if (!coverage.diagnosed) {
-                    Text(
-                        "Aún no diagnosticado. Abre la ficha para obtener un recibo por proveedor.",
-                        color = TextSecondary, fontSize = 11.sp,
-                    )
-                }
-                coverage.providers.forEach { provider ->
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            "${provider.label} · ${provider.statusLabel}",
-                            color = PureWhite, fontSize = 11.sp,
-                        )
-                        provider.reason?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
-                    }
-                }
-                coverage.primaryAction?.let {
-                    Text("Siguiente paso de la ficha: $it", color = SecondaryPurple, fontSize = 11.sp)
-                }
-                Text(
-                    "Solo se muestran estados causales: nunca rutas, URLs ni datos privados.",
-                    color = TextSecondary, fontSize = 11.sp,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Concrete, non-technical slot card used by the enrichment summary: it answers
- * "do I have this photo or not" before any provider detail is expanded.
- */
-@Composable
-private fun ArtistArtworkSlotSummary(
-    coverage: ArtistArtworkSlotCoverage,
-    modifier: Modifier = Modifier,
-) {
-    val satisfied = coverage.state == ArtistArtworkCoverageState.READY ||
-        coverage.state == ArtistArtworkCoverageState.MANUAL_PROTECTED
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(PureWhite.copy(alpha = 0.04f))
-            .padding(12.dp)
-            .testTag("artist_artwork_slot_${coverage.slot.name}"),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            coverage.slotLabel,
-            color = PureWhite, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            coverage.statusLabel,
-            color = if (satisfied) TertiaryCyan else TextSecondary,
-            fontSize = 12.sp,
-        )
-        coverage.reason?.let { Text(it, color = TextSecondary, fontSize = 11.sp) }
     }
 }

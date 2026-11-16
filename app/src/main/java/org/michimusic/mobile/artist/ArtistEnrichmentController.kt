@@ -45,6 +45,12 @@ data class ArtistEnrichmentState(
     val pendingPortraits: List<ArtistArtworkCandidate> = emptyList(),
     /** True only while an explicitly requested Openverse search is running. */
     val searchingPortraits: Boolean = false,
+    /**
+     * K48-R04/R07: the closed failure reason of the last explicit portrait search.
+     * A provider failure is never flattened into an empty candidate list, and the
+     * presentation reads this field instead of parsing [message].
+     */
+    val portraitSearchFailure: ArtistPortraitFailure? = null,
     val selections: Map<ArtworkSlot, ArtistArtworkSelection> = emptyMap(),
     /** Last artwork receipt for this identity; null until a provider run finishes. */
     val artworkReport: org.michimusic.mobile.artist.artwork.ArtworkResolutionReport? = null,
@@ -342,7 +348,11 @@ class ArtistEnrichmentController(
         )
         portraitReceipt = receipt
         portraitJob?.cancel()
-        _state.value = current.copy(searchingPortraits = true, message = null)
+        _state.value = current.copy(
+            searchingPortraits = true,
+            portraitSearchFailure = null,
+            message = null,
+        )
         portraitJob = scope.launch {
             val result = try {
                 orchestrator.searchManualPortraits(
@@ -366,6 +376,9 @@ class ArtistEnrichmentController(
                     is ArtistPortraitSearchResult.Candidates -> result.items
                     else -> _state.value.pendingPortraits
                 },
+                // Only a real failure publishes a failure reason. NoMatch and an
+                // unverified identity are ordinary answers, not errors.
+                portraitSearchFailure = (result as? ArtistPortraitSearchResult.Failed)?.reason,
                 message = when (result) {
                     is ArtistPortraitSearchResult.Candidates ->
                         "Retratos encontrados: ${result.items.size}. Revisa identidad y licencia antes de elegir."
@@ -394,7 +407,11 @@ class ArtistEnrichmentController(
         portraitJob?.cancel()
         portraitJob = null
         if (_state.value.searchingPortraits) {
-            _state.value = _state.value.copy(searchingPortraits = false, pendingPortraits = emptyList())
+            _state.value = _state.value.copy(
+                searchingPortraits = false,
+                pendingPortraits = emptyList(),
+                portraitSearchFailure = null,
+            )
         }
     }
 
