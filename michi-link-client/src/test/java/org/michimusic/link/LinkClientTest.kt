@@ -31,6 +31,17 @@ class LinkClientTest {
         }
     }
 
+    /**
+     * A67/I02: every AirCat metadata representation must advertise the producer
+     * profile and be non-cacheable. Fixtures carry the canonical headers so a
+     * negative test fails for its own reason instead of a missing header.
+     */
+    private fun airCatMetadataHeaders() = headersOf(
+        AirCatProducerContractPolicy.HEADER to listOf(AirCatProducerContractPolicy.VERSION),
+        HttpHeaders.ContentType to listOf(ContentType.Application.Json.toString()),
+        HttpHeaders.CacheControl to listOf("no-store"),
+    )
+
     @Test
     fun pairConfirm_withChallengeStrategyOmitsPinOrSendsNull() = runBlocking {
         var requestBody = ""
@@ -508,4 +519,358 @@ class LinkClientTest {
         client.fetchServerDiagnostics().getOrThrow()
         assertTrue(requestedUrl.contains("/api/v1/diagnostics"))
     }
+
+    @Test
+    fun rangeValidatorRejectsWrongOffsetAndChangedEtag() {
+        assertTrue(validateStreamRangeHeaders(5, 206, "bytes 4-9/10", 6, "\"v1\"", "\"v1\"") != null)
+        assertTrue(validateStreamRangeHeaders(5, 206, "bytes 5-9/10", 5, "\"v1\"", "\"v2\"") != null)
+        assertTrue(validateStreamRangeHeaders(5, 206, "bytes 5-9/10", 4, null, "") != null)
+        assertEquals(null, validateStreamRangeHeaders(5, 206, "bytes 5-9/10", 5, "\"v1\"", "\"v1\""))
+    }
+
+    @Test
+    fun malformedPartialDoesNotWriteBytes() = runBlocking {
+        val engine = MockEngine {
+            respond("INVALID", HttpStatusCode.PartialContent,
+                headersOf(HttpHeaders.ContentRange, "bytes 0-6/20"))
+        }
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val out = java.io.ByteArrayOutputStream()
+        val result = client.streamTrackRange("remote-audio", out, startBytes = 7L)
+        assertTrue(result.isFailure)
+        assertEquals(0, out.size())
+    }
+
+    @Test
+    fun resumeIgnoredByServerDoesNotAppendBodyAndPreservesQuotedEtag() = runBlocking {
+        var seenIfRange = ""
+        val engine = MockEngine { request ->
+            seenIfRange = request.headers["If-Range"].orEmpty()
+            respond("FULL_TRACK", HttpStatusCode.OK, headersOf("ETag", "\"file-v1\""))
+        }
+        val client = LinkClient.createForTest("http://127.0.0.1:53318", deviceToken = "token", httpClient = jsonClient(engine))
+        val out = java.io.ByteArrayOutputStream()
+        val response = client.streamTrackRange("remote-audio", out, startBytes = 7L, expectedEtag = "\"file-v1\"").getOrThrow()
+        assertEquals("\"file-v1\"", seenIfRange)
+        assertEquals("\"file-v1\"", response.etag)
+        assertEquals(0, out.size())
+        assertFalse(response.isPartialContent)
+    }
+
+    @Test
+    fun managedOriginalSource_usesRawDownloadWithoutTranscodeOrFallback() = runBlocking {
+        val calls = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            calls.add(request.url.encodedPath)
+            if (request.url.encodedPath.startsWith("/api/v1/stream/")) {
+                respond("TRANSCODED", HttpStatusCode.OK)
+            } else {
+                respond("original-bytes", HttpStatusCode.OK, headersOf(HttpHeaders.ContentLength, "14"))
+            }
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:53318", deviceToken = "limited-token",
+            httpClient = jsonClient(engine),
+        )
+        val raw = java.io.ByteArrayOutputStream()
+        val managed = client.originalFileSource().streamTrackRange("file-id", raw)
+        assertTrue(managed.isSuccess)
+        assertEquals("original-bytes", raw.toString("UTF-8"))
+        assertEquals(listOf("/api/v1/download/file-id"), calls)
+        val playback = java.io.ByteArrayOutputStream()
+        assertTrue(client.streamTrackRange("file-id", playback).isSuccess)
+        assertEquals("TRANSCODED", playback.toString("UTF-8"))
+        assertEquals(listOf("/api/v1/download/file-id", "/api/v1/stream/file-id"), calls)
+    }
+
+    @Test
+    fun managedOriginalSource_missingRawEndpointNeverRequestsTranscodingEndpoint() = runBlocking {
+        val calls = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            calls.add(request.url.encodedPath)
+            respond("No original source", HttpStatusCode.NotFound)
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:53318", deviceToken = "limited-token",
+            httpClient = jsonClient(engine),
+        )
+        val bytes = java.io.ByteArrayOutputStream()
+        val result = client.originalFileSource().streamTrackRange("remote-track", bytes)
+        assertTrue(result.isFailure)
+        assertEquals(0, bytes.size())
+        assertEquals(listOf("/api/v1/download/remote-track"), calls)
+    }
+
+    @Test
+    fun managedOriginalSource_partialRangeStaysWithinOriginalDownloadRoute() = runBlocking {
+        val calls = mutableListOf<String>()
+        val ranges = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            calls.add(request.url.encodedPath)
+            ranges.add(request.headers[HttpHeaders.Range].orEmpty())
+            respond("second", HttpStatusCode.PartialContent,
+                io.ktor.http.headers {
+                    append(HttpHeaders.ContentRange, "bytes 5-10/11")
+                    append(HttpHeaders.ContentLength, "6")
+                    append(HttpHeaders.ETag, "\"strong\"")
+                })
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:53318", deviceToken = "limited-token",
+            httpClient = jsonClient(engine),
+        )
+        val bytes = java.io.ByteArrayOutputStream()
+        val result = client.originalFileSource().streamTrackRange(
+            "remote-track", bytes, startBytes = 5L, expectedEtag = "\"strong\"",
+        )
+        assertTrue(result.isSuccess)
+        assertEquals("second", bytes.toString("UTF-8"))
+        assertEquals(listOf("bytes=5-"), ranges)
+        assertEquals(listOf("/api/v1/download/remote-track"), calls)
+    }
+    @Test
+    fun rawDownload_doesNotFollowRedirectOrLeakBearer() = runBlocking {
+        var requests = 0
+        val engine = MockEngine { request ->
+            requests++
+            if (requests == 1) {
+                assertEquals("Bearer secret", request.headers[HttpHeaders.Authorization])
+                assertTrue(request.url.toString().endsWith("/api/v1/download/remote-1"))
+                respond(content = "", status = HttpStatusCode.Found,
+                    headers = headersOf(HttpHeaders.Location, "http://untrusted.invalid/steal"))
+            } else {
+                throw AssertionError("A25: redirected bearer reached a second request")
+            }
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:53318", deviceToken = "secret",
+            httpClient = jsonClient(engine),
+        )
+        val result = client.originalFileSource().streamTrackRange(
+            "remote-1", java.io.ByteArrayOutputStream())
+        assertTrue(result.isFailure)
+        assertEquals(1, requests)
+        client.close()
+    }
+
+    @Test
+    fun airCatAuthorize_usesPinnedHttpsApiContractAndBearer() = runBlocking {
+        var calls = 0
+        val engine = MockEngine { request ->
+            calls++
+            assertEquals("https", request.url.protocol.name)
+            assertEquals("/api/v1/aircat/authorize", request.url.encodedPath)
+            assertEquals("Bearer home-session", request.headers[HttpHeaders.Authorization])
+            assertTrue(request.body.toByteArray().decodeToString().contains("transferId"))
+            respond("{\"version\":1}", HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client = LinkClient.createForTest(
+            baseUrl="https://home.example", deviceToken="home-session", httpClient=jsonClient(engine),
+            assumePinnedAirCatForTest=true)
+        val result=client.requestAirCatAuthorization("{\"transferId\":\"tx\"}")
+        assertTrue(result.isSuccess)
+        assertEquals("{\"version\":1}", result.getOrThrow())
+        assertEquals(1, calls)
+        client.close()
+    }
+
+    @Test
+    fun airCatAuthorize_rejectsPlainHttpBeforeSendingBearer() = runBlocking {
+        var calls=0
+        val engine=MockEngine { calls++;respond("forbidden",HttpStatusCode.Forbidden) }
+        val client=LinkClient.createForTest(
+            baseUrl="http://192.168.1.50:8400",deviceToken="secret",httpClient=jsonClient(engine))
+        val result=client.requestAirCatAuthorization("{\"transferId\":\"tx\"}")
+        assertTrue(result.isFailure)
+        assertEquals(0,calls)
+        client.close()
+    }
+
+    @Test
+    fun airCatAuthorize_rejectsUnpinnedHttpsBeforeNetwork() = runBlocking {
+        var calls = 0
+        val engine = MockEngine { calls++;respond("should not send", HttpStatusCode.OK) }
+        val client = LinkClient.createForTest(
+            baseUrl="https://home.example",deviceToken="secret",httpClient=jsonClient(engine))
+        assertTrue(client.requestAirCatAuthorization("{\"transferId\":\"tx\"}").isFailure)
+        assertEquals(0, calls)
+        client.close()
+    }
+
+    @Test
+    fun airCatAuthorize_rejectsRedirectWithoutFollowing() = runBlocking {
+        var calls=0
+        val engine=MockEngine { request ->
+            calls++
+            if (calls != 1) throw AssertionError("Bearer leaked via 302")
+            respond("",HttpStatusCode.Found,
+                headersOf(HttpHeaders.Location,"https://attacker.example/steal"))
+        }
+        val http=HttpClient(engine) { followRedirects=false }
+        val client=LinkClient.createForTest(
+            baseUrl="https://home.example", deviceToken="secret",httpClient=http,
+            assumePinnedAirCatForTest=true)
+        assertTrue(client.requestAirCatAuthorization("{\"transferId\":\"tx\"}").isFailure)
+        assertEquals(1,calls)
+        client.close()
+    }
+
+    @Test
+    fun airCatAuthorize_doesNotUseLegacyDownloadOnMissingEndpoint() = runBlocking {
+        val paths=mutableListOf<String>()
+        val engine=MockEngine { request ->
+            paths+=request.url.encodedPath
+            respond("not found",HttpStatusCode.NotFound)
+        }
+        val client=LinkClient.createForTest(
+            baseUrl="https://home.example",deviceToken="secret",httpClient=jsonClient(engine),
+            assumePinnedAirCatForTest=true)
+        val result=client.requestAirCatAuthorization("{\"transferId\":\"tx\"}")
+        assertTrue(result.isFailure)
+        assertEquals(listOf("/api/v1/aircat/authorize"),paths)
+        client.close()
+    }
+
+    @Test
+    fun playbackStream_keepsLegacyEndpointAfterRawRedirectHardening() = runBlocking {
+        val paths = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            paths += request.url.encodedPath
+            respond(content = "abc", status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentLength, "3"))
+        }
+        val client = LinkClient.createForTest(
+            baseUrl = "http://127.0.0.1:53318", httpClient = jsonClient(engine))
+        val result = client.streamTrackRange("track-1", java.io.ByteArrayOutputStream())
+        assertTrue(result.isSuccess)
+        assertEquals(listOf("/api/v1/stream/track-1"), paths)
+        client.close()
+    }
+
+    @Test
+    fun airCatManifest_requiresPinnedHttpsBeforeAnyRequest() = runBlocking {
+        var calls = 0
+        val client = LinkClient.createForTest(
+            baseUrl="https://home.example", deviceToken="secret",
+            httpClient=jsonClient(MockEngine { calls++;respond("{}",HttpStatusCode.OK) }))
+        assertTrue(client.fetchAirCatManifest().isFailure)
+        assertEquals(0, calls)
+    }
+
+    @Test
+    fun airCatManifest_usesDedicatedOriginalFileCatalogAndValidatesHash() = runBlocking {
+        var requested = ""
+        val engine = MockEngine { request ->
+            requested = request.url.encodedPath
+            respond("""{"schema":"michi.aircat.manifest.v1","version":1,
+                "device_id":"source-id","tracks":[{"track_id":"remote-1","title":"Track",
+                "size":7,"format":"flac","checksum":"${"a".repeat(64)}"}],
+                "total_tracks":1,"total_size":7}""",HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client=LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        val result=client.fetchAirCatManifest()
+        assertTrue(result.isSuccess)
+        assertEquals("/api/v1/aircat/manifest",requested)
+        assertEquals(7L,result.getOrThrow().effectiveTracks.single().size)
+    }
+
+    @Test
+    fun airCatManifest_neverAcceptsLegacyHashlessCatalog() = runBlocking {
+        val paths=mutableListOf<String>()
+        val engine=MockEngine { request ->
+            paths+=request.url.encodedPath
+            respond("""{"tracks":[{"track_id":"id","title":"legacy"}],"total":1}""",
+                HttpStatusCode.OK,airCatMetadataHeaders())
+        }
+        val client=LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        assertTrue(client.fetchAirCatManifest().isFailure)
+        assertEquals(listOf("/api/v1/aircat/manifest"),paths)
+    }
+
+    @Test
+    fun airCatManifest_rejectsInconsistentTotals() = runBlocking {
+        val engine=MockEngine {
+            respond("""{"schema":"michi.aircat.manifest.v1","version":1,
+                "device_id":"source-id","tracks":[{"track_id":"remote","size":6,
+                "format":"flac","checksum":"${"b".repeat(64)}"}],
+                "total_tracks":1,"total_size":7}""", HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client=LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        assertTrue(client.fetchAirCatManifest().isFailure)
+    }
+
+    @Test
+    fun airCatManifest_rejectsImplicitZeroTotalForNonemptyCatalog() = runBlocking {
+        val engine = MockEngine {
+            respond("""{"schema":"michi.aircat.manifest.v1","version":1,
+                "device_id":"source-id","tracks":[{"track_id":"asset-A","size":3,
+                "format":"wav","checksum":"${"a".repeat(64)}"}]}""",
+                HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client = LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        assertTrue(client.fetchAirCatManifest().isFailure)
+        client.close()
+    }
+
+    @Test
+    fun airCatManifest_rejectsDuplicateLogicalIdsEvenWithUniqueRemoteIds() = runBlocking {
+        val engine = MockEngine {
+            respond("""{"schema":"michi.aircat.manifest.v1","version":1,
+                "device_id":"source-id","total_tracks":2,"total_size":6,
+                "tracks":[{"track_id":"asset-A","logical_track_id":"one","size":3,
+                  "format":"wav","checksum":"${"a".repeat(64)}"},
+                  {"track_id":"asset-B","logical_track_id":"one","size":3,
+                  "format":"wav","checksum":"${"b".repeat(64)}"}]}""",
+                HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client = LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        assertTrue(client.fetchAirCatManifest().isFailure)
+        client.close()
+    }
+
+    @Test
+    fun airCatManifest_preservesDifferentLogicalAndOriginalAssetIdentifiers() = runBlocking {
+        val engine = MockEngine {
+            respond("""{"schema":"michi.aircat.manifest.v1","version":1,
+                "device_id":"source-id","total_tracks":1,"total_size":3,
+                "tracks":[{"track_id":"catalog-A","logical_track_id":"local-A",
+                  "remote_track_id":"asset-A","size":3,
+                  "format":"wav","checksum":"${"a".repeat(64)}"}]}""",
+                HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client = LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        val r = client.fetchAirCatManifest().getOrThrow()
+        assertEquals("local-A", r.effectiveTracks.single().effectiveAirCatLogicalId)
+        assertEquals("asset-A", r.effectiveTracks.single().effectiveAirCatRemoteId)
+        client.close()
+    }
+
+    @Test
+    fun airCatManifest_doesNotInterpretLegacyDeltaAsOriginalCatalog() = runBlocking {
+        val engine = MockEngine {
+            respond("""{"schema":"michi.aircat.manifest.v1","version":1,
+                "device_id":"source-id","total_tracks":1,"total_size":3,
+                "added":[{"track_id":"asset-A","size":3,
+                "format":"wav","checksum":"${"a".repeat(64)}"}]}""",
+                HttpStatusCode.OK,
+                airCatMetadataHeaders())
+        }
+        val client = LinkClient.createForTest(baseUrl="https://home.example",deviceToken="secret",
+            httpClient=jsonClient(engine),assumePinnedAirCatForTest=true)
+        assertTrue(client.fetchAirCatManifest().isFailure)
+        client.close()
+    }
+
 }

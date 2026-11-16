@@ -97,6 +97,21 @@ data class AnnounceMessage(
     @SerialName("device_model") val deviceModel: String = "",
     @SerialName("device_id") val deviceId: String = "",
     @SerialName("auth_required") val authRequired: Boolean = true,
+    // The signed Michi Link v1/v1-lite announce group is all-or-nothing.
+    // Legacy `alias/device/version` is retained for unsigned compatibility.
+    val name: String = "",
+    val service: String = "",
+    val roles: List<String> = emptyList(),
+    @SerialName("api_version") val apiVersion: String = "",
+    val host: String = "",
+    val features: Map<String, Boolean> = emptyMap(),
+    @SerialName("michi_id") val michiId: String = "",
+    @SerialName("public_key") val publicKey: String = "",
+    val signature: String = "",
+    @SerialName("timestamp_ms") val timestampMs: Long? = null,
+    val nonce: String = "",
+    @SerialName("michi_home_id") val michiHomeId: String = "",
+    @SerialName("membership_fingerprint") val membershipFingerprint: String = "",
 )
 
 @Serializable
@@ -108,6 +123,10 @@ data class DiscoveredPeer(
     @SerialName("device_id") val deviceId: String = "",
     val version: String = "1.0",
     @SerialName("auth_required") val authRequired: Boolean = true,
+    // VERIFIED means Ed25519 identity only; NEVER Home permission or pairing.
+    val identityTrust: String = "UNTRUSTED",
+    val michiId: String = "",
+    val service: String = "",
 )
 
 enum class SyncConnectionState {
@@ -260,6 +279,11 @@ data class DownloadItem(
     val transferKey: String = "",
     val planId: String = "",
     val representationId: String = "",
+    // Local library identity and source API identity may legitimately differ.
+    // Appended with a default for legacy callers and persisted local keys.
+    val remoteTrackId: String = trackId,
+    // Only AirCat managed transfers defer completed status until Room+checkpoint receipt.
+    val requiresLibraryCommit: Boolean = false,
 ) {
     val effectiveTransferKey: String
         get() = transferKey.ifEmpty {

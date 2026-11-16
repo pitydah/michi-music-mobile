@@ -1,6 +1,10 @@
 package org.michimusic.link
 
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
+import java.io.ByteArrayOutputStream
+import okhttp3.CertificatePinner
+import java.net.URI
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -12,6 +16,7 @@ import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -20,6 +25,8 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -93,6 +100,8 @@ import org.michimusic.link.errors.LinkErrorResponse
 import java.io.OutputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import org.michimusic.link.port.RemoteFileSource
+import org.michimusic.link.port.PinnedOriginalFileSource
 
 class LinkClient(
     baseUrl: String,
@@ -100,7 +109,7 @@ class LinkClient(
     @Volatile var deviceToken: String = "",
     @Volatile var clientDeviceId: String = "",
     @Volatile var pairedClientDeviceId: String = "",
-) {
+) : RemoteFileSource {
     internal constructor(
         baseUrl: String,
         sessionToken: String,
@@ -117,6 +126,15 @@ class LinkClient(
     @Volatile var currentReceiverSessionToken: String? = null
     private val json = Json { ignoreUnknownKeys = true }
     private var ownsClient = true
+    private var pinnedAirCatMetadata = false
+
+    // A25: a dedicated HTTP client derived from the same engine/configuration but
+    // WITHOUT redirects. No redirect may forward a bearer before validation.
+    // Lazy: playback/normal Link control pay zero additional resources.
+    private val lazyRawClient = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        client.config { followRedirects = false }
+    }
+    private val originalBytesHttpClient: HttpClient get() = lazyRawClient.value
 
     private var client: HttpClient = HttpClient {
         install(HttpTimeout) {
@@ -136,7 +154,12 @@ class LinkClient(
             deviceToken: String = "",
             clientDeviceId: String = "",
             httpClient: HttpClient,
-        ): LinkClient = LinkClient(baseUrl, sessionToken, deviceToken, clientDeviceId, httpClient)
+            assumePinnedAirCatForTest: Boolean = false,
+        ): LinkClient = LinkClient(baseUrl, sessionToken, deviceToken, clientDeviceId, httpClient).also {
+            // Only tests with MockEngine use this seam; production obtains the
+            // attestation from pinnedAirCatSession and an actual OkHttp pinner.
+            it.pinnedAirCatMetadata = assumePinnedAirCatForTest
+        }
     }
 
     val isAuthenticated: Boolean get() = sessionToken.isNotEmpty() || deviceToken.isNotEmpty()
@@ -211,6 +234,87 @@ class LinkClient(
     }
 
     private suspend fun HttpResponse.bodyOrNull(): String? = try { body() } catch (_: Exception) { null }
+
+    /**
+     * A37: bound the actual bytes received, not only the advertised Content-Length
+     * or the post-allocation String.length. Called only for explicit AirCat HTTP.
+     * Reading empty non-closed Ktor channels suspends instead of busy-spinning.
+     */
+    private suspend fun readAirCatMetadataText(response: HttpResponse, limit: Int): String {
+        val lengths = response.headers.getAll("Content-Length")
+        require((lengths?.size ?: 0) <= 1 &&
+            AirCatMetadataBudget.contentLengthAllowed(response.headers["Content-Length"], limit)) {
+            "AIRC_METADATA_CONTENT_LENGTH_REFUSED"
+        }
+        val budget = AirCatMetadataBudget(limit)
+        val body = response.bodyAsChannel()
+        val result = ByteArrayOutputStream(minOf(limit, 8192))
+        val buffer = ByteArray(8192)
+        while (!body.isClosedForRead) {
+            val count = body.readAvailable(buffer, 0, buffer.size)
+            if (count < 0) break
+            if (count == 0) {
+                if (!body.awaitContent(1)) break
+                continue
+            }
+            require(budget.accept(count)) { "AIRC_METADATA_BODY_TOO_LARGE" }
+            result.write(buffer, 0, count)
+        }
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        val declared = response.headers["Content-Length"]?.toLongOrNull()
+        require(declared == null || declared == budget.consumedBytes.toLong()) {
+            "AIRC_METADATA_LENGTH_MISMATCH"
+        }
+        return String(result.toByteArray(), Charsets.UTF_8)
+    }
+
+    /**
+     * A27 upstream integration boundary (currently NO-GO until Micro implements
+     * this endpoint): called ONLY on pinnedAirCatSession, never on plain HTTP.
+     * The returned grant is untrusted until the AirCat Ed25519 verifier checks it.
+     */
+    suspend fun requestAirCatAuthorization(requestJson: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                require(requestJson.toByteArray(Charsets.UTF_8).size in 1..262144) { "AIRC_GRANT_REQUEST_SIZE" }
+                require(pinnedAirCatMetadata && baseUrl.startsWith("https://", ignoreCase = true)) {
+                    "AIRC_TLS_PIN_REQUIRED: unpinned grant request rejected"
+                }
+                val response = client.post("$baseUrl/api/v1/aircat/authorize") {
+                    contentType(ContentType.Application.Json)
+                    if (isAuthenticated) header("Authorization", authHeader())
+                    val devId = effectiveDeviceId()
+                    if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+                    setBody(requestJson)
+                }
+                require(response.call.request.url.toString() == "$baseUrl/api/v1/aircat/authorize") {
+                    "AIRC_AUTH_ORIGIN_CHANGED"
+                }
+                // Never buffer an untrusted error body or success JSON without a limit.
+                // 3xx is refused before reading any response body.
+                if (response.status.value in 300..399)
+                    error("AIRC_AUTH_REDIRECT_REFUSED")
+                if (response.status.value in 200..299) {
+                    val refusal = AirCatProducerContractPolicy.refusal(
+                        AirCatProducerContractPolicy.Phase.AUTHORIZE,
+                        response.headers.getAll(AirCatProducerContractPolicy.HEADER),
+                        response.headers.getAll("Content-Type"),
+                        response.headers.getAll("Content-Encoding"),
+                        response.headers.getAll("Cache-Control"))
+                    require(refusal == null) { refusal ?: "AIRC_PRODUCER_PROFILE" }
+                }
+                val body = readAirCatMetadataText(response,
+                    if (response.status.value in 200..299)
+                        AirCatMetadataBudget.AUTHORIZATION_MAX_BYTES
+                    else AirCatMetadataBudget.ERROR_MAX_BYTES)
+                if (response.status.value !in 200..299) {
+                    throw response.status.checkError(body)
+                        ?: IllegalStateException("AIRC_AUTH_HTTP_${response.status.value}")
+                }
+                require(body.length >= 2) { "AIRC_GRANT_RESPONSE_SIZE" }
+                body
+            }
+        }
 
     // --- Server Info / Ping ---
 
@@ -561,28 +665,232 @@ class LinkClient(
         ).map { it.bytesRead }
     }
 
-    suspend fun streamTrackRange(
+    override suspend fun streamTrackRange(
         trackId: String,
         outputStream: OutputStream,
-        startBytes: Long = 0,
-        expectedEtag: String? = null,
-        bufferSize: Int = 65536,
-        onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)? = null,
+        startBytes: Long,
+        expectedEtag: String?,
+        bufferSize: Int,
+        onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)?,
+    ): Result<StreamRangeResult> = readRangeFromRoute(
+        "stream", trackId, outputStream, startBytes, expectedEtag, bufferSize, onProgress,
+    )
+
+    /**
+     * A24: managed AirCat must receive source-file bytes, NOT the listening
+     * representation produced by /stream (which Micro may transcode).
+     * /download is an existing Micro endpoint. No fallback to /stream, even on
+     * 404/501: absence of a raw provider is a blocking capability mismatch.
+     * This port reuses this same client's token/HTTP engine; it provides no
+     * additional encryption, identity or consent by itself.
+     */
+    fun originalFileSource(): RemoteFileSource = object : RemoteFileSource {
+        override val servesOriginalBytes: Boolean get() = true
+
+        override suspend fun streamTrackRange(
+            trackId: String,
+            outputStream: OutputStream,
+            startBytes: Long,
+            expectedEtag: String?,
+            bufferSize: Int,
+            onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)?,
+        ): Result<StreamRangeResult> = readRangeFromRoute(
+            "download", trackId, outputStream, startBytes, expectedEtag, bufferSize, onProgress,
+        )
+    }
+
+    /**
+     * A27: the only managed AirCat raw source. OkHttp enforces CA validation,
+     * hostname verification and an independently Home-enrolled SPKI pin. Neither
+     * UDP discovery nor /server/info may supply the pin. The grant is forwarded
+     * to the producer to be verified on EVERY HTTP request. A server that ignores
+     * the grant is not an authorized AirCat producer and must fail server-side.
+     * The source owns its HttpClient; callers MUST close after each file.
+     */
+    /**
+     * Pins the metadata phase too: /server/info, manifest and Home grant fetching
+     * must never use the regular LAN HTTP client carrying an AirCat bearer.
+     * This new client owns its connections; the caller MUST close it.
+     */
+    fun pinnedAirCatSession(pinnedSpkiSha256: String): LinkClient {
+        require(AirCatTlsPinPolicy.refusal(baseUrl, pinnedSpkiSha256) == null) {
+            "AIRC_TLS_PIN_REQUIRED"
+        }
+        val secureHttp = createPinnedHttpsEngine(pinnedSpkiSha256)
+        val session = LinkClient(baseUrl, sessionToken, deviceToken, clientDeviceId,
+            pairedClientDeviceId)
+        session.client.close()  // discard unused default engine, never used for a request
+        session.client = secureHttp
+        session.ownsClient = true
+        session.pinnedAirCatMetadata = true
+        session.tokenRefreshSupported = tokenRefreshSupported
+        return session
+    }
+
+    private fun createPinnedHttpsEngine(pinnedSpkiSha256: String): HttpClient {
+        val hostname = URI(baseUrl).host
+        val pinner = CertificatePinner.Builder().add(hostname, pinnedSpkiSha256).build()
+        return HttpClient(OkHttp) {
+            followRedirects = false
+            engine {
+                config {
+                    certificatePinner(pinner)
+                    followRedirects(false)
+                    followSslRedirects(false)
+                }
+            }
+            install(HttpTimeout) {
+                connectTimeoutMillis = 8_000
+                requestTimeoutMillis = 30_000
+                socketTimeoutMillis = 30_000
+            }
+            install(ContentNegotiation) { json(json) }
+        }
+    }
+
+    fun pinnedOriginalFileSource(
+        pinnedSpkiSha256: String,
+        signedGrantHeader: String,
+    ): PinnedOriginalFileSource {
+        require(AirCatTlsPinPolicy.refusal(baseUrl, pinnedSpkiSha256) == null) {
+            "AIRC_TLS_PIN_REQUIRED: Home-enrolled HTTPS endpoint and pin mandatory"
+        }
+        // A46: reuse one ASCII/canonical Base64url policy for both the source
+        // constructor and producer receipt; no duplicate Unicode predicates.
+        require(AirCatProducerReceiptPolicy.validGrantHeader(signedGrantHeader)) {
+            "AIRC_GRANT_HEADER_INVALID"
+        }
+        val pinnedHttp = createPinnedHttpsEngine(pinnedSpkiSha256)
+        return object : PinnedOriginalFileSource {
+            override val servesOriginalBytes: Boolean = true
+            override val verifiedTransport: Boolean = true
+            override suspend fun streamTrackRange(
+                trackId: String,
+                outputStream: OutputStream,
+                startBytes: Long,
+                expectedEtag: String?,
+                bufferSize: Int,
+                onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)?,
+            ): Result<StreamRangeResult> = readRangeFromRoute(
+                "aircat/download", trackId, outputStream, startBytes, expectedEtag,
+                bufferSize, onProgress, pinnedHttp, signedGrantHeader,
+            )
+            override fun close() = pinnedHttp.close()
+        }
+    }
+
+    private suspend fun readRangeFromRoute(
+        route: String,
+        trackId: String,
+        outputStream: OutputStream,
+        startBytes: Long,
+        expectedEtag: String?,
+        bufferSize: Int,
+        onProgress: ((bytesRead: Long, totalExpected: Long?) -> Unit)?,
+        forcedHttpClient: HttpClient? = null,
+        signedGrantHeader: String? = null,
     ): Result<StreamRangeResult> = withContext(Dispatchers.IO) {
         try {
-            val response = client.get("$baseUrl/api/v1/stream/${encodePathSegment(trackId)}") {
+            require(route == "stream" || route == "download" || route == "aircat/download") {
+                "Unsupported Link file route"
+            }
+            require(route != "aircat/download" || signedGrantHeader != null) {
+                "AIRC_RAW_GRANT_REQUIRED"
+            }
+            require(trackId.isNotBlank()) { "Empty remote track identifier" }
+            // A30: malicious/inadvertent zero or oversized AirCat read buffers
+            // cannot turn a stalled network channel into a CPU spin or RAM spike.
+            if (route == "aircat/download") {
+                require(AirCatReadBufferPolicy.refusal(bufferSize) == null) {
+                    "AIRC_INVALID_READ_BUFFER"
+                }
+            }
+            val requestUrl = "$baseUrl/api/v1/$route/${encodePathSegment(trackId)}"
+            val response = (forcedHttpClient ?: if (route != "stream") originalBytesHttpClient else client).get(requestUrl) {
+                if (signedGrantHeader != null) header(AirCatProducerReceiptPolicy.REQUEST_HEADER, signedGrantHeader)
+                // A37: request source bytes as an identity representation. If
+                // the producer compresses anyway, reject it before writing.
+                if (route == "aircat/download") header("Accept-Encoding", "identity")
                 if (isAuthenticated) header("Authorization", authHeader())
                 val devId = effectiveDeviceId()
                 if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
                 if (startBytes > 0) header("Range", "bytes=$startBytes-")
-                if (!expectedEtag.isNullOrBlank()) header("If-Range", expectedEtag)
+                if (startBytes > 0 && !expectedEtag.isNullOrBlank()) header("If-Range", expectedEtag)
+            }
+            // With redirect following disabled, 3xx is rejected before any
+            // second request. The equality check is defense in depth for custom
+            // client engines that rewrite the request URL.
+            if (route != "stream" && response.call.request.url.toString() != requestUrl) {
+                return@withContext Result.failure(IllegalStateException(
+                    "AIRC_RAW_REDIRECT_REFUSED: original source changed URL"))
+            }
+            if (route != "stream" && response.status.value in 300..399) {
+                return@withContext Result.failure(IllegalStateException(
+                    "AIRC_RAW_REDIRECT_REFUSED: raw downloads cannot redirect"))
             }
             response.status.checkError()?.let { return@withContext Result.failure(it) }
+            if (route == "aircat/download") {
+                val contractRefusal = AirCatProducerContractPolicy.refusal(
+                    AirCatProducerContractPolicy.Phase.ORIGINAL,
+                    response.headers.getAll(AirCatProducerContractPolicy.HEADER),
+                    response.headers.getAll("Content-Type"),
+                    response.headers.getAll("Content-Encoding"),
+                    response.headers.getAll("Cache-Control"))
+                if (contractRefusal != null) return@withContext Result.failure(
+                    IllegalStateException(contractRefusal))
+            }
+            // Reject legacy raw endpoints that simply ignore the signed grant.
+            // Header must be emitted ONLY after the producer has validated the
+            // issuer, scope, source/destination, nonce and exact asset ACL.
+            val producerReceipts = response.headers.getAll(AirCatProducerReceiptPolicy.RESPONSE_HEADER)
+            // A46: two acknowledgment headers with conflicting values are
+            // ambiguous even when one matches. Deny before opening the body.
+            if (signedGrantHeader != null && (producerReceipts?.size != 1 ||
+                    !AirCatProducerReceiptPolicy.recognizesAuthorization(
+                        signedGrantHeader, producerReceipts.single()))) {
+                return@withContext Result.failure(IllegalStateException(
+                    "AIRC_PRODUCER_AUTHORIZATION_NOT_CONFIRMED"))
+            }
 
-            val responseEtag = response.headers["ETag"]?.trim('\"') ?: ""
+            // ETag is an opaque HTTP entity tag: preserve its quotes and W/ prefix.
+            val responseEtag = response.headers["ETag"].orEmpty()
             val isPartial = response.status == HttpStatusCode.PartialContent
             val contentLength = response.headers["Content-Length"]?.toLongOrNull()
             val contentRange = response.headers["Content-Range"]
+            if (route == "aircat/download") {
+                // Duplicated/fractured validators are ambiguous. Absent and
+                // weak ETags are forbidden for authenticated original assets.
+                val etags = response.headers.getAll("ETag")
+                val lengths = response.headers.getAll("Content-Length")
+                val ranges = response.headers.getAll("Content-Range")
+                if (etags?.size != 1 || (lengths?.size ?: 0) > 1 ||
+                    (ranges?.size ?: 0) > 1 ||
+                    (response.headers["Content-Length"] != null && contentLength == null)) {
+                    return@withContext Result.failure(IllegalStateException(
+                        "AIRC_HTTP_AMBIGUOUS_HEADERS"))
+                }
+                val verdict = AirCatOriginalHttpPolicy.evaluate(
+                    requestedOffset = startBytes, statusCode = response.status.value,
+                    contentRange = contentRange, contentLength = contentLength,
+                    contentEncoding = response.headers["Content-Encoding"],
+                    etag = responseEtag, expectedEtag = expectedEtag,
+                )
+                if (!verdict.allowed) return@withContext Result.failure(
+                    IllegalStateException(verdict.refusal ?: "AIRC_HTTP_REFUSED"))
+            }
+            val error = validateStreamRangeHeaders(startBytes, response.status.value,
+                contentRange, contentLength, expectedEtag, responseEtag)
+            if (error != null) return@withContext Result.failure(IllegalStateException("INVALID_RANGE_RESPONSE: $error"))
+
+            // A server may ignore Range and reply 200. Do not append its full
+            // body to a .part: the transfer manager will restart from zero.
+            if (startBytes > 0 && !isPartial) {
+                return@withContext Result.success(StreamRangeResult(
+                    bytesRead = 0L, statusCode = response.status.value,
+                    isPartialContent = false, etag = responseEtag,
+                    contentLength = contentLength, contentRange = contentRange,
+                ))
+            }
 
             val channel = response.bodyAsChannel()
             var totalRead = 0L
@@ -590,10 +898,31 @@ class LinkClient(
             while (isActive && !channel.isClosedForRead) {
                 val read = channel.readAvailable(buffer, 0, buffer.size)
                 if (read == -1) break
+                if (read == 0) {
+                    // Ktor ByteReadChannel.awaitContent suspends; do not busy-spin
+                    // on an empty channel while Wi-Fi stalls. No worker or timer.
+                    if (!channel.awaitContent(1)) break
+                    continue
+                }
                 outputStream.write(buffer, 0, read)
                 totalRead += read
                 onProgress?.invoke(totalRead, contentLength)
             }
+            if (contentLength != null && totalRead != contentLength) {
+                return@withContext Result.failure(IllegalStateException("TRUNCATED_STREAM: received $totalRead of $contentLength bytes"))
+            }
+            if (isPartial && startBytes > 0L) {
+                // Header format was validated before streaming; still ensure
+                // the promised range bytes actually reached the .part file.
+                val end = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""")
+                    .matchEntire(contentRange.orEmpty())!!.groupValues[2].toLong()
+                if (totalRead != end - startBytes + 1L) {
+                    return@withContext Result.failure(IllegalStateException("TRUNCATED_RANGE: advertised range not fully received"))
+                }
+            }
+            // Never report a successful partial stream when coroutine cancellation
+            // stopped the read loop (including responses without Content-Length).
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
             outputStream.flush()
             Result.success(
                 StreamRangeResult(
@@ -626,6 +955,12 @@ class LinkClient(
             while (isActive && !channel.isClosedForRead) {
                 val read = channel.readAvailable(buffer, 0, buffer.size)
                 if (read == -1) break
+                if (read == 0) {
+                    // Ktor ByteReadChannel.awaitContent suspends; do not busy-spin
+                    // on an empty channel while Wi-Fi stalls. No worker or timer.
+                    if (!channel.awaitContent(1)) break
+                    continue
+                }
                 outputStream.write(buffer, 0, read)
                 totalRead += read
             }
@@ -637,6 +972,73 @@ class LinkClient(
     }
 
     // --- Sync ---
+
+    /**
+     * A28: managed AirCat does NOT use the legacy sync manifest, because Micro
+     * does not supply original file size/sha256 in that endpoint. This producer
+     * API is new and must be served over the pinned HTTPS metadata channel.
+     * There is intentionally no fallback to the unverified sync manifest.
+     */
+    suspend fun fetchAirCatManifest(): Result<SyncManifestDto> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(pinnedAirCatMetadata && baseUrl.startsWith("https://", ignoreCase = true)) {
+                "AIRC_PINNED_MANIFEST_REQUIRED"
+            }
+            val response = client.get("$baseUrl/api/v1/aircat/manifest") {
+                if (isAuthenticated) header("Authorization", authHeader())
+                val devId = effectiveDeviceId()
+                if (devId.isNotEmpty()) header("X-Michi-Device-Id", devId)
+            }
+            require(response.status.value in 200..299 &&
+                response.call.request.url.toString() == "$baseUrl/api/v1/aircat/manifest") {
+                "AIRC_MANIFEST_ORIGIN_OR_STATUS_REFUSED_${response.status.value}"
+            }
+            val contractRefusal = AirCatProducerContractPolicy.refusal(
+                AirCatProducerContractPolicy.Phase.MANIFEST,
+                response.headers.getAll(AirCatProducerContractPolicy.HEADER),
+                response.headers.getAll("Content-Type"),
+                response.headers.getAll("Content-Encoding"),
+                response.headers.getAll("Cache-Control"))
+            require(contractRefusal == null) { contractRefusal ?: "AIRC_PRODUCER_PROFILE" }
+            // Must be a dedicated original-file manifest. Legacy fallback is not
+            // authorized and can never be counted as SHA-verified AirCat content.
+            // A37: streaming cap also covers chunked responses with no size header.
+            val value = json.decodeFromString<SyncManifestDto>(readAirCatMetadataText(
+                response, AirCatMetadataBudget.MANIFEST_MAX_BYTES))
+            require(value.schema == "michi.aircat.manifest.v1" && value.version == 1) {
+                "AIRC_MANIFEST_SCHEMA_REQUIRED"
+            }
+            // A29: a dedicated AirCat manifest is a FULL immutable original-file
+            // catalog. Never interpret legacy delta fields as a transfer offer.
+            require(value.added.isEmpty() && value.updated.isEmpty() &&
+                value.modified.isEmpty() && value.deleted.isEmpty() && value.removed.isEmpty()) {
+                "AIRC_MANIFEST_LEGACY_DELTA_REFUSED"
+            }
+            val tracks = value.tracks
+            require(tracks.size <= 10_000 && value.deviceId.isNotBlank() &&
+                tracks.map { it.effectiveAirCatRemoteId }.distinct().size == tracks.size &&
+                tracks.map { it.effectiveAirCatLogicalId }.distinct().size == tracks.size) {
+                "AIRC_MANIFEST_TRACK_ID_INVALID"
+            }
+            var expectedBytes = 0L
+            for (track in tracks) {
+                require(track.trackId.isNotBlank() &&
+                    track.effectiveAirCatRemoteId.isNotBlank() &&
+                    track.effectiveAirCatLogicalId.isNotBlank() &&
+                    track.size > 0L && track.format.isNotBlank() &&
+                    track.checksum?.matches(Regex("[a-fA-F0-9]{64}")) == true) {
+                    "AIRC_MANIFEST_ORIGINAL_SHA_REQUIRED"
+                }
+                expectedBytes = Math.addExact(expectedBytes, track.size)
+            }
+            // A29: legacy SyncManifestDto defaults are NOT valid signed AirCat
+            // totals. Require them explicitly, including an honest 0/0 empty catalog.
+            require(value.totalTracks == tracks.size && value.totalSize == expectedBytes) {
+                "AIRC_MANIFEST_TOTAL_MISMATCH"
+            }
+            value
+        }
+    }
 
     suspend fun fetchSyncManifest(deviceId: String): Result<SyncManifestDto> = withContext(Dispatchers.IO) {
         try {
@@ -1186,9 +1588,10 @@ class LinkClient(
     }
 
     fun close() {
-        if (ownsClient) {
-            client.close()
-        }
+        // Close only if it was instantiated; never allocate a network client
+        // simply to close a LinkClient that did no AirCat transfer.
+        if (lazyRawClient.isInitialized()) lazyRawClient.value.close()
+        if (ownsClient) client.close()
     }
 }
 
@@ -1216,3 +1619,35 @@ data class StreamRangeResult(
     val contentRange: String? = null,
 )
 
+/** Validates HTTP Range/ETag response *before* opening the response body. */
+internal fun validateStreamRangeHeaders(
+    requestedOffset: Long,
+    statusCode: Int,
+    contentRange: String?,
+    contentLength: Long?,
+    expectedEtag: String?,
+    responseEtag: String,
+): String? {
+    if (requestedOffset < 0L) return "negative requested offset"
+    if (statusCode != 200 && statusCode != 206) return "unexpected status $statusCode"
+    if (contentLength != null && contentLength < 0L) return "negative Content-Length"
+    if (requestedOffset == 0L) {
+        if (statusCode == 206) return "unsolicited partial content"
+        return null
+    }
+    if (statusCode == 200) return null // Caller must restart, never append.
+    val match = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""")
+        .matchEntire(contentRange?.trim().orEmpty()) ?: return "missing or malformed Content-Range"
+    val first = match.groupValues[1].toLongOrNull() ?: return "invalid range start"
+    val last = match.groupValues[2].toLongOrNull() ?: return "invalid range end"
+    if (first != requestedOffset || last < first || last == Long.MAX_VALUE) return "wrong range offset/end"
+    val totalText = match.groupValues[3]
+    if (totalText != "*") {
+        val total = totalText.toLongOrNull() ?: return "invalid range total"
+        if (total <= last) return "impossible range total"
+    }
+    val expectedLength = last - first + 1L
+    if (contentLength != null && contentLength != expectedLength) return "Content-Length disagrees with Content-Range"
+    if (!expectedEtag.isNullOrBlank() && expectedEtag != responseEtag) return "ETag changed or absent"
+    return null
+}

@@ -28,12 +28,15 @@ open class LinkDiscovery(
     companion object {
         private const val MULTICAST_GROUP = "224.0.0.167"
         private const val MULTICAST_PORT = 53318
-        private const val BUFFER_SIZE = 4096
-        private const val PEER_TIMEOUT_MS = 15_000L
+        private const val BUFFER_SIZE = 8192
+        private const val PEER_TIMEOUT_MS = 90_000L
+        // A31: receiver-local bound, never an instruction to broadcast/poll.
+        private const val MAX_OBSERVED_PEERS = 128
     }
 
     private val json = Json { ignoreUnknownKeys = true }
     private val peerLastSeen = mutableMapOf<String, Long>()
+    private val signedSecurity = LinkSignedAnnounceSecurity()
 
     private val _peers = MutableStateFlow<Map<String, DiscoveredPeer>>(emptyMap())
     open val peers: StateFlow<Map<String, DiscoveredPeer>> = _peers.asStateFlow()
@@ -42,8 +45,8 @@ open class LinkDiscovery(
     val events: SharedFlow<DiscoveryEvent> = _events.asSharedFlow()
 
     private var multicastLock: WifiManager.MulticastLock? = null
-    private var socket: MulticastSocket? = null
-    private var isRunning = false
+    @Volatile private var socket: MulticastSocket? = null
+    @Volatile private var isRunning = false
 
     init {
         runCatching {
@@ -121,24 +124,50 @@ open class LinkDiscovery(
         now: Long = System.currentTimeMillis()
     ) {
         if (msg.port !in 1..65535) return
+        val level = signedSecurity.verify(msg, hostAddress, now)
+        if (level == LinkSignedAnnounceSecurity.Level.INVALID) return
         val key = if (msg.deviceId.isNotBlank()) msg.deviceId else "$hostAddress:${msg.port}"
+        // UDP discovery never elevates Home authority. A signed device may
+        // migrate IP only if its existing Ed25519 identity remains identical.
+        val previous = _peers.value[key]
+        if (previous?.identityTrust == "VERIFIED" &&
+            (level != LinkSignedAnnounceSecurity.Level.VERIFIED || previous.michiId != msg.michiId)) return
+        if (previous?.ip?.let { it != hostAddress } == true &&
+            (level != LinkSignedAnnounceSecurity.Level.VERIFIED || previous.michiId != msg.michiId ||
+                // A53: a signed hostname alone is NOT evidence of this UDP source IP.
+                // A replay from a different host must not replace the live route.
+                !LinkAnnounceSourceBindingPolicy.mayMove(msg.host, hostAddress))) return
+        if (msg.type != "goodbye" && previous == null && _peers.value.size >= MAX_OBSERVED_PEERS) {
+            // Prioritize valid Ed25519 identities over untrusted LAN hints.
+            // Never evict verified peers for an unsigned flood; all memory is
+            // bounded even on guest Wi-Fi with hostile packets.
+            val oldestUntrusted = peerLastSeen.entries
+                .asSequence()
+                .filter { _peers.value[it.key]?.identityTrust != "VERIFIED" }
+                .minByOrNull { it.value }?.key
+            if (oldestUntrusted == null) return
+            val evictedAlias = _peers.value[oldestUntrusted]?.alias
+            _peers.value = _peers.value - oldestUntrusted
+            peerLastSeen.remove(oldestUntrusted)
+            _events.tryEmit(DiscoveryEvent.PeerLost(peerKey = oldestUntrusted, alias = evictedAlias))
+        }
         if (msg.type == "goodbye") {
-            // Anonymous discovery is not authenticated; at minimum avoid a
-            // different source address evicting an already announced peer.
-            if (_peers.value[key]?.ip?.let { it != hostAddress } == true) return
             val peerAlias = _peers.value[key]?.alias ?: msg.alias.takeIf { it.isNotBlank() }
             _peers.value = _peers.value - key
             peerLastSeen.remove(key)
             _events.tryEmit(DiscoveryEvent.PeerLost(peerKey = key, alias = peerAlias))
         } else {
             val peer = DiscoveredPeer(
-                alias = msg.alias,
+                alias = msg.name.ifBlank { msg.alias },
                 ip = hostAddress,
                 port = msg.port,
-                deviceType = msg.device,
+                deviceType = msg.service.ifBlank { msg.device },
                 deviceId = msg.deviceId,
-                version = msg.version,
+                version = msg.apiVersion.ifBlank { msg.version },
                 authRequired = msg.authRequired,
+                identityTrust = level.name,
+                michiId = if (level == LinkSignedAnnounceSecurity.Level.VERIFIED) msg.michiId else "",
+                service = msg.service,
             )
             val wasNew = key !in _peers.value
             _peers.value = _peers.value + (key to peer)
@@ -149,12 +178,14 @@ open class LinkDiscovery(
         }
     }
 
-    suspend fun stop() = withContext(Dispatchers.IO) {
+    suspend fun stop(preservePeers: Boolean = false) = withContext(Dispatchers.IO) {
         isRunning = false
         closeSocket()
         releaseMulticastLock()
-        _peers.value = emptyMap()
-        peerLastSeen.clear()
+        if (!preservePeers) {
+            _peers.value = emptyMap()
+            peerLastSeen.clear()
+        }
     }
 
     private fun closeSocket() {
@@ -178,14 +209,23 @@ open class LinkDiscovery(
         }
     }
 
+    // A52: lifecycle and IO may race; test+acquire must share one monitor.
+    @Synchronized
     private fun acquireMulticastLock() {
+        // A31: duplicate lifecycle callbacks must not leave a replaced Wi-Fi
+        // MulticastLock acquired and unreachable after screen navigation.
+        if (multicastLock != null) return
         val wifi = context?.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
-        multicastLock = wifi.createMulticastLock("michi-discovery").also {
-            it.setReferenceCounted(false)
-            it.acquire()
-        }
+        val acquired = runCatching {
+            wifi.createMulticastLock("michi-discovery").also {
+                it.setReferenceCounted(false)
+                it.acquire()
+            }
+        }.getOrNull()
+        multicastLock = acquired
     }
 
+    @Synchronized
     private fun releaseMulticastLock() {
         multicastLock?.let {
             try { it.release() } catch (_: Exception) {}

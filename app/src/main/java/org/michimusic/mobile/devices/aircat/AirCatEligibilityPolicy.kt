@@ -1,8 +1,8 @@
 package org.michimusic.mobile.devices.aircat
 
 import org.michimusic.core.models.UnifiedDevice
-import org.michimusic.mobile.sync.DeviceActionResolver
-import org.michimusic.mobile.ui.components.isProvisionedMichiStream
+import org.michimusic.core.devices.AirCatCapabilityPolicy
+import org.michimusic.mobile.devices.link.isProvisionedMichiStream
 
 /**
  * Domain policy enforcing strict device eligibility for AirCat file transfers (K48-04).
@@ -16,6 +16,9 @@ import org.michimusic.mobile.ui.components.isProvisionedMichiStream
  * - Must explicitly support AirCat transfer or be a library/sync-capable general platform (Server/Desktop/Phone).
  */
 object AirCatEligibilityPolicy {
+
+    private fun hasExplicitAirCatRole(role: String): Boolean =
+        AirCatCapabilityPolicy.hasRole(role)
 
     fun isAirCatEligible(device: UnifiedDevice): Boolean {
         if (device.id.isBlank()) return false
@@ -38,19 +41,19 @@ object AirCatEligibilityPolicy {
                 val r = it.trim().lowercase()
                 r == "receiver" || r == "audio_receiver" || r == "dac" || r == "dap"
             } && device.roles.none {
-                it.trim().lowercase().contains("aircat")
+                hasExplicitAirCatRole(it)
             }
         ) {
             return false
         }
 
-        // K49-04: Must announce verified AirCat capability explicitly.
+        // K49-04: An explicit feature/role hint is required. Capability hints
+        // are NOT proof of cryptographic identity or transfer authorization.
         // Being a desktop/server/phone alone does NOT guarantee AirCat file transfer capability.
-        val hasVerifiedAirCat = DeviceActionResolver.supportsAirCat(device) ||
-            device.features.any { it.contains("aircat", ignoreCase = true) } ||
-            device.roles.any { it.contains("aircat", ignoreCase = true) }
+        val hasExplicitAirCat = AirCatCapabilityPolicy.hasFeature(device.features) ||
+            device.roles.any(::hasExplicitAirCatRole)
 
-        return hasVerifiedAirCat
+        return hasExplicitAirCat
     }
 
     fun filterEligibleDevices(devices: List<UnifiedDevice>): List<UnifiedDevice> {

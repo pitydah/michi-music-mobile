@@ -40,6 +40,10 @@ data class TransferIntent(
     val manifestVersion: Int = 1,
     val requiredScopes: List<String> = listOf("content:read", "content:transfer"),
     val expiresAt: Long = System.currentTimeMillis() + 3600_000L,
+    // Authenticated Home grant, never inferred from an announce or local token.
+    val signedGrant: AirCatSignedGrant? = null,
+    /** Exact request challenge; must match the signed grant nonce (not a bearer). */
+    val authorizationNonceBase64Url: String = "",
 )
 
 @Serializable

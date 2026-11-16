@@ -5,6 +5,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import org.bouncycastle.crypto.digests.Blake3Digest
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.signers.Ed25519Signer
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -25,6 +28,8 @@ import org.michimusic.link.PairedDeviceRegistry
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
 
 class AirCatContractTest {
 
@@ -34,6 +39,18 @@ class AirCatContractTest {
     private lateinit var pairedRegistry: PairedDeviceRegistry
     private lateinit var libraryRepo: MusicLibraryRepository
     private lateinit var aircatClient: DefaultAirCatTransferClient
+    private lateinit var durableCheckpoints: org.michimusic.core.models.TransferCheckpointRepository
+    private val checkpointRows = java.util.concurrent.ConcurrentHashMap<String, org.michimusic.core.models.PersistentCheckpoint>()
+
+    // A27/A67: the client refuses any transfer that no Home authority signed.
+    // These tests mint real Ed25519 grants so what is under test stays the
+    // transfer contract, never a grant parser shortcut.
+    private val encoder = Base64.getUrlEncoder().withoutPadding()
+    private val authorityKey = Ed25519PrivateKeyParameters(SecureRandom())
+    private val authorityPublic = authorityKey.generatePublicKey().encoded
+    private val authorityId = michiIdOf(authorityPublic)
+    private val tlsPin = "sha256/" + Base64.getEncoder().encodeToString(ByteArray(32) { 7 })
+    private val pinnedBaseUrl = "https://source.example"
 
     @Before
     fun setUp() {
@@ -41,20 +58,125 @@ class AirCatContractTest {
         mockContext = mockk(relaxed = true)
         every { mockContext.filesDir } returns tempDir
 
-        transferManager = LinkTransferManager(mockContext)
+        durableCheckpoints = mockk(relaxed = true)
+        checkpointRows.clear()
+        coEvery { durableCheckpoints.getCheckpoint(any()) } answers {
+            checkpointRows[firstArg<String>()]
+        }
+        coEvery { durableCheckpoints.saveCheckpoint(any()) } answers {
+            val cp = firstArg<org.michimusic.core.models.PersistentCheckpoint>()
+            checkpointRows[cp.transferKey] = cp
+        }
+        coEvery { durableCheckpoints.updateProgress(any(), any(), any(), any()) } answers {
+            val key = firstArg<String>()
+            val cp = checkpointRows[key]
+            if (cp != null) checkpointRows[key] = cp.copy(
+                receivedBytes = secondArg<Long>(),
+                verifiedBytes = thirdArg<Long>(),
+                transferState = arg(3),
+            )
+        }
+        transferManager = LinkTransferManager(mockContext, durableCheckpoints)
         pairedRegistry = mockk(relaxed = true)
         libraryRepo = mockk(relaxed = true)
+
+        // A27: the Home anchor is provisioned by enrollment. The provider below
+        // only mirrors that anchor for every source the test declares.
+        val anchor = AirCatHomeAnchor(
+            homeId = authorityId,
+            authorityMichiId = authorityId,
+            authorityPublicKeyBase64Url = encoder.encodeToString(authorityPublic),
+            sourceMichiId = "",
+            tlsSpkiSha256 = tlsPin,
+            pinnedBaseUrl = pinnedBaseUrl,
+        )
+        val authorities = object : AirCatHomeAuthorityProvider {
+            override fun anchorFor(homeId: String): AirCatHomeAnchor? =
+                anchor.takeIf { it.homeId == homeId }
+
+            override fun anchorForSource(sourceMichiId: String): AirCatHomeAnchor? =
+                anchor.copy(sourceMichiId = sourceMichiId)
+        }
 
         aircatClient = DefaultAirCatTransferClient(
             transferManager = transferManager,
             pairedDeviceRegistry = pairedRegistry,
             libraryRepository = libraryRepo,
+            checkpointRepository = durableCheckpoints,
+            signedGrantSecurity = AirCatSignedGrantSecurity(authorities),
         )
     }
 
     @After
     fun tearDown() {
         tempDir.deleteRecursively()
+    }
+
+    /** Base64url(BLAKE3-256(pubkey)) is the only Michi identity a grant accepts. */
+    private fun michiIdOf(publicKey: ByteArray): String {
+        val digest = Blake3Digest(256).also { it.update(publicKey, 0, publicKey.size) }
+        return encoder.encodeToString(ByteArray(32).also { digest.doFinal(it, 0) })
+    }
+
+    /** Grants reject any identity that is not a canonical 43-char Link id. */
+    private fun mid(tag: String): String = tag.padEnd(43, 'x').take(43)
+
+    /** Mints the Home-signed grant this intent needs to reach the transfer contract. */
+    private fun authorized(intent: TransferIntent, manifest: AirCatManifest): TransferIntent {
+        val nonce = ByteArray(24).also { SecureRandom().nextBytes(it) }
+        val nonceBase64Url = encoder.encodeToString(nonce)
+        val issuedAt = System.currentTimeMillis()
+        val sha = AirCatCanonicalWire.manifestSha256(manifest) ?: "0".repeat(64)
+        val grant = AirCatSignedGrant(
+            version = 1,
+            homeId = authorityId,
+            authorityMichiId = authorityId,
+            transferId = intent.transferId,
+            sourceMichiId = intent.sourceMichiId,
+            destinationMichiId = intent.destinationMichiId,
+            sourceLibraryId = intent.sourceLibraryId,
+            destinationLibraryId = intent.destinationLibraryId,
+            selectionScope = intent.selectionScope,
+            scopes = listOf("content:read", "content:transfer"),
+            manifestSha256 = sha,
+            issuedAtMillis = issuedAt,
+            expiresAtMillis = minOf(issuedAt + 300_000L, intent.expiresAt),
+            nonceBase64Url = nonceBase64Url,
+            signatureBase64Url = "",
+        )
+        val bytes = AirCatCanonicalWire.signedGrantBytes(grant)
+        val signer = Ed25519Signer().also {
+            it.init(true, authorityKey)
+            it.update(bytes, 0, bytes.size)
+        }
+        return intent.copy(
+            signedGrant = grant.copy(
+                signatureBase64Url = encoder.encodeToString(signer.generateSignature()),
+            ),
+            authorizationNonceBase64Url = nonceBase64Url,
+        )
+    }
+
+    /** A28: the pinned endpoint is the only origin a grant may be presented to. */
+    private fun pinnedLink(client: LinkClient): LinkClient {
+        every { client.baseUrl } returns pinnedBaseUrl
+        return client
+    }
+
+    /** The fake persistence layer must prove read-after-write, not just return Unit. */
+    private fun stubDurableCompletion(
+        repo: org.michimusic.core.models.TransferCheckpointRepository,
+        initial: org.michimusic.core.models.PersistentCheckpoint,
+    ) {
+        var persisted = initial
+        coEvery { repo.getCheckpoint(initial.transferKey) } answers { persisted }
+        coEvery { repo.updateProgress(initial.transferKey, any(), any(), any()) } answers {
+            persisted = persisted.copy(
+                receivedBytes = secondArg<Long>(),
+                verifiedBytes = thirdArg<Long>(),
+                transferState = arg(3),
+            )
+        }
     }
 
     private fun sha256(data: ByteArray): String {
@@ -64,13 +186,13 @@ class AirCatContractTest {
 
     @Test
     fun aircatUnauthorizedPeerRejectedTest() = runBlocking {
-        val sourceId = "unknown_rogue_peer"
+        val sourceId = mid("unknown_rogue_peer")
         every { pairedRegistry.getDevice(sourceId) } returns null
 
         val intent = TransferIntent(
             transferId = "xfer_unauth_1",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -86,26 +208,26 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue("Unauthorized peer must be rejected", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
-        assertEquals(AirCatTransferState.FAILED, aircatClient.progressEvents.value?.state)
+        assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+        assertEquals("state must be FAILED but was ${aircatClient.progressEvents.value?.state}", AirCatTransferState.FAILED, aircatClient.progressEvents.value?.state)
     }
 
     @Test
     fun aircatManifestVersionMismatchTest() = runBlocking {
-        val sourceId = "trusted_peer_1"
+        val sourceId = mid("trusted_peer_1")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
 
         val intent = TransferIntent(
             transferId = "xfer_version_mismatch",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
             manifestVersion = 1, // Intent specifies version 1
@@ -119,25 +241,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue("Manifest version mismatch must be rejected", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.ManifestVersionMismatch)
+        assertTrue("expected AirCatException.ManifestVersionMismatch but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.ManifestVersionMismatch)
     }
 
     @Test
     fun aircatDestinationCapacityTest() = runBlocking {
-        val sourceId = "trusted_peer_1"
+        val sourceId = mid("trusted_peer_1")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
 
         val intent = TransferIntent(
             transferId = "xfer_no_capacity",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -151,29 +273,30 @@ class AirCatContractTest {
 
         // Only 150 MB available -> does not satisfy 500 MB + 100 MB margin
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 150L * 1024 * 1024,
         )
 
         assertTrue("Insufficient storage must fail transfer", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InsufficientStorage)
+        assertTrue("expected AirCatException.InsufficientStorage but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InsufficientStorage)
     }
 
     @Test
     fun aircatDuplicatedTransferIdTest() = runBlocking {
-        val sourceId = "trusted_peer_1"
+        val sourceId = mid("trusted_peer_1")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
 
         val content = "AirCat Audio Track".toByteArray()
         val peer = FakeAirCatPeer(sourceId)
-        peer.setupTrackStreaming("trk_dup", content)
+        every { peer.mockClient.deviceToken } returns "token"
+        peer.setupTrackStreaming("rem_1", content)
 
         val intent = TransferIntent(
             transferId = "xfer_duplicate_check",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -190,19 +313,19 @@ class AirCatContractTest {
 
         // First execution succeeds
         val res1 = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = peer.mockClient,
+            linkClient = pinnedLink(peer.mockClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
-        assertTrue(res1.isSuccess)
+        assertTrue("res1 must succeed but was ${res1.exceptionOrNull()}", res1.isSuccess)
         assertEquals(AirCatTransferState.COMPLETED, aircatClient.progressEvents.value?.state)
 
         // Second execution with same transferId must be rejected
         val res2 = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = peer.mockClient,
+            linkClient = pinnedLink(peer.mockClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
         assertTrue("Duplicate transferId must fail", res2.isFailure)
@@ -211,18 +334,19 @@ class AirCatContractTest {
 
     @Test
     fun aircatSuccessfulTransferBindsLibraryTest() = runBlocking {
-        val sourceId = "trusted_peer_node"
+        val sourceId = mid("trusted_peer_node")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Desktop Node", deviceToken = "tok")
 
         val content = "Hi-Fi Studio Master Audio Stream".toByteArray()
         val expectedHash = sha256(content)
         val peer = FakeAirCatPeer(sourceId)
-        peer.setupTrackStreaming("trk_hifi", content)
+        every { peer.mockClient.deviceToken } returns "tok"
+        peer.setupTrackStreaming("remote_hifi_1", content)
 
         val intent = TransferIntent(
             transferId = "xfer_success_binding",
             sourceMichiId = sourceId,
-            destinationMichiId = "phone_client",
+            destinationMichiId = mid("phone_client"),
             sourceLibraryId = "lib_desktop",
             destinationLibraryId = "lib_phone_synced",
         )
@@ -238,13 +362,13 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = peer.mockClient,
+            linkClient = pinnedLink(peer.mockClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
-        assertTrue(result.isSuccess)
+        assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
         assertEquals(1, files.size)
         assertTrue(files[0].exists())
@@ -264,7 +388,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatRevokedPeerRejectedTest() = runBlocking {
-        val sourceId = "revoked_peer_1"
+        val sourceId = mid("revoked_peer_1")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(
             deviceId = sourceId,
             deviceName = "Revoked Node",
@@ -275,7 +399,7 @@ class AirCatContractTest {
         val intent = TransferIntent(
             transferId = "xfer_revoked_1",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -291,14 +415,14 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue("Revoked peer must be rejected", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.RevokedPeer)
+        assertTrue("expected AirCatException.RevokedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.RevokedPeer)
     }
 
     @Test
@@ -311,13 +435,13 @@ class AirCatContractTest {
             clock = { currentTime }
         )
 
-        val sourceId = "trusted_peer_exp"
+        val sourceId = mid("trusted_peer_exp")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_expired_1",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
             expiresAt = 9_999L // Expired
@@ -334,25 +458,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue("Expired transfer must fail", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.TransferExpired)
+        assertTrue("expected AirCatException.TransferExpired but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.TransferExpired)
     }
 
     @Test
     fun aircatMismatchedTransferIdRejectedTest() = runBlocking {
-        val sourceId = "trusted_peer_mis"
+        val sourceId = mid("trusted_peer_mis")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_intent_id",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -368,25 +492,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.TransferIdMismatch)
+        assertTrue("expected AirCatException.TransferIdMismatch but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.TransferIdMismatch)
     }
 
     @Test
     fun aircatInvalidManifestStructureRejectedTest() = runBlocking {
-        val sourceId = "trusted_peer_struct"
+        val sourceId = mid("trusted_peer_struct")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_bad_struct",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -403,14 +527,14 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(mockk()),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
@@ -423,7 +547,9 @@ class AirCatContractTest {
         assertTrue(aircatClient.isTransferPaused(transferId))
 
         aircatClient.resumeTransfer(transferId)
-        assertFalse(aircatClient.isTransferPaused(transferId))
+        // A17: without an active session, resume is a no-op and stays PAUSED.
+        assertTrue(aircatClient.isTransferPaused(transferId))
+        assertEquals(AirCatTransferState.PAUSED, aircatClient.progressEvents.value?.state)
 
         aircatClient.cancelTransfer(transferId)
         assertTrue(aircatClient.isTransferCancelled(transferId))
@@ -431,7 +557,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatPersistentCheckpointResumeAcrossRecreationTest() = runBlocking {
-        val sourceId = "trusted_peer_1"
+        val sourceId = mid("trusted_peer_1")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
 
         val trackData = "Recoverable audio content".toByteArray()
@@ -472,7 +598,7 @@ class AirCatContractTest {
         val intent = TransferIntent(
             transferId = "xfer_persisted_1",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dest",
         )
@@ -487,10 +613,12 @@ class AirCatContractTest {
             )
         )
 
+        val pinnedClient = mockk<LinkClient>()
+        every { pinnedClient.deviceToken } returns "token"
         val result = newAircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(pinnedClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
@@ -503,7 +631,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatRecoverIncompleteTransfersResumesPendingCheckpoints() = runBlocking {
-        val sourceId = "trusted_peer_resume"
+        val sourceId = mid("trusted_peer_resume")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
 
         val trackData = "Incomplete recovered audio content".toByteArray()
@@ -537,6 +665,7 @@ class AirCatContractTest {
         )
 
         coEvery { checkpointRepo.getCheckpointsForDevice(sourceId) } returns listOf(pendingCp)
+        stubDurableCompletion(checkpointRepo, pendingCp)
 
         // Mock linkClient streaming remaining part
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
@@ -586,7 +715,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatRecoverIncompleteTransfersFailsWhenPeerIsRevoked() = runBlocking {
-        val revokedDeviceId = "revoked_node_123"
+        val revokedDeviceId = mid("revoked_node_123")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
 
         val revokedDevice = PairedDevice(
@@ -608,12 +737,12 @@ class AirCatContractTest {
 
         val result = client.recoverIncompleteTransfers(revokedDeviceId, mockClient)
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+        assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
     }
 
     @Test
     fun aircatRecoverIncompleteTransfersFailsWhenTokenMismatches() = runBlocking {
-        val deviceId = "mismatch_node_123"
+        val deviceId = mid("mismatch_node_123")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
         every { mockClient.deviceToken } returns "token_spoofed_or_stale"
 
@@ -636,12 +765,12 @@ class AirCatContractTest {
 
         val result = client.recoverIncompleteTransfers(deviceId, mockClient)
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+        assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
     }
 
     @Test
     fun aircatRecoverIncompleteTransfersAbortsWhenPeerRevokedMidTransfer() = runBlocking {
-        val deviceId = "dynamic_revocation_node"
+        val deviceId = mid("dynamic_revocation_node")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
         every { mockClient.deviceToken } returns "valid_token"
 
@@ -665,11 +794,11 @@ class AirCatContractTest {
             trackId = "t1",
             remoteTrackId = "t1",
             tempFilePath = "/tmp/t1.part",
-            finalFilePath = "/tmp/t1.mp3",
+            finalFilePath = File(tempDir, "t1.mp3").absolutePath,
             expectedSize = 100L,
             receivedBytes = 50L,
             verifiedBytes = 0L,
-            expectedSha256 = "",
+            expectedSha256 = sha256(ByteArray(100)),
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
         )
         val cp2 = org.michimusic.core.models.PersistentCheckpoint(
@@ -681,19 +810,24 @@ class AirCatContractTest {
             trackId = "t2",
             remoteTrackId = "t2",
             tempFilePath = "/tmp/t2.part",
-            finalFilePath = "/tmp/t2.mp3",
+            finalFilePath = File(tempDir, "t2.mp3").absolutePath,
             expectedSize = 100L,
             receivedBytes = 50L,
             verifiedBytes = 0L,
-            expectedSha256 = "",
+            expectedSha256 = sha256(ByteArray(100)),
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
         )
 
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cp1, cp2)
+        stubDurableCompletion(checkpointRepo, cp1)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
-        coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(File.createTempFile("t1_", ".mp3").apply { writeBytes(ByteArray(100)) })
+        coEvery { mockTransferManager.downloadTrack(any(), any()) } answers {
+            isRevokedFlag = true // Revoked after first accepted download, before the next item.
+            Result.success(File(tempDir, "t1.mp3").apply { writeBytes(ByteArray(100)) })
+        }
+        every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
         val client = DefaultAirCatTransferClient(
             transferManager = mockTransferManager,
@@ -702,22 +836,9 @@ class AirCatContractTest {
             checkpointRepository = checkpointRepo,
         )
 
-        // Make getDevice report revoked when checking t2
-        var checkCount = 0
-        every { pairedRegistry.getDevice(any<String>()) } answers {
-            checkCount++
-            PairedDevice(
-                deviceId = deviceId,
-                deviceName = "Dynamic Node",
-                deviceToken = "valid_token",
-                lastUrl = "http://192.168.1.55:8400",
-                isRevoked = checkCount > 2, // 1st check for peer at start, 2nd check for t1, 3rd check for t2 revoked
-            )
-        }
-
         val result = client.recoverIncompleteTransfers(deviceId, mockClient)
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
+        assertTrue("expected AirCatException.UnauthorizedPeer but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.UnauthorizedPeer)
         // Only 1 download track call was made before revocation aborted recovery
         coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
     }
@@ -725,12 +846,13 @@ class AirCatContractTest {
     @Test
     fun aircatExecuteTransferFailsWhenLibraryRegistrationFails() = runBlocking {
         val transferId = "aircat_fail_lib_reg"
-        val sourceId = "test_source_device_1"
+        val sourceId = mid("test_source_device_1")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "token")
 
         val trackData = "TestDataForFailedLibReg".toByteArray()
         val expectedSha = sha256(trackData)
         val peer = FakeAirCatPeer(sourceId)
+        every { peer.mockClient.deviceToken } returns "token"
         peer.setupTrackStreaming("track_fail_reg", trackData)
 
         val failingLibraryRepo = mockk<MusicLibraryRepository>()
@@ -808,7 +930,7 @@ class AirCatContractTest {
         val intent = TransferIntent(
             transferId = transferId,
             sourceMichiId = sourceId,
-            destinationMichiId = "dest_client",
+            destinationMichiId = mid("dest_client"),
             sourceLibraryId = "lib_source",
             destinationLibraryId = "lib_dest",
         )
@@ -823,7 +945,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatRecoverIncompleteTransfers_strictCompositeCriteria_matchesDestinationLibraryAndHash() = runBlocking {
-        val deviceId = "node_composite_strict"
+        val deviceId = mid("node_composite_strict")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
         every { mockClient.deviceToken } returns "token_strict"
         every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(
@@ -843,10 +965,10 @@ class AirCatContractTest {
             remoteTrackId = "track_strict_1",
             tempFilePath = File(tempDir, "temp1.part").absolutePath,
             finalFilePath = File(tempDir, "final1.mp3").absolutePath,
-            expectedSize = 1000L,
-            receivedBytes = 500L,
+            expectedSize = 5L,
+            receivedBytes = 0L,
             verifiedBytes = 0L,
-            expectedSha256 = "hash_valid_1",
+            expectedSha256 = sha256("hello".toByteArray()),
             etag = "",
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
             createdAt = 100L,
@@ -875,10 +997,12 @@ class AirCatContractTest {
 
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cp1, cp2)
+        stubDurableCompletion(checkpointRepo, cp1)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
         val dummyFile = File(tempDir, "final1.mp3").also { it.writeText("hello") }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
+        every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
         val client = DefaultAirCatTransferClient(
             transferManager = mockTransferManager,
@@ -892,8 +1016,8 @@ class AirCatContractTest {
             AuthorizedTransferCriteria(
                 trackId = "track_strict_1",
                 destinationLibraryId = "lib_target_1",
-                expectedSize = 1000L,
-                expectedSha256 = "hash_valid_1",
+                expectedSize = 5L,
+                expectedSha256 = sha256("hello".toByteArray()),
             ),
             AuthorizedTransferCriteria(
                 trackId = "track_strict_2",
@@ -905,11 +1029,11 @@ class AirCatContractTest {
 
         val result = client.recoverIncompleteTransfers(
             remoteDeviceId = deviceId,
-            linkClient = mockClient,
+            linkClient = pinnedLink(mockClient),
             authorizedCriteria = criteria,
         )
 
-        assertTrue(result.isSuccess)
+        assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
         assertEquals(1, files.size)
         // Exactly one download was performed (for track_strict_1), cp2 was rejected
@@ -918,7 +1042,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatRecoverIncompleteTransfers_strictHashMatching_rejectsEmptyOrMismatchingHashWhenHashIsExpected() = runBlocking {
-        val deviceId = "node_hash_matching_strict"
+        val deviceId = mid("node_hash_matching_strict")
         val mockClient = mockk<org.michimusic.link.LinkClient>(relaxed = true)
         every { mockClient.deviceToken } returns "token_strict"
         every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(
@@ -981,10 +1105,10 @@ class AirCatContractTest {
             remoteTrackId = "track_valid_hash",
             tempFilePath = File(tempDir, "temp_valid.part").absolutePath,
             finalFilePath = File(tempDir, "final_valid.mp3").absolutePath,
-            expectedSize = 1000L,
-            receivedBytes = 500L,
+            expectedSize = "hello valid".length.toLong(),
+            receivedBytes = 0L,
             verifiedBytes = 0L,
-            expectedSha256 = "EXPECTED_VALID_HASH_A1B2",
+            expectedSha256 = sha256("hello valid".toByteArray()),
             etag = "",
             transferState = org.michimusic.core.models.TransferStatus.DOWNLOADING,
             createdAt = 100L,
@@ -993,10 +1117,12 @@ class AirCatContractTest {
 
         val checkpointRepo = mockk<org.michimusic.core.models.TransferCheckpointRepository>(relaxed = true)
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpEmpty, cpMismatch, cpValid)
+        stubDurableCompletion(checkpointRepo, cpValid)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
         val dummyFile = File(tempDir, "final_valid.mp3").also { it.writeText("hello valid") }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
+        every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
         val client = DefaultAirCatTransferClient(
             transferManager = mockTransferManager,
@@ -1021,18 +1147,18 @@ class AirCatContractTest {
             AuthorizedTransferCriteria(
                 trackId = "track_valid_hash",
                 destinationLibraryId = "lib_1",
-                expectedSize = 1000L,
-                expectedSha256 = "expected_valid_hash_a1b2", // Case insensitive match
+                expectedSize = "hello valid".length.toLong(),
+                expectedSha256 = sha256("hello valid".toByteArray()).uppercase(), // Case insensitive match
             ),
         )
 
         val result = client.recoverIncompleteTransfers(
             remoteDeviceId = deviceId,
-            linkClient = mockClient,
+            linkClient = pinnedLink(mockClient),
             authorizedCriteria = criteria,
         )
 
-        assertTrue(result.isSuccess)
+        assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
         assertEquals("Only cpValid should be recovered; empty and mismatching hashes must be rejected", 1, files.size)
         coVerify(exactly = 1) { mockTransferManager.downloadTrack(any(), any()) }
@@ -1040,7 +1166,7 @@ class AirCatContractTest {
 
     @Test
     fun recoverIncompleteTransfers_rejectsCheckpoint_whenPlanIdDoesNotMatch() = runBlocking {
-        val deviceId = "dev_plan_isolation"
+        val deviceId = mid("dev_plan_isolation")
         every { pairedRegistry.getDevice(deviceId) } returns PairedDevice(deviceId = deviceId, deviceName = "Node", deviceToken = "tok")
 
         val cpPlanA = org.michimusic.core.models.PersistentCheckpoint(
@@ -1090,11 +1216,11 @@ class AirCatContractTest {
 
         val result = client.recoverIncompleteTransfers(
             remoteDeviceId = deviceId,
-            linkClient = mockClient,
+            linkClient = pinnedLink(mockClient),
             authorizedCriteria = criteria,
         )
 
-        assertTrue(result.isSuccess)
+        assertTrue("result must succeed but was ${result.exceptionOrNull()}", result.isSuccess)
         val files = result.getOrThrow()
         assertEquals("Checkpoints from plan_A must NOT be recovered under plan_B criteria", 0, files.size)
         coVerify(exactly = 0) { mockTransferManager.downloadTrack(any(), any()) }
@@ -1102,7 +1228,7 @@ class AirCatContractTest {
 
     @Test
     fun executeTransfer_failsClosed_whenExistingIdentityHasConflictingContentHash() = runBlocking {
-        val sourceId = "peer_conflict"
+        val sourceId = mid("peer_conflict")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val hashOld = "0".repeat(64)
@@ -1121,7 +1247,7 @@ class AirCatContractTest {
         val intent = TransferIntent(
             transferId = "xfer_conflict",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1136,15 +1262,17 @@ class AirCatContractTest {
             )
         )
 
+        val authorizedClient = mockk<LinkClient>(relaxed = true)
+        every { authorizedClient.deviceToken } returns "tok"
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(),
+            linkClient = pinnedLink(authorizedClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue("Conflicting content hash must fail execution", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.CorruptedPayload)
+        assertTrue("expected AirCatException.CorruptedPayload but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.CorruptedPayload)
     }
 
     @Test
@@ -1158,24 +1286,24 @@ class AirCatContractTest {
 
         val intent = TransferIntent(
             transferId = "xfer_no_repo",
-            sourceMichiId = "dev_src",
-            destinationMichiId = "client_me",
+            sourceMichiId = mid("dev_src"),
+            destinationMichiId = mid("client_me"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dest",
         )
         val manifest = AirCatManifest(
             manifestVersion = 1,
             transferId = "xfer_no_repo",
-            sourceDeviceId = "dev_src",
+            sourceDeviceId = mid("dev_src"),
             totalTracks = 0,
             totalBytes = 0L,
             items = emptyList(),
         )
 
         val execResult = clientWithoutRepo.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
         assertTrue("executeTransfer must fail when libraryRepository is null", execResult.isFailure)
@@ -1183,7 +1311,7 @@ class AirCatContractTest {
 
         val recoverResult = clientWithoutRepo.recoverIncompleteTransfers(
             remoteDeviceId = "dev_src",
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
         )
         assertTrue("recoverIncompleteTransfers must fail when libraryRepository is null", recoverResult.isFailure)
         assertTrue(recoverResult.exceptionOrNull() is AirCatException.ProtocolError)
@@ -1191,7 +1319,7 @@ class AirCatContractTest {
 
     @Test
     fun aircatTransfer_nonDestructivePolicy_neverDeletesExistingRegisteredTrackOnConflict() = runBlocking {
-        val sourceId = "node_registered_conflict"
+        val sourceId = mid("node_registered_conflict")
         val existingFile = File(tempDir, "existing_valid_song.flac")
         existingFile.writeBytes("Pre-existing high quality audio".toByteArray())
         assertTrue(existingFile.exists())
@@ -1228,7 +1356,7 @@ class AirCatContractTest {
         val intent = TransferIntent(
             transferId = "xfer_reg_conflict",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_me",
+            destinationMichiId = mid("client_me"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dest",
         )
@@ -1243,28 +1371,30 @@ class AirCatContractTest {
             )
         )
 
+        val authorizedClient = mockk<LinkClient>(relaxed = true)
+        every { authorizedClient.deviceToken } returns "token_ok"
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(authorizedClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.CorruptedPayload)
+        assertTrue("expected AirCatException.CorruptedPayload but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.CorruptedPayload)
         // Decisive check: existing valid local file MUST NOT be deleted
         assertTrue("Registered local file must remain intact and non-deleted", existingFile.exists())
     }
 
     @Test
     fun manifestTrackCountMismatch_itemsEmptyButTotalTracksPositive_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_mismatch"
+        val sourceId = mid("peer_mismatch")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_mismatch_1",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1278,25 +1408,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
     fun manifestLegitimateZeroTracks_completesWithoutClaimingVerified() = runBlocking {
-        val sourceId = "peer_empty"
+        val sourceId = mid("peer_empty")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_empty_ok",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1311,9 +1441,9 @@ class AirCatContractTest {
 
         val updates = mutableListOf<AirCatProgressEvent>()
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
             onProgress = { updates.add(it) }
         )
@@ -1328,13 +1458,13 @@ class AirCatContractTest {
 
     @Test
     fun manifestTrackWithMalformedSha256_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_bad_sha"
+        val sourceId = mid("peer_bad_sha")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_bad_sha",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1350,19 +1480,19 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
     fun manifestWithDuplicateTrackIds_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_dup"
+        val sourceId = mid("peer_dup")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val hashA = "a".repeat(64)
@@ -1371,7 +1501,7 @@ class AirCatContractTest {
         val intent = TransferIntent(
             transferId = "xfer_dup",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1388,29 +1518,30 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
-    fun transferWithEmptySha256OnItem_completesAsUnverifiedChecksum() = runBlocking {
-        val sourceId = "peer_empty_sha"
+    fun transferWithEmptySha256OnItem_rejectedBeforeStreaming() = runBlocking {
+        val sourceId = mid("peer_empty_sha")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val content = "Unhashed audio bytes".toByteArray()
         val peer = FakeAirCatPeer(sourceId)
-        peer.setupTrackStreaming("trk_no_sha", content)
+        every { peer.mockClient.deviceToken } returns "tok"
+        peer.setupTrackStreaming("rem_1", content)
 
         val intent = TransferIntent(
             transferId = "xfer_no_sha",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1427,31 +1558,29 @@ class AirCatContractTest {
 
         val updates = mutableListOf<AirCatProgressEvent>()
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = peer.mockClient,
+            linkClient = pinnedLink(peer.mockClient),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
             onProgress = { updates.add(it) }
         )
 
-        assertTrue("Transfer with unhashed item should complete", result.isSuccess)
-        val finalStatus = updates.lastOrNull()
-        assertNotNull(finalStatus)
-        assertEquals(AirCatTransferState.COMPLETED, finalStatus!!.state)
-        assertFalse("Unchecked item must report checksumVerified = false", finalStatus.checksumVerified)
-        assertTrue("Library committed should be true", finalStatus.libraryCommitted)
+        assertTrue("Managed AirCat without SHA-256 must fail before I/O", result.isFailure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertEquals(AirCatTransferState.FAILED, updates.lastOrNull()?.state)
+        assertTrue("No managed file can be committed unverified", checkpointRows.isEmpty())
     }
 
     @Test
     fun manifestWithOverflowRequiredBytes_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_overflow"
+        val sourceId = mid("peer_overflow")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val hugeBytes = Long.MAX_VALUE - 1000L
         val intent = TransferIntent(
             transferId = "xfer_overflow",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1467,25 +1596,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = Long.MAX_VALUE,
         )
 
         assertTrue("Manifest requiring overflow bytes must fail", result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
     fun manifestWithZeroTotalBytesAndNonEmptyItems_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_zero_total"
+        val sourceId = mid("peer_zero_total")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_zero_total",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1501,25 +1630,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
     fun manifestEmptyItemsWithNonZeroTotalBytes_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_empty_nonzero"
+        val sourceId = mid("peer_empty_nonzero")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_empty_nonzero",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1533,25 +1662,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
     fun manifestWithNegativeTrackSize_rejectedWithInvalidManifestStructure() = runBlocking {
-        val sourceId = "peer_neg_size"
+        val sourceId = mid("peer_neg_size")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_neg_size",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1567,25 +1696,25 @@ class AirCatContractTest {
         )
 
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024 * 1024 * 1024,
         )
 
         assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
+        assertTrue("expected AirCatException.InvalidManifestStructure but was ${result.exceptionOrNull()}", result.exceptionOrNull() is AirCatException.InvalidManifestStructure)
     }
 
     @Test
     fun manifestWithZeroTracksAndZeroBytes_succeedsEvenWithLowStorage() = runBlocking {
-        val sourceId = "peer_empty_zero"
+        val sourceId = mid("peer_empty_zero")
         every { pairedRegistry.getDevice(sourceId) } returns PairedDevice(deviceId = sourceId, deviceName = "Node", deviceToken = "tok")
 
         val intent = TransferIntent(
             transferId = "xfer_empty_zero",
             sourceMichiId = sourceId,
-            destinationMichiId = "client_id",
+            destinationMichiId = mid("client_id"),
             sourceLibraryId = "lib_src",
             destinationLibraryId = "lib_dst",
         )
@@ -1600,9 +1729,9 @@ class AirCatContractTest {
 
         // Only 10 KB free storage (far less than the 100 MB safetyMargin!)
         val result = aircatClient.executeTransfer(
-            intent = intent,
+            intent = authorized(intent, manifest),
             manifest = manifest,
-            linkClient = mockk(relaxed = true),
+            linkClient = pinnedLink(mockk(relaxed = true)),
             availableStorageBytes = 10L * 1024,
         )
 

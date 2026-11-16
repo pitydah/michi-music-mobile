@@ -2,6 +2,8 @@ package org.michimusic.mobile.sync
 
 import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.core.models.SyncConnectionState
+import org.michimusic.core.devices.AirCatCapabilityPolicy
+import org.michimusic.mobile.devices.aircat.AirCatEligibilityPolicy
 import org.michimusic.link.capability.CapabilityResolver
 
 enum class DeviceActionType {
@@ -26,12 +28,7 @@ data class DeviceAction(
 object DeviceActionResolver {
     /** AirCat transfers are a Michi Devices capability, not a generic sync-host
      * feature. Never show this action unless the peer advertises it explicitly. */
-    fun supportsAirCat(device: UnifiedDevice): Boolean = device.features.any { feature ->
-        val key = feature.trim().lowercase().replace('-', '_')
-        key == "aircat" || key == "aircat_transfer" ||
-            key == "devices_aircat" || key == "michi_devices_aircat" ||
-            key == "devices.aircat"
-    }
+    fun supportsAirCat(device: UnifiedDevice): Boolean = AirCatCapabilityPolicy.hasFeature(device.features)
 
     /**
      * Resolves actions ensuring EXACTLY ONE primary action (isPrimary == true).
@@ -94,7 +91,7 @@ object DeviceActionResolver {
         }
         if (caps.isSyncHost) {
             actions.add(DeviceAction(DeviceActionType.SYNC_LIBRARY, "Sincronizar", isPrimary = (primaryType == DeviceActionType.SYNC_LIBRARY)))
-            if (supportsAirCat(device)) {
+            if (AirCatEligibilityPolicy.isAirCatEligible(device)) {
                 actions.add(DeviceAction(DeviceActionType.AIRCAT_TRANSFER, "AirCat", isPrimary = false))
             }
         }

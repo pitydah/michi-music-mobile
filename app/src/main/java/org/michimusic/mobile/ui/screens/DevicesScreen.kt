@@ -61,6 +61,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +81,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -87,6 +91,15 @@ import org.michimusic.core.models.DiscoveredPeer
 import org.michimusic.core.models.SyncConnectionState
 import org.michimusic.core.models.UnifiedDevice
 import org.michimusic.mobile.devices.aircat.AirCatEligibilityPolicy
+import org.michimusic.mobile.devices.aircat.AirCatHomeEnrollmentStore
+import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeSource
+import org.michimusic.mobile.devices.aircat.AirCatEnrolledHomeAuthority
+import org.michimusic.mobile.devices.aircat.AirCatTrustedEnrollmentQr
+import org.michimusic.mobile.devices.aircat.AirCatTrustedEnrollmentPolicy
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.michimusic.mobile.playback.PlaybackEndpoint
 import org.michimusic.mobile.playback.PlaybackSessionManager
 import org.michimusic.mobile.sync.DeviceAction
@@ -143,10 +156,12 @@ fun DevicesScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val isSearching = uiState.state == SyncConnectionState.DISCOVERING
+    // Scanning remains visible even when a paired session is CONNECTED.
+    val isSearching by viewModel.isDiscoveryActive.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    val homeEnrollment: AirCatHomeEnrollmentStore = koinInject()
     val sessionManager: PlaybackSessionManager = koinInject()
     val playbackSession by sessionManager.sessionState.collectAsStateWithLifecycle()
 
@@ -154,6 +169,15 @@ fun DevicesScreen(
     var showManualDialog by remember { mutableStateOf(false) }
     var showUnverifiedReceiverNotice by remember { mutableStateOf(false) }
     var pendingQrForPin by remember { mutableStateOf<String?>(null) }
+    var pendingHomeEnrollmentQr by remember { mutableStateOf<String?>(null) }
+    var pendingHomeRevocation by remember { mutableStateOf<AirCatEnrolledHomeSource?>(null) }
+    var showHomeTrustManager by remember { mutableStateOf(false) }
+    var homeTrustLoading by remember { mutableStateOf(false) }
+    var homeTrustSources by remember { mutableStateOf<List<AirCatEnrolledHomeSource>>(emptyList()) }
+    var homeTrustHomes by remember { mutableStateOf<List<AirCatEnrolledHomeAuthority>>(emptyList()) }
+    var homeTrustReadFailed by remember { mutableStateOf(false) }
+    var pendingHomeRootRevocation by remember { mutableStateOf<AirCatEnrolledHomeAuthority?>(null) }
+    var pendingHomeManagerRevocation by remember { mutableStateOf<AirCatEnrolledHomeSource?>(null) }
     var pendingPeerForPin by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForReceiver by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
     var pendingPeerForPassword by remember { mutableStateOf<Pair<org.michimusic.core.models.DiscoveredPeer, String>?>(null) }
@@ -162,10 +186,30 @@ fun DevicesScreen(
     var airCatPickerForRecovery by remember { mutableStateOf(false) }
     var showNoEligibleAirCatNotice by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        if (uiState.state == SyncConnectionState.DISCONNECTED) {
-            viewModel.startDiscovery()
+    // Discovery belongs to the Devices screen, not the application lifetime.
+    // OnStart starts exactly once; no second LaunchedEffect listener.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { viewModel.startDiscovery() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.stopDiscovery() }
+    // A56: an explicit dialog entry is the only trigger for reading the Home
+    // inventory. No always-on observer, flow, service, scan or refresh timer.
+    LaunchedEffect(showHomeTrustManager) {
+        if (showHomeTrustManager) {
+            homeTrustLoading = true
+            val inventory = withContext(Dispatchers.IO) {
+                runCatching {
+                    homeEnrollment.enrolledSources() to homeEnrollment.enrolledHomes()
+                }
+            }
+            homeTrustReadFailed = inventory.isFailure
+            if (inventory.isSuccess) {
+                homeTrustSources = inventory.getOrThrow().first
+                homeTrustHomes = inventory.getOrThrow().second
+            }
+            homeTrustLoading = false
         }
+    }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.stopDiscovery() }
     }
 
     LaunchedEffect(uiState.error) {
@@ -197,9 +241,19 @@ fun DevicesScreen(
     val performAirCatSafely: (String, Boolean) -> Unit = { targetId, recovery ->
         // A FAILED progress record may remain visible while recovery starts; a
         // running/paused transfer may not be bypassed by the retry affordance.
-        val failedProgress = uiState.airCatProgress?.state ==
-            org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED
-        val activeTransfer = uiState.airCatProgress != null && !(recovery && failedProgress)
+        val airCatReceipts = uiState.airCatProgressByTransfer.values.ifEmpty {
+            listOfNotNull(uiState.airCatProgress)
+        }
+        val activeTransfer = airCatReceipts.any { it.state in setOf(
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.PENDING_AUTHORIZATION,
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.NEGOTIATING,
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.TRANSFERRING,
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.VERIFYING,
+            org.michimusic.mobile.devices.aircat.AirCatTransferState.PAUSED,
+        ) }
+        val failedProgress = !activeTransfer && airCatReceipts.any {
+            it.state == org.michimusic.mobile.devices.aircat.AirCatTransferState.FAILED
+        }
         val allowed = (!recovery || failedProgress) &&
             allowAirCatUiStart(activeTransfer, airCatGate.pending, eligibleAirCatIds, targetId)
         val flightToken = if (allowed) airCatGate.tryAcquire() else null
@@ -318,6 +372,8 @@ fun DevicesScreen(
             DevicesTopBar(
                 isSearching = isSearching,
                 onRefreshClick = { viewModel.startDiscovery() },
+                onStopClick = { viewModel.stopDiscovery(preserveResults = true) },
+                onHomeTrustClick = { showHomeTrustManager = true },
                 onQrClick = { showQrDialog = true },
                 onSettingsClick = onNavigateToSettings,
                 onRemoteClick = onNavigateToRemote,
@@ -441,8 +497,12 @@ fun DevicesScreen(
                 }
 
                 // AirCat Active Transfer Card
-                uiState.airCatProgress?.let { progress ->
-                    item(key = "aircat_transfer_card") {
+                // A31: render each retained AirCat operation by its own ID.
+                // Limit visible receipts to avoid turning Devices into a log.
+                val airCatVisibleTransfers = uiState.airCatProgressByTransfer.values.toList().takeLast(3)
+                    .ifEmpty { listOfNotNull(uiState.airCatProgress) }
+                airCatVisibleTransfers.forEach { progress ->
+                    item(key = "aircat_transfer_card_${progress.transferId}") {
                         AirCatTransferCard(
                             progress = progress,
                             onPause = { viewModel.pauseAirCatTransfer(progress.transferId) },
@@ -462,7 +522,7 @@ fun DevicesScreen(
                                     viewModel.resumeAirCatTransfer(progress.transferId)
                                 }
                             },
-                            onDismiss = { viewModel.clearAirCatProgress() },
+                            onDismiss = { viewModel.dismissAirCatProgress(progress.transferId) },
                         )
                     }
                 }
@@ -615,9 +675,255 @@ fun DevicesScreen(
             QrScannerDialog(
                 onScanSuccess = { code ->
                     showQrDialog = false
-                    pendingQrForPin = code
+                    // A28: administrative Home enrollment is never misrouted to
+                    // legacy PIN pairing. Parsing is untrusted until validation.
+                    val type = runCatching {
+                        Json.parseToJsonElement(code).let { obj ->
+                            (obj as? kotlinx.serialization.json.JsonObject)
+                                ?.get("type")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                        }
+                    }.getOrNull()
+                    if (type == "michi.aircat.home.enrollment.v1") {
+                        pendingHomeEnrollmentQr = code
+                    } else pendingQrForPin = code
                 },
                 onDismiss = { showQrDialog = false },
+            )
+        }
+
+        if (pendingHomeEnrollmentQr != null) {
+            val qrText = pendingHomeEnrollmentQr!!
+            val enrollment = runCatching {
+                Json.decodeFromString<AirCatTrustedEnrollmentQr>(qrText)
+            }.getOrNull()
+            val isValid = enrollment != null && AirCatTrustedEnrollmentPolicy.validate(
+                enrollment, System.currentTimeMillis()) != null
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pendingHomeEnrollmentQr = null },
+                title = { Text("Vincular autoridad Home · AirCat") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(if (isValid)
+                            "Confirma que este QR se muestra directamente en la administración de tu propio Home. Nunca lo aceptes desde un anuncio o página de otro dispositivo."
+                            else "QR Home inválido, caducado o incompatible. No se guardará ninguna clave.")
+                        if (enrollment != null) {
+                            Text("Origen: ${enrollment.pinnedBaseUrl}")
+                            Text("Identidad Home: ${enrollment.homeId}")
+                            Text("Huella TLS: ${enrollment.tlsSpkiSha256}")
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = isValid,
+                        modifier = Modifier.testTag("devices_aircat_home_enroll_confirm"),
+                        onClick = {
+                            pendingHomeEnrollmentQr = null
+                            scope.launch {
+                                val accepted = withContext(Dispatchers.IO) {
+                                    homeEnrollment.enrollFromTrustedAdminQr(
+                                        qrText, userConfirmedFingerprint = true,
+                                        now = System.currentTimeMillis(),
+                                    )
+                                }
+                                snackbarHostState.showSnackbar(
+                                    if (accepted) "Home AirCat vinculado y fijado en este dispositivo"
+                                    else "No se pudo vincular Home. Comprueba QR, autoridad y certificado."
+                                )
+                            }
+                        },
+                    ) { Text("Confirmar Home") }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (isValid && enrollment != null) {
+                            TextButton(
+                                modifier = Modifier.testTag("devices_aircat_home_revoke_request"),
+                                onClick = {
+                                    pendingHomeRevocation = AirCatEnrolledHomeSource(
+                                        enrollment.sourceMichiId, enrollment.homeId,
+                                        enrollment.pinnedBaseUrl, enrollment.tlsSpkiSha256)
+                                    pendingHomeEnrollmentQr = null
+                                },
+                            ) { Text("Desvincular origen") }
+                        }
+                        TextButton(onClick = { pendingHomeEnrollmentQr = null }) { Text("Cancelar") }
+                    }
+                },
+            )
+        }
+
+        // A55: a second explicit user confirmation is required for local
+        // revocation; a QR or discovery packet can NEVER revoke on its own.
+        if (pendingHomeRevocation != null) {
+            val expectedSource = pendingHomeRevocation!!
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pendingHomeRevocation = null },
+                title = { Text("Desvincular origen AirCat") },
+                text = { Text("Se eliminará la confianza Home local de este origen. Las transferencias activas dejarán de estar autorizadas en su próxima comprobación de continuidad.") },
+                confirmButton = {
+                    TextButton(
+                        modifier = Modifier.testTag("devices_aircat_home_revoke_confirm"),
+                        onClick = {
+                            pendingHomeRevocation = null
+                            scope.launch {
+                                val revoked = withContext(Dispatchers.IO) {
+                                    homeEnrollment.revokeSourceIfUnchanged(expectedSource)
+                                }
+                                snackbarHostState.showSnackbar(
+                                    if (revoked) "Origen AirCat desvinculado de Home"
+                                    else "El origen no estaba vinculado o no pudo revocarse"
+                                )
+                            }
+                        },
+                    ) { Text("Desvincular") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingHomeRevocation = null }) { Text("Conservar") }
+                },
+            )
+        }
+
+        // A56: local Home inventory is available without an administrative QR.
+        if (showHomeTrustManager) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showHomeTrustManager = false },
+                title = { Text("Confianza Home · AirCat") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Orígenes autorizados en este dispositivo. Una búsqueda Link no otorga confianza Home.")
+                        if (homeTrustLoading) {
+                            Text("Leyendo vínculos locales…")
+                        } else if (homeTrustReadFailed) {
+                            Text("No fue posible leer la confianza Home cifrada. No se ha modificado ninguna autorización.")
+                        } else if (homeTrustSources.isEmpty() && homeTrustHomes.isEmpty()) {
+                            Text("No hay autoridades Home vinculadas.")
+                        } else {
+                            androidx.compose.foundation.lazy.LazyColumn(
+                                modifier = Modifier.heightIn(max = 360.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                item { Text("Orígenes autorizados") }
+                                items(homeTrustSources.size) { index ->
+                                    val entry = homeTrustSources[index]
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("Origen: " + entry.sourceMichiId.take(12) + "…" + entry.sourceMichiId.takeLast(6))
+                                        Text(entry.pinnedBaseUrl, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text("Home: " + entry.homeId)
+                                        Text("TLS: " + entry.tlsSpkiSha256.take(20) + "…")
+                                        TextButton(
+                                            modifier = Modifier.testTag("devices_aircat_home_manage_revoke_request"),
+                                            onClick = {
+                                                showHomeTrustManager = false
+                                                pendingHomeManagerRevocation = entry
+                                            },
+                                        ) { Text("Desvincular origen") }
+                                    }
+                                }
+                                item { Text("Autoridades Home") }
+                                items(homeTrustHomes.size) { index ->
+                                    val home = homeTrustHomes[index]
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("Home: " + home.homeId.take(12) + "…" + home.homeId.takeLast(6))
+                                        Text("Orígenes vinculados: " + home.sourceCount)
+                                        TextButton(
+                                            modifier = Modifier.testTag("devices_aircat_home_root_revoke_request"),
+                                            onClick = {
+                                                showHomeTrustManager = false
+                                                pendingHomeRootRevocation = home
+                                            },
+                                        ) { Text("Desvincular todo este Home") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showHomeTrustManager = false }) { Text("Cerrar") }
+                },
+            )
+        }
+
+        // Confirmation is separate from enumeration and revalidates the exact
+        // previously displayed Home and pin before deleting a source record.
+        if (pendingHomeManagerRevocation != null) {
+            val pending = pendingHomeManagerRevocation!!
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pendingHomeManagerRevocation = null },
+                title = { Text("Confirmar desvinculación Home") },
+                text = { Text("Se retirará únicamente este origen. Las descargas activas perderán permiso en su próxima comprobación. Otros orígenes y la raíz Home se conservan.") },
+                confirmButton = {
+                    TextButton(
+                        modifier = Modifier.testTag("devices_aircat_home_manage_revoke_confirm"),
+                        onClick = {
+                            pendingHomeManagerRevocation = null
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    val success = runCatching {
+                                        homeEnrollment.revokeSourceIfUnchanged(pending)
+                                    }.getOrDefault(false)
+                                    val snapshot = runCatching {
+                                        homeEnrollment.enrolledSources() to homeEnrollment.enrolledHomes()
+                                    }
+                                    success to snapshot
+                                }
+                                homeTrustReadFailed = result.second.isFailure
+                                if (result.second.isSuccess) {
+                                    homeTrustSources = result.second.getOrThrow().first
+                                    homeTrustHomes = result.second.getOrThrow().second
+                                }
+                                snackbarHostState.showSnackbar(if (result.first)
+                                    "Origen Home desvinculado"
+                                    else "El vínculo cambió o no pudo revocarse; revisa los orígenes")
+                            }
+                        },
+                    ) { Text("Desvincular") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingHomeManagerRevocation = null }) { Text("Conservar") }
+                },
+            )
+        }
+
+        // A57: authority-wide revocation is never the same action as revoking
+        // one source. Require a second, explicit confirmation that lists impact.
+        if (pendingHomeRootRevocation != null) {
+            val expectedHome = pendingHomeRootRevocation!!
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { pendingHomeRootRevocation = null },
+                title = { Text("Desvincular autoridad Home completa") },
+                text = { Text("Se retirará la autoridad Home seleccionada y la confianza local de sus ${expectedHome.sourceCount} orígenes vinculados. Las transferencias perderán autorización en la siguiente comprobación. No se afectan otros Home. El QR anterior de esta autoridad quedará bloqueado incluso tras reiniciar. Para volver a vincular una autoridad, se requerirá una nueva raíz Home con identidad distinta y QR administrativo verificado.") },
+                confirmButton = {
+                    TextButton(
+                        modifier = Modifier.testTag("devices_aircat_home_root_revoke_confirm"),
+                        onClick = {
+                            pendingHomeRootRevocation = null
+                            scope.launch {
+                                val result = withContext(Dispatchers.IO) {
+                                    val removed = runCatching {
+                                        homeEnrollment.revokeHomeIfUnchanged(expectedHome)
+                                    }.getOrDefault(false)
+                                    val inventory = runCatching {
+                                        homeEnrollment.enrolledSources() to homeEnrollment.enrolledHomes()
+                                    }
+                                    removed to inventory
+                                }
+                                homeTrustReadFailed = result.second.isFailure
+                                if (result.second.isSuccess) {
+                                    homeTrustSources = result.second.getOrThrow().first
+                                    homeTrustHomes = result.second.getOrThrow().second
+                                }
+                                snackbarHostState.showSnackbar(if (result.first)
+                                    "Autoridad Home y sus orígenes desvinculados"
+                                    else "Home cambió o no pudo desvincularse; vuelve a revisar la confianza")
+                            }
+                        },
+                    ) { Text("Desvincular Home") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingHomeRootRevocation = null }) { Text("Conservar Home") }
+                },
             )
         }
 
@@ -872,6 +1178,8 @@ fun DevicesScreen(
 private fun DevicesTopBar(
     isSearching: Boolean,
     onRefreshClick: () -> Unit,
+    onStopClick: () -> Unit,
+    onHomeTrustClick: () -> Unit,
     onQrClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onRemoteClick: () -> Unit = {},
@@ -917,8 +1225,21 @@ private fun DevicesTopBar(
                         strokeWidth = 2.dp,
                     )
                 }
-                if (!compactHeader) {
+                // Stop is always visible while searching, including compact
+                // layouts. It stops discovery only, never playback or AirCat.
+                if (isSearching) {
                     MichiIconAction(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Detener búsqueda",
+                        onClick = onStopClick,
+                        tint = AccentCoral,
+                        iconSize = 22.dp,
+                        minTargetSize = MichiSpacing.minTouchTarget,
+                        testTag = "devices_stop_search_button",
+                    )
+                }
+                if (!compactHeader) {
+                    if (!isSearching) MichiIconAction(
                         icon = Icons.Filled.Refresh,
                         contentDescription = "Buscar dispositivos",
                         onClick = onRefreshClick,
@@ -965,10 +1286,22 @@ private fun DevicesTopBar(
                     ) {
                         // Compact layout exposes the same actions via overflow.
                         if (compactHeader) {
+                            if (isSearching) {
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text("Detener búsqueda") },
+                                    onClick = { showMenu = false; onStopClick() },
+                                    leadingIcon = { Icon(Icons.Filled.Close, null, tint = AccentCoral) }
+                                )
+                            } else {
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text("Buscar dispositivos") },
+                                    onClick = { showMenu = false; onRefreshClick() },
+                                    leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TertiaryCyan) }
+                                )
+                            }
                             androidx.compose.material3.DropdownMenuItem(
-                                text = { Text("Buscar dispositivos") },
-                                onClick = { showMenu = false; onRefreshClick() },
-                                leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TertiaryCyan) }
+                                text = { Text("Administrar confianza Home") },
+                                onClick = { showMenu = false; onHomeTrustClick() },
                             )
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Escanear código QR") },

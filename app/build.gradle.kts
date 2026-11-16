@@ -137,6 +137,8 @@ dependencies {
     implementation(project(":data"))
     implementation(project(":player"))
     implementation(project(":michi-link-client"))
+    implementation(project(":aircat-transfer"))
+    implementation(libs.security.crypto)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.cardview)
