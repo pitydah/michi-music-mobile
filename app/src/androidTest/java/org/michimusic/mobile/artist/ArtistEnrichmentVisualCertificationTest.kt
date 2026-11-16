@@ -20,6 +20,13 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -287,6 +294,112 @@ class ArtistEnrichmentVisualCertificationTest {
         }
         compose.waitForIdle()
         save("artist_enrichment_confirm_delete_320.png", "cert_delete")
+    }
+
+    @Test
+    fun everySlotAnnouncesItsStateToScreenReaders() {
+        // §11.5: the photo is not decoration. A monogram says it has no verified image and
+        // a real image says its state, so TalkBack never reads a slot as one thing.
+        compose.setContent {
+            val configuration = remember {
+                Configuration(context.resources.configuration).apply {
+                    screenWidthDp = 390
+                    fontScale = 1.0f
+                    orientation = Configuration.ORIENTATION_PORTRAIT
+                }
+            }
+            CompositionLocalProvider(
+                LocalConfiguration provides configuration,
+                LocalDensity provides Density(LocalDensity.current.density, 1.0f),
+            ) {
+                MichiTheme {
+                    Box(Modifier.width(390.dp).background(SurfaceObsidian).padding(surfaceMargin.dp)) {
+                        ArtistEnrichmentSummaryContent(
+                            uiState = summaryState(localPng("cert_talkback.png")),
+                            onChoosePhoto = {},
+                            onPrimaryAction = {},
+                        )
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("artist_artwork_thumbnail_${ArtworkSlot.ARTIST_THUMB.name}")
+            .assertContentDescriptionEquals("Foto de mosaico: Disponible")
+        compose.onNodeWithTag("artist_artwork_placeholder_${ArtworkSlot.ARTIST_HERO.name}")
+            .assertContentDescriptionEquals(
+                "Foto de ficha: Pendiente de identidad Wikidata. Sin imagen verificada.",
+            )
+    }
+
+    @Test
+    fun landscapeMeasuresTheSameWidthAsPortrait() {
+        // §11.4: the orientation must not change the geometry either. Both cases request the
+        // same width inside the window that physically fits it.
+        var landscape by mutableStateOf(false)
+        compose.setContent {
+            val configuration = remember(landscape) {
+                Configuration(context.resources.configuration).apply {
+                    screenWidthDp = 390
+                    fontScale = 1.0f
+                    orientation = if (landscape) {
+                        Configuration.ORIENTATION_LANDSCAPE
+                    } else {
+                        Configuration.ORIENTATION_PORTRAIT
+                    }
+                }
+            }
+            CompositionLocalProvider(
+                LocalConfiguration provides configuration,
+                LocalDensity provides Density(LocalDensity.current.density, 1.0f),
+            ) {
+                MichiTheme {
+                    Box(Modifier.width(390.dp).background(SurfaceObsidian)) {
+                        ArtistEnrichmentSummaryContent(
+                            uiState = summaryState(localPng("cert_landscape.png")),
+                            onChoosePhoto = {},
+                            onPrimaryAction = {},
+                            modifier = Modifier.padding(surfaceMargin.dp).testTag("cert_landscape"),
+                        )
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val portraitDp = compose.onNodeWithTag("cert_landscape").fetchSemanticsNode()
+            .let { it.size.width / it.layoutInfo.density.density }
+        landscape = true
+        compose.waitForIdle()
+        val landscapeDp = compose.onNodeWithTag("cert_landscape").fetchSemanticsNode()
+            .let { it.size.width / it.layoutInfo.density.density }
+        assertTrue(
+            "landscape measured ${landscapeDp}dp against ${portraitDp}dp in portrait",
+            kotlin.math.abs(landscapeDp - portraitDp) <= 1.0f,
+        )
+        save("artist_enrichment_summary_390_1.0_landscape.png", "cert_landscape")
+    }
+
+    @Test
+    fun everyExplicitChoiceIsAnAnnouncedButtonTarget() {
+        // §11.5: what a screen reader gets is a button with its label and a 48 dp target.
+        // Compose does not grant keyboard focus in touch mode, so keyboard traversal is not
+        // what this asserts - the accessibility node contract is.
+        compose.setContent {
+            MichiTheme {
+                Box(Modifier.width(390.dp).background(SurfaceObsidian).padding(surfaceMargin.dp)) {
+                    ArtistEnrichmentSummaryContent(
+                        uiState = summaryState(localPng("cert_focus.png")),
+                        onChoosePhoto = {},
+                        onPrimaryAction = {},
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+        val action = compose.onNodeWithTag("artist_artwork_slot_action_${ArtworkSlot.ARTIST_HERO.name}")
+        action.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        action.assertTextEquals("Elegir fotografía")
+        action.assertHeightIsAtLeast(48.dp)
     }
 
     private fun summaryState(thumbnail: File) = ArtistEnrichmentUiState(
