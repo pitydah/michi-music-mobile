@@ -29,6 +29,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -400,6 +401,91 @@ class ArtistEnrichmentVisualCertificationTest {
         action.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
         action.assertTextEquals("Elegir fotografía")
         action.assertHeightIsAtLeast(48.dp)
+    }
+
+    /**
+     * K48-R11: on a real phone the slot said "Disponible" over an empty rectangle because a
+     * decode failure looked exactly like a photo that is simply not painted. A saved file that
+     * cannot be read must fall back to the neutral monogram and say so.
+     */
+    @Test
+    fun aSavedPhotoThatCannotBeDecodedIsNotReportedAsShown() {
+        val missing = File(File(context.filesDir, "certification"), "not-a-real-photo.png")
+        assertTrue("fixture must not exist: $missing", !missing.exists())
+
+        compose.setContent {
+            MichiTheme {
+                Box(Modifier.fillMaxWidth().background(SurfaceObsidian)) {
+                    ArtistEnrichmentSummaryContent(
+                        uiState = summaryState(missing),
+                        onChoosePhoto = {},
+                        onPrimaryAction = {},
+                    )
+                }
+            }
+        }
+
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("artist_artwork_decode_error_ARTIST_THUMB")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("artist_artwork_decode_error_ARTIST_THUMB").assertExists()
+        compose.onNodeWithTag("artist_artwork_decode_fallback_ARTIST_THUMB").assertExists()
+        compose.onNodeWithTag("artist_artwork_thumbnail_ARTIST_THUMB").assertDoesNotExist()
+        compose.onNodeWithTag("artist_artwork_slot_state_ARTIST_THUMB")
+            .assertTextEquals("Disponible")
+    }
+
+    /**
+     * The other half of the same contract: a file the app *can* decode is really painted.
+     * The assertion reads the pixels the device drew, not the presence of a node.
+     */
+    @Test
+    fun aDecodableSavedPhotoIsActuallyDrawn() {
+        val thumbnail = localPng("cert_decode.png")
+        compose.setContent {
+            MichiTheme {
+                Box(Modifier.fillMaxWidth().background(SurfaceObsidian)) {
+                    ArtistEnrichmentSummaryContent(
+                        uiState = summaryState(thumbnail),
+                        onChoosePhoto = {},
+                        onPrimaryAction = {},
+                    )
+                }
+            }
+        }
+
+        compose.waitForIdle()
+        val tag = "artist_artwork_thumbnail_ARTIST_THUMB"
+        compose.onNodeWithTag(tag).assertExists()
+        compose.waitUntil(10_000) {
+            val pixels = compose.onNodeWithTag(tag).captureToImage().asAndroidBitmap()
+            paintedPixels(pixels) > 0
+        }
+        val pixels = compose.onNodeWithTag(tag).captureToImage().asAndroidBitmap()
+        assertTrue("the decoded photo drew ${paintedPixels(pixels)} non-background pixels",
+            paintedPixels(pixels) > 0)
+        compose.onNodeWithTag("artist_artwork_decode_error_ARTIST_THUMB").assertDoesNotExist()
+    }
+
+    /** Pixels that are neither the card surface nor transparent. */
+    private fun paintedPixels(bitmap: Bitmap): Int {
+        var painted = 0
+        var x = 0
+        while (x < bitmap.width) {
+            var y = 0
+            while (y < bitmap.height) {
+                val color = bitmap.getPixel(x, y)
+                val alpha = android.graphics.Color.alpha(color)
+                val red = android.graphics.Color.red(color)
+                val green = android.graphics.Color.green(color)
+                val blue = android.graphics.Color.blue(color)
+                if (alpha > 200 && red + green + blue > 3 * 26) painted++
+                y += 3
+            }
+            x += 3
+        }
+        return painted
     }
 
     private fun summaryState(thumbnail: File) = ArtistEnrichmentUiState(

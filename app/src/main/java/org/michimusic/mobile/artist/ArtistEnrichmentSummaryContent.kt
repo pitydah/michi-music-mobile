@@ -17,11 +17,18 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -30,6 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
 import java.io.File
 import org.michimusic.mobile.artist.artwork.ArtistEnrichmentPrimaryAction
 import org.michimusic.mobile.ui.theme.PrimaryPinkContainer
@@ -152,6 +162,11 @@ fun ArtworkSlotCard(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
+    // K48-R11: a file can be on disk and still fail to decode. Without this the slot kept
+    // saying "Disponible" over an empty rectangle, which reads as a photograph that is
+    // there and simply not shown. The card now reports the failure it actually saw.
+    var imageUnreadable by remember(slot.imagePath) { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -171,9 +186,10 @@ fun ArtworkSlotCard(
             ArtistSlotThumbnail(
                 slot = slot,
                 artistName = artistName,
+                onUnreadable = { imageUnreadable = true },
                 modifier = Modifier.fillMaxWidth().aspectRatio(1f),
             )
-            ArtistSlotDetailText(slot)
+            ArtistSlotDetailText(slot = slot, imageUnreadable = imageUnreadable)
             ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = true)
         } else {
             Row(
@@ -181,12 +197,16 @@ fun ArtworkSlotCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ArtistSlotThumbnail(slot = slot, artistName = artistName)
+                ArtistSlotThumbnail(
+                    slot = slot,
+                    artistName = artistName,
+                    onUnreadable = { imageUnreadable = true },
+                )
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    ArtistSlotDetailText(slot)
+                    ArtistSlotDetailText(slot = slot, imageUnreadable = imageUnreadable)
                     ArtistSlotChooseAction(slot = slot, onChoose = onChoose, fillWidth = false)
                 }
             }
@@ -199,7 +219,7 @@ fun ArtworkSlotCard(
  * of an image that actually exists. Provenance never stands in for the image.
  */
 @Composable
-private fun ArtistSlotDetailText(slot: ArtistPhotoSlot) {
+private fun ArtistSlotDetailText(slot: ArtistPhotoSlot, imageUnreadable: Boolean = false) {
     Text(
         slot.statusLabel,
         color = if (slot.isSatisfied) TertiaryCyan else PureWhite,
@@ -213,14 +233,30 @@ private fun ArtistSlotDetailText(slot: ArtistPhotoSlot) {
             overflow = TextOverflow.Ellipsis,
         )
     }
+    if (slot.hasThumbnail && imageUnreadable) {
+        // The photo is saved, so the state above is still accurate; only its display failed.
+        Text(
+            "No se pudo mostrar la imagen guardada.",
+            color = TextSecondary, fontSize = 10.sp, maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.testTag("artist_artwork_decode_error_${slot.slot.name}"),
+        )
+    }
+    // Provenance of a real image only; it never substitutes the image. Author and license
+    // get a line each so the short license is not the part that gets ellipsized (§9.6).
     if (slot.hasThumbnail) {
-        val provenance = listOfNotNull(slot.attribution, slot.license)
-            .filter { it.isNotBlank() }
-            .joinToString(" · ")
-        if (provenance.isNotBlank()) {
+        val author = slot.attribution?.takeIf { it.isNotBlank() }
+        val license = slot.license?.takeIf { it.isNotBlank() }
+        author?.let {
             Text(
-                provenance, color = TextSecondary, fontSize = 10.sp,
+                it, color = TextSecondary, fontSize = 10.sp,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        license?.let {
+            Text(
+                it, color = TextSecondary, fontSize = 10.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -253,36 +289,71 @@ private fun ArtistSlotThumbnail(
     slot: ArtistPhotoSlot,
     artistName: String,
     modifier: Modifier = Modifier.size(SlotThumbnailSize),
+    onUnreadable: () -> Unit = {},
 ) {
     val shape = RoundedCornerShape(12.dp)
-    val describe = if (slot.hasThumbnail) {
-        "${slot.title}: ${slot.statusLabel}"
-    } else {
-        "${slot.title}: ${slot.statusLabel}. Sin imagen verificada."
+    // A saved file that Coil cannot decode must not look like a photo that is simply not
+    // drawn: the card falls back to the neutral monogram and says so (§9.5, K48-R11).
+    var decodeFailed by remember(slot.imagePath) { mutableStateOf(false) }
+    LaunchedEffect(decodeFailed) { if (decodeFailed) onUnreadable() }
+    val describe = when {
+        !slot.hasThumbnail -> "${slot.title}: ${slot.statusLabel}. Sin imagen verificada."
+        decodeFailed -> "${slot.title}: ${slot.statusLabel}. La imagen guardada no se pudo mostrar."
+        else -> "${slot.title}: ${slot.statusLabel}"
     }
-    if (slot.hasThumbnail) {
+    if (slot.hasThumbnail && !decodeFailed) {
+        val context = LocalContext.current
+        val file = remember(slot.imagePath) { File(requireNotNull(slot.imagePath)) }
+        // A 72-180 dp thumbnail gains nothing from a hardware bitmap, and some device decoders
+        // fail on one without reporting anything useful. Software decoding is cheap here.
+        val request = remember(file) {
+            ImageRequest.Builder(context).data(file).allowHardware(false).build()
+        }
         AsyncImage(
-            model = File(requireNotNull(slot.imagePath)),
+            model = request,
             contentDescription = describe,
             contentScale = ContentScale.Crop,
+            onState = { state -> if (state is AsyncImagePainter.State.Error) decodeFailed = true },
             modifier = modifier
                 .clip(shape)
                 .testTag("artist_artwork_thumbnail_${slot.slot.name}"),
         )
     } else {
-        Box(
-            modifier = modifier
-                .clip(shape)
-                .background(PureWhite.copy(alpha = 0.08f))
-                .semantics { contentDescription = describe }
-                .testTag("artist_artwork_placeholder_${slot.slot.name}"),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                artistName.trim().take(1).ifBlank { "?" }.uppercase(),
-                color = TextSecondary, fontSize = 24.sp, fontWeight = FontWeight.SemiBold,
-            )
-        }
+        ArtistSlotMonogram(
+            artistName = artistName,
+            describe = describe,
+            tag = if (decodeFailed) {
+                "artist_artwork_decode_fallback_${slot.slot.name}"
+            } else {
+                "artist_artwork_placeholder_${slot.slot.name}"
+            },
+            shape = shape,
+            modifier = modifier,
+        )
+    }
+}
+
+/** A neutral initial: it never pretends to be a recovered photograph. */
+@Composable
+private fun ArtistSlotMonogram(
+    artistName: String,
+    describe: String,
+    tag: String,
+    shape: Shape,
+    modifier: Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(PureWhite.copy(alpha = 0.08f))
+            .semantics { contentDescription = describe }
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            artistName.trim().take(1).ifBlank { "?" }.uppercase(),
+            color = TextSecondary, fontSize = 24.sp, fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
