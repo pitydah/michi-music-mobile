@@ -35,6 +35,8 @@ import java.util.Base64
 class AirCatContractTest {
 
     private lateinit var tempDir: File
+    // A33/A67: recovery only repairs paths that live inside the managed root.
+    private val musicRoot: File get() = File(tempDir, "synced_music").also { it.mkdirs() }
     private lateinit var mockContext: Context
     private lateinit var transferManager: LinkTransferManager
     private lateinit var pairedRegistry: PairedDeviceRegistry
@@ -82,6 +84,9 @@ class AirCatContractTest {
         tempDir = Files.createTempDirectory("aircat_test").toFile()
         mockContext = mockk(relaxed = true)
         every { mockContext.filesDir } returns tempDir
+        // A33/A67: recovery preflights the managed root before writing anything, so
+        // the destination directory has to exist for a legitimate repair batch.
+        File(tempDir, "synced_music").mkdirs()
 
         durableCheckpoints = mockk(relaxed = true)
         checkpointRows.clear()
@@ -886,6 +891,9 @@ class AirCatContractTest {
         stubDurableCompletion(checkpointRepo, cp1)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
+        // A33/A67: a relaxed mock would hand the preflight a mocked File, and the
+        // managed root must be a real directory before a repair batch may write.
+        every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } answers {
             isRevokedFlag = true // Revoked after first accepted download, before the next item.
             Result.success(File(tempDir, "t1.mp3").apply { writeBytes(ByteArray(100)) })
@@ -1029,8 +1037,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib_target_1",
             trackId = "track_strict_1",
             remoteTrackId = "track_strict_1",
-            tempFilePath = File(tempDir, "temp1.part").absolutePath,
-            finalFilePath = File(tempDir, "final1.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "temp1.part").absolutePath,
+            finalFilePath = File(musicRoot, "final1.mp3").absolutePath,
             expectedSize = 5L,
             receivedBytes = 0L,
             verifiedBytes = 0L,
@@ -1049,8 +1057,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib_wrong_dest",
             trackId = "track_strict_2",
             remoteTrackId = "track_strict_2",
-            tempFilePath = File(tempDir, "temp2.part").absolutePath,
-            finalFilePath = File(tempDir, "final2.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "temp2.part").absolutePath,
+            finalFilePath = File(musicRoot, "final2.mp3").absolutePath,
             expectedSize = 2000L,
             receivedBytes = 1000L,
             verifiedBytes = 0L,
@@ -1066,7 +1074,10 @@ class AirCatContractTest {
         stubDurableCompletion(checkpointRepo, cp1)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
-        val dummyFile = File(tempDir, "final1.mp3").also { it.writeText("hello") }
+        // A33/A67: a relaxed mock would hand the preflight a mocked File, and the
+        // managed root must be a real directory before a repair batch may write.
+        every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
+        val dummyFile = File(musicRoot, "final1.mp3").also { it.writeText("hello") }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
         every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
@@ -1129,8 +1140,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib_1",
             trackId = "track_empty_hash",
             remoteTrackId = "track_empty_hash",
-            tempFilePath = File(tempDir, "temp_empty.part").absolutePath,
-            finalFilePath = File(tempDir, "final_empty.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "temp_empty.part").absolutePath,
+            finalFilePath = File(musicRoot, "final_empty.mp3").absolutePath,
             expectedSize = 1000L,
             receivedBytes = 500L,
             verifiedBytes = 0L,
@@ -1150,8 +1161,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib_1",
             trackId = "track_mismatch_hash",
             remoteTrackId = "track_mismatch_hash",
-            tempFilePath = File(tempDir, "temp_mismatch.part").absolutePath,
-            finalFilePath = File(tempDir, "final_mismatch.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "temp_mismatch.part").absolutePath,
+            finalFilePath = File(musicRoot, "final_mismatch.mp3").absolutePath,
             expectedSize = 1000L,
             receivedBytes = 500L,
             verifiedBytes = 0L,
@@ -1171,8 +1182,8 @@ class AirCatContractTest {
             destinationLibraryId = "lib_1",
             trackId = "track_valid_hash",
             remoteTrackId = "track_valid_hash",
-            tempFilePath = File(tempDir, "temp_valid.part").absolutePath,
-            finalFilePath = File(tempDir, "final_valid.mp3").absolutePath,
+            tempFilePath = File(musicRoot, "temp_valid.part").absolutePath,
+            finalFilePath = File(musicRoot, "final_valid.mp3").absolutePath,
             expectedSize = "hello valid".length.toLong(),
             receivedBytes = 0L,
             verifiedBytes = 0L,
@@ -1188,7 +1199,10 @@ class AirCatContractTest {
         stubDurableCompletion(checkpointRepo, cpValid)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
-        val dummyFile = File(tempDir, "final_valid.mp3").also { it.writeText("hello valid") }
+        // A33/A67: a relaxed mock would hand the preflight a mocked File, and the
+        // managed root must be a real directory before a repair batch may write.
+        every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
+        val dummyFile = File(musicRoot, "final_valid.mp3").also { it.writeText("hello valid") }
         coEvery { mockTransferManager.downloadTrack(any(), any()) } returns Result.success(dummyFile)
         every { mockTransferManager.finalizeAfterCommit(any(), any(), any(), any(), any()) } returns true
 
@@ -1262,6 +1276,9 @@ class AirCatContractTest {
         coEvery { checkpointRepo.getCheckpointsForDevice(deviceId) } returns listOf(cpPlanA)
 
         val mockTransferManager = mockk<LinkTransferManager>(relaxed = true)
+        // A33/A67: a relaxed mock would hand the preflight a mocked File, and the
+        // managed root must be a real directory before a repair batch may write.
+        every { mockTransferManager.musicDir } returns File(tempDir, "synced_music").also { it.mkdirs() }
         val client = DefaultAirCatTransferClient(
             transferManager = mockTransferManager,
             pairedDeviceRegistry = pairedRegistry,
