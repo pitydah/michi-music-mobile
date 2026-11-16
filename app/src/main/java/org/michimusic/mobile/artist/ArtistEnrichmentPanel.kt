@@ -595,92 +595,29 @@ fun ArtistEnrichmentPanel(
                     }
                 }
                 if (canPersist && result.persisted) {
-                    // K47-ART-03: deletion is destructive and irreversible for this
-                    // association, so it lives behind an advanced section and an explicit
-                    // confirmation that states exactly what is removed and what remains.
-                    TextButton(
-                        onClick = { advancedOpen = !advancedOpen },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .testTag("artist_enrichment_advanced"),
-                    ) {
-                        Text(
-                            if (advancedOpen) "Ocultar opciones avanzadas" else "Opciones avanzadas",
-                            color = PureWhite, fontSize = 12.sp,
-                        )
-                    }
-                    if (advancedOpen) {
-                        // K48-S7 design E: the external refresh is an advanced action,
-                        // not the primary affordance of the summary.
-                        TextButton(
-                            onClick = {
-                                activeController.refresh(
-                                    artistCredit, libraryId, albumIds, force = true,
-                                )
-                            },
-                            enabled = !result.refreshing,
-                            modifier = Modifier.heightIn(min = 48.dp)
-                                .testTag("artist_enrichment_refresh"),
-                        ) {
-                            Text(
-                                if (result.refreshing) "Actualizando…" else "Actualizar información externa",
-                                color = TertiaryCyan, fontSize = 12.sp,
+                    // K48-R07: advanced, destructive-adjacent actions live in their own
+                    // content component. K48-R05 keeps the removal behind an exact receipt.
+                    ArtistEnrichmentAdvancedActionsContent(
+                        artistCredit = artistCredit,
+                        mbid = profile.mbid,
+                        albumCount = albumIds.distinct().size,
+                        refreshing = result.refreshing,
+                        delete = uiState.delete,
+                        expanded = advancedOpen,
+                        onToggle = { advancedOpen = !advancedOpen },
+                        onRefresh = {
+                            activeController.refresh(
+                                artistCredit, libraryId, albumIds, force = true,
                             )
-                        }
-                        val delete = uiState.delete
-                        if (delete is EnrichmentDeleteState.Confirming) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth()
-                                    .testTag("artist_enrichment_confirm_delete"),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(
-                                    "Se quitarán de $artistCredit los datos enriquecidos guardados " +
-                                        "(MBID ${profile.mbid}, biografía, fotografías y vínculos de " +
-                                        "${albumIds.distinct().size} álbum(es)). Tus archivos de audio, " +
-                                        "etiquetas y la biblioteca local no se modifican.",
-                                    color = PureWhite, fontSize = 12.sp,
-                                )
-                                Text(
-                                    "Esta acción no se puede deshacer desde aquí.",
-                                    color = TextSecondary, fontSize = 11.sp,
-                                )
-                                TextButton(
-                                    onClick = { activeController.cancelDelete() },
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                        .testTag("artist_enrichment_delete_cancel"),
-                                ) { Text("Cancelar", color = SecondaryPurple) }
-                                OutlinedButton(
-                                    onClick = {
-                                        activeController.confirmDelete(
-                                            artistCredit, libraryId, albumIds,
-                                        )
-                                    },
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                        .testTag("artist_enrichment_delete_confirm"),
-                                    colors = secondaryColors,
-                                    border = secondaryBorder,
-                                ) { Text("Quitar datos enriquecidos") }
-                            }
-                        } else {
-                            OutlinedButton(
-                                onClick = {
-                                    activeController.requestDelete(
-                                        artistCredit, libraryId, albumIds,
-                                    )
-                                },
-                                enabled = delete !is EnrichmentDeleteState.Deleting,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                                    .testTag("artist_enrichment_clear"),
-                                colors = secondaryColors,
-                                border = secondaryBorder,
-                            ) {
-                                Text(
-                                    if (delete is EnrichmentDeleteState.Deleting) "Borrando…"
-                                    else "Quitar datos enriquecidos…",
-                                )
-                            }
-                        }
-                    }
+                        },
+                        onRequestDelete = {
+                            activeController.requestDelete(artistCredit, libraryId, albumIds)
+                        },
+                        onCancelDelete = { activeController.cancelDelete() },
+                        onConfirmDelete = {
+                            activeController.confirmDelete(artistCredit, libraryId, albumIds)
+                        },
+                    )
                 }
                 Text(listOf(profile.type, profile.area, profile.disambiguation)
                     .filter(String::isNotBlank).joinToString(" · ").ifBlank { "Identidad registrada en MusicBrainz" },
