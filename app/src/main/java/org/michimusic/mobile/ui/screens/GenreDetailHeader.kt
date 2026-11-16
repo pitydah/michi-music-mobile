@@ -1,14 +1,17 @@
 package org.michimusic.mobile.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +31,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -71,6 +77,7 @@ internal fun GenreDetailHeader(
     onBack: () -> Unit,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
+    onOpenAtlas: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val fontScale: Float = LocalConfiguration.current.fontScale
@@ -99,6 +106,8 @@ internal fun GenreDetailHeader(
         // painter while the next header asset is still in flight.
         BoxWithConstraints(
             Modifier.fillMaxWidth().height(artworkBandHeight)
+                .clickable(enabled = atlasGenreIsEligible(genre), role = Role.Button, onClick = onOpenAtlas)
+                .semantics { contentDescription = "Explorar Atlas de ${genre.title}" }
                 .testTag("genre_detail_header_artwork"),
         ) {
             // `maxWidth` belongs to BoxWithConstraintsScope; these locals are
@@ -210,6 +219,26 @@ internal fun GenreDetailHeader(
                 minTargetSize = MichiSpacing.minTouchTarget,
             )
             Text("Géneros", style = MichiTypography.microLabel, color = PureWhite)
+            Spacer(Modifier.weight(1f))
+            if (atlasGenreIsEligible(genre)) {
+                Box(
+                    modifier = Modifier
+                        .heightIn(min = MichiSpacing.minTouchTarget)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SurfaceObsidian.copy(alpha = 0.88f))
+                        .clickable(role = Role.Button, onClick = onOpenAtlas)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .testTag("michi_atlas_open_${genre.id}"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (largeText) "Atlas" else "Explorar Atlas",
+                        style = MichiTypography.microLabel,
+                        color = PureWhite,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
 
         // Opaque lower band: the real title/count replace the baked artwork text.
@@ -268,7 +297,7 @@ internal fun GenreDetailHeader(
 
 /** The approved Mosaico crop is drawn as the upper-band image, never stretched. */
 @Composable
-private fun GenreHeaderMosaicArtwork(
+internal fun GenreHeaderMosaicArtwork(
     asset: MosaicArtworkAsset,
     onImageResult: ((Boolean) -> Unit)? = null,
 ) {
