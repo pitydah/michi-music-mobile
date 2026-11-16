@@ -59,6 +59,7 @@ import org.michimusic.mobile.artist.artwork.ArtistArtworkCandidate
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCoverageState
 import org.michimusic.mobile.artist.artwork.ArtistArtworkSlotCoverage
 import org.michimusic.mobile.artist.artwork.ArtistArtworkCoverageUiState
+import org.michimusic.mobile.artist.artwork.ArtistEnrichmentPrimaryAction
 import org.michimusic.mobile.artist.artwork.ArtistArtworkUiState
 import org.michimusic.mobile.artist.artwork.ArtistIdentityAnchor
 import org.michimusic.mobile.artist.artwork.ArtistArtworkPersistence
@@ -225,10 +226,25 @@ fun ArtistEnrichmentPanel(
         }
         Button(
             onClick = {
-                // K48-S7: without a confirmed identity the only honest action is to review it.
-                if (uiState.profile?.mbid?.isBlank() != false) identityExpanded = true
-                artworkPickerOpen = true
+                // K48-R03: the label comes from the action, so tapping it always runs
+                // exactly the operation the user read.
+                when (panelCoverage.primaryAction) {
+                    ArtistEnrichmentPrimaryAction.ReviewIdentity,
+                    ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity,
+                    -> identityExpanded = true
+                    ArtistEnrichmentPrimaryAction.SearchMissingPhotos,
+                    ArtistEnrichmentPrimaryAction.RetryProvider,
+                    -> {
+                        artworkPickerOpen = true
+                        activeController.searchPortraits(artistCredit, libraryId, albumIds)
+                    }
+                    ArtistEnrichmentPrimaryAction.ReviewLicense,
+                    ArtistEnrichmentPrimaryAction.ViewPhotos,
+                    -> artworkPickerOpen = true
+                    ArtistEnrichmentPrimaryAction.None -> Unit
+                }
             },
+            enabled = panelCoverage.primaryAction != ArtistEnrichmentPrimaryAction.None,
             colors = ButtonDefaults.buttonColors(
                 containerColor = PrimaryPinkContainer,
                 contentColor = SurfaceObsidian,
@@ -236,7 +252,7 @@ fun ArtistEnrichmentPanel(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 .testTag("artist_artwork_primary_action"),
         ) {
-            Text(panelCoverage.primaryAction ?: "Buscar fotos faltantes")
+            Text(panelCoverage.primaryAction.label ?: "Buscar fotos faltantes")
         }
         TextButton(
             onClick = { identityExpanded = !identityExpanded },

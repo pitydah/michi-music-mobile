@@ -44,7 +44,7 @@ data class ArtistArtworkCoverageUiState(
     val slots: List<ArtistArtworkSlotCoverage>,
     val providers: List<ArtistArtworkProviderCoverage>,
     val diagnosed: Boolean,
-    val primaryAction: String? = null,
+    val primaryAction: ArtistEnrichmentPrimaryAction = ArtistEnrichmentPrimaryAction.None,
 ) {
     companion object {
         fun undiagnosed(): ArtistArtworkCoverageUiState = ArtistArtworkCoverageUiState(
@@ -238,22 +238,49 @@ data class ArtistArtworkCoverageUiState(
             slots: List<ArtistArtworkSlotCoverage>,
             identityConfirmed: Boolean,
             verifiedQid: String?,
-        ): String {
-            if (!identityConfirmed) return "Revisar identidad"
-            if (!validWikidataQid(verifiedQid)) return "Verificar identidad para fotos"
+        ): ArtistEnrichmentPrimaryAction {
+            if (!identityConfirmed) return ArtistEnrichmentPrimaryAction.ReviewIdentity
+            if (!validWikidataQid(verifiedQid)) {
+                return ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity
+            }
             if (slots.any { it.state == ArtistArtworkCoverageState.NETWORK_FAILED }) {
-                return "Reintentar cuando haya conexión"
+                return ArtistEnrichmentPrimaryAction.RetryProvider
             }
             if (slots.any { it.state == ArtistArtworkCoverageState.LICENSE_REJECTED }) {
-                return "Elegir otra fotografía"
+                return ArtistEnrichmentPrimaryAction.ReviewLicense
             }
             if (slots.all { it.state.isSatisfied() } &&
                 slots.none { it.state == ArtistArtworkCoverageState.NOT_ATTEMPTED }
-            ) return "Ver fotos"
-            if (slots.any { it.state == ArtistArtworkCoverageState.NO_MATCH }) return "Buscar fotos faltantes"
-            return "Buscar fotos faltantes"
+            ) return ArtistEnrichmentPrimaryAction.ViewPhotos
+            return ArtistEnrichmentPrimaryAction.SearchMissingPhotos
         }
     }
+}
+
+/**
+ * K48-R03: the primary affordance is a typed operation, never a label that the UI has
+ * to reinterpret. The text comes from the action, so a control can never announce one
+ * thing and run another.
+ */
+sealed interface ArtistEnrichmentPrimaryAction {
+    data object ReviewIdentity : ArtistEnrichmentPrimaryAction
+    data object VerifyWikidataIdentity : ArtistEnrichmentPrimaryAction
+    data object SearchMissingPhotos : ArtistEnrichmentPrimaryAction
+    data object RetryProvider : ArtistEnrichmentPrimaryAction
+    data object ReviewLicense : ArtistEnrichmentPrimaryAction
+    data object ViewPhotos : ArtistEnrichmentPrimaryAction
+    data object None : ArtistEnrichmentPrimaryAction
+
+    val label: String?
+        get() = when (this) {
+            ReviewIdentity -> "Revisar identidad"
+            VerifyWikidataIdentity -> "Verificar identidad para fotos"
+            SearchMissingPhotos -> "Buscar fotos faltantes"
+            RetryProvider -> "Reintentar cuando haya conexión"
+            ReviewLicense -> "Elegir otra fotografía"
+            ViewPhotos -> "Ver fotos"
+            None -> null
+        }
 }
 
 /** A slot is covered only when a real image is present, automatic or manually protected. */

@@ -75,7 +75,7 @@ class ArtistArtworkCoveragePolicyTest {
 
         assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.IDENTITY_UNVERIFIED })
         assertTrue(coverage.slots.all { it.statusLabel == "Bloqueada por identidad" })
-        assertEquals("Revisar identidad", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.ReviewIdentity, coverage.primaryAction)
     }
 
     @Test
@@ -88,7 +88,7 @@ class ArtistArtworkCoveragePolicyTest {
         )
 
         assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.QID_MISSING })
-        assertEquals("Verificar identidad para fotos", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity, coverage.primaryAction)
     }
 
     @Test
@@ -113,7 +113,7 @@ class ArtistArtworkCoveragePolicyTest {
 
         assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.READY })
         assertTrue(coverage.slots.all { it.statusLabel == "Disponible" })
-        assertEquals("Ver fotos", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.ViewPhotos, coverage.primaryAction)
         assertNull(coverage.slots.first().nextAction)
     }
 
@@ -137,7 +137,7 @@ class ArtistArtworkCoveragePolicyTest {
         assertEquals("Disponible · elegida por ti", coverage.slots[0].statusLabel)
         assertEquals("Cambiar foto", coverage.slots[0].nextAction)
         assertEquals(ArtistArtworkCoverageState.NO_MATCH, coverage.slots[1].state)
-        assertEquals("Buscar fotos faltantes", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.SearchMissingPhotos, coverage.primaryAction)
     }
 
     @Test
@@ -154,7 +154,7 @@ class ArtistArtworkCoveragePolicyTest {
 
         assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.LICENSE_REJECTED })
         assertEquals("Licencia no admisible", coverage.slots.first().statusLabel)
-        assertEquals("Elegir otra fotografía", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.ReviewLicense, coverage.primaryAction)
     }
 
     @Test
@@ -170,7 +170,7 @@ class ArtistArtworkCoveragePolicyTest {
         )
         assertEquals(ArtistArtworkCoverageState.NETWORK_FAILED, failed.slots.first().state)
         assertEquals("Error temporal", failed.slots.first().statusLabel)
-        assertEquals("Reintentar cuando haya conexión", failed.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.RetryProvider, failed.primaryAction)
 
         val cacheFailed = ArtistArtworkCoverageUiState.from(
             uiState = ui(
@@ -295,7 +295,7 @@ class ArtistArtworkCoveragePolicyTest {
 
         assertFalse(coverage.diagnosed)
         assertTrue(coverage.slots.all { it.state == ArtistArtworkCoverageState.QID_MISSING })
-        assertEquals("Verificar identidad para fotos", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity, coverage.primaryAction)
     }
 
     @Test
@@ -333,7 +333,7 @@ class ArtistArtworkCoveragePolicyTest {
         )
 
         assertTrue(coverage.slots.all { it.state.isSatisfied() })
-        assertEquals("Ver fotos", coverage.primaryAction)
+        assertEquals(ArtistEnrichmentPrimaryAction.ViewPhotos, coverage.primaryAction)
     }
 
     @Test
@@ -349,4 +349,25 @@ class ArtistArtworkCoveragePolicyTest {
         assertTrue(coverage.slots[0].reason.orEmpty().contains("sigue en curso"))
         assertFalse(coverage.slots[0].state.isSatisfied())
     }
+    /** K48-R03: the label is derived from the action, so they cannot drift apart. */
+    @Test
+    fun everyPrimaryActionAnnouncesItsOwnOperation() {
+        assertEquals("Revisar identidad", ArtistEnrichmentPrimaryAction.ReviewIdentity.label)
+        assertEquals(
+            "Verificar identidad para fotos",
+            ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity.label,
+        )
+        assertEquals(
+            "Buscar fotos faltantes",
+            ArtistEnrichmentPrimaryAction.SearchMissingPhotos.label,
+        )
+        assertEquals(
+            "Reintentar cuando haya conexión",
+            ArtistEnrichmentPrimaryAction.RetryProvider.label,
+        )
+        assertEquals("Elegir otra fotografía", ArtistEnrichmentPrimaryAction.ReviewLicense.label)
+        assertEquals("Ver fotos", ArtistEnrichmentPrimaryAction.ViewPhotos.label)
+        assertEquals(null, ArtistEnrichmentPrimaryAction.None.label)
+    }
+
 }
