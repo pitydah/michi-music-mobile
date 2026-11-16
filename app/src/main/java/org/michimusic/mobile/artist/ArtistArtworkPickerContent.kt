@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
@@ -88,6 +89,8 @@ fun ArtistArtworkPickerContent(
         artistIdentityAnchor(libraryId, artistCredit, albumIds, profile, associationGroupKey)
     }
     if (anchor == null) return
+    // K48-R12-05: a late save must never publish into another artist's picker.
+    val currentAnchor by rememberUpdatedState(anchor)
     val scope = rememberCoroutineScope()
     val secondaryColors = ButtonDefaults.outlinedButtonColors(contentColor = SecondaryPurple)
     val secondaryBorder = BorderStroke(0.8.dp, SecondaryPurple.copy(alpha = 0.5f))
@@ -303,16 +306,17 @@ fun ArtistArtworkPickerContent(
                             if (busy) return@OutlinedButton
                             busy = true
                             message = null
+                            val startedAt = anchor
                             scope.launch {
                                 try {
-                                    val report = choose(anchor, candidate, slot)
-                                    selections = report.selections
-                                    onSelectionsChanged(report.selections)
-                                    message = singleDestinationMessage(report.status, label)
-                                } catch (cancelled: CancellationException) {
-                                    throw cancelled
-                                } catch (error: Exception) {
-                                    message = "No fue posible descargar el retrato: ${error.message ?: "error"}"
+                                    // K48-R12-05: a real persisted selection is published on its
+                                    // own; a failed destination never erases the other slot.
+                                    val outcome = saveToDestination(choose, startedAt, candidate, slot)
+                                    if (currentAnchor != startedAt) return@launch
+                                    val merged = mergeSavedSelections(selections, listOf(outcome))
+                                    selections = merged
+                                    if (outcome.saved) onSelectionsChanged(merged)
+                                    message = singleDestinationMessage(outcome.status, label)
                                 } finally {
                                     busy = false
                                 }
@@ -330,18 +334,20 @@ fun ArtistArtworkPickerContent(
                     if (busy) return@OutlinedButton
                     busy = true
                     message = null
+                    val startedAt = anchor
                     scope.launch {
                         try {
-                            val forMosaic = choose(anchor, candidate, ArtworkSlot.ARTIST_THUMB)
-                            val forCard = choose(anchor, candidate, ArtworkSlot.ARTIST_HERO)
-                            val updated = forMosaic.selections + forCard.selections
-                            selections = updated
-                            onSelectionsChanged(updated)
-                            message = bothDestinationsMessage(forMosaic.status, forCard.status)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (error: Exception) {
-                            message = "No fue posible descargar el retrato: ${error.message ?: "error"}"
+                            // K48-R12-05: two writes can half-succeed. Both outcomes survive a
+                            // throw on the second destination, and the partial result is published.
+                            val outcomes = saveToBothDestinations(choose, startedAt, candidate)
+                            if (currentAnchor != startedAt) return@launch
+                            val merged = mergeSavedSelections(selections, outcomes)
+                            selections = merged
+                            if (outcomes.any { it.saved }) onSelectionsChanged(merged)
+                            message = bothDestinationsMessage(
+                                mosaic = outcomes.first { it.slot == ArtworkSlot.ARTIST_THUMB },
+                                card = outcomes.first { it.slot == ArtworkSlot.ARTIST_HERO },
+                            )
                         } finally {
                             busy = false
                         }
@@ -360,26 +366,95 @@ fun ArtistArtworkPickerContent(
 /** K48-R07: one saved destination is reported as one saved destination. */
 internal fun singleDestinationMessage(status: ArtworkLoadStatus, destination: String): String =
     when (status) {
-        ArtworkLoadStatus.READY -> "Retrato guardado para $destination."
+        ArtworkLoadStatus.READY -> "Fotografía guardada para $destination."
         ArtworkLoadStatus.REJECTED -> "El origen no confirma una licencia admitida."
-        else -> "No fue posible guardar el retrato (${status.name.lowercase()})."
+        else -> "No fue posible guardar la fotografía (${status.name.lowercase()})."
     }
 
 /**
- * K48-R07 §9.7: "Usar en ambos" verifies each slot on its own, so a slot that failed keeps its
- * real reason and a partial result is never reported as a complete one.
+ * K48-R12-05: what actually happened to one destination.
+ *
+ * A save either produced a persisted selection or a reason. Keeping the two apart is what
+ * lets a partial result be published instead of swallowed: the slot that succeeded still
+ * carries its selection after the other slot throws.
  */
-internal fun bothDestinationsMessage(mosaic: ArtworkLoadStatus, card: ArtworkLoadStatus): String {
-    val mosaicSaved = mosaic == ArtworkLoadStatus.READY
-    val cardSaved = card == ArtworkLoadStatus.READY
-    return when {
-        mosaicSaved && cardSaved -> "Retrato guardado en mosaico y ficha."
-        mosaicSaved ->
-            "Retrato guardado en mosaico. La ficha no se pudo guardar (${card.name.lowercase()})."
-        cardSaved ->
-            "Retrato guardado en ficha. El mosaico no se pudo guardar (${mosaic.name.lowercase()})."
-        else ->
-            "No fue posible guardar el retrato en ningún destino " +
-                "(${mosaic.name.lowercase()} / ${card.name.lowercase()})."
-    }
+internal data class SlotSaveOutcome(
+    val slot: ArtworkSlot,
+    val status: ArtworkLoadStatus,
+    val persistedSelection: ArtistArtworkSelection?,
+    val failure: SlotSaveFailure?,
+) {
+    val saved: Boolean get() = persistedSelection != null && status == ArtworkLoadStatus.READY
 }
+
+internal enum class SlotSaveFailure { PROVIDER_REJECTED, DOWNLOAD_FAILED, STORAGE_FAILED, THREW }
+
+private fun failureFor(status: ArtworkLoadStatus): SlotSaveFailure? = when (status) {
+    ArtworkLoadStatus.READY -> null
+    ArtworkLoadStatus.REJECTED, ArtworkLoadStatus.NO_IMAGE, ArtworkLoadStatus.NOT_REQUESTED ->
+        SlotSaveFailure.PROVIDER_REJECTED
+    ArtworkLoadStatus.CACHE_ERROR, ArtworkLoadStatus.PARTIAL -> SlotSaveFailure.STORAGE_FAILED
+    ArtworkLoadStatus.PROVIDER_ERROR, ArtworkLoadStatus.FETCHING, ArtworkLoadStatus.IDENTITY_MISMATCH ->
+        SlotSaveFailure.DOWNLOAD_FAILED
+}
+
+/**
+ * Saves one candidate into one destination and reports the outcome without ever throwing a
+ * provider failure at the caller. Cancellation is not a failure and is propagated untouched.
+ */
+internal suspend fun saveToDestination(
+    chooser: suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport,
+    anchor: ArtistIdentityAnchor,
+    candidate: ArtistArtworkCandidate,
+    slot: ArtworkSlot,
+): SlotSaveOutcome =
+    try {
+        val report = chooser(anchor, candidate, slot)
+        val persisted = report.selections[slot]
+        SlotSaveOutcome(
+            slot = slot,
+            status = report.status,
+            persistedSelection = persisted?.takeIf { it.status == ArtworkLoadStatus.READY },
+            failure = failureFor(report.status),
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        SlotSaveOutcome(slot, ArtworkLoadStatus.PROVIDER_ERROR, null, SlotSaveFailure.THREW)
+    }
+
+/**
+ * K48-R12-05: "Usar en ambos" is two writes, so it can half-succeed. Each destination is
+ * attempted independently and both outcomes survive; a throw on the second one must not
+ * discard the first one that is already persisted.
+ */
+internal suspend fun saveToBothDestinations(
+    chooser: suspend (ArtistIdentityAnchor, ArtistArtworkCandidate, ArtworkSlot) -> ArtworkResolutionReport,
+    anchor: ArtistIdentityAnchor,
+    candidate: ArtistArtworkCandidate,
+): List<SlotSaveOutcome> = listOf(ArtworkSlot.ARTIST_THUMB, ArtworkSlot.ARTIST_HERO)
+    .map { slot -> saveToDestination(chooser, anchor, candidate, slot) }
+
+/**
+ * Folds the outcomes into the visible map. Only real persisted selections are added, so a
+ * failed destination never erases the one that already worked.
+ */
+internal fun mergeSavedSelections(
+    current: Map<ArtworkSlot, ArtistArtworkSelection>,
+    outcomes: List<SlotSaveOutcome>,
+): Map<ArtworkSlot, ArtistArtworkSelection> =
+    outcomes.fold(current) { acc, outcome ->
+        outcome.persistedSelection?.let { acc + (outcome.slot to it) } ?: acc
+    }
+
+/**
+ * K48-R12-05 §9.7: a partial save is reported as partial, naming the destination that worked
+ * and the one that did not. The wording is fixed by the sprint contract.
+ */
+internal fun bothDestinationsMessage(mosaic: SlotSaveOutcome, card: SlotSaveOutcome): String =
+    when {
+        mosaic.saved && card.saved -> "Fotografía guardada en mosaico y ficha."
+        mosaic.saved -> "Fotografía guardada en mosaico. No se pudo completar la ficha."
+        card.saved -> "Fotografía guardada en ficha. No se pudo completar el mosaico."
+        else -> "No se pudo guardar la fotografía en ninguno de los destinos."
+    }

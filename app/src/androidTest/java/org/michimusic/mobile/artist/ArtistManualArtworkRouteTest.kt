@@ -155,7 +155,7 @@ class ArtistManualArtworkRouteTest {
             .performClick()
 
         compose.waitUntil(5_000) { hero != null }
-        compose.onNodeWithText("Retrato guardado para ficha.").assertExists()
+        compose.onNodeWithText("Fotografía guardada para ficha.").assertExists()
         compose.onNodeWithTag("artist_artwork_saved_ARTIST_HERO", useUnmergedTree = true)
             .assertExists()
         compose.onNodeWithTag("artist_detail_hero_artwork", useUnmergedTree = true)
