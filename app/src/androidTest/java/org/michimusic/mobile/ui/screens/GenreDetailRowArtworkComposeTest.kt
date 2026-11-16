@@ -184,6 +184,12 @@ class GenreDetailRowArtworkComposeTest {
         val track = rowTrack("none1", "No Cover", "", "content://michi/missing.flac")
         setPanel(mutableStateOf(listOf(track)))
         openPop()
+        // A detail header built from missing artwork is tall enough to push the
+        // first row out of the initial viewport, so the lazy row and its
+        // placeholder are not composed yet. Scroll to the row before waiting.
+        rule.onNodeWithTag("genre_detail")
+            .performScrollToNode(hasTestTag("genre_track_none1"))
+        rule.waitForIdle()
         waitForTag("album_artwork_unavailable")
         rule.onNodeWithTag("genre_track_art_none1", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithTag("album_artwork_unavailable", useUnmergedTree = true)
