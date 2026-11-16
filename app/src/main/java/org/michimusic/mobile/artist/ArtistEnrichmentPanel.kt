@@ -223,43 +223,10 @@ fun ArtistEnrichmentPanel(
             .testTag("artist_enrichment_panel"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        ArtistSummaryHeader(presentation)
-        // §9.9: two columnas solo cuando caben miniatura, estado y acción sin recorte.
-        if (artworkSlotsInline()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                ArtworkSlotCard(
-                    slot = presentation.mosaic,
-                    artistName = presentation.artistName,
-                    onChoose = { openPicker() },
-                    modifier = Modifier.weight(1f),
-                )
-                ArtworkSlotCard(
-                    slot = presentation.card,
-                    artistName = presentation.artistName,
-                    onChoose = { openPicker() },
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        } else {
-            ArtworkSlotCard(
-                slot = presentation.mosaic,
-                artistName = presentation.artistName,
-                onChoose = { openPicker() },
-            )
-            ArtworkSlotCard(
-                slot = presentation.card,
-                artistName = presentation.artistName,
-                onChoose = { openPicker() },
-            )
-        }
-        ArtistPrimaryAction(
-            action = presentation.primaryAction,
-            label = presentation.primaryActionLabel,
-            busy = presentation.isBusy,
-            onAction = { action ->
+        ArtistEnrichmentSummaryContent(
+            uiState = presentation,
+            onChoosePhoto = { openPicker() },
+            onPrimaryAction = { action ->
                 // K48-R03: the label comes from the action, so tapping it always runs
                 // exactly the operation the user read.
                 when (action) {

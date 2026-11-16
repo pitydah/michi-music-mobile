@@ -54,6 +54,59 @@ import org.michimusic.mobile.ui.theme.TextSecondary
 /** Miniatura lateral mínima del contrato §9.9 (320 dp, columna única). */
 private val SlotThumbnailSize = 72.dp
 
+/**
+ * K48-R07 §9.4: the whole summary as one renderable unit. It answers the three questions in
+ * reading order - is there a mosaic photo, is there a card photo, what completes what is
+ * missing - and delegates every decision to its caller, so no state lives here.
+ */
+@Composable
+fun ArtistEnrichmentSummaryContent(
+    uiState: ArtistEnrichmentUiState,
+    onChoosePhoto: () -> Unit,
+    onPrimaryAction: (ArtistEnrichmentPrimaryAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ArtistSummaryHeader(uiState)
+        if (artworkSlotsInline()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ArtworkSlotCard(
+                    slot = uiState.mosaic,
+                    artistName = uiState.artistName,
+                    onChoose = onChoosePhoto,
+                    modifier = Modifier.weight(1f),
+                )
+                ArtworkSlotCard(
+                    slot = uiState.card,
+                    artistName = uiState.artistName,
+                    onChoose = onChoosePhoto,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        } else {
+            ArtworkSlotCard(
+                slot = uiState.mosaic,
+                artistName = uiState.artistName,
+                onChoose = onChoosePhoto,
+            )
+            ArtworkSlotCard(
+                slot = uiState.card,
+                artistName = uiState.artistName,
+                onChoose = onChoosePhoto,
+            )
+        }
+        ArtistPrimaryAction(
+            action = uiState.primaryAction,
+            label = uiState.primaryActionLabel,
+            busy = uiState.isBusy,
+            onAction = onPrimaryAction,
+        )
+    }
+}
+
 @Composable
 fun ArtistSummaryHeader(
     uiState: ArtistEnrichmentUiState,
