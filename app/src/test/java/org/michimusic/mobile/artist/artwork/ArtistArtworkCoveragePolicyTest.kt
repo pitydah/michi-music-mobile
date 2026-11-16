@@ -92,6 +92,61 @@ class ArtistArtworkCoveragePolicyTest {
     }
 
     @Test
+    fun savedPhotosAreOfferedBeforeAnyNewVerificationIsRequested() {
+        // K48-R12-04: work already done must not be hidden behind an identity or QID gate.
+        val thumbSelection = selection(ArtworkSlot.ARTIST_THUMB)
+        val heroSelection = selection(ArtworkSlot.ARTIST_HERO, manuallyChosen = true)
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(
+                thumb = slotState(ArtworkSlot.ARTIST_THUMB, ArtworkLoadStatus.READY, thumbSelection),
+                hero = slotState(ArtworkSlot.ARTIST_HERO, ArtworkLoadStatus.READY, heroSelection),
+            ),
+            report = report(
+                ArtworkProviderOutcome(ArtworkSource.COMMONS_P18, ArtworkProviderStatus.AVAILABLE, candidateCount = 1),
+                selections = mapOf(
+                    ArtworkSlot.ARTIST_THUMB to thumbSelection,
+                    ArtworkSlot.ARTIST_HERO to heroSelection,
+                ),
+            ),
+            identityConfirmed = false,
+            verifiedQid = null,
+        )
+
+        assertEquals(ArtistEnrichmentPrimaryAction.ViewPhotos, coverage.primaryAction)
+        assertTrue(coverage.slots.all { it.state.isSatisfied() })
+    }
+
+    @Test
+    fun aSingleSavedPhotoStillAsksWhoseIdentityItBelongsTo() {
+        val thumbSelection = selection(ArtworkSlot.ARTIST_THUMB)
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(
+                thumb = slotState(ArtworkSlot.ARTIST_THUMB, ArtworkLoadStatus.READY, thumbSelection),
+            ),
+            report = report(
+                ArtworkProviderOutcome(ArtworkSource.COMMONS_P18, ArtworkProviderStatus.AVAILABLE, candidateCount = 1),
+                selections = mapOf(ArtworkSlot.ARTIST_THUMB to thumbSelection),
+            ),
+            identityConfirmed = false,
+            verifiedQid = null,
+        )
+
+        assertEquals(ArtistEnrichmentPrimaryAction.ReviewIdentity, coverage.primaryAction)
+    }
+
+    @Test
+    fun anEmptySlotListNeverClaimsThePhotosAreThere() {
+        val coverage = ArtistArtworkCoverageUiState.from(
+            uiState = ui(),
+            report = report(),
+            identityConfirmed = true,
+            verifiedQid = "Q1234",
+        )
+
+        assertFalse(coverage.primaryAction == ArtistEnrichmentPrimaryAction.ViewPhotos)
+    }
+
+    @Test
     fun bothReadySlotsReportAvailableAndOfferThePhotos() {
         val thumbSelection = selection(ArtworkSlot.ARTIST_THUMB)
         val heroSelection = selection(ArtworkSlot.ARTIST_HERO)

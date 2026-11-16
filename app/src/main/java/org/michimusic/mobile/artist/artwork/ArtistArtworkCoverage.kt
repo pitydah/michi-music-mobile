@@ -239,6 +239,15 @@ data class ArtistArtworkCoverageUiState(
             identityConfirmed: Boolean,
             verifiedQid: String?,
         ): ArtistEnrichmentPrimaryAction {
+            // K48-R12-04: what is already saved and displayable does not need a new
+            // verification. Asking for an identity or a QID before offering the photos
+            // would hide work the user already did, and each saved selection was already
+            // matched against the current identity and association upstream.
+            if (slots.isNotEmpty() &&
+                slots.all { it.state.isSatisfied() } &&
+                slots.none { it.state == ArtistArtworkCoverageState.NOT_ATTEMPTED }
+            ) return ArtistEnrichmentPrimaryAction.ViewPhotos
+
             if (!identityConfirmed) return ArtistEnrichmentPrimaryAction.ReviewIdentity
             if (!validWikidataQid(verifiedQid)) {
                 return ArtistEnrichmentPrimaryAction.VerifyWikidataIdentity
@@ -249,9 +258,6 @@ data class ArtistArtworkCoverageUiState(
             if (slots.any { it.state == ArtistArtworkCoverageState.LICENSE_REJECTED }) {
                 return ArtistEnrichmentPrimaryAction.ReviewLicense
             }
-            if (slots.all { it.state.isSatisfied() } &&
-                slots.none { it.state == ArtistArtworkCoverageState.NOT_ATTEMPTED }
-            ) return ArtistEnrichmentPrimaryAction.ViewPhotos
             return ArtistEnrichmentPrimaryAction.SearchMissingPhotos
         }
     }
